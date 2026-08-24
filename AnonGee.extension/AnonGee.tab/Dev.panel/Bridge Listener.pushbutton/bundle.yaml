@@ -1,7 +1,8 @@
 title: Bridge Listener
 author: AnonGee
 tooltip: |
-  Watch for bridge jobs and run them. Toggle — press to start, press to stop.
+  Watch for bridge jobs and run them, in a small modeless window that shows
+  each one as it arrives.
 
   An Excel button writes a job into a folder. pyRevit serves the HTTP route on
   IronPython, where the CPython toolkit does not exist, so the route only ever
@@ -32,4 +33,4 @@ tooltip: |
     • A job that fails becomes a result file saying so. The listener does not
       stop — one bad job must not take the next five with it.
 
-  Version: 0.3.0
+  Version: 0.4.0

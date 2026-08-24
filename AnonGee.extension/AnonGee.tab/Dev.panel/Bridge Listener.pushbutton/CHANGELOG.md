@@ -1,5 +1,30 @@
 # Bridge Listener — changelog
 
+## 0.4.0 — 2026-08-24
+
+A modeless window, because a dialog is the wrong shape for a thing that watches.
+
+- **The button opens a small window instead of a dialog.** A `TaskDialog`
+  reports what was true at the instant it opened; a job arriving thirty seconds
+  later was invisible. Five rounds of diagnosis went by with no way to see
+  whether a job had even landed. Requested by the project owner, and it was the
+  right call.
+- **It shows jobs as they arrive** — id, command, status, and the counts the
+  command reported — refreshed once a second from the folder. The refresh runs
+  on the WPF thread and **touches no Revit API at all**, so it cannot interfere
+  with a job; a test enforces that.
+- **Idling is subscribed once per session and never removed.** The button flips
+  a flag instead. That costs one attribute read per tick and removes the whole
+  question of adding and removing a Revit event from the WPF thread.
+- **Closing the window stops the watching**, deliberately: a listener running
+  behind a closed window is a thing that writes to a model with nothing on
+  screen saying so.
+- **The dialog is still there as a fallback.** The window is the interface, not
+  the mechanism, and if it will not build the listener still has to be usable.
+- §12.9.4 throughout: `__slots__` rows in an `ArrayList` reassigned to
+  `ItemsSource` rather than mutated, no `StaticResource` on the root `Window`,
+  `Show()` then `WindowInteropHelper.Owner`.
+
 ## 0.3.0 — 2026-08-24
 
 - **`__namespace__` moved onto the class, where Python.NET looks for it.** It

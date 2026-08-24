@@ -537,6 +537,104 @@ class RegistryTests(unittest.TestCase):
         self.assertIn('column=5, value="No"', body)
 
 
+class ListenerWindowTests(unittest.TestCase):
+    """The modeless window, and the WPF rules that fail silently without it.
+
+    Built because a ``TaskDialog`` says what was true at the moment it opened —
+    the wrong shape for a thing whose entire job is to be watching. Five rounds
+    of diagnosis went by with no way to see whether a job had even landed.
+    """
+
+    XAML = os.path.join(_ROOT, "AnonGee.extension", "AnonGee.tab", "Dev.panel",
+                        "Bridge Listener.pushbutton", "ui.xaml")
+
+    def setUp(self):
+        self.source = _read(_LISTENER)
+        self.xaml = _read(self.XAML)
+
+    def test_the_window_exists_and_the_script_loads_it(self):
+        self.assertTrue(os.path.exists(self.XAML))
+        self.assertIn("XamlReader.Load", self.source)
+        self.assertIn('"ui.xaml"', self.source)
+
+    def test_the_root_window_uses_no_static_resource(self):
+        """Resolving one there fails: the resources it references are being
+        declared inside the element that references them."""
+        head = self.xaml.split(">", 1)[0]
+        self.assertNotIn("StaticResource", head)
+
+    def test_every_named_control_is_looked_up_and_the_reverse(self):
+        import xml.etree.ElementTree as ElementTree
+        namespace = "{http://schemas.microsoft.com/winfx/2006/xaml}"
+        named = set()
+        for element in ElementTree.fromstring(self.xaml).iter():
+            if namespace + "Name" in element.attrib:
+                named.add(element.attrib[namespace + "Name"])
+        looked_up = set()
+        for node in ast.walk(ast.parse(self.source)):
+            if (isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "FindName"
+                    and node.args
+                    and isinstance(node.args[0], ast.Constant)):
+                looked_up.add(node.args[0].value)
+        # Template-internal names are out of FindName's reach, so only the ones
+        # the script asks for have to exist — and everything it asks for must.
+        self.assertEqual(sorted(looked_up - named), [])
+        self.assertTrue(looked_up)
+
+    def test_the_grid_binds_the_way_that_works(self):
+        """``__slots__`` plus an ``ArrayList`` reassigned to ``ItemsSource``.
+
+        Change notification fails silently across this bridge, so the list is
+        rebuilt rather than mutated (§12.9.4).
+        """
+        self.assertIn("__slots__", self.source.split("class JobRow")[1][:400])
+        body = self.source.split("def refresh(")[1].split("\n    def ")[0]
+        self.assertIn("ArrayList()", body)
+        self.assertIn("ItemsSource = None", body)
+
+    def test_the_row_fields_match_the_bindings(self):
+        slots = self.source.split("__slots__ = (")[1].split(")")[0]
+        for name in ("JobId", "Command", "Status", "Summary"):
+            self.assertIn('"{0}"'.format(name), slots, name)
+            self.assertIn("Binding {0},".format(name), self.xaml, name)
+
+    def test_the_window_is_anchored_to_revit(self):
+        """``Show()`` without an owner leaves a window Revit can hide behind."""
+        body = self.source.split("def show(")[1].split("\n    def ")[0]
+        self.assertIn("self.window.Show()", body)
+        self.assertIn("WindowInteropHelper", body)
+        self.assertIn("MainWindowHandle", body)
+
+    def test_the_window_survives_the_script_ending(self):
+        self.assertIn("_state.window_ref = app", self.source)
+        self.assertIn("existing.window.Activate()", self.source)
+
+    def test_the_refresh_cannot_raise(self):
+        """It runs once a second. A throw there throws once a second."""
+        body = self.source.split("def refresh(")[1].split("\n    def ")[0]
+        self.assertIn("except Exception", body)
+
+    def test_the_refresh_touches_no_revit_api(self):
+        """It runs on the WPF thread, where the Revit API may not be used."""
+        body = self.source.split("def refresh(")[1].split("\n    def ")[0]
+        for forbidden in ("__revit__", "uiapp", "Transaction", "doc."):
+            self.assertNotIn(forbidden, body, forbidden)
+
+    def test_closing_the_window_stops_the_watching(self):
+        """A listener running behind a closed window writes to a model with
+        nothing on screen saying so."""
+        body = self.source.split("def _on_closed(")[1].split("\n    def ")[0]
+        self.assertIn("set_watching(False)", body)
+
+    def test_the_dialog_survives_as_a_fallback(self):
+        """The window is the interface, not the mechanism."""
+        body = self.source.split("def main(")[1]
+        self.assertIn("TaskDialog", body)
+        self.assertIn("could not be opened", body)
+
+
 class VbaErrorHandlingTests(unittest.TestCase):
     """VBA does not leave an error handler until Resume, Exit, or GoTo -1.
 
@@ -958,7 +1056,28 @@ class ListenerTests(unittest.TestCase):
         silently and looks like the listener ignoring jobs."""
         self.assertIn("_state.delegate = EventHandler[IdlingEventArgs]",
                       self.source)
-        self.assertIn("uiapp.Idling -= _state.delegate", self.source)
+        self.assertIn("_state.subscribed = True", self.source)
+
+    def test_the_subscription_is_made_once_and_never_removed(self):
+        """Stopping flips a flag rather than touching a Revit event.
+
+        The window's button runs on the WPF thread. Adding and removing a
+        ``UIApplication`` event from there is a question nobody needs to answer
+        when one attribute read per tick settles it — and the tick is already
+        doing a timestamp comparison anyway.
+        """
+        self.assertIn("if not _state.watching:", self.source)
+        self.assertNotIn("Idling -=", self.source)
+        subscribe = self.source.split("def ensure_ready")[1].split("\ndef ")[0]
+        self.assertIn("if not _state.subscribed:", subscribe)
+
+    def test_only_revits_own_thread_subscribes(self):
+        # ensure_ready is called from main(), which pyRevit runs on the Revit
+        # thread. The window never calls it.
+        window = self.source.split("class BridgeListenerApp")[1].split(
+            "\ndef main(")[0]
+        self.assertNotIn("ensure_ready", window)
+        self.assertIn("set_watching(", window)
 
     def test_the_idling_callback_does_no_work(self):
         """Idling holds the UI while it runs. A job that took a minute would

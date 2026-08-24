@@ -35,6 +35,32 @@ of view of someone using the thing rather than someone reading the diff:
 
 ---
 
+## 1.11.0
+
+**Added**
+
+- **Bridge Listener 0.4.0 is a modeless window**, not a dialog. A `TaskDialog`
+  reports what was true at the instant it opened, which is the wrong shape for
+  a thing whose entire job is to be watching: a job arriving thirty seconds
+  later was invisible, and five rounds of diagnosis went by with no way to see
+  whether one had even landed. Requested by the project owner.
+
+  It lists jobs as they arrive — id, command, status, counts — refreshed once a
+  second from the folder. The refresh runs on the WPF thread and **touches no
+  Revit API**, so it cannot interfere with a job.
+
+**Changed**
+
+- **Idling is subscribed once per session and never removed**; the button flips
+  a flag. One attribute read per tick, and no question of adding or removing a
+  Revit event from the WPF thread.
+- **Closing the window stops the watching.** A listener running behind a closed
+  window writes to a model with nothing on screen saying so.
+- The dialog survives as a fallback — the window is the interface, not the
+  mechanism.
+
+---
+
 ## 1.10.5
 
 **Fixed**

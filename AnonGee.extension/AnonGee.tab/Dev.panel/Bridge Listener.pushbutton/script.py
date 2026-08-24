@@ -31,14 +31,24 @@ Claiming is a rename, which is atomic on one filesystem. Two Revit sessions
 watching the same folder therefore produce one winner per job rather than two
 runs of the same command against two models.
 
-This button toggles. Press it to start watching, press it again to stop.
+The button opens a **modeless window**, and the window is watching while it is
+open. A ``TaskDialog`` reported what was true at the instant it opened, which is
+the wrong shape for this entirely: a job arriving thirty seconds later was
+invisible, and five rounds of diagnosis went by with no way to see whether a job
+had even landed. The dialog is still here as a fallback, because the window is
+the interface and not the mechanism.
+
+**Idling is subscribed once per session and never removed.** The button flips
+``_state.watching`` instead, which costs one attribute read per tick and removes
+the whole question of touching a Revit event from the WPF thread.
 
 **§12.9 applies in full here.** The external event handler is a CLR type: no
 ``__init__``, ``__namespace__`` set **on the class**, and defined **once per
-session** — a second
-definition raises *"Duplicate type name within an assembly"*. The Idling delegate
-has to be held in session state too, or .NET keeps the subscription and Python
-garbage-collects the callable behind it.
+session** — a second definition raises *"Duplicate type name within an
+assembly"*. The Idling delegate is held in session state, or .NET keeps the
+subscription and Python garbage-collects the callable behind it. The grid binds
+through ``__slots__`` and an ``ArrayList``, because change notification fails
+silently across this bridge.
 """
 
 __title__ = "Bridge\nListener"
@@ -46,7 +56,7 @@ __author__ = "AnonGee"
 __doc__ = """Watch for bridge jobs and run them.
 
 An Excel button writes a job into a folder; this notices and runs it on Revit's
-own thread. Toggle: press to start watching, press again to stop.
+own thread. Opens a small modeless window that shows jobs as they arrive.
 
   • Idling tells it a job has arrived — the only moment the API may be used.
   • The work happens in an external event, never in the Idling callback, so
@@ -57,7 +67,7 @@ own thread. Toggle: press to start watching, press again to stop.
 Jobs live under %APPDATA%\\AnonGee\\bridge (or ANONGEE_BRIDGE_HOME). Use
 Bridge Check to see where this session thinks that is."""
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 import datetime
 import os
@@ -66,7 +76,12 @@ import time
 
 from Autodesk.Revit.UI import ExternalEvent, IExternalEventHandler, TaskDialog
 from Autodesk.Revit.UI.Events import IdlingEventArgs
-from System import EventHandler
+from System import EventHandler, TimeSpan
+from System.Collections import ArrayList
+from System.IO import FileAccess, FileMode, FileStream
+from System.Windows.Interop import WindowInteropHelper
+from System.Windows.Markup import XamlReader
+from System.Windows.Threading import DispatcherTimer
 
 #: How often the Idling callback is allowed to touch the disk. Idling fires many
 #: times a second; a ``listdir`` on every one of them is a tool that makes Revit
@@ -110,9 +125,11 @@ if _STATE not in sys.modules:
     _state.handler = None
     _state.event = None
     _state.delegate = None      # held so .NET's subscription is not orphaned
-    _state.watching = False
+    _state.subscribed = False   # Idling is subscribed once, on Revit's thread
+    _state.watching = False     # ...and this is the switch the button flips
     _state.last_scan = 0.0
     _state.log = []
+    _state.window_ref = None
     sys.modules[_STATE] = _state
 else:
     _state = sys.modules[_STATE]
@@ -232,8 +249,14 @@ def _on_idling(sender, args):
 
     An exception escaping an Idling handler is an exception Revit shows the user
     on every tick, which is not a bug report, it is a reason to force-quit.
+
+    **Subscribed once per session and never removed.** The window's button flips
+    ``_state.watching`` instead, which costs one attribute read per tick and
+    removes the whole question of touching a Revit event from the WPF thread.
     """
     try:
+        if not _state.watching:
+            return
         now = time.time()
         if now - _state.last_scan < SCAN_EVERY_SECONDS:
             return
@@ -260,7 +283,13 @@ def _on_idling(sender, args):
 # The button
 # ---------------------------------------------------------------------------
 
-def start(uiapp):
+def ensure_ready(uiapp):
+    """Subscribe and bind, once per session. ``[command names]``.
+
+    **Called from Revit's own thread**, never from the window's. Subscribing to
+    ``Idling`` is a .NET event add rather than a document operation, but the
+    cheapest way to be sure it is safe is not to do it anywhere else.
+    """
     if _state.handler is None:
         _state.handler = BridgeJobHandler()
         _state.handler.claimed = None
@@ -268,59 +297,195 @@ def start(uiapp):
 
     bound = commands.register_all()
 
-    # The delegate is kept because .NET holds the subscription and Python holds
-    # the callable. Let the second go and the first survives pointing at
-    # nothing, which fails silently and looks like the listener ignoring jobs.
-    _state.delegate = EventHandler[IdlingEventArgs](_on_idling)
-    uiapp.Idling += _state.delegate
-    _state.watching = True
-    _state.last_scan = 0.0
+    if not _state.subscribed:
+        # The delegate is kept because .NET holds the subscription and Python
+        # holds the callable. Let the second go and the first survives pointing
+        # at nothing, which fails silently and looks like jobs being ignored.
+        _state.delegate = EventHandler[IdlingEventArgs](_on_idling)
+        uiapp.Idling += _state.delegate
+        _state.subscribed = True
+
     jobs_module.ensure()
-    _note("watching {0}".format(jobs_module.outbox()))
     return bound
 
 
-def stop(uiapp):
-    if _state.delegate is not None:
+def set_watching(on):
+    """The whole of start and stop. Safe from any thread."""
+    _state.watching = bool(on)
+    _state.last_scan = 0.0
+    _note("watching {0}".format(jobs_module.outbox()) if on else "stopped")
+
+
+# ---------------------------------------------------------------------------
+# The window
+# ---------------------------------------------------------------------------
+
+class JobRow(object):
+    """One row of the grid. ``__slots__``, and the names match the XAML.
+
+    A plain object bound through an ``ArrayList`` and ``ItemsSource``. Property
+    change notification fails silently across this bridge, so the list is
+    rebuilt and reassigned instead of mutated (§12.9.4).
+    """
+
+    __slots__ = ("JobId", "Command", "Status", "Summary")
+
+    def __init__(self, job_id, command, status, summary):
+        self.JobId = job_id
+        self.Command = command
+        self.Status = status
+        self.Summary = summary
+
+
+class BridgeListenerApp(object):
+    """A window that is watching while it is open.
+
+    A ``TaskDialog`` reports what was true at the instant it opened, which is
+    the wrong shape for this entirely: a job arriving thirty seconds later was
+    invisible, and five rounds of diagnosis went by with no way to see whether a
+    job had even landed.
+    """
+
+    #: How often the window re-reads the folder. Cheap — one ``listdir`` and a
+    #: handful of small files — and it runs on the WPF thread, touching no Revit
+    #: API at all, so it cannot interfere with a job.
+    REFRESH_SECONDS = 1.0
+
+    def __init__(self, xaml_path):
+        stream = FileStream(xaml_path, FileMode.Open, FileAccess.Read)
+        self.window = XamlReader.Load(stream)
+        stream.Close()
+
+        self.Lamp = self.window.FindName("Lamp")
+        self.StateText = self.window.FindName("StateText")
+        self.FolderText = self.window.FindName("FolderText")
+        self.CommandsText = self.window.FindName("CommandsText")
+        self.JobsGrid = self.window.FindName("JobsGrid")
+        self.LastText = self.window.FindName("LastText")
+        self.ToggleBtn = self.window.FindName("ToggleBtn")
+        self.CloseBtn = self.window.FindName("CloseBtn")
+
+        self.ToggleBtn.Click += self._on_toggle
+        self.CloseBtn.Click += self._on_close
+        self.window.Closed += self._on_closed
+
+        self.FolderText.Text = jobs_module.outbox()
+        self.timer = DispatcherTimer()
+        self.timer.Interval = TimeSpan.FromSeconds(self.REFRESH_SECONDS)
+        self.timer.Tick += self._on_tick
+        self.timer.Start()
+
+    # -- events ------------------------------------------------------------
+    def _on_toggle(self, sender, args):
+        set_watching(not _state.watching)
+        self.refresh()
+
+    def _on_close(self, sender, args):
+        self.window.Close()
+
+    def _on_closed(self, sender, args):
+        """Closing the window stops the watching, and that is deliberate.
+
+        A listener still running behind a closed window is a thing that writes
+        to a model with nothing on screen saying so.
+        """
         try:
-            uiapp.Idling -= _state.delegate
+            self.timer.Stop()
+        except Exception:
+            pass
+        set_watching(False)
+        if _state.window_ref is self:
+            _state.window_ref = None
+
+    def _on_tick(self, sender, args):
+        self.refresh()
+
+    # -- painting ----------------------------------------------------------
+    def refresh(self):
+        """Never raises. A timer that throws throws once a second."""
+        try:
+            watching = bool(_state.watching)
+            self.StateText.Text = "Watching for jobs" if watching else "Stopped"
+            self.ToggleBtn.Content = ("Stop watching" if watching
+                                      else "Start watching")
+            self.Lamp.Fill = _brush("#FF16A34A" if watching else "#FF6B7280")
+
+            ready = sorted(name for name in registry.known()
+                           if registry.get(name).bound)
+            waiting = registry.unbound()
+            self.CommandsText.Text = "ready: {0}\nnot built yet: {1}".format(
+                ", ".join(ready) or "none", ", ".join(waiting) or "none")
+
+            rows = ArrayList()
+            for found in jobs_module.recent(limit=25):
+                summary = found.get("summary") or {}
+                rows.Add(JobRow(
+                    found.get("jobId", ""),
+                    found.get("command", ""),
+                    found.get("status", ""),
+                    "  ".join("{0}={1}".format(key, summary[key])
+                              for key in sorted(summary)) or ""))
+            self.JobsGrid.ItemsSource = None
+            self.JobsGrid.ItemsSource = rows
+
+            self.LastText.Text = _state.log[-1] if _state.log else ""
         except Exception as error:
-            _note("could not unsubscribe: {0}".format(error))
-    _state.delegate = None
-    _state.watching = False
-    _note("stopped")
+            try:
+                self.LastText.Text = "refresh failed: {0}".format(error)
+            except Exception:
+                pass
+
+    def show(self):
+        self.window.Show()
+        helper = WindowInteropHelper(self.window)
+        helper.Owner = __revit__.MainWindowHandle                # noqa: F821
+        self.refresh()
+
+
+def _brush(hex_colour):
+    from System.Windows.Media import BrushConverter
+    return BrushConverter().ConvertFrom(hex_colour)
 
 
 def main():
     uiapp = __revit__                                        # noqa: F821
+    bound = ensure_ready(uiapp)
 
-    if _state.watching:
-        stop(uiapp)
-        dialog = TaskDialog("AnonGee · Bridge Listener")
-        dialog.MainInstruction = "Stopped watching"
-        dialog.MainContent = ("Jobs written from now on will sit in the outbox "
-                              "until this is switched back on.")
-        dialog.ExpandedContent = "\n".join(_state.log) or "nothing happened"
-        dialog.Show()
+    existing = _state.window_ref
+    if existing is not None:
+        try:
+            existing.window.Activate()
+            existing.refresh()
+            return
+        except Exception:
+            _state.window_ref = None
+
+    here = os.path.dirname(os.path.abspath(__file__))
+    try:
+        app = BridgeListenerApp(os.path.join(here, "ui.xaml"))
+        app.show()
+        _state.window_ref = app
         return
+    except Exception as window_error:
+        _note("the window would not open: {0}".format(window_error))
 
-    bound = start(uiapp)
-    dialog = TaskDialog("AnonGee · Bridge Listener")
-    dialog.MainInstruction = "Watching for jobs"
+    # The window is the interface, not the mechanism. If it will not build, the
+    # listener still has to be usable — so the old dialog is still here, and it
+    # says why it is the one that appeared.
+    set_watching(not _state.watching)
+    dialog = TaskDialog("AnonGee \u00b7 Bridge Listener")
+    dialog.MainInstruction = ("Watching for jobs" if _state.watching
+                              else "Stopped watching")
     dialog.MainContent = "\n".join([
-        jobs_module.outbox(),
-        "",
+        jobs_module.outbox(), "",
         "Commands ready: {0}".format(", ".join(bound) or "none"),
         "Declared but not built yet: {0}".format(
             ", ".join(registry.unbound()) or "none"),
+        "",
+        "The window could not be opened, so this is the fallback. Press the "
+        "button again to toggle.",
     ])
-    dialog.ExpandedContent = (
-        "Press this button again to stop.\n\n"
-        "A job is picked up within about {0:g} seconds of arriving. The work "
-        "runs in an external event rather than in the Idling callback, so "
-        "Revit is not held while it happens.\n\n"
-        "Claiming a job is an atomic rename, so two Revit sessions watching "
-        "this folder cannot both run the same job.".format(SCAN_EVERY_SECONDS))
+    dialog.ExpandedContent = "\n".join(_state.log) or "nothing happened yet"
     dialog.Show()
 
 
