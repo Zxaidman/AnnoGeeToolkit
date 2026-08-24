@@ -73,10 +73,48 @@ End Sub
 ' --- the wire --------------------------------------------------------------
 
 Public Function HttpGet(ByVal url As String) As String
-    ' WinHttp first: it is the only one of the two with a settable timeout,
-    ' and without one a busy Revit hangs Excel with no way back.
-    On Error GoTo UseMsxml
+    ' Two attempts, each in its own handler-free helper.
+    '
+    ' The first version chained them inside one function -- On Error GoTo
+    ' UseMsxml, then On Error GoTo Failed inside that label -- and it does not
+    ' work. **VBA does not leave the error handler until Resume, Exit or
+    ' On Error GoTo -1**, so the second On Error GoTo was ignored and the
+    ' MSXML2 failure escaped as an unhandled runtime error: "800c0005, the
+    ' system cannot locate the resource specified", with a Debug button, from a
+    ' function whose entire job was to return failures rather than raise them.
+    '
+    ' Two functions, one handler each, no nesting. The trap cannot recur
+    ' because there is nothing left to nest.
+    Dim answer As String
 
+    answer = HttpGetWinHttp(url)
+    If Left$(answer, 6) <> "ERROR:" Then
+        HttpGet = answer
+        Exit Function
+    End If
+
+    Dim firstError As String
+    firstError = Mid$(answer, 7)
+
+    answer = HttpGetMsxml(url)
+    If Left$(answer, 6) <> "ERROR:" Then
+        HttpGet = answer
+        Exit Function
+    End If
+
+    ' The failure is the answer here, so it is returned rather than raised.
+    ' "Nothing is listening" and "Revit is busy" look identical from Excel and
+    ' are told apart by whether Ping answers while Status does not.
+    HttpGet = "{""ok"": false, ""error"": """ & _
+              JsonEscape(firstError & " / " & Mid$(answer, 7)) & _
+              """, ""url"": """ & JsonEscape(url) & """}"
+End Function
+
+
+Private Function HttpGetWinHttp(ByVal url As String) As String
+    ' WinHttp first: it is the only one with a settable timeout, and without
+    ' one a busy Revit hangs Excel with no way back.
+    On Error GoTo Failed
     Dim winHttp As Object
     Set winHttp = CreateObject("WinHttp.WinHttpRequest.5.1")
     winHttp.SetTimeouts BRIDGE_TIMEOUT_SECONDS * 1000, _
@@ -85,24 +123,23 @@ Public Function HttpGet(ByVal url As String) As String
                         BRIDGE_TIMEOUT_SECONDS * 1000
     winHttp.Open "GET", url, False
     winHttp.Send
-    HttpGet = winHttp.ResponseText
+    HttpGetWinHttp = winHttp.ResponseText
     Exit Function
+Failed:
+    HttpGetWinHttp = "ERROR:WinHttp " & Err.Number & " " & Err.Description
+End Function
 
-UseMsxml:
+
+Private Function HttpGetMsxml(ByVal url As String) As String
     On Error GoTo Failed
     Dim msxml As Object
     Set msxml = CreateObject("MSXML2.XMLHTTP")
     msxml.Open "GET", url, False
     msxml.Send
-    HttpGet = msxml.ResponseText
+    HttpGetMsxml = msxml.ResponseText
     Exit Function
-
 Failed:
-    ' The failure is the answer here, so it is returned rather than raised.
-    ' "Nothing is listening" and "Revit is busy" look identical from Excel and
-    ' are told apart by whether Ping answers while Status does not.
-    HttpGet = "{""ok"": false, ""error"": """ & _
-              Replace(Err.Description, """", "'") & """, ""url"": """ & url & """}"
+    HttpGetMsxml = "ERROR:MSXML2 " & Err.Number & " " & Err.Description
 End Function
 
 
@@ -252,6 +289,20 @@ Public Sub RunCommand(ByVal command As String, ByVal sheetName As String)
     Dim jobId As String
     jobId = JsonValue(reply, "jobId")
     If jobId = "" Then
+        ' No id means the post never reached a route. Say which of the two
+        ' halves is missing rather than showing the raw error and leaving the
+        ' user to guess -- they are different switches in different places.
+        If InStr(reply, """ok"": false") > 0 Then
+            MsgBox "Nothing is listening at " & BridgeUrl("jobs") & vbCrLf & _
+                   vbCrLf & _
+                   "In Revit: pyRevit Settings -> Routes -> Routes Server " & _
+                   "(Beta), then restart Revit." & vbCrLf & vbCrLf & _
+                   "Then AnonGee tab -> Dev -> Bridge Check, which says " & _
+                   "whether the startup script ran." & vbCrLf & vbCrLf & _
+                   Left$(reply, 300), vbExclamation, "AnonGee Bridge"
+            LogRow "", command, "unreachable", "", Left$(reply, 200)
+            Exit Sub
+        End If
         LogRow "", command, "rejected", "", _
                "no job id came back: " & Left$(reply, 200)
         MsgBox "The job was not queued." & vbCrLf & vbCrLf & Left$(reply, 400), _
@@ -291,12 +342,13 @@ Private Function JobJson(ByVal command As String, ByVal sheetName As String, _
 End Function
 
 
-Private Function JsonEscape(ByVal text As String) As String
+Public Function JsonEscape(ByVal text As String) As String
     JsonEscape = Replace(Replace(text, "\", "\\"), """", "\""")
 End Function
 
 
 Public Function HttpPost(ByVal url As String, ByVal body As String) As String
+    ' One handler, no nesting -- see HttpGet for why that matters.
     On Error GoTo Failed
     Dim winHttp As Object
     Set winHttp = CreateObject("WinHttp.WinHttpRequest.5.1")
@@ -311,7 +363,8 @@ Public Function HttpPost(ByVal url As String, ByVal body As String) As String
     Exit Function
 Failed:
     HttpPost = "{""ok"": false, ""error"": """ & _
-               Replace(Err.Description, """", "'") & """}"
+               JsonEscape(Err.Number & " " & Err.Description) & _
+               """, ""url"": """ & JsonEscape(url) & """}"
 End Function
 
 

@@ -41,7 +41,7 @@ import json
 import os
 import sys
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 #: The API name, and therefore the first path segment: ``/anongee/...``.
 #: The Excel macro in ``bridge/excel/`` names the same string, and a test holds
@@ -195,6 +195,32 @@ def _recent(root, limit=RECENT_LIMIT):
     return ordered[:limit]
 
 
+#: Written on every load, whatever happens. **The only way to answer "why is
+#: nothing listening?"** — because when the answer is "the routes never
+#: registered", there is by definition no route to ask.
+#:
+#: A run reported both routes dead with no way to tell three cases apart: the
+#: Routes server switched off, this script failing to register, or the
+#: extension never reloading at all. They need different fixes and looked
+#: identical. This file tells them apart.
+STARTUP_RECORD = "startup.json"
+
+
+def _write_record(payload):
+    """Drop the startup record beside the job folders. Never raises."""
+    try:
+        root = _ensure(bridge_home())
+        path = os.path.join(root, STARTUP_RECORD)
+        handle = open(path, "w")
+        try:
+            handle.write(json.dumps(payload, indent=2, sort_keys=True))
+        finally:
+            handle.close()
+        return path
+    except Exception:
+        return ""
+
+
 def _engine():
     """Which Python is running this, in as much detail as it will give.
 
@@ -262,7 +288,27 @@ def register():
     except Exception as error:
         return None, "could not create the {0} API: {1}".format(API_NAME, error)
 
-    @api.route("/ping", methods=["GET"])
+    #: Filled in as each route takes. Reported by ``/ping`` and written to the
+    #: startup record, so "which routes exist" is answerable from outside.
+    registered = []
+    refused = []
+
+    def add(pattern, methods, handler):
+        """Register one route, and let a bad one fail alone.
+
+        The first version decorated five routes in a row with nothing between
+        them. ``/jobs/<string:job_id>`` used a pattern pyRevit does not have —
+        it supports ``<int:...>`` and ``<uuid:...>`` and neither fits a job id —
+        so a single bad pattern was in a position to take the diagnostic routes
+        down with it. Whether it actually did is a question that should never
+        have needed asking.
+        """
+        try:
+            api.route(pattern, methods=methods)(handler)
+            registered.append("{0} {1}".format("/".join(methods), pattern))
+        except Exception as error:
+            refused.append("{0}: {1}".format(pattern, error))
+
     def ping():
         """The server, with no Revit in the question.
 
@@ -279,10 +325,10 @@ def register():
             "extension": _extension_root(),
             "bridge_home": bridge_home(),
             "commands_endpoint": "/{0}/jobs".format(API_NAME),
+            "routes": list(_routes_registered),
             "revit_context": False,
         }
 
-    @api.route("/status", methods=["GET"])
     def status(uiapp):
         """The model, through Revit's own thread.
 
@@ -339,7 +385,6 @@ def register():
     # It also means posting a job answers instantly even mid-command, which is
     # what stops Excel hanging on a five-thousand-element run.
 
-    @api.route("/jobs", methods=["POST"])
     def submit(request):
         """Queue a job. Answers with its id and nothing else."""
         envelope, note = _body(request)
@@ -386,7 +431,6 @@ def register():
                                        identifier + RESULT_SUFFIX),
         }
 
-    @api.route("/jobs", methods=["GET"])
     def listing():
         """The recent jobs and where each got to.
 
@@ -400,29 +444,48 @@ def register():
         except Exception as error:
             return {"ok": False, "note": "{0}".format(error)}
 
-    @api.route("/jobs/<string:job_id>", methods=["GET"])
-    def one(job_id):
-        """One job's answer, if it has been written."""
-        try:
-            path = os.path.join(bridge_home(), INBOX, job_id + RESULT_SUFFIX)
-            found = _read_json(path)
-        except Exception as error:
-            return {"ok": False, "jobId": job_id, "note": "{0}".format(error)}
-        if found is None:
-            return {"ok": True, "jobId": job_id, "status": "queued",
-                    "note": "no result yet"}
-        return found
+    # There is no route for one job by id. pyRevit's patterns are
+    # ``<int:...>`` and ``<uuid:...>``, and a job id — ``20260822-140311-0007``
+    # — is neither. ``GET /jobs`` returns the recent list and a caller finds
+    # its own id in it, which is what the macro does anyway and needs no
+    # pattern at all.
 
-    return api, ""
+    add("/ping", ["GET"], ping)
+    add("/status", ["GET"], status)
+    add("/jobs", ["POST"], submit)
+    add("/jobs", ["GET"], listing)
+
+    _routes_registered.extend(registered)
+    note = "; ".join(refused)
+    if not registered:
+        note = note or "no route would register"
+    return api, note
 
 
-#: What happened when this module loaded. Read by the **Bridge Check**
-#: pushbutton, because a startup script that fails silently is a startup script
-#: nobody can debug from inside Revit.
+#: What happened when this module loaded. Written to the startup record too,
+#: because a startup script that fails silently is a startup script nobody can
+#: debug — and if it failed there is no route left to ask.
 REGISTRATION_NOTE = ""
+
+#: The routes that actually took. Reported by ``/ping`` and recorded on disk.
+_routes_registered = []
 
 try:
     _api, REGISTRATION_NOTE = register()
 except Exception as _error:            # never take pyRevit's load down with us
     _api = None
     REGISTRATION_NOTE = "the bridge did not register: {0}".format(_error)
+
+_write_record({
+    "bridge": __version__,
+    "loaded": datetime.datetime.now().isoformat(),
+    "engine": _engine(),
+    "toolkit": _toolkit(),
+    "extension": _extension_root(),
+    "api": API_NAME,
+    "expect_at": "http://{0}:{1}/{2}".format(DEFAULT_HOST, DEFAULT_PORT,
+                                             API_NAME),
+    "routes": list(_routes_registered),
+    "note": REGISTRATION_NOTE,
+    "registered": bool(_routes_registered),
+})

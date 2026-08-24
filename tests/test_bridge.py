@@ -81,19 +81,25 @@ def _vba_constant(source, name):
 
 
 def _routes(source):
-    """``{route: [argument names]}`` for every ``@api.route`` handler."""
+    """``{route: [argument names]}`` for every registered handler.
+
+    Reads the ``add("/ping", ["GET"], ping)`` calls rather than decorators:
+    each route is now registered on its own so that one bad pattern cannot take
+    the others down with it, and the decorators went with that change.
+    """
+    tree = ast.parse(source)
+    handlers = dict((node.name, [argument.arg for argument in node.args.args])
+                    for node in ast.walk(tree)
+                    if isinstance(node, ast.FunctionDef))
+
     found = {}
-    for node in ast.walk(ast.parse(source)):
-        if not isinstance(node, ast.FunctionDef):
-            continue
-        for decorator in node.decorator_list:
-            if (isinstance(decorator, ast.Call)
-                    and isinstance(decorator.func, ast.Attribute)
-                    and decorator.func.attr == "route"
-                    and decorator.args
-                    and isinstance(decorator.args[0], ast.Constant)):
-                found[decorator.args[0].value] = [
-                    argument.arg for argument in node.args.args]
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name) and node.func.id == "add"
+                and len(node.args) == 3
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[2], ast.Name)):
+            found[node.args[0].value] = handlers.get(node.args[2].id, [])
     return found
 
 
@@ -121,8 +127,7 @@ class UrlContractTests(unittest.TestCase):
 
     def test_every_route_a_caller_names_is_one_that_is_served(self):
         served = set(route.strip("/") for route in _routes(_read(_STARTUP)))
-        self.assertEqual(served, set(["ping", "status", "jobs",
-                                      "jobs/<string:job_id>"]))
+        self.assertEqual(served, set(["ping", "status", "jobs"]))
         # The two diagnostic routes are what both callers use by name. The job
         # routes are called by the macro through a URL it builds, and are
         # covered by the constants above rather than by a literal.
@@ -141,10 +146,9 @@ class UrlContractTests(unittest.TestCase):
         would look like a slow network.
         """
         routes = _routes(_read(_STARTUP))
-        for name in ("/jobs", "/jobs/<string:job_id>"):
-            for argument in routes[name]:
-                self.assertNotIn(argument, ("uiapp", "uidoc", "doc"),
-                                 "{0} declares {1}".format(name, argument))
+        for argument in routes["/jobs"]:
+            self.assertNotIn(argument, ("uiapp", "uidoc", "doc"),
+                             "/jobs declares {0}".format(argument))
 
     def test_both_callers_build_the_url_from_the_same_three_parts(self):
         # Not a hardcoded string in either, or the constants above are
@@ -508,6 +512,129 @@ class RegistryTests(unittest.TestCase):
         source = _read(_BUILDER)
         body = source.split("for index, (title, command")[1].split("\n\n")[0]
         self.assertIn('column=5, value="No"', body)
+
+
+class VbaErrorHandlingTests(unittest.TestCase):
+    """VBA does not leave an error handler until Resume, Exit, or GoTo -1.
+
+    So ``On Error GoTo Failed`` written *inside* a handler block is ignored,
+    and the next failure escapes as an unhandled runtime error with a Debug
+    button. That is exactly what happened: WinHttp could not connect, control
+    jumped to the fallback, the fallback's handler never armed, and MSXML2's
+    *800c0005, the system cannot locate the resource specified* reached the
+    user — from a function whose entire job was to return failures rather than
+    raise them.
+
+    One handler per procedure, no nesting. Checked here because the failure is
+    invisible until the first error, which is the day it matters most.
+    """
+
+    def procedures(self):
+        """``[(name, [lines])]`` for every Sub and Function in the module."""
+        found = []
+        current = None
+        for line in _read(_VBA).splitlines():
+            text = line.strip()
+            head = text
+            for prefix in ("Public ", "Private ", "Friend "):
+                if head.startswith(prefix):
+                    head = head[len(prefix):]
+            if head.startswith("Sub ") or head.startswith("Function "):
+                current = (head.split("(")[0].split()[-1], [])
+                found.append(current)
+            elif head in ("End Sub", "End Function"):
+                current = None
+            elif current is not None:
+                current[1].append(text)
+        return found
+
+    def test_no_handler_is_armed_inside_another_handler(self):
+        for name, lines in self.procedures():
+            label_at = None
+            for index, text in enumerate(lines):
+                if (text.endswith(":") and " " not in text
+                        and not text.startswith("'")):
+                    label_at = index if label_at is None else label_at
+                elif text.startswith("On Error GoTo "):
+                    target = text[len("On Error GoTo "):].strip()
+                    if target in ("0", "-1"):
+                        continue
+                    self.assertIsNone(
+                        label_at,
+                        "{0}: 'On Error GoTo {1}' is inside a handler that "
+                        "starts at line {2} — VBA ignores it".format(
+                            name, target, label_at))
+
+    def test_the_two_ways_to_the_wire_are_separate_procedures(self):
+        names = [name for name, _lines in self.procedures()]
+        self.assertIn("HttpGetWinHttp", names)
+        self.assertIn("HttpGetMsxml", names)
+
+    def test_a_failed_request_is_returned_not_raised(self):
+        source = _read(_VBA)
+        for name in ("HttpGet", "HttpPost"):
+            body = source.split("Function {0}(".format(name))[1].split(
+                "End Function")[0]
+            self.assertIn('"ok"": false', body, name)
+
+    def test_an_unreachable_bridge_names_the_switch_to_flick(self):
+        # "Nothing is listening" and "the listener is off" are two different
+        # switches in two different places, and the error alone says neither.
+        source = _read(_VBA)
+        self.assertIn("Routes Server", source)
+        self.assertIn("Bridge Check", source)
+
+
+class StartupRecordTests(unittest.TestCase):
+    """When nothing answers, three causes look identical.
+
+    The Routes server switched off, the startup script failing to register, or
+    the extension never reloading. They need different fixes and a dead port
+    tells them apart from none of them — so ``startup.py`` writes a record on
+    every load, precisely because when *it* is the guilty one there is no route
+    left to ask.
+    """
+
+    def test_the_record_is_written_whatever_happens(self):
+        source = _read(_STARTUP)
+        tail = source.split("REGISTRATION_NOTE = \"\"", 1)[1]
+        self.assertIn("_write_record(", tail)
+        # After the try/except, so a failed registration is still recorded.
+        self.assertLess(tail.index("except Exception"),
+                        tail.index("_write_record("))
+
+    def test_writing_the_record_cannot_take_the_load_down(self):
+        body = _read(_STARTUP).split("def _write_record")[1].split("\ndef ")[0]
+        self.assertIn("except Exception", body)
+
+    def test_each_route_is_registered_on_its_own(self):
+        """One bad pattern must not take the diagnostic routes with it.
+
+        ``/jobs/<string:job_id>`` used a pattern pyRevit does not have — it
+        supports ``<int:...>`` and ``<uuid:...>``, and neither fits a job id.
+        """
+        source = _read(_STARTUP)
+        body = source.split("def add(pattern")[1].split("\n    add(")[0]
+        self.assertIn("except Exception", body)
+        self.assertIn("refused.append", body)
+        # No route pattern carries a placeholder at all now. Checked against
+        # the registered patterns rather than the file, because the file also
+        # explains in prose why the bad one is gone.
+        for pattern in _routes(source):
+            self.assertNotIn("<", pattern, pattern)
+
+    def test_the_check_tool_reads_the_record(self):
+        check = _read(_CHECK)
+        self.assertIn("STARTUP_RECORD", check)
+        self.assertIn("Reload pyRevit", check)
+
+    def test_the_check_tool_puts_the_reason_in_the_headline(self):
+        """A run reported 'no answer' twice with the cause folded away behind
+        *See details*, which nobody expands."""
+        body = _read(_CHECK).split("def describe(")[1].split("\ndef ")[0]
+        headline = body.split("if not body:")[1].split("detail =")[0]
+        self.assertIn("no answer — {1}", headline)
+        self.assertIn("errors[0]", headline)
 
 
 class ListenerTests(unittest.TestCase):

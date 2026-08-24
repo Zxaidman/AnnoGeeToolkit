@@ -46,7 +46,22 @@ a working `.xlsm`, and that is a fact about the format**: `openpyxl` can
 
 So, once:
 
-1. `python3 bridge/excel/build_workbook.py`
+1. Run the builder:
+
+   | | |
+   | --- | --- |
+   | **Windows** | `py bridge\excel\build_workbook.py` |
+   | macOS / Linux | `python3 bridge/excel/build_workbook.py` |
+
+   On Windows, `python3` is not a command and plain `python` usually hits the
+   Microsoft Store alias rather than a real interpreter — *"Python was not
+   found; run without arguments to install from the Microsoft Store"*. `py` is
+   the launcher that ships with the python.org installer and finds the real one.
+   Failing that, the full path to `python.exe`, or VS Code's **Run Python File**,
+   both of which work.
+
+   It needs `openpyxl`: `py -m pip install openpyxl`.
+
 2. Open `AnonGee_Bridge.xlsx`, **Save As** `.xlsm`.
 3. `Alt+F11` → File → Import File → `modAnonGeeBridge.bas`.
 4. From then on run `build_workbook.py <path to the .xlsm>` and **the macros
@@ -193,6 +208,30 @@ wondering why it is shaped this way:
   itself, with the reader that already handles six formats. A JSON payload would
   be a second reader that eventually disagrees with the first — and it is why the
   macro can stay this short.
+
+---
+
+## When nothing answers
+
+Three causes, and **they look identical from Excel**:
+
+| | What says so | What fixes it |
+| --- | --- | --- |
+| The Routes server is off | Bridge Check: *"the startup script ran … nothing is listening"* | pyRevit Settings → Routes → **Routes Server (Beta)**, restart Revit |
+| The extension has not reloaded | Bridge Check: *"no startup record"* | pyRevit tab → **Reload**, or restart Revit |
+| A route failed to register | Bridge Check: `routes NONE`, with the reason | read the note; it names the route and the error |
+
+**Bridge Check tells them apart**, and it can do that even when nothing is
+listening because `startup.py` writes a record to disk on every load — when the
+startup script is the guilty one there is no route left to ask.
+
+Two things worth knowing about that:
+
+- The **Routes server toggle does not survive everything**. If it worked
+  yesterday and not today, check it first.
+- **Editing `startup.py` needs a pyRevit reload**, not just a new Revit session
+  in some cases. The record's `loaded` timestamp says whether the version you
+  are looking at is the version that ran.
 
 ---
 

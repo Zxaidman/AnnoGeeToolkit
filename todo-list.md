@@ -122,6 +122,69 @@ Two separate mistakes, both mine, and both worth keeping:
 only the last, and **the answer says which one worked**. That last part is not tidiness: what the
 CPython engine can reach the network with is a thing every later part of the bridge needs to know.
 
+### BUG-3 — a bad route pattern could take the diagnostic routes with it · `testing`
+
+**Found by a run**: both `/ping` and `/status` reported *no answer* from a session
+where they had worked the day before, and the Bridge Listener was fine.
+
+`/jobs/<string:job_id>` used a pattern pyRevit does not have — it supports
+`<int:…>` and `<uuid:…>`, and a job id like `20260822-140311-0007` is neither.
+Whether that actually killed the earlier routes or whether the Routes server was
+simply switched off **could not be told apart**, which is the real fault: five
+routes were decorated in a row with nothing between them.
+
+**Reproduced:** the pattern is wrong either way — confirmed against pyRevit's
+own documentation and a forum thread titled *"Route pattern is invalid"*.
+
+**Fixed, unconfirmed.** The route is gone; `GET /jobs` returns the list and a
+caller finds its own id in it, which is what the macro did anyway. Each route is
+registered on its own now, so one refusal cannot reach the others.
+
+### BUG-4 — the macro raised instead of returning · `testing`
+
+**Found by a run**: `Run-time error -2146697211 (800c0005): The system cannot
+locate the resource specified`, with a Debug button, out of a function whose
+entire job was to return failures rather than raise them.
+
+**Cause, and it is a classic:** `On Error GoTo UseMsxml`, then
+`On Error GoTo Failed` *inside* that handler. **VBA does not leave an error
+handler until `Resume`, `Exit` or `On Error GoTo -1`**, so the second was ignored
+and MSXML2's failure escaped unhandled.
+
+**Reproduced:** yes, once, and it is deterministic — it happens on the first
+failure of the first transport, every time.
+
+**Fixed, unconfirmed.** One handler per procedure, no nesting, and a test that
+reads the `.bas` and fails on any handler armed inside another. The trap cannot
+recur because there is nothing left to nest.
+
+### BUG-5 — nothing could say why nothing was listening · `testing`
+
+**Found by the same run.** Three causes look identical from Excel and from
+Revit: the Routes server switched off, the startup script failing to register,
+or the extension never reloading. They need three different fixes and a dead
+port distinguishes none of them.
+
+Worse, Bridge Check reported *"no answer"* with the cause folded away behind
+*See details*, which nobody expands — **the tool built to explain a failure
+explained nothing, for the second release running.**
+
+**Fixed, unconfirmed.** `startup.py` writes a record to disk on every load —
+engine, routes registered, any refusal — precisely because when *it* is the
+guilty one there is no route left to ask. Bridge Check reads it, names which of
+the three it is, and puts the reason in the headline.
+
+### BUG-6 — `python3` is not a command on Windows · `testing`
+
+**Found by the owner running the documented command**: plain `python` hits the
+Microsoft Store alias — *"Python was not found; run without arguments to install
+from the Microsoft Store"* — and `python3` does not exist. They worked around it
+with VS Code and a full interpreter path.
+
+**Fixed in the documentation, unconfirmed.** `bridge/README.md` now says `py` for
+Windows, which is the launcher the python.org installer provides, and names the
+Store-alias error so it is recognisable.
+
 ### BUG-2 — the Routes server listens on every interface · `pending`
 
 **Found while reading the settings panel**, which reports `listening on http://0.0.0.0:48884`;
@@ -267,9 +330,16 @@ anybody else.
 > **`CRIT-1` is confirmed** — both routes answered, the marshalling is real, and the engine question
 > is settled. It moved to `done-list.md` as `DONE-1` and left `CRIT-4`, `BUG-1` and `BUG-2` behind it.
 >
-> **Next run to do:** switch **Bridge Listener** on, build the `.xlsm` (see
-> [`bridge/README.md`](bridge/README.md)), and press **Run_Echo**. A `LOG` row closes `CRIT-3`,
-> `FEAT-1`, `FEAT-2` and `FEAT-4` in one go — they all describe the same journey.
+> **Next run to do**, in this order:
+>
+> 1. **pyRevit tab → Reload** (or restart Revit) so the new `startup.py` loads.
+> 2. **Bridge Check.** It now says which of three things is wrong and what to do.
+>    Send that dialog whatever it says — it is the whole diagnosis now.
+> 3. Once it is up: re-import the `.bas` (`BUG-4` changed it), switch
+>    **Bridge Listener** on, and press **Run_Echo**.
+>
+> A `LOG` row closes `CRIT-3`, `FEAT-1`, `FEAT-2` and `FEAT-4` in one go — they
+> all describe the same journey — and `BUG-3` through `BUG-6` with it.
 >
 > **Waiting on:** the RC Automation 0.7.0 bugs the owner found but has not sent, and the existing
 > project `.rvt` that `CRIT-2` and `FEAT-3` start from.

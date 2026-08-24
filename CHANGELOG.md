@@ -35,6 +35,38 @@ of view of someone using the thing rather than someone reading the diff:
 
 ---
 
+## 1.10.1
+
+**Fixed**
+
+- **`/jobs/<string:job_id>` used a route pattern pyRevit does not have.** It
+  supports `<int:…>` and `<uuid:…>`, and a job id — `20260822-140311-0007` — is
+  neither. The route is gone: `GET /jobs` returns the recent list and a caller
+  finds its own id in it, which is what the macro did anyway. **Each route is
+  now registered on its own**, so one bad pattern can never again be in a
+  position to take the diagnostic routes down with it.
+- **The macro raised instead of returning.** `On Error GoTo UseMsxml` followed
+  by `On Error GoTo Failed` *inside* that handler does not work — **VBA does not
+  leave a handler until `Resume`, `Exit` or `On Error GoTo -1`**, so the second
+  was ignored and MSXML2's failure escaped as *"800c0005, the system cannot
+  locate the resource specified"* with a Debug button, from a function whose
+  whole job was to return failures rather than raise them. One handler per
+  procedure now, no nesting, and a test that reads the `.bas` and fails on any
+  handler armed inside another.
+- **Bridge Check hid the reason.** "No answer" is now followed by the reason in
+  the main panel rather than behind *See details*.
+- **Nothing could say why nothing was listening.** `startup.py` writes a record
+  to disk on every load — engine, routes registered, and any refusal — so the
+  three identical-looking causes (server off, registration failed, extension
+  never reloaded) can be told apart. Bridge Check reads it and names the fix.
+- The macro now names the switch to flick when a post finds nothing listening,
+  rather than showing the raw error.
+- **`python3` is not a command on Windows**, and plain `python` hits the
+  Microsoft Store alias. `bridge/README.md` says `py` for Windows now, which is
+  what the python.org launcher provides.
+
+---
+
 ## 1.10.0
 
 **Added**

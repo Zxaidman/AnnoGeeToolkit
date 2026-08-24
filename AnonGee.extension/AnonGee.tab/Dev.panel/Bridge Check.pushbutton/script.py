@@ -37,7 +37,7 @@ pyRevit Settings and restart Revit.
 
 Read-only. Nothing is written to the model."""
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 HOST = "localhost"
 PORT = 48884
@@ -159,11 +159,18 @@ def fetch(url):
 
 
 def describe(route):
-    """``(headline, detail)`` for one route."""
+    """``(headline, detail)`` for one route.
+
+    **The reason goes in the headline, not the detail.** A run reported "no
+    answer" twice with the cause folded away behind *See details*, which nobody
+    expands — so the tool built to explain a failure explained nothing, for the
+    second release running.
+    """
     url = url_for(route)
     body, how, errors = fetch(url)
     if not body:
-        return ("{0}\n  no answer".format(url),
+        first = errors[0] if errors else "nothing to say"
+        return ("{0}\n  no answer — {1}".format(url, first),
                 "{0}\n  {1}".format(url, "\n  ".join(errors)))
     detail = "{0}\n  reached by {1}".format(url, how)
     if errors:
@@ -171,19 +178,115 @@ def describe(route):
     return "{0}\n  {1}".format(url, body), detail
 
 
+# ---------------------------------------------------------------------------
+# The startup record
+# ---------------------------------------------------------------------------
+# When nothing answers there are three causes and they look identical: the
+# Routes server is off, the startup script failed to register, or the extension
+# never reloaded. They need different fixes. ``startup.py`` writes a record on
+# every load precisely because when it is the guilty one there is no route left
+# to ask.
+
+STARTUP_RECORD = "startup.json"
+ENV_HOME = "ANONGEE_BRIDGE_HOME"
+APPDATA_PARTS = ("AnonGee", "bridge")
+HOME_PARTS = (".anongee", "bridge")
+
+
+def bridge_home():
+    """Same three rules as ``startup.py`` and ``bridge/jobs.py``."""
+    override = os.environ.get(ENV_HOME)
+    if override:
+        return override
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        return os.path.join(appdata, *APPDATA_PARTS)
+    return os.path.join(os.path.expanduser("~"), *HOME_PARTS)
+
+
+def startup_record():
+    """``(lines, loaded)`` — what the startup script did, and when."""
+    path = os.path.join(bridge_home(), STARTUP_RECORD)
+    if not os.path.exists(path):
+        return ([
+            "No startup record at {0}".format(path),
+            "  The startup script has never run in this pyRevit session.",
+            "  Reload pyRevit (pyRevit tab → Reload) or restart Revit.",
+        ], "")
+
+    try:
+        handle = open(path, "r")
+        try:
+            text = handle.read()
+        finally:
+            handle.close()
+    except Exception as error:
+        return (["Could not read {0}: {1}".format(path, error)], "")
+
+    loaded = _value(text, "loaded")
+    routes = _value(text, "registered")
+    lines = [
+        "Startup record: {0}".format(path),
+        "  loaded    {0}".format(loaded or "?"),
+        "  engine    {0}".format(_value(text, "implementation") or "?"),
+        "  routes    {0}".format("yes" if routes == "true" else "NONE"),
+    ]
+    note = _value(text, "note")
+    if note:
+        lines.append("  note      {0}".format(note))
+    return lines, loaded
+
+
+def _value(text, key):
+    """One value out of the record. Not a JSON parser — see the note below.
+
+    Four fields out of a file this file's sibling wrote is not worth importing
+    a parser for, and the CPython 3 engine's standard library has already
+    surprised us twice about what it does and does not ship.
+    """
+    marker = '"{0}"'.format(key)
+    at = text.find(marker)
+    if at < 0:
+        return ""
+    colon = text.find(":", at + len(marker))
+    if colon < 0:
+        return ""
+    rest = text[colon + 1:].strip()
+    if rest.startswith('"'):
+        end = rest.find('"', 1)
+        return rest[1:end] if end > 0 else ""
+    for stop in (",", "\n", "}"):
+        end = rest.find(stop)
+        if end > 0:
+            return rest[:end].strip()
+    return rest.strip()
+
+
 def main():
     ping_line, ping_detail = describe("ping")
     status_line, status_detail = describe("status")
+    record, loaded = startup_record()
+
+    answered = "no answer" not in ping_line
+
+    if answered:
+        verdict = "The bridge is up."
+    elif loaded:
+        verdict = ("The startup script ran, so the extension is loaded. "
+                   "Nothing is listening — switch the Routes server on: "
+                   "pyRevit Settings → Routes → Routes Server (Beta), then "
+                   "restart Revit.")
+    else:
+        verdict = ("The startup script has not run in this session, so there "
+                   "is nothing to listen. Reload pyRevit or restart Revit.")
 
     from Autodesk.Revit.UI import TaskDialog
     dialog = TaskDialog("AnonGee · Bridge Check")
     dialog.MainInstruction = "The bridge, as Excel would see it"
-    dialog.MainContent = "\n\n".join([ping_line, status_line])
+    dialog.MainContent = "\n\n".join(
+        [ping_line, status_line, "\n".join(record), verdict])
     dialog.ExpandedContent = "\n\n".join([
         ping_detail, status_detail,
-        "Neither answered? The Routes server is off. pyRevit Settings → "
-        "Routes → Routes Server (Beta), then restart Revit. It reports "
-        "'listening on http://0.0.0.0:48884' when it is up.",
         "Ping answered and status did not? The server is up and the External "
         "Event marshalling is not — a finding, not a failure, and it belongs "
         "in the report."])

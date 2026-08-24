@@ -1,5 +1,19 @@
 # Bridge Check — changelog
 
+## 0.3.0 — 2026-08-22
+
+The reason moves into the headline, and the tool can now answer when nothing
+is listening at all.
+
+- **"No answer" now says why, in the main panel.** A run reported it twice with
+  the cause folded away behind *See details*, which nobody expands — so the tool
+  built to explain a failure explained nothing, for the second release running.
+- **It reads the startup record.** When nothing answers there are three causes
+  and they look identical: the Routes server is off, the startup script failed
+  to register, or the extension never reloaded. `startup.py` now writes a record
+  on every load precisely because when *it* is the guilty one there is no route
+  left to ask. The dialog says which of the three it is and what to do about it.
+
 ## 0.2.0 — 2026-08-22
 
 Four ways to the wire, because the first two both failed on a real run.
