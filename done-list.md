@@ -94,6 +94,49 @@ it was given.
 
 ---
 
+## DONE-3 — an Excel button reaches the bridge, and both ends agree where jobs live
+
+**Shipped in** extension 1.10.1 · **Confirmed** 2026-08-24, by `/ping` answering
+from Excel:
+
+```json
+{"bridge": "0.3.0", "ok": true, "api": "anongee",
+ "bridge_home": "C:\\Users\\praka\\AppData\\Roaming\\AnonGee\\bridge",
+ "engine": {"implementation": "IronPython", "version": "2.7.12 … on .NET 8.0.30"},
+ "toolkit": {"importable": false, "path_entries": []}}
+```
+
+Three things in that, and the second is the one worth having built for.
+
+**The routes register and answer.** `bridge: "0.3.0"` is the rebuilt
+registration — each route added on its own so a bad pattern cannot reach the
+others. `/jobs/<string:job_id>` had used a placeholder pyRevit does not have;
+whether it had actually killed the diagnostic routes was a question that could
+not be answered, which was the real fault.
+
+**`bridge_home` matches the listener's outbox exactly.**
+`…\AppData\Roaming\AnonGee\bridge` from the route, `…\bridge\outbox` from
+the listener. Those are two implementations of the same three rules, in two
+languages, in two engines that cannot import each other — the price of the split
+recorded in `DONE-2`. **They agree**, and now they are known to agree rather than
+assumed to.
+
+**The engine answer holds.** IronPython 2.7, no toolkit, exactly as `DONE-1`
+found. The doorbell design is correct.
+
+**Cost.** Four fixes to get here, and the pattern in them is the same one twice
+over: *the tool that reports the failure failed at reporting it*. Bridge Check
+could not reach the wire at all in one release, hid the reason behind a
+collapsed panel in the next, and took minutes to show nothing in the one after —
+each time because a detail was put somewhere tidy rather than somewhere read. It
+prints to the console now.
+
+The macro contributed two of its own: a handler armed inside another handler,
+which VBA ignores, and two constants declared below the first procedure, which
+Excel refuses to compile. Both are now held by tests that read the `.bas`.
+
+---
+
 ## What this programme inherits
 
 Not entries — these were built and confirmed under **RC Automation**, and they are described in

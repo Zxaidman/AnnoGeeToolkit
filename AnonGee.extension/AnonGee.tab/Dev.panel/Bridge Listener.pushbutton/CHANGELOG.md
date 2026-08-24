@@ -1,5 +1,17 @@
 # Bridge Listener — changelog
 
+## 0.2.0 — 2026-08-24
+
+- **`#! python3` on the first line**, and this tool cannot work without it. It
+  imports `anongee_toolkit` from `lib/py3`; on IronPython that path is never
+  added and openpyxl will not load at all.
+
+  **It ran anyway for a release**, because the `bridge` package happens to be
+  Python 2.7-compatible — so it looked entirely correct, reported its commands,
+  and would have failed on the first job that needed to read a workbook. That is
+  the worst kind of missing line: one whose absence produces a working tool with
+  a fuse in it.
+
 ## 0.1.0 — 2026-08-22
 
 The half of the bridge that does the work.

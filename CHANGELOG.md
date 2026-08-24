@@ -35,6 +35,35 @@ of view of someone using the thing rather than someone reading the diff:
 
 ---
 
+## 1.10.3
+
+**Fixed**
+
+- **Both bridge tools were running on the wrong Python.** pyRevit selects the
+  engine from a `#! python3` shebang on the first line, and neither had one.
+  Every other CPython tool in the repository does.
+
+  Bridge Check failed outright — *"global name 'os' is not defined"*, Python 2
+  wording naming a missing import while saying nothing about the missing engine
+  that made it Python 2. **Bridge Listener did not fail**, because the `bridge`
+  package happens to be Python 2.7-compatible: it ran, reported its commands,
+  and would have died on the first job that needed openpyxl. A working tool
+  with a fuse in it.
+- **Bridge Check imports `os`**, which two of its functions had always used.
+- Bridge Check reports which engine it is running on, first line of the report.
+
+**Added**
+
+- `tests/test_scripts.py` — two repo-wide checks, both of which would have
+  caught the above and neither of which anything else here could:
+  **every script that imports the toolkit must select the CPython engine**, and
+  **no script or toolkit module may read a name it never binds**. 107 of the
+  108 scripts resolve completely; the one that does not uses
+  `from Autodesk.Revit.DB import *` and is exempted explicitly, so the
+  exemption stays visible rather than quietly widening.
+
+---
+
 ## 1.10.2
 
 **Fixed**

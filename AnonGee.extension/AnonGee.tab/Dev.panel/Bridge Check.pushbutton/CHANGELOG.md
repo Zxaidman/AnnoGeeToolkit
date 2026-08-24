@@ -1,5 +1,21 @@
 # Bridge Check — changelog
 
+## 0.5.0 — 2026-08-24
+
+The engine line, the import it hid, and the engine now reported.
+
+- **`#! python3` on the first line.** Without it pyRevit runs this on IronPython
+  2.7. Every other CPython tool in the repository carries it; this one was
+  written without it.
+- **`import os`.** Two functions used it and nothing imported it. The failure
+  was *"global name 'os' is not defined"* — Python 2 wording, which named the
+  missing import and said nothing at all about the missing engine that made it
+  Python 2 in the first place. The wrapper added in 0.4.0 turned that into a
+  readable line instead of a silent nothing, which is the one part of this that
+  went right.
+- **It reports which engine it is on**, first line of the report. That was the
+  fact this run needed and could not see.
+
 ## 0.4.0 — 2026-08-24
 
 It answers in a second, and it always answers.

@@ -1,5 +1,12 @@
+#! python3
 # -*- coding: utf-8 -*-
 """The half of the bridge that does the work: watch for jobs, run them.
+
+**The first line selects the engine and this tool cannot work without it.** It
+imports ``anongee_toolkit`` from ``lib/py3``; on IronPython that path is not
+added and openpyxl will not load at all. It ran anyway for one release, because
+the ``bridge`` package happens to be Python 2.7-compatible — so it looked
+correct right up until the first command that needed to read a workbook.
 
 `CRIT-1` settled that pyRevit loads an extension's ``startup.py`` on IronPython
 2.7, where the CPython 3 toolkit does not exist. So the HTTP route only ever
@@ -49,7 +56,7 @@ own thread. Toggle: press to start watching, press again to stop.
 Jobs live under %APPDATA%\\AnonGee\\bridge (or ANONGEE_BRIDGE_HOME). Use
 Bridge Check to see where this session thinks that is."""
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __namespace__ = "anongee_bridge_listener"
 
 import datetime

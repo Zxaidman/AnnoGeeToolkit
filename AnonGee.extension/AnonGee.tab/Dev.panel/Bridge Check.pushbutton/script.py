@@ -1,5 +1,13 @@
+#! python3
 # -*- coding: utf-8 -*-
 """Ask the bridge whether it is there, from inside Revit.
+
+**The first line selects the engine and it is not decoration.** Without it
+pyRevit runs this on IronPython 2.7, where the CPython 3 toolkit is not on the
+path — and the symptom was a ``NameError`` phrased *"global name 'os' is not
+defined"*, Python 2 wording that named the missing import and said nothing about
+the missing engine. Every CPython tool in this repository carries it; these two
+were written without it.
 
 The bridge's routes are served by pyRevit from **inside this Revit process**
 (see ``AnonGee.extension/startup.py``). When a button in Excel gets no answer,
@@ -37,7 +45,10 @@ pyRevit Settings and restart Revit.
 
 Read-only. Nothing is written to the model."""
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
+
+import os
+import sys
 
 HOST = "localhost"
 PORT = 48884
@@ -301,6 +312,8 @@ def _value(text, key):
 def report():
     """The whole diagnosis as lines. Ordered so the answer comes first."""
     lines = ["AnonGee Bridge Check {0}".format(__version__),
+             "this tool is on {0}".format(sys.version.split()[0]
+                                          if sys.version else "?"),
              "expecting http://{0}:{1}/{2}/".format(HOST, PORT, API), ""]
 
     listening, why = port_open()

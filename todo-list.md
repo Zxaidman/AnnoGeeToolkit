@@ -122,7 +122,13 @@ Two separate mistakes, both mine, and both worth keeping:
 only the last, and **the answer says which one worked**. That last part is not tidiness: what the
 CPython engine can reach the network with is a thing every later part of the bridge needs to know.
 
-### BUG-3 — a bad route pattern could take the diagnostic routes with it · `testing`
+### BUG-3 — a bad route pattern could take the diagnostic routes with it · `done`
+
+**Confirmed 2026-08-24.** `/ping` answered from Excel reporting `bridge 0.3.0`,
+so the rebuilt registration loaded and every route took. Moved to `done-list.md`
+as part of `DONE-3`.
+
+<details><summary>the original entry</summary>
 
 **Found by a run**: both `/ping` and `/status` reported *no answer* from a session
 where they had worked the day before, and the Bridge Listener was fine.
@@ -136,9 +142,11 @@ routes were decorated in a row with nothing between them.
 **Reproduced:** the pattern is wrong either way — confirmed against pyRevit's
 own documentation and a forum thread titled *"Route pattern is invalid"*.
 
-**Fixed, unconfirmed.** The route is gone; `GET /jobs` returns the list and a
-caller finds its own id in it, which is what the macro did anyway. Each route is
-registered on its own now, so one refusal cannot reach the others.
+**Fixed.** The route is gone; `GET /jobs` returns the list and a caller finds
+its own id in it, which is what the macro did anyway. Each route is registered
+on its own now, so one refusal cannot reach the others.
+
+</details>
 
 ### BUG-4 — the macro raised instead of returning · `testing`
 
@@ -233,6 +241,38 @@ prints to the pyRevit console** as well as the dialog. Console output can be
 pasted; a dialog has to be retyped, which is how the last three rounds of
 findings arrived — one of them as a screenshot of a collapsed panel that said
 nothing.
+
+### BUG-9 — both bridge tools ran on the wrong Python · `testing`
+
+**Found by the owner running Bridge Check**: *"global name 'os' is not
+defined"* — and the wording is the finding. *"global name"* is Python 2, so the
+tool was on IronPython 2.7, not the CPython 3 engine everything else here uses.
+
+pyRevit selects the engine from a `#! python3` shebang on the first line.
+**Neither bridge tool had one.** Every other CPython tool in this repository
+does; these two were written without it and nothing said so.
+
+**Bridge Check failed outright** — it uses `os` in two functions and never
+imported it, which on the right engine would still have been a bug and on the
+wrong one was the only symptom visible.
+
+**Bridge Listener did not fail, and that is worse.** It imports the toolkit from
+`lib/py3`, which is not on IronPython's path — but the `bridge` package happens
+to be Python 2.7-compatible, so it started, reported its commands, and would
+have died on the first job that needed openpyxl. **A working tool with a fuse in
+it** is the worst thing a missing line can produce.
+
+**Reproduced:** yes, and then confirmed statically across the whole repository —
+one script imported the toolkit without the shebang, and it was the listener.
+
+**Fixed, unconfirmed.** Both carry `#! python3`; Bridge Check imports `os` and
+now reports which engine it is on, first line of its report.
+
+**Guarded properly**, because neither fault was catchable by anything that
+existed: `tests/test_scripts.py` fails if a script imports the toolkit without
+selecting the engine, and fails if any script or toolkit module reads a name it
+never binds. 107 of 108 scripts resolve completely; the one that does not uses a
+star import and is exempted by name so the exemption cannot quietly widen.
 
 ### BUG-2 — the Routes server listens on every interface · `pending`
 
@@ -385,9 +425,8 @@ anybody else.
 > 1. **pyRevit tab → Reload** (or restart Revit) so the new `startup.py` loads.
 > 2. **Bridge Check.** It now says which of three things is wrong and what to do.
 >    Send that dialog whatever it says — it is the whole diagnosis now.
-> 3. Once it is up: **re-import `modAnonGeeBridge.bas`** — `BUG-4` and `BUG-7`
->    are both in it, and the `.xlsm` in the repository still carries the old
->    module — then switch **Bridge Listener** on and press **Run_Echo**.
+> 3. Once it is up: switch **Bridge Listener** on and press **Run_Echo**. The
+>    `.bas` is already re-imported and `/ping` answers from Excel.
 >
 > A `LOG` row closes `CRIT-3`, `FEAT-1`, `FEAT-2` and `FEAT-4` in one go — they
 > all describe the same journey — and `BUG-3` through `BUG-8` with it.
