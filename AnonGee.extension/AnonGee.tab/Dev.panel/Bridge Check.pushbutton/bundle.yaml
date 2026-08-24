@@ -21,4 +21,4 @@ tooltip: |
 
   Read-only. No transaction, nothing written to the model, no undo step.
 
-  Version: 0.1.0
+  Version: 0.2.0

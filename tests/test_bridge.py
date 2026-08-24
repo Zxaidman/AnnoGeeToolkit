@@ -220,21 +220,37 @@ class BlastRadiusTests(unittest.TestCase):
                           "doc.Create"):
             self.assertNotIn(forbidden, source, forbidden)
 
-    def test_the_check_tool_reaches_the_wire_through_dotnet_first(self):
-        """The CPython 3 engine ships a partial stdlib — ``re`` and ``csv`` are
-        both missing. The tool that has to work when nothing else does should
-        not be the one betting on ``urllib`` being complete."""
-        # By import order in the tree, not by position in the text: the first
-        # version of this matched the word "urllib" in the comment explaining
-        # why it comes second.
-        order = []
-        for node in ast.walk(ast.parse(_read(_CHECK))):
-            if isinstance(node, ast.ImportFrom) and node.module:
-                if "System.Net" in node.module or "urllib" in node.module:
-                    order.append((node.lineno, node.module))
-        order.sort()
-        self.assertEqual([module for _line, module in order],
-                         ["System.Net", "urllib.request"])
+    def test_the_check_tool_has_more_than_one_way_to_reach_the_wire(self):
+        """Both of its first two attempts failed on a real Revit 2025 run.
+
+        ``from System.Net import WebClient`` raised *Cannot import name
+        WebClient* — on .NET 8 that class lives in its own assembly and has to
+        be referenced — and ``urllib.request`` raised *No module named request*,
+        because this engine ships only part of the standard library. A probe
+        with one route to the network is a probe that stops working before the
+        thing it is probing does.
+        """
+        source = _read(_CHECK)
+        ways = source.split("WAYS = (")[1].split(")\n")[0]
+        for expected in ("System.Net.WebClient", "System.Net.Http.HttpClient",
+                         "urllib.request", "raw socket"):
+            self.assertIn(expected, ways, expected)
+
+    def test_the_assembly_is_referenced_before_the_dotnet_import(self):
+        # The bug the first version shipped: importing System.Net types without
+        # clr.AddReference works on .NET Framework and not on .NET 8.
+        for name in ("_by_web_client", "_by_http_client"):
+            body = _read(_CHECK).split("def " + name)[1].split("\ndef ")[0]
+            self.assertIn("clr.AddReference", body, name)
+            self.assertLess(body.index("clr.AddReference"),
+                            body.index("from System.Net"), name)
+
+    def test_every_failed_attempt_is_kept_not_just_the_last(self):
+        # Reporting only the last error says the floor gave way, not that the
+        # rungs above it did — and which rungs are missing is the finding.
+        body = _read(_CHECK).split("def fetch(")[1].split("\ndef ")[0]
+        self.assertIn("errors.append", body)
+        self.assertIn("return body, name, errors", body)
 
 
 if __name__ == "__main__":

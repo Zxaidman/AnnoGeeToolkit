@@ -34,11 +34,18 @@ built before anything that would sit on top of it.
 pyRevit ships an HTTP server that runs inside the Revit process. **It is off by
 default.**
 
-pyRevit tab → **Settings** → find the Routes / server section → turn it on →
+pyRevit tab → **Settings** → **Routes** → the **Routes Server (Beta)** toggle →
 **restart Revit**.
 
-> Confirming exactly where that switch is on your build is part of this spike.
-> Note what you had to click; it goes in the report and then into this file.
+It confirms itself in an orange bar:
+
+> Routes server is listening on `http://0.0.0.0:48884`
+
+**`0.0.0.0` means every interface, not just this machine.** On one workstation
+that is harmless; before this leaves one desk it is not, and it is tracked as
+`BUG-2` in [`todo-list.md`](../todo-list.md).
+
+*Confirmed on Revit 2025 25.4.50.35, 2026-08-22.*
 
 ### 2. Check it from inside Revit first
 
@@ -73,21 +80,30 @@ and the difference is a day.
 
 ---
 
-## What to send back
+## What it answered
 
-Paste both raw responses into the report. Four things in them decide the next
-stage:
+**Run 2026-08-22, Revit 2025 25.4.50.35.** Recorded in full as `DONE-1` in
+[`done-list.md`](../done-list.md).
 
-1. **`engine.implementation` and `engine.version`.** Which Python runs a pyRevit
-   startup script. The toolkit is CPython 3 and lives in `lib/py3`; pyRevit's
-   core engine is IronPython. If they are not the same, route handlers cannot
-   import the toolkit directly and commands have to be dispatched to a CPython
-   script instead — a fork in the architecture much better known now than during
-   stage 1.
-2. **`toolkit.importable`.** The same question, answered directly.
-3. **Whether `status` answered at all**, and how long it took.
-4. **What happened with no document open**, and with a modal dialog up. Try
-   both — the second is the one a real user will hit first.
+| | |
+| --- | --- |
+| Server up, port reachable from Excel | **yes** — both routes answered |
+| External Event marshalling real | **yes** — `/status` returned the open document, its path and the Revit build |
+| Engine running `startup.py` | **IronPython 2.7.12** on .NET 8 |
+| Can that engine see the toolkit | **no** — `path_entries` empty, `No module named anongee_toolkit` |
+
+The last two are the finding, and they set the design:
+
+> **The route is a doorbell. The worker is CPython. They share a folder, not a
+> module.**
+
+The route validates, stamps a job id, writes the job file and returns. The
+CPython worker does everything else with the toolkit unchanged. Which means the
+two transports below are **the same transport** — HTTP is a faster way to write
+into the outbox, not a second path with a second implementation.
+
+Still untested: **no document open**, and **a modal dialog up**. Worth doing when
+you next have the model closed — the second is the one a real user hits first.
 
 ---
 
@@ -119,10 +135,10 @@ with Python by hand.
 
 ---
 
-## When the wire is not there
+## When the doorbell is not there
 
-The bridge is designed with **two transports behind one envelope**, and the
-second one already exists in spirit: it is what RC Automation does today.
+Not a second transport — **the same one, without the bell**. The route writes
+into this folder and so does the macro when it cannot reach the route:
 
 ```
 <workbook folder>/.anongee/
@@ -136,4 +152,5 @@ the user presses the button in Revit instead. Same envelope, same handler, same
 result. Slower at the edge, identical everywhere else.
 
 That is not a fallback bolted on afterwards. It is the reason the transport is
-kept at the edge and the command registry knows nothing about it.
+kept at the edge and the command registry knows nothing about it — and after
+`DONE-1` it is not even a fallback, it is the mechanism.

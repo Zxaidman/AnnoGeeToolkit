@@ -54,45 +54,39 @@ model.
 
 ## 1. Critical
 
-### CRIT-1 — the Excel → Revit round trip is unproven · `testing`
+### CRIT-4 — the route runs in IronPython and cannot reach the toolkit · `pending`
 
-**Every estimate in the PRD is conditional on this, and nothing above it starts until it answers.**
+**Found by the `CRIT-1` run, 2026-08-22.** `/anongee/ping` answered:
 
-pyRevit ships an HTTP server that runs inside the Revit process on `localhost:48884`, and a route
-handler that declares `uiapp`, `uidoc` or `doc` is executed as an External Event — which is exactly
-the marshalling problem the modeless window already solves by hand. On paper it is the whole
-transport. It has never been run on the owner's machine.
+```json
+"engine":  {"implementation": "IronPython", "version": "2.7.12 … on .NET 8.0.30 (64-bit)"}
+"toolkit": {"importable": false, "path_entries": [], "error": "No module named anongee_toolkit"}
+```
 
-**Built and waiting on a Revit run** (extension 1.9.0). Three pieces, and the running instructions
-are in [`bridge/README.md`](bridge/README.md):
+pyRevit loads an extension's `startup.py` on its **core engine, which is IronPython 2.7**, and
+`lib/py3` is not on that engine's path. The toolkit is CPython 3 and needs openpyxl. **A route
+handler cannot do the work.**
 
-| | |
-| --- | --- |
-| `AnonGee.extension/startup.py` | Two routes. `/anongee/ping` takes **no** Revit argument and answers even while Revit is busy; `/anongee/status` declares `uiapp`, so pyRevit runs it as an External Event. |
-| **Bridge Check** pushbutton | Calls the same two URLs from inside Revit, so when Excel gets no answer the network is out of the question. |
-| `bridge/excel/modAnonGeeBridge.bas` | The Excel end. Import once, `Alt+F8`, run. |
+**This is a simplification, not a setback** — it forces the design the architecture already wanted
+and deletes a decision. See §2a of the architecture document.
 
-**Two routes rather than one, deliberately.** If ping answers and status hangs, the server is fine
-and the marshalling is not. One route cannot tell you that, and the difference is a day.
+> The route is a doorbell. The worker is CPython. They share a folder, not a module.
 
-**What it settles:** the server starts; the port is reachable from Excel; a handler declaring
-`uiapp` really is marshalled; and — the answer that matters most — **which Python engine runs a
-pyRevit startup script, and whether it can see the toolkit**. `/ping` reports `engine.version`,
-`engine.implementation` and `toolkit.importable`. pyRevit's core engine is IronPython and the
-toolkit is CPython 3 in `lib/py3`; if those do not meet, commands have to be dispatched to a CPython
-script rather than handled in the route, and that is a fork in the architecture far better known now
-than during stage 1.
+The route validates minimally, stamps a `jobId`, writes `outbox/<jobId>.job.json` and returns `202`;
+`GET /jobs/<id>` reads `inbox/<jobId>.result.json`. It needs `json` and `os` and nothing else. The
+CPython worker does everything else with the toolkit unchanged.
 
-**To close it:** run the four steps in `bridge/README.md` and push both raw responses. Also try it
-with no document open, and with a modal dialog up — the second is the one a real user hits first.
+**The two transports collapse into one.** HTTP and the file drop were two paths behind one envelope;
+they are now the same path, because HTTP is just a faster way to put a file in the outbox. There is
+no second implementation to keep in step.
 
-**If it fails**, the file drop (CRIT-3) becomes the primary transport and the programme continues —
-slower at the edge, identical everywhere else. Which is the reason for two transports behind one
-envelope.
+**What is left to decide, and it is the only open part:** something in the CPython engine has to
+notice a job has arrived. A pyRevit script is one-shot, so the answer is a `UIApplication.Idling`
+subscription — registered once by a **Bridge Listener** pushbutton, cheap per tick, raising the
+`ExternalEvent` RC Automation already owns. Idling fires only when Revit is idle, which is exactly
+when the API may be used.
 
-**Known unknowns to answer in the same spike:** the server is off by default and enabled in pyRevit
-Settings — confirm where; confirm whether a second Revit session takes a second port; confirm the
-behaviour when no document is open and when a modal dialog is up.
+Until it exists the degraded behaviour is today's behaviour: press the button in Revit.
 
 ### CRIT-2 — neither template exists, and neither can be generated from here · `pending`
 
@@ -127,8 +121,38 @@ writes. Nothing hard-codes a command name anywhere else.
 
 ## 2. Errors and bugs
 
-Nothing here yet — the programme has shipped nothing to be wrong. `CRIT-1` is built but unrun, so
-anything it turns up lands here with an ID rather than being fixed in passing.
+### BUG-1 — Bridge Check could not reach the wire at all · `testing`
+
+**Found by the `CRIT-1` run.** The pushbutton that exists to diagnose the bridge could not call it:
+
+> `no answer — Cannot import name WebClient / No module named request`
+
+Two separate mistakes, both mine, and both worth keeping:
+
+- `from System.Net import WebClient` works on .NET Framework and **not on .NET 8**, which Revit 2025
+  runs on — the class lives in its own assembly and has to be asked for with `clr.AddReference`.
+- `urllib.request` is simply absent. The CPython 3 engine ships a partial standard library; `re` and
+  `csv` were the two known missing, and this is a third.
+
+**Reproduced:** yes, on the first run.
+
+**Fixed in Bridge Check 0.2.0, unconfirmed.** Four ways are now tried in order — `WebClient`,
+`HttpClient`, `urllib`, and a hand-written GET over a raw socket — every failure is kept rather than
+only the last, and **the answer says which one worked**. That last part is not tidiness: what the
+CPython engine can reach the network with is a thing every later part of the bridge needs to know.
+
+### BUG-2 — the Routes server listens on every interface · `pending`
+
+**Found while reading the settings panel**, which reports `listening on http://0.0.0.0:48884`;
+pyRevit's own example URL is a LAN address rather than a loopback one.
+
+**The bridge is reachable from any machine on the network, and its commands write to a live model.**
+On one workstation that is harmless. Before this leaves one desk it is not.
+
+**Not reproduced** — it does not need to be; `0.0.0.0` is the server telling us. Recorded as a bug
+rather than a note because the default is open and nobody chose it. Three possible answers, and one
+has to be picked rather than discovered: bind to loopback if pyRevit allows it, firewall the port,
+or require a shared token in the envelope.
 
 Nine open bugs live in *RC Automation · §2*, and two of them (`CRIT-1`, `CRIT-2` there — constraints
 never confirmed applied, varying sets not varying) are the deepest technical risk in the whole
@@ -212,7 +236,7 @@ confirmed in a model.
 
 | Stage | Ships | Items |
 | --- | --- | --- |
-| 0 · Bridge spike | `ping` and `status`, end to end | CRIT-1 `testing` · CRIT-3 |
+| 0 · Bridge spike | ~~`ping` and `status`, end to end~~ **done** · then the doorbell and the listener | ~~CRIT-1~~ → DONE-1 · CRIT-3 · CRIT-4 |
 | 1 · Datum | Both templates; levels; grids | CRIT-2, FEAT-1..6 |
 | 2 · Setup | Types, views, sheets | FEAT-7, 8, 9 |
 | 3 · Structure | Columns, beams, walls, slabs | FEAT-10..13 |
@@ -259,5 +283,8 @@ anybody else.
 > it, with what needs adding — so `CRIT-2`'s template specification waits for that rather than being
 > guessed at, and `FEAT-3` starts from a real template instead of an out-of-the-box one.
 >
-> **Waiting on:** the `CRIT-1` run (`bridge/README.md`), and the RC Automation 0.7.0 bugs the owner
-> found but has not sent.
+> **`CRIT-1` is confirmed** — both routes answered, the marshalling is real, and the engine question
+> is settled. It moved to `done-list.md` as `DONE-1` and left `CRIT-4`, `BUG-1` and `BUG-2` behind it.
+>
+> **Waiting on:** the RC Automation 0.7.0 bugs the owner found but has not sent, and the existing
+> project `.rvt` that `CRIT-2` and `FEAT-3` start from.

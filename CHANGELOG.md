@@ -35,6 +35,30 @@ of view of someone using the thing rather than someone reading the diff:
 
 ---
 
+## 1.9.1
+
+**Fixed**
+
+- **Bridge Check 0.2.0 could not reach the bridge at all.** The tool built to
+  explain a bridge failure was the only part of the spike that failed:
+  `System.Net.WebClient` needs `clr.AddReference` on .NET 8, and
+  `urllib.request` is not in the CPython 3 engine's partial standard library.
+  It now tries four ways — `WebClient`, `HttpClient`, `urllib`, and a
+  hand-written GET over a raw socket — keeps every failure rather than only the
+  last, and says which one worked.
+
+**Changed**
+
+- **The bridge spike is confirmed**, and it settled the engine question: pyRevit
+  loads `startup.py` on IronPython 2.7, which cannot see the CPython 3 toolkit.
+  So **the route is a doorbell and the worker is CPython; they share a folder,
+  not a module** — which collapses the two designed transports into one, because
+  HTTP becomes a faster way to write into the outbox rather than a second path.
+  Written up in the architecture document §2a, and as `DONE-1` in
+  [`done-list.md`](done-list.md).
+
+---
+
 ## 1.9.0
 
 **Added**

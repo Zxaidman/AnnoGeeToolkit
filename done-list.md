@@ -2,10 +2,6 @@
 
 What the programme has built and confirmed working in Revit, and what it took.
 
-**Nothing yet.** The programme is at stage 0 and has shipped no command. The first entry will be
-`CRIT-1`, the Excel → Revit round trip, and it arrives here when the owner has pressed a button in
-Excel and seen a Revit document title come back.
-
 **An entry arrives here only when the project owner has run it in Revit and said it works.** A green
 test suite is not confirmation — every bug this repository has shipped passed the suite on the way
 to a model. Where the evidence is weaker than that, the entry says so in its own words rather than
@@ -19,6 +15,54 @@ it — what a thing cost to build is part of the record even when it no longer r
 | **Confirmed** | The report, screenshot or sentence from the owner that closed it. |
 | **Shipped in** | The version it first worked in. |
 | **Cost** | What it took, including the wrong turns — those are the expensive part and the part worth remembering. |
+
+---
+
+## DONE-1 — an Excel button reaches a live Revit model
+
+**Shipped in** extension 1.9.0 · **Confirmed** 2026-08-22, Revit 2025 25.4.50.35, by the owner
+running both routes from Excel and pasting the raw responses.
+
+`/anongee/status` came back with the open document:
+
+```json
+{"document": {"title": "R25_REBAR_AUTOMATION",
+              "path": "D:\\ZAID\\Advance AI\\rvt\\R25_REBAR_AUTOMATION.rvt",
+              "workshared": false, "read_only": false},
+ "user": "praka", "revit": "Autodesk Revit 2025 25.4.50.35", "revit_context": true}
+```
+
+**Four questions, four answers.**
+
+1. **Does the Routes server start, and is the port reachable from Excel?** Yes. pyRevit Settings →
+   Routes → *Routes Server (Beta)*, restart Revit; it reports `listening on http://0.0.0.0:48884`.
+   Both routes answered from a plain workbook with `WinHttp`.
+2. **Is the External Event marshalling real?** Yes. `/status` declares `uiapp` and returned a live
+   document, its path, and the Revit build — none of which can be read anywhere but Revit's own
+   thread.
+3. **Which engine runs a startup script, and can it see the toolkit?** IronPython 2.7.12 on .NET 8,
+   and **no**: `path_entries` came back empty and `anongee_toolkit` does not import. This is the
+   finding, and it is written up as `CRIT-4`.
+4. **What happens with no document open?** Not exercised — the owner ran it with a model open. The
+   code path exists (`no document is open` rather than an error) and is still untested.
+
+**Cost.** Two things, and the second one is the one worth remembering.
+
+*Both routes worked first time.* Two routes rather than one — `ping` declaring no Revit argument,
+`status` declaring `uiapp` — cost about twenty extra lines and would have localised the failure to
+one half instantly. They both answered, so it bought nothing this time. It was still the right
+shape: the alternative was one route and a coin flip.
+
+*The diagnostic tool was the thing that broke.* Bridge Check could not reach the wire at all —
+`System.Net.WebClient` needs `clr.AddReference` on .NET 8, and `urllib.request` is not in this
+engine's standard library. The tool built to explain a failure was the only part that failed, and
+the spike survived it only because the same two URLs could be called from Excel. Recorded as
+`BUG-1`; it now tries four ways and reports which one worked.
+
+*What it changed.* The IronPython answer is not an obstacle — it forces **the route is a doorbell,
+the worker is CPython, they share a folder rather than a module**, which collapses the two designed
+transports into one. There is no second implementation to keep in step, because HTTP is now just a
+faster way to write a file into the outbox.
 
 ---
 

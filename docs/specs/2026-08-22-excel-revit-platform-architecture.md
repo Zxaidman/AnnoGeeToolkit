@@ -51,10 +51,69 @@ problem in §1 is solved by the framework, the same way the modeless window solv
 Excel reaches it with `MSXML2.XMLHTTP` or `WinHttp.WinHttpRequest.5.1`. No add-in, no COM, no
 registry.
 
-**Verify before building on it** (`SPIKE-1` in the queue): the server is off by default and is
-enabled in pyRevit Settings. Confirm on the owner's machine that it starts, that the port is
-reachable from Excel, and that a handler declaring `doc` really is marshalled. Half a day. **No
-stage-1 work starts until this is confirmed.**
+**Confirmed on Revit 2025, 2026-08-22.** pyRevit Settings → Routes → *Routes Server (Beta)*, then
+restart Revit; it reports `listening on http://0.0.0.0:48884`. Both routes answered from Excel, and
+`/status` returned a live document — so the External Event marshalling is real, not merely
+documented.
+
+**Two things the spike found that change this document.** They are in §2a and §2b, and the first
+one is the more important of the two by a distance.
+
+### 2a. The route runs in IronPython. The toolkit does not. — *and this is a simplification*
+
+`/anongee/ping` reported it plainly:
+
+```json
+"engine":  {"implementation": "IronPython",
+            "version": "2.7.12 … on .NET 8.0.30 (64-bit)"}
+"toolkit": {"importable": false, "path_entries": [],
+            "error": "No module named anongee_toolkit"}
+```
+
+pyRevit loads an extension's `startup.py` on its **core engine, which is IronPython 2.7** — and
+`lib/py3` is not on that engine's path at all. The toolkit is CPython 3 and needs openpyxl. **A route
+handler cannot do the work**, and no amount of arranging will make it.
+
+The obvious reading is that this is a problem. It is the opposite: it forces the design the
+architecture already wanted, and removes a decision.
+
+> **The route is a doorbell. The worker is CPython. They share a folder, not a module.**
+
+| | Engine | Does | Needs |
+| --- | --- | --- | --- |
+| `startup.py` route | IronPython 2.7 | Validate the envelope minimally, stamp a `jobId`, write `outbox/<jobId>.job.json`, return `202`. `GET /jobs/<id>` reads `inbox/<jobId>.result.json` | `json`, `os` — both present |
+| Bridge worker | CPython 3 | Everything else: read the workbook, validate, plan, write the model, write the result | The toolkit, unchanged |
+
+Three consequences, all good:
+
+1. **The two transports collapse into one.** HTTP and the file drop were designed as two paths
+   behind one envelope. They are now *the same path* — HTTP is simply a faster way to put a file in
+   the outbox and read one out of the inbox. There is no second implementation to keep in step,
+   because there is no second implementation.
+2. **Nothing in the route can break the toolkit, and nothing in the toolkit can break pyRevit's
+   load.** The blast radius of each is its own file.
+3. **The route stays trivial, which is what it should have been anyway.** A 5,000-element job inside
+   a synchronous HTTP request was already forbidden by §1. Now it is impossible.
+
+**What the worker still needs, and it is the one open question:** something in the CPython engine has
+to notice a job has arrived. A pyRevit script is one-shot, so the answer is a `UIApplication.Idling`
+subscription — registered once by a **Bridge Listener** pushbutton, cheap on each tick (a timestamp
+check, then one `listdir`), and raising the `ExternalEvent` that RC Automation already owns to do the
+actual work. Idling fires only when Revit is idle, which is precisely when the API may be used.
+
+Until that exists the degraded behaviour is today's behaviour: the user presses the button in Revit.
+Which is the product as it currently ships, so the floor is not far down.
+
+### 2b. The server listens on every interface
+
+The settings panel reports `listening on http://0.0.0.0:48884`, and pyRevit's own example URL is a
+LAN address rather than a loopback one. **The bridge is therefore reachable from any machine on the
+network**, and its commands write to a live model.
+
+For a single workstation this is harmless. Before this leaves one desk it is not, and the answer has
+to be decided rather than discovered: bind to loopback if pyRevit allows it, firewall the port, or
+require a shared token in the envelope. Recorded as a bug rather than a note, because the default is
+open and nobody chose it.
 
 ### Fallback — file drop
 
@@ -64,7 +123,9 @@ stage-1 work starts until this is confirmed.**
     inbox/   <jobId>.result.json     Revit writes, Excel reads
 ```
 
-Not a lesser option — a **required** one, for four reasons that will each happen:
+**Now the primary mechanism rather than the fallback** (§2a): the HTTP route writes into the same
+outbox. What follows was written when it was the second path, and every reason still holds — they
+are now reasons the *doorbell* may be absent, not reasons the transport may be:
 
 - Routes has to be enabled on every machine, and somebody will not have done it.
 - It is localhost-only; some corporate builds block local listeners.
@@ -279,13 +340,16 @@ now and saves a redesign at stage 6.
 
 ## 10. What gets built first
 
-`SPIKE-1`, and nothing else until it answers.
+**The spike is done** — see §2. The wire exists, the marshalling is real, and the engine split is
+answered. What follows from it, in order:
 
-1. `startup.py` with one route: `GET /anongee/ping` returning the document title.
-2. A three-line VBA sub that calls it and puts the answer in a cell.
+1. **`bridge/` in the toolkit** — `envelope.py` and `registry.py` are pure Python and testable off
+   Revit; `jobs.py` owns the outbox and inbox paths. Built before the first command, not after the
+   third.
+2. **`POST /anongee/jobs` and `GET /anongee/jobs/<id>`** in `startup.py`. Perhaps forty lines of
+   IronPython, because §2a leaves it nothing else to do.
+3. **The Bridge Listener** — an `Idling` subscription in the CPython engine that notices a job and
+   raises the external event RC Automation already owns.
+4. **`levels.sync`**, as the first real command, against the minimal `.xlsm`.
 
-That confirms, in half a day: the server starts, Excel can reach it, a handler gets a real `doc`,
-and the External Event marshalling is real. **Every estimate in the PRD is conditional on this.**
-If it fails, the file drop becomes the primary transport and the programme continues — slower at the
-edge, identical everywhere else, which is the reason for designing two transports behind one
-envelope in the first place.
+Note what is *not* on that list any more: a second transport implementation. §2a removed it.

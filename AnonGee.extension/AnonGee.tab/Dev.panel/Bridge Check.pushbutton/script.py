@@ -37,7 +37,7 @@ pyRevit Settings and restart Revit.
 
 Read-only. Nothing is written to the model."""
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 HOST = "localhost"
 PORT = 48884
@@ -52,49 +52,141 @@ def url_for(route):
     return "http://{0}:{1}/{2}/{3}".format(HOST, PORT, API, route)
 
 
-def fetch(url):
-    """``(body, error)``. Never raises.
+def _by_web_client(url):
+    """``System.Net.WebClient``. Needs its own assembly reference on .NET 8.
 
-    .NET first, deliberately. The CPython 3 engine ships a partial standard
-    library — ``re`` and ``csv`` are both absent — so betting the diagnostic
-    tool on ``urllib`` being complete is betting the one thing that has to work
-    when nothing else does. ``System.Net`` is in the process already.
+    The first version of this imported it and nothing else, and a real run said
+    *Cannot import name WebClient*. On .NET Framework it came in by default; on
+    .NET 8 — which Revit 2025 runs on — it lives in its own assembly and has to
+    be asked for. That was the whole finding, and it is why this file now tries
+    five things and says which one worked.
     """
+    import clr
     try:
-        from System.Net import WebClient
-        client = WebClient()
-        return client.DownloadString(url), ""
-    except Exception as dotnet_error:
-        first = "{0}".format(dotnet_error)
+        clr.AddReference("System.Net.WebClient")
+    except Exception:
+        pass                                    # already referenced is fine
+    from System.Net import WebClient
+    return WebClient().DownloadString(url)
 
+
+def _by_http_client(url):
+    """``System.Net.Http.HttpClient`` — the one .NET 8 actually prefers."""
+    import clr
     try:
-        from urllib.request import urlopen
-        response = urlopen(url, timeout=TIMEOUT_SECONDS)
-        return response.read().decode("utf-8", "replace"), ""
-    except Exception as urllib_error:
-        return "", "{0} / {1}".format(first, urllib_error)
+        clr.AddReference("System.Net.Http")
+    except Exception:
+        pass
+    from System.Net.Http import HttpClient
+    from System import TimeSpan
+    client = HttpClient()
+    client.Timeout = TimeSpan.FromSeconds(TIMEOUT_SECONDS)
+    return client.GetStringAsync(url).Result
+
+
+def _by_urllib(url):
+    """The standard library, which this engine ships only part of.
+
+    A real run said *No module named request*. Kept in the chain because the
+    engine may gain it, and because a probe that stops asking stops being a
+    probe.
+    """
+    from urllib.request import urlopen
+    return urlopen(url, timeout=TIMEOUT_SECONDS).read().decode("utf-8", "replace")
+
+
+def _by_socket(url):
+    """A GET written by hand, over a raw socket.
+
+    The floor. ``socket`` is a built-in extension module rather than a pure
+    Python one, so it survives a stdlib that has had ``re`` and ``csv`` taken
+    out of it. Thirty lines, no dependencies, and it is the reason this tool
+    cannot be left with nothing to try.
+    """
+    import socket
+    rest = url.split("://", 1)[-1]
+    hostport, _, path = rest.partition("/")
+    host, _, port = hostport.partition(":")
+    port = int(port or 80)
+
+    request = ("GET /{0} HTTP/1.1\r\nHost: {1}\r\n"
+               "Connection: close\r\n\r\n").format(path, hostport)
+
+    connection = socket.create_connection((host, port), TIMEOUT_SECONDS)
+    try:
+        connection.sendall(request.encode("ascii"))
+        chunks = []
+        while True:
+            chunk = connection.recv(4096)
+            if not chunk:
+                break
+            chunks.append(chunk)
+    finally:
+        connection.close()
+
+    text = b"".join(chunks).decode("utf-8", "replace")
+    return text.split("\r\n\r\n", 1)[-1]
+
+
+#: In the order they are tried. The name travels with the answer, because
+#: *which* of these worked is itself a finding — it says what the CPython 3
+#: engine can reach the network with, and every later part of the bridge that
+#: has to make a request needs to know.
+WAYS = (("System.Net.WebClient", _by_web_client),
+        ("System.Net.Http.HttpClient", _by_http_client),
+        ("urllib.request", _by_urllib),
+        ("raw socket", _by_socket))
+
+
+def fetch(url):
+    """``(body, how, errors)``. Never raises.
+
+    Every way is tried and the failures are all kept. A chain that reports only
+    the last error tells you the floor gave way and not that the four rungs
+    above it did — and on this engine the interesting part is which rungs are
+    missing.
+    """
+    errors = []
+    for name, way in WAYS:
+        try:
+            body = way(url)
+            if body:
+                return body, name, errors
+            errors.append("{0}: empty response".format(name))
+        except Exception as error:
+            errors.append("{0}: {1}".format(name, error))
+    return "", "", errors
 
 
 def describe(route):
-    body, error = fetch(url_for(route))
-    if error:
-        return "{0}\n  no answer — {1}".format(url_for(route), error)
-    return "{0}\n  {1}".format(url_for(route), body)
+    """``(headline, detail)`` for one route."""
+    url = url_for(route)
+    body, how, errors = fetch(url)
+    if not body:
+        return ("{0}\n  no answer".format(url),
+                "{0}\n  {1}".format(url, "\n  ".join(errors)))
+    detail = "{0}\n  reached by {1}".format(url, how)
+    if errors:
+        detail += "\n  tried first: " + "; ".join(errors)
+    return "{0}\n  {1}".format(url, body), detail
 
 
 def main():
-    lines = [describe("ping"), "", describe("status")]
+    ping_line, ping_detail = describe("ping")
+    status_line, status_detail = describe("status")
 
     from Autodesk.Revit.UI import TaskDialog
     dialog = TaskDialog("AnonGee · Bridge Check")
     dialog.MainInstruction = "The bridge, as Excel would see it"
-    dialog.MainContent = "\n".join(lines)
-    dialog.ExpandedContent = (
-        "Neither answered? The Routes server is off. Turn it on in pyRevit "
-        "Settings and restart Revit.\n\n"
+    dialog.MainContent = "\n\n".join([ping_line, status_line])
+    dialog.ExpandedContent = "\n\n".join([
+        ping_detail, status_detail,
+        "Neither answered? The Routes server is off. pyRevit Settings → "
+        "Routes → Routes Server (Beta), then restart Revit. It reports "
+        "'listening on http://0.0.0.0:48884' when it is up.",
         "Ping answered and status did not? The server is up and the External "
-        "Event marshalling is not — that is the finding CRIT-1 exists to "
-        "produce, and it belongs in the report.")
+        "Event marshalling is not — a finding, not a failure, and it belongs "
+        "in the report."])
     dialog.Show()
 
 
