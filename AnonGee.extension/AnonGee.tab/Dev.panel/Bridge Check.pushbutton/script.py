@@ -37,14 +37,22 @@ pyRevit Settings and restart Revit.
 
 Read-only. Nothing is written to the model."""
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 HOST = "localhost"
 PORT = 48884
 API = "anongee"
 
-#: Long enough for a busy Revit, short enough that the dialog is not a hang.
-TIMEOUT_SECONDS = 15
+#: For ``/status``, which legitimately waits: it runs as an External Event and
+#: cannot answer until Revit is idle.
+TIMEOUT_SECONDS = 20
+
+#: For ``/ping``, which touches no Revit and should answer at once.
+PING_TIMEOUT_SECONDS = 5
+
+#: For the TCP probe. A refused connection comes back in microseconds; this is
+#: only the ceiling for a port that is being silently dropped.
+PROBE_TIMEOUT_SECONDS = 1.0
 
 
 def url_for(route):
@@ -52,7 +60,32 @@ def url_for(route):
     return "http://{0}:{1}/{2}/{3}".format(HOST, PORT, API, route)
 
 
-def _by_web_client(url):
+def port_open(host=HOST, port=PORT, seconds=PROBE_TIMEOUT_SECONDS):
+    """Is anything listening at all? ``(open, note)``. One second, at most.
+
+    Asked **before** any HTTP, and it is the difference between an answer and a
+    wait. A run of the previous version took minutes and showed nothing: four
+    ways to the wire, tried twice, and ``WebClient.DownloadString`` carries a
+    **hundred-second default timeout** that was never set. When nothing is
+    listening, none of that is worth doing — a refused TCP connection says so in
+    microseconds.
+    """
+    import socket
+    connection = None
+    try:
+        connection = socket.create_connection((host, port), seconds)
+        return True, ""
+    except Exception as error:
+        return False, "{0}".format(error)
+    finally:
+        if connection is not None:
+            try:
+                connection.close()
+            except Exception:
+                pass
+
+
+def _by_web_client(url, seconds=TIMEOUT_SECONDS):
     """``System.Net.WebClient``. Needs its own assembly reference on .NET 8.
 
     The first version of this imported it and nothing else, and a real run said
@@ -70,7 +103,7 @@ def _by_web_client(url):
     return WebClient().DownloadString(url)
 
 
-def _by_http_client(url):
+def _by_http_client(url, seconds=TIMEOUT_SECONDS):
     """``System.Net.Http.HttpClient`` — the one .NET 8 actually prefers."""
     import clr
     try:
@@ -80,11 +113,11 @@ def _by_http_client(url):
     from System.Net.Http import HttpClient
     from System import TimeSpan
     client = HttpClient()
-    client.Timeout = TimeSpan.FromSeconds(TIMEOUT_SECONDS)
+    client.Timeout = TimeSpan.FromSeconds(seconds)
     return client.GetStringAsync(url).Result
 
 
-def _by_urllib(url):
+def _by_urllib(url, seconds=TIMEOUT_SECONDS):
     """The standard library, which this engine ships only part of.
 
     A real run said *No module named request*. Kept in the chain because the
@@ -92,10 +125,10 @@ def _by_urllib(url):
     probe.
     """
     from urllib.request import urlopen
-    return urlopen(url, timeout=TIMEOUT_SECONDS).read().decode("utf-8", "replace")
+    return urlopen(url, timeout=seconds).read().decode("utf-8", "replace")
 
 
-def _by_socket(url):
+def _by_socket(url, seconds=TIMEOUT_SECONDS):
     """A GET written by hand, over a raw socket.
 
     The floor. ``socket`` is a built-in extension module rather than a pure
@@ -112,7 +145,7 @@ def _by_socket(url):
     request = ("GET /{0} HTTP/1.1\r\nHost: {1}\r\n"
                "Connection: close\r\n\r\n").format(path, hostport)
 
-    connection = socket.create_connection((host, port), TIMEOUT_SECONDS)
+    connection = socket.create_connection((host, port), seconds)
     try:
         connection.sendall(request.encode("ascii"))
         chunks = []
@@ -128,28 +161,31 @@ def _by_socket(url):
     return text.split("\r\n\r\n", 1)[-1]
 
 
-#: In the order they are tried. The name travels with the answer, because
-#: *which* of these worked is itself a finding — it says what the CPython 3
-#: engine can reach the network with, and every later part of the bridge that
-#: has to make a request needs to know.
-WAYS = (("System.Net.WebClient", _by_web_client),
-        ("System.Net.Http.HttpClient", _by_http_client),
+#: In the order they are tried, and the order is now **by whether the timeout
+#: can be bounded**. ``WebClient`` cannot have one set without subclassing it,
+#: and its default is a hundred seconds — which is how a diagnostic ended up
+#: taking minutes and showing nothing. It goes last.
+#:
+#: The name still travels with the answer, because *which* of these worked says
+#: what the CPython 3 engine can reach the network with, and every later part
+#: of the bridge that has to make a request needs to know.
+WAYS = (("System.Net.Http.HttpClient", _by_http_client),
+        ("raw socket", _by_socket),
         ("urllib.request", _by_urllib),
-        ("raw socket", _by_socket))
+        ("System.Net.WebClient (unbounded timeout)", _by_web_client))
 
 
-def fetch(url):
-    """``(body, how, errors)``. Never raises.
+def fetch(url, seconds=TIMEOUT_SECONDS):
+    """``(body, how, errors)``. Never raises, and never waits long.
 
     Every way is tried and the failures are all kept. A chain that reports only
-    the last error tells you the floor gave way and not that the four rungs
-    above it did — and on this engine the interesting part is which rungs are
-    missing.
+    the last error tells you the floor gave way and not that the rungs above it
+    did — and on this engine the interesting part is which rungs are missing.
     """
     errors = []
     for name, way in WAYS:
         try:
-            body = way(url)
+            body = way(url, seconds)
             if body:
                 return body, name, errors
             errors.append("{0}: empty response".format(name))
@@ -158,7 +194,7 @@ def fetch(url):
     return "", "", errors
 
 
-def describe(route):
+def describe(route, seconds=TIMEOUT_SECONDS):
     """``(headline, detail)`` for one route.
 
     **The reason goes in the headline, not the detail.** A run reported "no
@@ -167,7 +203,7 @@ def describe(route):
     second release running.
     """
     url = url_for(route)
-    body, how, errors = fetch(url)
+    body, how, errors = fetch(url, seconds)
     if not body:
         first = errors[0] if errors else "nothing to say"
         return ("{0}\n  no answer — {1}".format(url, first),
@@ -262,35 +298,93 @@ def _value(text, key):
     return rest.strip()
 
 
-def main():
-    ping_line, ping_detail = describe("ping")
-    status_line, status_detail = describe("status")
+def report():
+    """The whole diagnosis as lines. Ordered so the answer comes first."""
+    lines = ["AnonGee Bridge Check {0}".format(__version__),
+             "expecting http://{0}:{1}/{2}/".format(HOST, PORT, API), ""]
+
+    listening, why = port_open()
     record, loaded = startup_record()
 
+    if not listening:
+        lines.append("NOTHING IS LISTENING on {0}:{1}".format(HOST, PORT))
+        lines.append("  {0}".format(why))
+        lines.append("")
+        lines.extend(record)
+        lines.append("")
+        if loaded:
+            lines.append(
+                "The startup script ran at {0}, so the extension is loaded "
+                "and the routes exist. Switch the server on: pyRevit Settings "
+                "-> Routes -> Routes Server (Beta), then restart Revit."
+                .format(loaded))
+        else:
+            lines.append(
+                "The startup script has not run in this session, so there is "
+                "nothing to listen. pyRevit tab -> Reload, or restart Revit, "
+                "then run this again.")
+        return lines, False
+
+    lines.append("The port is open. Asking the routes.")
+    lines.append("")
+    ping_line, ping_detail = describe("ping", PING_TIMEOUT_SECONDS)
+    status_line, status_detail = describe("status", TIMEOUT_SECONDS)
+    lines.extend([ping_line, "", status_line, ""])
+    lines.extend(record)
+    lines.append("")
+
     answered = "no answer" not in ping_line
-
-    if answered:
-        verdict = "The bridge is up."
-    elif loaded:
-        verdict = ("The startup script ran, so the extension is loaded. "
-                   "Nothing is listening — switch the Routes server on: "
-                   "pyRevit Settings → Routes → Routes Server (Beta), then "
-                   "restart Revit.")
+    if answered and "no answer" in status_line:
+        lines.append(
+            "Ping answered and status did not. The server is up and the "
+            "External Event marshalling is not - a finding, not a failure, "
+            "and it belongs in the report.")
+    elif answered:
+        lines.append("The bridge is up.")
     else:
-        verdict = ("The startup script has not run in this session, so there "
-                   "is nothing to listen. Reload pyRevit or restart Revit.")
+        lines.append(
+            "Something is on the port but /ping does not answer. Either "
+            "another program has {0}, or the routes did not register - the "
+            "startup record above says which.".format(PORT))
 
-    from Autodesk.Revit.UI import TaskDialog
-    dialog = TaskDialog("AnonGee · Bridge Check")
-    dialog.MainInstruction = "The bridge, as Excel would see it"
-    dialog.MainContent = "\n\n".join(
-        [ping_line, status_line, "\n".join(record), verdict])
-    dialog.ExpandedContent = "\n\n".join([
-        ping_detail, status_detail,
-        "Ping answered and status did not? The server is up and the External "
-        "Event marshalling is not — a finding, not a failure, and it belongs "
-        "in the report."])
-    dialog.Show()
+    lines.extend(["", "--- detail ---", ping_detail, status_detail])
+    return lines, answered
+
+
+def main():
+    """Say something, always.
+
+    A run of the previous version showed nothing at all and left an empty
+    console. **A diagnostic that can produce no output is broken by
+    definition**, so everything below is wrapped and the failure becomes the
+    report.
+    """
+    try:
+        lines, _ok = report()
+    except Exception as error:
+        lines = ["Bridge Check itself failed: {0}".format(error),
+                 "",
+                 "That is a bug in this tool, not in the bridge. The bridge "
+                 "may well be fine."]
+
+    text = "\n".join(lines)
+
+    # To the pyRevit console as well as the dialog, and this is the important
+    # half: console output can be selected and pasted. A dialog has to be
+    # retyped or screenshotted, which is how the last three rounds of findings
+    # arrived - and a screenshot of a collapsed panel is how one of them said
+    # nothing at all.
+    print(text)
+
+    try:
+        from Autodesk.Revit.UI import TaskDialog
+        dialog = TaskDialog("AnonGee \u00b7 Bridge Check")
+        dialog.MainInstruction = "The bridge, as Excel would see it"
+        dialog.MainContent = "\n".join(lines[:14])
+        dialog.ExpandedContent = text
+        dialog.Show()
+    except Exception:
+        pass                       # the console already has all of it
 
 
 main()

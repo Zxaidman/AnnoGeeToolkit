@@ -35,6 +35,33 @@ of view of someone using the thing rather than someone reading the diff:
 
 ---
 
+## 1.10.2
+
+**Fixed**
+
+- **The macro would not compile.** Two `Public Const` lines were written next to
+  the code that used them, further down the module. VBA requires every
+  module-level declaration to come **before the first procedure**, and Excel
+  refused the whole thing with *"Only comments may appear after End Sub, End
+  Function, or End Property"* — an error that points at the line after the
+  previous procedure rather than at the misplaced declaration, and that appears
+  only at import time in Excel, long after every test here has passed. There is
+  now a test that reads the `.bas` and fails on any declaration below the first
+  procedure.
+- **Bridge Check 0.4.0 took minutes and showed nothing.** It now probes the TCP
+  port first — a refused connection answers in microseconds, and when nothing is
+  listening four HTTP attempts against two routes are wasted time.
+  `WebClient.DownloadString` carries a hundred-second default timeout that
+  cannot be set without subclassing it, so it is tried last instead of first;
+  `/ping` gets five seconds and `/status` twenty, because one touches Revit and
+  the other does not.
+- **Bridge Check could produce no output at all**, which it did. The run is
+  wrapped so its own failure becomes the report, and **the report goes to the
+  pyRevit console as well as the dialog** — console output can be pasted, a
+  dialog has to be retyped.
+
+---
+
 ## 1.10.1
 
 **Fixed**

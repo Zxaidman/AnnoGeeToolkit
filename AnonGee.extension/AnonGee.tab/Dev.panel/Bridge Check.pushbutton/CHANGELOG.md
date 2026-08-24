@@ -1,5 +1,27 @@
 # Bridge Check — changelog
 
+## 0.4.0 — 2026-08-24
+
+It answers in a second, and it always answers.
+
+- **The port is probed before any HTTP.** A refused TCP connection comes back in
+  microseconds; when nothing is listening, four HTTP attempts against two routes
+  are wasted minutes. A run of 0.3.0 took exactly that and showed nothing.
+- **`WebClient` goes last, and every other way now takes a timeout.**
+  `WebClient.DownloadString` carries a **hundred-second default** and cannot have
+  one set without subclassing it, so it is the last thing tried rather than the
+  first. `HttpClient` leads.
+- **`/ping` gets five seconds, `/status` twenty.** `/ping` touches no Revit and
+  should answer at once; `/status` runs as an External Event and legitimately
+  waits for Revit to be idle. Giving them the same number made a working bridge
+  look slow and a dead one look hung.
+- **The report goes to the pyRevit console, not only a dialog** — and that is the
+  important half. Console output can be selected and pasted; a dialog has to be
+  retyped or screenshotted.
+- **It cannot produce no output.** The previous version could, and did. A
+  diagnostic that shows nothing is broken by definition, so the whole run is
+  wrapped and its own failure becomes the report.
+
 ## 0.3.0 — 2026-08-22
 
 The reason moves into the headline, and the tool can now answer when nothing

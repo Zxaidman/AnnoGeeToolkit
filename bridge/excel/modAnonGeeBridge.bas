@@ -47,6 +47,24 @@ Public Const BRIDGE_API As String = "anongee"
 ' waiting, precisely because this number can never be right for every job.
 Public Const BRIDGE_TIMEOUT_SECONDS As Long = 15
 
+' How the macro waits for a result file. Polling, because Excel cannot host a
+' listener without a great deal of unpleasantness.
+Public Const POLL_EVERY_MS As Long = 500
+Public Const GIVE_UP_AFTER_SECONDS As Long = 300
+
+' ---------------------------------------------------------------------------
+' EVERY module-level declaration lives above this line, and it has to.
+'
+' VBA requires all Const, Dim and Declare statements to come before the first
+' procedure. Two of these were written next to the code that used them, further
+' down the module, and the whole thing refused to compile with "Only comments
+' may appear after End Sub, End Function, or End Property" -- an error that
+' names the symptom and not the cause, and appears only when Excel compiles,
+' which is after the import and long after any test here has passed.
+'
+' tests/test_bridge.py fails on a declaration below the first procedure now.
+' ---------------------------------------------------------------------------
+
 
 Public Function BridgeUrl(ByVal route As String) As String
     BridgeUrl = "http://" & BRIDGE_HOST & ":" & CStr(BRIDGE_PORT) & _
@@ -255,10 +273,6 @@ End Function
 ' It waits for the TSV rather than the JSON because VBA has no JSON parser and
 ' should not be given a hand-written one. Revit writes both; this reads lines.
 ' ===========================================================================
-
-Public Const POLL_EVERY_MS As Long = 500
-Public Const GIVE_UP_AFTER_SECONDS As Long = 300
-
 
 Public Sub Run_Echo()
     RunCommand "bridge.echo", ""

@@ -185,6 +185,55 @@ with VS Code and a full interpreter path.
 Windows, which is the launcher the python.org installer provides, and names the
 Store-alias error so it is recognisable.
 
+### BUG-7 — the macro would not compile · `testing`
+
+**Found by the owner importing it**: *"Compile error: Only comments may appear
+after End Sub, End Function, or End Property."*
+
+Two `Public Const` lines were written next to the code that used them, further
+down the module. **VBA requires every module-level declaration to come before
+the first procedure.** The error names the line after the previous procedure
+rather than the misplaced declaration, so it points at innocent code — and it
+appears at import time in Excel, long after everything here has passed.
+
+**Reproduced:** yes, deterministically. Both declarations found by scanning the
+file; only the first was in the error.
+
+**Fixed, unconfirmed.** Every declaration is above the first procedure, under a
+banner saying it has to stay there, and a test reads the `.bas` and fails on any
+that is not.
+
+**The `.xlsm` in the repository still carries the old module.** Re-import
+`modAnonGeeBridge.bas` — this fix and `BUG-4` are both in it.
+
+### BUG-8 — Bridge Check took minutes and showed nothing · `testing`
+
+**Found by the owner**: *"bridgeCheck took so long to execute and nothing output
+it in console empty."*
+
+Two faults, and the second is worse than the first.
+
+**Slow:** four ways to the wire, tried twice, with nothing listening. And
+`WebClient.DownloadString` carries a **hundred-second default timeout** that was
+never set — it cannot be set without subclassing `WebClient` — and it was tried
+first.
+
+**Silent:** the console was empty because nothing was ever printed, and the
+dialog is the only output. **A diagnostic that can produce no output is broken
+by definition**, and this one could.
+
+**Reproduced:** by reading it. The timeout is documented .NET behaviour and the
+absence of any `print` is plain in the source.
+
+**Fixed, unconfirmed.** The TCP port is probed first — a refused connection
+answers in microseconds, so when nothing is listening no HTTP is attempted at
+all. `WebClient` is tried last, `/ping` gets five seconds and `/status` twenty,
+the whole run is wrapped so its own failure becomes the report, and **the report
+prints to the pyRevit console** as well as the dialog. Console output can be
+pasted; a dialog has to be retyped, which is how the last three rounds of
+findings arrived — one of them as a screenshot of a collapsed panel that said
+nothing.
+
 ### BUG-2 — the Routes server listens on every interface · `pending`
 
 **Found while reading the settings panel**, which reports `listening on http://0.0.0.0:48884`;
@@ -251,6 +300,7 @@ Each carries the verdict from the PRD, so the queue and the estimate cannot drif
 | FEAT-17 | Rebar beyond footings — beams, columns, walls | **Yes, and the slowest item in the programme.** Footings alone have taken seven versions and their constraints are still unconfirmed. Each element type needs its own layout engine. Quarters, not weeks | `pending` |
 | FEAT-18 | `tags.sync` | **Partly, and the gap matters.** Tagging everything is a morning. Tagging so nothing overlaps and the drawing is issuable is where every auto-tagging tool underdelivers. Expect placed-then-adjusted, improving per release | `pending` |
 | FEAT-19 | Shop drawing assembly | **The hardest thing on the list, by a distance.** `Dimension.Create` needs stable geometric `Reference`s, and getting them for rebar and element faces is fragile and moves between Revit versions. Realistic first target: sheets, views, crops, schedules and most tags automatic; dimensions by hand | `pending` |
+| FEAT-21 | **Bridge Listener as a modeless window** — minimal, always-visible: watching or stopped, the folder it watches, jobs as they arrive and what each did | Straightforward, and the pattern is already proven twice in this repository. A TaskDialog says what was true at the moment it opened; a job that arrives thirty seconds later is invisible, which is the wrong shape for a thing whose whole job is to be watching. Owner's request | `pending` |
 | FEAT-20 | MCP layer over the same `/anongee/jobs` endpoints | Straightforward **because it is deliberately last.** A solved shape — `revit-mcp-python` is a FastMCP server forwarding to pyRevit Routes. Costs nothing today beyond keeping the command surface small and named | `pending` |
 
 ---
@@ -335,11 +385,15 @@ anybody else.
 > 1. **pyRevit tab → Reload** (or restart Revit) so the new `startup.py` loads.
 > 2. **Bridge Check.** It now says which of three things is wrong and what to do.
 >    Send that dialog whatever it says — it is the whole diagnosis now.
-> 3. Once it is up: re-import the `.bas` (`BUG-4` changed it), switch
->    **Bridge Listener** on, and press **Run_Echo**.
+> 3. Once it is up: **re-import `modAnonGeeBridge.bas`** — `BUG-4` and `BUG-7`
+>    are both in it, and the `.xlsm` in the repository still carries the old
+>    module — then switch **Bridge Listener** on and press **Run_Echo**.
 >
 > A `LOG` row closes `CRIT-3`, `FEAT-1`, `FEAT-2` and `FEAT-4` in one go — they
-> all describe the same journey — and `BUG-3` through `BUG-6` with it.
+> all describe the same journey — and `BUG-3` through `BUG-8` with it.
+>
+> **Bridge Check now prints to the pyRevit console.** Paste that rather than
+> screenshotting the dialog; it carries the detail the dialog truncates.
 >
 > **Waiting on:** the RC Automation 0.7.0 bugs the owner found but has not sent, and the existing
 > project `.rvt` that `CRIT-2` and `FEAT-3` start from.

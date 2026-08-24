@@ -577,12 +577,90 @@ class VbaErrorHandlingTests(unittest.TestCase):
                 "End Function")[0]
             self.assertIn('"ok"": false', body, name)
 
+    def test_every_module_declaration_is_above_the_first_procedure(self):
+        """VBA requires it, and says so in a way that names only the symptom.
+
+        Two ``Public Const`` lines were written next to the code that used
+        them, further down the module. Excel refused to compile the whole thing
+        with *"Only comments may appear after End Sub, End Function, or End
+        Property"* — which points at the line after the previous procedure and
+        not at the declaration that is actually misplaced. It appears at import
+        time, in Excel, long after everything here has passed.
+        """
+        first = None
+        for index, line in enumerate(_read(_VBA).splitlines(), 1):
+            head = line.strip()
+            for prefix in ("Public ", "Private ", "Friend "):
+                if head.startswith(prefix):
+                    head = head[len(prefix):]
+            if head.startswith(("Sub ", "Function ")) and first is None:
+                first = index
+            if first and index > first and head.startswith(("Const ",
+                                                            "Declare ")):
+                self.fail("line {0} declares '{1}' after the first procedure "
+                          "at line {2} — Excel will refuse the module"
+                          .format(index, line.strip(), first))
+
     def test_an_unreachable_bridge_names_the_switch_to_flick(self):
         # "Nothing is listening" and "the listener is off" are two different
         # switches in two different places, and the error alone says neither.
         source = _read(_VBA)
         self.assertIn("Routes Server", source)
         self.assertIn("Bridge Check", source)
+
+
+class BridgeCheckSpeedTests(unittest.TestCase):
+    """A diagnostic that takes minutes and shows nothing is not a diagnostic.
+
+    A run of 0.3.0 did exactly that. Four ways to the wire, tried twice, and
+    ``WebClient.DownloadString`` carries a **hundred-second default timeout**
+    that was never set — so with nothing listening the tool sat there, and then
+    the console was empty because nothing was printed.
+    """
+
+    def test_the_port_is_probed_before_any_http(self):
+        # A refused TCP connection answers in microseconds. When nothing is
+        # listening, none of the HTTP attempts are worth making.
+        body = _read(_CHECK).split("def report(")[1].split("\ndef ")[0]
+        self.assertIn("port_open()", body)
+        self.assertLess(body.index("port_open()"), body.index("describe("))
+
+    def test_the_probe_is_bounded_to_about_a_second(self):
+        constants = _constants(_read(_CHECK))
+        self.assertLessEqual(constants["PROBE_TIMEOUT_SECONDS"], 2)
+
+    def test_ping_is_not_given_the_status_timeout(self):
+        # /ping touches no Revit and should answer at once; /status runs as an
+        # External Event and legitimately waits for Revit to be idle.
+        constants = _constants(_read(_CHECK))
+        self.assertLess(constants["PING_TIMEOUT_SECONDS"],
+                        constants["TIMEOUT_SECONDS"])
+        body = _read(_CHECK).split("def report(")[1].split("\ndef ")[0]
+        self.assertIn('describe("ping", PING_TIMEOUT_SECONDS)', body)
+
+    def test_the_unbounded_way_is_tried_last(self):
+        """``WebClient`` cannot have a timeout set without subclassing it."""
+        ways = _read(_CHECK).split("WAYS = (")[1].split(")\n\n")[0]
+        self.assertLess(ways.index("HttpClient"), ways.index("WebClient"))
+
+    def test_every_way_takes_the_timeout(self):
+        source = _read(_CHECK)
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.FunctionDef) and node.name.startswith("_by_"):
+                self.assertIn("seconds", [a.arg for a in node.args.args],
+                              node.name)
+
+    def test_it_always_says_something(self):
+        # The console was empty. A diagnostic that can produce no output is
+        # broken by definition.
+        body = _read(_CHECK).split("def main(")[1].split("\nmain()")[0]
+        self.assertIn("except Exception", body)
+        self.assertIn("print(text)", body)
+
+    def test_the_report_goes_to_the_console_not_only_a_dialog(self):
+        """Console output can be pasted; a dialog has to be retyped."""
+        body = _read(_CHECK).split("def main(")[1].split("\nmain()")[0]
+        self.assertLess(body.index("print(text)"), body.index("TaskDialog"))
 
 
 class StartupRecordTests(unittest.TestCase):
