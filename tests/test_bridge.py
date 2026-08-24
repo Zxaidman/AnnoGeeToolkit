@@ -624,6 +624,59 @@ class VbaErrorHandlingTests(unittest.TestCase):
                           "at line {2} — Excel will refuse the module"
                           .format(index, line.strip(), first))
 
+    def test_the_macro_undoes_json_string_escapes(self):
+        """The post's answer carries a Windows path, and JSON doubles every
+        backslash in it.
+
+        Returned verbatim, ``resultTsv`` becomes ``C:\\\\Users\\\\praka…`` —
+        a path Windows may or may not collapse for you, and "may or may not" is
+        not a design. The result file it points at would simply never be found
+        and the macro would report a job that had in fact finished.
+        """
+        source = _read(_VBA)
+        self.assertIn("Public Function JsonUnescape", source)
+        self.assertIn("JsonUnescape(Mid$(rest, 2, closing - 2))", source)
+        # And the closing quote has to skip escaped ones, or a value ending in
+        # a backslash terminates the string early.
+        self.assertIn("Private Function FindClosingQuote", source)
+
+    def test_the_macros_json_escaping_round_trips_a_real_answer(self):
+        """The VBA cannot run here, so its two functions are ported line for
+        line and checked against what the route actually sends."""
+        import json
+
+        def find_closing(rest):
+            index = 1
+            while index < len(rest):
+                if rest[index] == "\\":
+                    index += 2
+                elif rest[index] == '"':
+                    return index
+                else:
+                    index += 1
+            return -1
+
+        def unescape(text):
+            mapping = {"\\": "\\", '"': '"', "/": "/",
+                       "n": "\n", "r": "\r", "t": "\t"}
+            out, index = [], 0
+            while index < len(text):
+                if text[index] == "\\" and index + 1 < len(text):
+                    out.append(mapping.get(text[index + 1], text[index + 1]))
+                    index += 2
+                else:
+                    out.append(text[index])
+                    index += 1
+            return "".join(out)
+
+        real = ("C:\\Users\\praka\\AppData\\Roaming\\AnonGee\\bridge"
+                "\\inbox\\20260824-171500-0001.result.tsv")
+        body = json.dumps({"ok": True, "jobId": "20260824-171500-0001",
+                           "resultTsv": real})
+        rest = body[body.index('"resultTsv"'):]
+        rest = rest[rest.index(":") + 1:].strip()
+        self.assertEqual(unescape(rest[1:find_closing(rest)]), real)
+
     def test_an_unreachable_bridge_names_the_switch_to_flick(self):
         # "Nothing is listening" and "the listener is off" are two different
         # switches in two different places, and the error alone says neither.
@@ -736,6 +789,75 @@ class StartupRecordTests(unittest.TestCase):
         headline = body.split("if not body:")[1].split("detail =")[0]
         self.assertIn("no answer — {1}", headline)
         self.assertIn("errors[0]", headline)
+
+
+class ResultEncodingTests(unittest.TestCase):
+    """The TSV is read by ``Input$``, which knows nothing about UTF-8.
+
+    It reads bytes as the machine's ANSI code page, so the TSV is written as
+    ASCII with anything else replaced. A message containing an em dash would
+    otherwise either fail to write on a cp1252 machine or arrive in the
+    spreadsheet as mojibake — and ``open(path, "w")`` with no encoding named is
+    how you get a file written differently on two machines and read wrongly on
+    a third.
+
+    The JSON keeps the full text. That is the one real cost of writing the
+    answer twice, and it beats hand-rolling a JSON parser in VBA.
+    """
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def result(self):
+        job = _envelope.new_job("bridge.echo", identifier="j1")
+        return _envelope.new_result(job, _envelope.STATUS_DONE, {"n": 1}, [{
+            "severity": "Error", "sheet": "LEVELS", "row": 3,
+            "column": "Name", "message": "an em dash \u2014 and a caf\u00e9"}])
+
+    def test_the_tsv_is_pure_ascii(self):
+        _json_path, tsv_path = _jobs.write_result(self.result(), self.root)
+        with open(tsv_path, "rb") as handle:
+            raw = handle.read()
+        self.assertTrue(all(byte < 128 for byte in raw))
+
+    def test_the_json_keeps_what_the_tsv_had_to_drop(self):
+        json_path, _tsv = _jobs.write_result(self.result(), self.root)
+        found = _jobs.read(json_path)
+        self.assertIn("\u2014", found["findings"][0]["message"])
+
+    def test_every_write_names_its_encoding(self):
+        """A write with no encoding guesses at the machine's locale.
+
+        Read off the tree, not the text. Three tests in this suite have now
+        been written against prose and matched the sentence explaining the bug
+        instead of the code causing it — including, on the first attempt, this
+        one.
+        """
+        source = _read(os.path.join(
+            _ROOT, "AnonGee.extension", "lib", "py3", "anongee_toolkit",
+            "bridge", "jobs.py"))
+        opened = 0
+        for node in ast.walk(ast.parse(source)):
+            if not isinstance(node, ast.Call):
+                continue
+            name = node.func.attr if isinstance(node.func, ast.Attribute) else (
+                node.func.id if isinstance(node.func, ast.Name) else "")
+            if name != "open":
+                continue
+            mode = ""
+            if len(node.args) > 1 and isinstance(node.args[1], ast.Constant):
+                mode = node.args[1].value
+            if "w" not in mode:
+                continue
+            opened += 1
+            self.assertIn("encoding",
+                          [keyword.arg for keyword in node.keywords],
+                          "line {0} writes without naming an encoding".format(
+                              node.lineno))
+        self.assertTrue(opened, "no writes found — the test proves nothing")
 
 
 class MacroSurvivalTests(unittest.TestCase):

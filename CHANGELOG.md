@@ -35,6 +35,32 @@ of view of someone using the thing rather than someone reading the diff:
 
 ---
 
+## 1.10.5
+
+**Fixed**
+
+Both found by reading the `Run_Echo` path rather than by running it, while the
+first real job was in flight.
+
+- **The macro was handed a path it could not open.** The post's answer carries
+  `resultTsv`, and JSON doubles every backslash in a Windows path.
+  `JsonValue` returned that verbatim — `C:\\Users\\praka\\…` — which Windows
+  may or may not collapse for you, and "may or may not" is not a design. The
+  result file it pointed at would never be found and the macro would have
+  reported a job that had in fact finished. It now undoes JSON string escapes,
+  and finds the closing quote by skipping escaped ones so a value ending in a
+  backslash cannot terminate the string early.
+- **The result TSV is written as ASCII, and every write names its encoding.**
+  `open(path, "w")` with no encoding uses the machine's locale — cp1252 on
+  Windows — so the same file would be written differently on two machines and
+  read wrongly on a third. The TSV is read by VBA's `Input$`, which reads bytes
+  as the ANSI code page and knows nothing about UTF-8, so a message containing
+  an em dash would either fail to write or arrive as mojibake. The JSON keeps
+  the full text: that is the one real cost of writing the answer twice, and it
+  beats hand-rolling a JSON parser in VBA.
+
+---
+
 ## 1.10.4
 
 **Fixed**

@@ -29,6 +29,7 @@ That matters the day somebody opens two Revit sessions, which is the day nobody
 plans for.
 """
 
+import io
 import json
 import os
 
@@ -156,10 +157,12 @@ def write_result(result, root=None):
     json_path = os.path.join(inbox(root), identifier + RESULT_SUFFIX)
     tsv_path = os.path.join(inbox(root), identifier + TSV_SUFFIX)
 
-    for path, text in ((json_path, json.dumps(result, indent=2, sort_keys=True)),
-                       (tsv_path, envelope_module.as_tsv(result))):
+    for path, text, encoding in (
+            (json_path, json.dumps(result, indent=2, sort_keys=True),
+             JSON_ENCODING),
+            (tsv_path, envelope_module.as_tsv(result), TSV_ENCODING)):
         partial = path + ".partial"
-        _write_text(partial, text)
+        _write_text(partial, text, encoding)
         if os.path.exists(path):
             os.remove(path)
         os.rename(partial, path)
@@ -222,6 +225,30 @@ def recent(limit=20, root=None):
     return ordered[:limit]
 
 
-def _write_text(path, text):
-    with open(path, "w") as handle:
+#: The TSV is read by a VBA macro through ``Input$``, which reads bytes as the
+#: machine's ANSI code page and knows nothing about UTF-8. So it is written as
+#: **ASCII**, with anything else replaced: a message containing an em dash would
+#: otherwise either fail to write on a cp1252 machine or arrive as mojibake in a
+#: spreadsheet.
+#:
+#: The JSON keeps the full text — it is the canonical form and is read by
+#: programs that can say what encoding they want. This is the one real cost of
+#: writing the answer twice, and it is worth it against hand-rolling a JSON
+#: parser in VBA.
+TSV_ENCODING = "ascii"
+JSON_ENCODING = "utf-8"
+
+
+def _write_text(path, text, encoding=JSON_ENCODING):
+    """Write *text*, never guessing at the machine's code page.
+
+    ``open(path, "w")`` with no encoding uses the locale's, which on Windows is
+    cp1252 — so the same file would be written differently on two machines and
+    read wrongly on a third. Every write here names its encoding.
+    """
+    handle = io.open(path, "w", encoding=encoding, errors="replace",
+                     newline="\n")
+    try:
         handle.write(text)
+    finally:
+        handle.close()

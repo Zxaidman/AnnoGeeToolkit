@@ -48,4 +48,4 @@ def run(uiapp, envelope):
     for name in ("dryRun", "onConflict", "keyParameter"):
         summary["option." + name] = envelope_module.option(envelope, name)
 
-    return summary, findings, "nothing was written — this command never writes"
+    return summary, findings, "nothing was written; this command never writes"

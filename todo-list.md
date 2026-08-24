@@ -338,6 +338,42 @@ call that route successfully.
 document is read directly from `__revit__`, which is what that route would have
 said and is instant. The report explains the absence and points at Excel.
 
+### BUG-13 — the macro could not open the result it was told to wait for · `testing`
+
+**Found by reading the path, not by running it** — while the first `Run_Echo`
+was in flight, on the reasoning that four rounds of round trips is expensive and
+this one was worth spending on the page instead.
+
+The post's answer carries `resultTsv`, and **JSON doubles every backslash in a
+Windows path**. `JsonValue` returned it verbatim: `C:\\Users\\praka\\…`.
+Windows may or may not collapse doubled separators, and "may or may not" is not
+a design.
+
+**What it would have looked like:** the job runs, the result is written, and the
+macro sits for five minutes and reports *"no result — is Bridge Listener
+switched on?"* — pointing at the one thing that was working.
+
+**Reproduced:** by porting the two VBA functions line for line and running them
+against what the route actually sends. That port is now a test.
+
+**Fixed, unconfirmed.** `JsonUnescape`, and a closing-quote scan that skips
+escaped quotes so a value ending in a backslash cannot end the string early.
+
+### BUG-14 — the result file's encoding was whatever the machine felt like · `testing`
+
+**Found in the same read.** `open(path, "w")` with no encoding uses the locale's
+— cp1252 on Windows — so the same file is written differently on two machines
+and read wrongly on a third.
+
+The TSV is read by VBA's `Input$`, which reads bytes as the ANSI code page and
+knows nothing about UTF-8. A finding containing an em dash — and `bridge.echo`'s
+own note contained one — would either fail to write or arrive in the spreadsheet
+as mojibake.
+
+**Fixed, unconfirmed.** The TSV is ASCII with anything else replaced; the JSON
+keeps the full text and names UTF-8. That split is the one real cost of writing
+the answer twice, and it is still cheaper than a JSON parser in VBA.
+
 ### BUG-2 — the Routes server listens on every interface · `pending`
 
 **Found while reading the settings panel**, which reports `listening on http://0.0.0.0:48884`;

@@ -205,10 +205,65 @@ End Function
 
 
 ' --- NOT a JSON parser -----------------------------------------------------
-' It finds the first "key": value pair and returns the value as text. Good
-' enough to put four fields in four cells for a spike, and no further. VBA has
-' no JSON parser; the real bridge needs one, and writing half of it here would
-' be the worst of both -- so this is deliberately named for what it is not.
+' It finds the first "key": value pair and returns the value as text, with
+' string escapes undone. Good enough for the handful of scalar fields the post's
+' answer carries, and no further -- it does not walk objects, arrays or nesting.
+'
+' The escaping half is not optional though, and that was the lesson: the answer
+' carries a Windows path, JSON doubles every backslash in it, and a value
+' returned verbatim is a path Windows may or may not accept. The result file it
+' pointed at would simply never be found, and the macro would report a job that
+' had in fact finished.
+
+Private Function FindClosingQuote(ByVal rest As String) As Long
+    ' The first quote that is not escaped. A Windows path in JSON is full of
+    ' backslashes and a naive InStr would stop at the wrong one the moment a
+    ' value ended with one.
+    Dim index As Long
+    index = 2
+    Do While index <= Len(rest)
+        Select Case Mid$(rest, index, 1)
+            Case "\"
+                index = index + 2          ' skip whatever it escapes
+            Case """"
+                FindClosingQuote = index
+                Exit Function
+            Case Else
+                index = index + 1
+        End Select
+    Loop
+End Function
+
+
+Public Function JsonUnescape(ByVal text As String) As String
+    ' The reason this exists, and it is not academic: the post's answer carries
+    '   "resultTsv": "C:\\Users\\praka\\...\\inbox\\x.result.tsv"
+    ' and JSON doubles every backslash. Returning that verbatim gave the macro
+    ' a path with doubled separators to hand to Dir$ and Open -- which Windows
+    ' may or may not collapse for you, and "may or may not" is not a design.
+    Dim out As String
+    Dim index As Long
+    index = 1
+    Do While index <= Len(text)
+        If Mid$(text, index, 1) = "\" And index < Len(text) Then
+            Select Case Mid$(text, index + 1, 1)
+                Case "\": out = out & "\"
+                Case """": out = out & """"
+                Case "/": out = out & "/"
+                Case "n": out = out & vbLf
+                Case "r": out = out & vbCr
+                Case "t": out = out & vbTab
+                Case Else: out = out & Mid$(text, index + 1, 1)
+            End Select
+            index = index + 2
+        Else
+            out = out & Mid$(text, index, 1)
+            index = index + 1
+        End If
+    Loop
+    JsonUnescape = out
+End Function
+
 
 Public Function JsonValue(ByVal body As String, ByVal key As String) As String
     Dim marker As String
@@ -233,11 +288,11 @@ Public Function JsonValue(ByVal body As String, ByVal key As String) As String
 
     If Left$(rest, 1) = """" Then
         Dim closing As Long
-        closing = InStr(2, rest, """")
+        closing = FindClosingQuote(rest)
         If closing = 0 Then
             JsonValue = ""
         Else
-            JsonValue = Mid$(rest, 2, closing - 2)
+            JsonValue = JsonUnescape(Mid$(rest, 2, closing - 2))
         End If
         Exit Function
     End If
