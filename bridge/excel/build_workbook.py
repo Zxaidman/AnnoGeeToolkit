@@ -52,8 +52,12 @@ COMMANDS = [
      "never creates a second level where one already sits - each of those is "
      "reported instead. Run it twice and the second run changes nothing."),
     ("Create / update grids", "grids.sync", "GRIDS",
-     "Match the GRIDS sheet against the model, then create, modify or leave "
-     "each grid alone."),
+     "Match the GRIDS sheet against the model by name, then create or move "
+     "each grid. Angle is 0 along +X and 90 along +Y; give both ends, or a "
+     "start and an angle. Position is synced and extent is not, because grid "
+     "extents are adjusted by hand in every view. A grid running a different "
+     "way in the model is reported, never redrawn - that would lose anything "
+     "dimensioned to it."),
 ]
 
 CONTROL_HEADERS = ("Run", "Command", "Sheet", "What it does", "Write?",
@@ -76,15 +80,25 @@ LEVEL_ROWS = [
     ("03 2ND FLOOR LVL.", 6600, "", "Yes", ""),
 ]
 
-GRID_HEADERS = ("Name", "X1", "Y1", "X2", "Y2", "BubbleStart", "BubbleEnd",
-                "Comments")
+#: ``Angle`` is 0 along +X and 90 along +Y — a horizontal grid is 0, a vertical
+#: one is 90, and a skewed one is whatever it is. Added by the project owner
+#: after meeting a real job with grids at 30 and 45 degrees, and the convention
+#: is theirs.
+#:
+#: A row can give both ends, **or** a start and an angle. Giving both ends and
+#: an angle is allowed: the points win, because they say more, and the
+#: disagreement is reported rather than silently resolved.
+GRID_HEADERS = ("Name", "X1", "Y1", "X2", "Y2", "Angle", "Length",
+                "BubbleStart", "BubbleEnd", "Comments")
 GRID_ROWS = [
-    ("A", 0, -2000, 0, 14000, "Yes", "Yes", "Vertical, west"),
-    ("B", 6000, -2000, 6000, 14000, "Yes", "Yes", ""),
-    ("C", 12000, -2000, 12000, 14000, "Yes", "Yes", ""),
-    ("1", -2000, 0, 14000, 0, "Yes", "Yes", "Horizontal, south"),
-    ("2", -2000, 6000, 14000, 6000, "Yes", "Yes", ""),
-    ("3", -2000, 12000, 14000, 12000, "Yes", "Yes", ""),
+    ("A", 0, -2000, 0, 14000, 90, None, "Yes", "Yes", "Vertical, west"),
+    ("B", 6000, -2000, 6000, 14000, 90, None, "Yes", "Yes", ""),
+    ("C", 12000, -2000, 12000, 14000, 90, None, "Yes", "Yes", ""),
+    ("1", -2000, 0, 14000, 0, 0, None, "Yes", "Yes", "Horizontal, south"),
+    ("2", -2000, 6000, 14000, 6000, 0, None, "Yes", "Yes", ""),
+    ("3", -2000, 12000, 14000, 12000, 0, None, "Yes", "Yes", ""),
+    ("S1", 12000, 0, None, None, 45, 16000, "Yes", "Yes",
+     "Skewed. Start and angle only - no end point needed."),
 ]
 
 LOG_HEADERS = ("When", "Job", "Command", "Status", "Counts", "Note")
@@ -165,7 +179,7 @@ def build(target=DEFAULT_TARGET):
              (("A", 26), ("B", 12), ("C", 18), ("D", 8), ("E", 40))),
             ("GRIDS", GRID_HEADERS, GRID_ROWS,
              (("A", 10), ("B", 10), ("C", 10), ("D", 10), ("E", 10),
-              ("F", 13), ("G", 13), ("H", 32)))):
+              ("F", 9), ("G", 10), ("H", 13), ("I", 13), ("J", 44)))):
         sheet = book.create_sheet(name)
         header(sheet, headers)
         for index, values in enumerate(rows):
@@ -179,7 +193,7 @@ def build(target=DEFAULT_TARGET):
     yes_no.add("D2:D200")
     bubbles = DataValidation(type="list", formula1='"Yes,No"', allow_blank=True)
     book["GRIDS"].add_data_validation(bubbles)
-    bubbles.add("F2:G200")
+    bubbles.add("H2:I200")
 
     # -- LOG ----------------------------------------------------------------
     log = book.create_sheet("LOG")

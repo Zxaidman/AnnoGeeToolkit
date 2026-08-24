@@ -35,6 +35,37 @@ of view of someone using the thing rather than someone reading the diff:
 
 ---
 
+## 1.13.0
+
+**Added**
+
+- **`grids.sync`, with an `Angle` column.** 0 runs along +X and 90 along +Y — a
+  horizontal grid is 0, a vertical one is 90, a skewed one is whatever it is.
+  The convention is the project owner's, added after meeting a real job with
+  grids at 30 and 45 degrees.
+
+  A row gives **both ends, or a start and an angle**. Giving both is allowed:
+  the points win, because they say more, and the disagreement is reported
+  rather than quietly resolved. A row with an angle and no length borrows the
+  extent of the grids in the same sheet that did say — "grid A runs north" is a
+  thing real sheets write, and something has to decide how far.
+
+  Two rules are specific to a thing with a direction, and both are refusals:
+
+  | | |
+  | --- | --- |
+  | **Position is synced; extent is not** | grid extents are adjusted by hand in nearly every view of a real project. Comparing endpoints would report all of them as needing a change and then undo the work — so two grids on the same *infinite line* are the same grid, whatever their lengths |
+  | **A grid running a different way is never redrawn** | Revit cannot turn a grid; it would mean deleting and recreating, which loses anything dimensioned or constrained to it. Reported with both angles, and left |
+
+  A grid that does move is **translated perpendicular to itself**, never
+  redrawn — sliding along its own direction would move it without changing
+  where it is, and drag its extents off the building for nothing.
+
+  Existing grids are read through `structural.grids.segment_mm`, which already
+  knows an arc grid has no straight line to compare.
+
+---
+
 ## 1.12.0
 
 **Added**

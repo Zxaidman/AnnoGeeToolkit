@@ -54,24 +54,6 @@ model.
 
 ## 1. Critical
 
-### CRIT-5 — `grids.sync` is declared and not built · `pending`
-
-**`levels.sync` is built** (extension 1.12.0) and moved to `FEAT-5`. `grids.sync`
-remains: the registry names it, the `CONTROL` sheet has a button, and pressing it
-answers *"declared but not built yet"* — which the owner's run confirmed is a
-clear failure rather than an obscure one.
-
-Declared first on purpose — the workbook could then be built and checked against
-a registry that already knew what it would be asked for, and a test holds the
-`CONTROL` sheet, the registry and the macro to the same three names.
-
-**What it needs** is `anongee_toolkit/commands/grids.py` and the planning half in
-`rc_automation/datum.py` beside `plan_levels`. `levels.sync` is the worked
-example of both, and the four refusals it encodes apply almost unchanged — with
-one addition, since a grid is a line rather than a number: two grids at the same
-position under different names are the same collision, and bubble ends and 3D
-extents are per-view and belong in a later pass.
-
 ### CRIT-2 — neither template exists, and neither can be generated from here · `pending`
 
 **`template.rvt`.** No library outside Revit writes a `.rvt`. The deliverable is a written
@@ -430,7 +412,7 @@ Each carries the verdict from the PRD, so the queue and the estimate cannot drif
 | ID | What | Verdict | Phase |
 | --- | --- | --- | --- |
 | FEAT-5 | `levels.sync` | **Built, `testing`.** Rules in `rc_automation/datum.py`, tested off Revit: never delete, never rename, never fill an occupied elevation, match by name only. Idempotence is the acceptance test and there is one for it | `testing` |
-| FEAT-6 | `grids.sync` | **Straightforward, with a fiddly tail.** Creating them is an afternoon; per-view bubbles and 3D extents are where the time goes | `pending` |
+| FEAT-6 | `grids.sync` | **Built, `testing`.** Angle column (0 along +X, 90 along +Y), both-ends or start-and-angle, position synced but extent not, a turned grid reported rather than redrawn. **The fiddly tail is still ahead**: bubble ends and 3D extents are per-view and belong with `FEAT-8` | `testing` |
 | FEAT-7 | `types.sync` — duplicate, parameterise, load from a library | **Partly possible, and the boundary matters.** Duplicating and loading covers most of a real job. **Authoring a family from a spreadsheet is not on the table** — the template carries the families | `pending` |
 | FEAT-8 | `views.sync` — plans, sections, 3D, templates, scope boxes, crops, filters | **Yes, medium.** The workbook supplies the judgement so the code does not guess | `pending` |
 | FEAT-9 | `sheets.sync` — sheets, viewports, title block parameters | **Yes, medium.** Placing a viewport is arithmetic, not research | `pending` |
@@ -549,17 +531,17 @@ anybody else.
 > 2. **Bridge Check.** It now says which of three things is wrong and what to do.
 >    Send that dialog whatever it says — it is the whole diagnosis now.
 > 3. Switch **Bridge Listener** on.
-> 4. **`Run_Levels` with Write? = No.** A dry run reports what it would do to
->    your four levels and writes nothing. The model has two levels and the sheet
->    names four, so expect two creates and two of something else — and whatever
->    it says, that is the plan a real run would follow exactly.
-> 5. Then Write? = Yes, and run it twice. **The second run must report four
->    matches and nothing else.** That is the acceptance test, not the first one:
->    anything can create.
+> 4. ~~`Run_Levels` with Write? = No~~ **done 2026-08-24**: `created=2
+>    matched=1 modified=1 written=0`, four sheet rows and two model levels all
+>    accounted for.
+> 5. **`Run_Levels` with Write? = Yes, then run it again.** The second run must
+>    report `matched=4` and nothing else. That is the acceptance test, not the
+>    first one: anything can create.
+> 6. Then `Run_Grids` the same way — dry run, write, write again.
 >
-> Re-import the `.bas` once more first — `BUG-15` is in it. The workbook itself
-> was rebuilt too, so its CONTROL sheet now describes what `levels.sync`
-> actually does.
+> The workbook was rebuilt, so its GRIDS sheet now carries `Angle` and `Length`
+> and one worked example of a skewed grid given as a start and an angle. The
+> `.bas` did not change this time.
 >
 > A `LOG` row closes `CRIT-3`, `FEAT-1`, `FEAT-2` and `FEAT-4` in one go — they
 > all describe the same journey — and `BUG-3` through `BUG-8` with it.

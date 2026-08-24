@@ -210,6 +210,150 @@ class PlanningTests(unittest.TestCase):
         self.assertEqual(moving[0].row.name, "02 1ST FLOOR LVL.")
 
 
+def grid_sheet(*rows):
+    return ([["Name", "X1", "Y1", "X2", "Y2", "Angle", "Length",
+              "BubbleStart", "BubbleEnd", "Comments"]]
+            + [list(row) + [None] * (10 - len(row)) for row in rows])
+
+
+class GridAngleTests(unittest.TestCase):
+    """``Angle`` is 0 along +X and 90 along +Y.
+
+    The project owner added the column after meeting a real job with grids at
+    30 and 45 degrees, and the convention is theirs: horizontal is 0, vertical
+    is 90.
+    """
+
+    def line(self, *row):
+        rows, _issues = datum.parse_grids(grid_sheet(row))
+        return datum.grid_line(rows[0], datum.default_length(rows))
+
+    def test_zero_runs_along_x(self):
+        line, note = self.line("1", 0, 0, None, None, 0, 10000)
+        self.assertEqual(note, "")
+        self.assertAlmostEqual(line[1][0], 10000.0)
+        self.assertAlmostEqual(line[1][1], 0.0)
+
+    def test_ninety_runs_along_y(self):
+        line, _note = self.line("A", 0, 0, None, None, 90, 10000)
+        self.assertAlmostEqual(line[1][0], 0.0)
+        self.assertAlmostEqual(line[1][1], 10000.0)
+
+    def test_a_skewed_grid_lands_where_the_trigonometry_says(self):
+        import math
+        line, _note = self.line("S", 0, 0, None, None, 30, 10000)
+        self.assertAlmostEqual(line[1][0], 10000 * math.cos(math.radians(30)))
+        self.assertAlmostEqual(line[1][1], 10000 * math.sin(math.radians(30)))
+        self.assertAlmostEqual(datum._angle_of(line), 30.0)
+
+    def test_both_ends_win_over_an_angle_that_disagrees(self):
+        """The points are the more specific statement, so they decide — and
+        the disagreement is said out loud rather than quietly resolved."""
+        line, note = self.line("X", 0, 0, 10000, 0, 45)
+        self.assertAlmostEqual(datum._angle_of(line), 0.0)
+        self.assertIn("45", note)
+        self.assertIn("points win", note)
+
+    def test_an_angle_that_agrees_says_nothing(self):
+        _line, note = self.line("X", 0, 0, 10000, 0, 0)
+        self.assertEqual(note, "")
+
+    def test_a_row_with_neither_an_end_nor_an_angle_is_not_a_grid(self):
+        line, note = self.line("X", 0, 0)
+        self.assertIsNone(line)
+        self.assertIn("angle", note)
+
+    def test_a_length_of_its_own_beats_the_sheet_default(self):
+        rows, _issues = datum.parse_grids(grid_sheet(
+            ["A", 0, 0, 0, 30000], ["S", 0, 0, None, None, 0, 5000]))
+        line, _note = datum.grid_line(rows[1], datum.default_length(rows))
+        self.assertAlmostEqual(line[1][0], 5000.0)
+
+    def test_a_row_with_no_length_borrows_the_sheets_extent(self):
+        # "Grid A runs north" is a thing real sheets say. Something has to
+        # decide how far, and the grids that did say are the honest answer.
+        rows, _issues = datum.parse_grids(grid_sheet(
+            ["A", 0, 0, 0, 30000], ["S", 0, 0, None, None, 0]))
+        line, _note = datum.grid_line(rows[1], datum.default_length(rows))
+        self.assertAlmostEqual(line[1][0], 30000.0)
+
+
+class GridPlanningTests(unittest.TestCase):
+
+    def plan(self, rows, existing):
+        parsed, _issues = datum.parse_grids(grid_sheet(*rows))
+        return datum.plan_grids(parsed, existing)
+
+    def model(self, *grids):
+        return [(name, "id-{0}".format(index), line)
+                for index, (name, line) in enumerate(grids)]
+
+    def test_a_grid_the_model_lacks_is_created(self):
+        plans, _issues = self.plan([["A", 0, -2000, 0, 14000]], [])
+        self.assertEqual(plans[0].action, datum.CREATE)
+
+    def test_the_same_line_drawn_shorter_is_the_same_grid(self):
+        """Extents are adjusted by hand in nearly every view. Comparing
+        endpoints would report all of them and then undo the work."""
+        plans, _issues = self.plan(
+            [["A", 0, -2000, 0, 14000]],
+            self.model(("A", ((0, 0), (0, 6000)))))
+        self.assertEqual(plans[0].action, datum.MATCH)
+
+    def test_the_same_line_drawn_backwards_is_the_same_grid(self):
+        plans, _issues = self.plan(
+            [["A", 0, -2000, 0, 14000]],
+            self.model(("A", ((0, 14000), (0, -2000)))))
+        self.assertEqual(plans[0].action, datum.MATCH)
+
+    def test_a_parallel_grid_somewhere_else_is_moved(self):
+        plans, _issues = self.plan(
+            [["A", 0, -2000, 0, 14000]],
+            self.model(("A", ((500, 0), (500, 6000)))))
+        self.assertEqual(plans[0].action, datum.MODIFY)
+
+    def test_a_grid_running_a_different_way_is_never_redrawn(self):
+        """Revit cannot turn a grid. Recreating it loses anything dimensioned
+        or constrained to it, so this is reported and left."""
+        plans, issues = self.plan(
+            [["A", 0, 0, 0, 14000]],
+            self.model(("A", ((0, 0), (14000, 0)))))
+        self.assertEqual(plans[0].action, datum.BLOCKED)
+        self.assertIn("90", plans[0].reason)
+        self.assertIn("0", plans[0].reason)
+        errors = [issue for issue in issues
+                  if issue.severity == models.SEVERITY_ERROR]
+        self.assertIn("dimensioned", errors[0].message)
+
+    def test_a_second_grid_is_never_put_on_an_occupied_line(self):
+        plans, issues = self.plan(
+            [["B", 0, -2000, 0, 14000]],
+            self.model(("A", ((0, 0), (0, 6000)))))
+        self.assertEqual(plans[0].action, datum.BLOCKED)
+        self.assertIn("A", plans[0].reason)
+        self.assertTrue(any("rename" in issue.message for issue in issues))
+
+    def test_a_grid_the_sheet_omits_is_left_alone(self):
+        _plans, issues = self.plan(
+            [["A", 0, 0, 0, 14000]],
+            self.model(("A", ((0, 0), (0, 14000))), ("Z", ((9, 9), (9, 99)))))
+        left = [issue for issue in issues if "left alone" in issue.message]
+        self.assertEqual(len(left), 1)
+        self.assertIn("Z", left[0].message)
+
+    def test_running_it_twice_changes_nothing_the_second_time(self):
+        rows = [["A", 0, -2000, 0, 14000], ["1", -2000, 0, 14000, 0],
+                ["S1", 12000, 0, None, None, 45, 16000]]
+        first, _issues = self.plan(rows, [])
+        self.assertEqual(datum.summarise(first)["created"], 3)
+
+        after = self.model(*[(plan.row.name, plan.line) for plan in first])
+        second, _issues = self.plan(rows, after)
+        counts = datum.summarise(second)
+        self.assertEqual(counts["matched"], 3)
+        self.assertFalse(any(plan.will_write for plan in second))
+
+
 class CommandContractTests(unittest.TestCase):
     """What the Revit half is held to, read as source."""
 
@@ -260,7 +404,61 @@ class CommandContractTests(unittest.TestCase):
         import io
         with io.open(os.path.join(os.path.dirname(self.PATH), "__init__.py"),
                      encoding="utf-8") as handle:
-            self.assertIn('("levels.sync", "levels", "run")', handle.read())
+            registered = handle.read()
+        self.assertIn('("levels.sync", "levels", "run")', registered)
+        self.assertIn('("grids.sync", "grids", "run")', registered)
+
+
+class GridCommandContractTests(unittest.TestCase):
+    """``grids.sync`` is held to the same shape as ``levels.sync``."""
+
+    PATH = os.path.join(_ROOT, "AnonGee.extension", "lib", "py3",
+                        "anongee_toolkit", "commands", "grids.py")
+
+    def source(self):
+        import io
+        with io.open(self.PATH, encoding="utf-8") as handle:
+            return handle.read()
+
+    def test_it_decides_nothing_for_itself(self):
+        source = self.source()
+        self.assertIn("datum.plan_grids", source)
+        self.assertNotIn("def plan_", source)
+
+    def test_a_dry_run_writes_nothing(self):
+        body = self.source().split("def run(")[1].split("\ndef ")[0]
+        self.assertLess(body.index("if dry_run:"), body.index("_apply("))
+
+    def test_it_lands_as_one_undo_step(self):
+        body = self.source().split("def _apply(")[1].split("\ndef ")[0]
+        self.assertIn("TransactionGroup", body)
+        self.assertIn("group.Assimilate()", body)
+
+    def test_it_never_deletes(self):
+        self.assertNotIn("doc.Delete", self.source())
+        self.assertNotIn(".Delete(", self.source())
+
+    def test_an_existing_grid_is_moved_rather_than_redrawn(self):
+        """Redrawing loses every dimension attached to it. The direction is
+        known to match by then, so a translation is the whole difference."""
+        body = self.source().split("def _apply(")[1].split("\ndef ")[0]
+        modify = body.split("else:")[1]
+        self.assertIn("MoveElement", modify)
+        self.assertNotIn("Grid.Create", modify)
+
+    def test_it_reuses_the_adapter_that_knows_about_arcs(self):
+        # structural.grids.segment_mm returns None for a curve that is not a
+        # Line, which is the case a hand-written reader gets wrong.
+        body = self.source().split("def _existing(")[1].split("\ndef ")[0]
+        self.assertIn("grid_module.segment_mm", body)
+        self.assertIn("if segment is None:", body)
+
+    def test_the_move_is_perpendicular_only(self):
+        """Sliding along the shared direction moves the grid without changing
+        where it is, and drags its extents off the building for nothing."""
+        body = self.source().split("def _offset(")[1].split("\ndef ")[0]
+        self.assertIn("normal", body)
+        self.assertIn("Perpendicular only", body)
 
 
 if __name__ == "__main__":
