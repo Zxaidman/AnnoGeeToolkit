@@ -108,3 +108,21 @@ declare("levels.sync", sheet="LEVELS",
 declare("grids.sync", sheet="GRIDS",
         summary="Match the GRIDS sheet against the model's grids, then create, "
                 "modify or leave each one alone.")
+
+# Stage 3 - structure. Declared before they are written, for the same reason
+# the datum commands were: the sample workbook can then be built and checked
+# against a registry that already knows what it will be asked for, and pressing
+# an unbuilt button answers "declared but not built yet" rather than failing
+# obscurely. The owner's first run proved that reads as a clear failure.
+declare("footings.sync", sheet="FOOTING_PLACEMENT",
+        summary="Create the pad footings the placement sheet lists, as "
+                "structural floors so an arbitrary outline can be drawn.")
+declare("columns.sync", sheet="COLUMN_PLACEMENT",
+        summary="Create the structural columns the placement sheet lists, one "
+                "per storey, between the base and top levels it names.")
+declare("beams.sync", sheet="BEAM_PLACEMENT",
+        summary="Create the structural framing the placement sheet lists, "
+                "between the grid intersections it names.")
+declare("slabs.sync", sheet="SLAB_PLACEMENT",
+        summary="Create the floor slabs the placement sheet lists, from the "
+                "outline each one carries.")

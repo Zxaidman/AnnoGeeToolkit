@@ -38,6 +38,7 @@ _CHECK = os.path.join(_ROOT, "AnonGee.extension", "AnonGee.tab", "Dev.panel",
 _LISTENER = os.path.join(_ROOT, "AnonGee.extension", "AnonGee.tab", "Dev.panel",
                          "Bridge Listener.pushbutton", "script.py")
 _BUILDER = os.path.join(_ROOT, "bridge", "excel", "build_workbook.py")
+_SAMPLE = os.path.join(_ROOT, "bridge", "excel", "build_sample_project.py")
 
 if os.path.join(_ROOT, "tests") not in sys.path:
     sys.path.insert(0, os.path.join(_ROOT, "tests"))
@@ -47,6 +48,13 @@ _rc = _load_rc()
 from anongee_toolkit.bridge import envelope as _envelope         # noqa: E402
 from anongee_toolkit.bridge import jobs as _jobs                 # noqa: E402
 from anongee_toolkit.bridge import registry as _registry         # noqa: E402
+from anongee_toolkit import commands as _commands                # noqa: E402
+
+#: Bind the handlers once, here, so the tests below see the same registry the
+#: listener does. ``register_all`` imports each handler in a ``try`` and skips
+#: what will not import, so this works off Revit and reports exactly what a
+#: build has: three bound, four declared and not written yet.
+_BOUND = _commands.register_all()
 
 
 def _read(path):
@@ -477,9 +485,24 @@ class EnvelopeTests(unittest.TestCase):
 class RegistryTests(unittest.TestCase):
     """A command is declared once, and nothing else may name one."""
 
-    def test_the_declared_commands_are_the_stage_zero_and_one_set(self):
+    def test_the_declared_commands_are_the_stage_zero_to_three_set(self):
         self.assertEqual(_registry.known(),
-                         ["bridge.echo", "grids.sync", "levels.sync"])
+                         ["beams.sync", "bridge.echo", "columns.sync",
+                          "footings.sync", "grids.sync", "levels.sync",
+                          "slabs.sync"])
+
+    def test_the_structure_commands_are_declared_and_not_bound_yet(self):
+        """Declared before written, deliberately.
+
+        A button naming a command nobody declared answers "not a command this
+        build knows", which reads like a broken install. Declared and unbound
+        answers "declared but not built yet", which is the truth. As each one
+        is built it moves to the bound side of this test rather than the test
+        being deleted -- that is the record of what was built and when.
+        """
+        self.assertEqual(_registry.unbound(),
+                         ["beams.sync", "columns.sync", "footings.sync",
+                          "slabs.sync"])
 
     def test_a_command_that_writes_says_so(self):
         self.assertFalse(_registry.get("bridge.echo").writes)
@@ -535,6 +558,155 @@ class RegistryTests(unittest.TestCase):
         source = _read(_BUILDER)
         body = source.split("for index, (title, command")[1].split("\n\n")[0]
         self.assertIn('column=5, value="No"', body)
+
+
+class SampleProjectTests(unittest.TestCase):
+    """The sample building, held to the same contract as the datum workbook.
+
+    ``build_sample_project.py`` writes a whole Foundation + G + 4 frame so the
+    **format** can be argued with before any of it is built. It is a second file
+    naming commands and sheets, which means it is a second file that can drift
+    from ``registry.py`` — and a workbook whose buttons name commands the build
+    does not have is a workbook that fails on the first press, in Revit, in
+    front of the owner. Cheaper to catch here.
+
+    The building is generated from the constants at the top of that file, so
+    these also check the arithmetic stays consistent when a bay or a storey is
+    moved: one column per storey, one footing per grid intersection.
+    """
+
+    def builder(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("build_sample_project",
+                                                      _SAMPLE)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_every_button_names_a_declared_command(self):
+        named = [command for _title, command, _sheet, _what, _built
+                 in self.builder().COMMANDS]
+        self.assertTrue(named)
+        for name in named:
+            self.assertIn(name, _registry.known(), name)
+
+    def test_every_button_names_the_sheet_the_registry_expects(self):
+        for _title, command, sheet, _what, _built in self.builder().COMMANDS:
+            self.assertEqual(sheet, _registry.get(command).sheet, command)
+
+    def test_the_built_column_agrees_with_what_is_bound(self):
+        """``Built?`` on the CONTROL sheet is a claim, and claims rot.
+
+        A row saying ``yes`` for a command with no handler sends the owner to
+        press a button that cannot work; a row saying ``not yet`` for one that
+        does work hides finished work. Either way the sheet is lying, so the
+        column is compared with the registry rather than maintained by hand.
+        """
+        for _title, command, _sheet, _what, built in self.builder().COMMANDS:
+            bound = _registry.get(command).bound
+            self.assertEqual(built, "yes" if bound else "not yet", command)
+
+    def test_every_button_has_a_macro_to_run_it_or_is_not_built_yet(self):
+        # A macro is only written when the command is. Until then the button
+        # is documentation.
+        vba = _read(_VBA)
+        for _title, command, _sheet, _what, built in self.builder().COMMANDS:
+            if built == "yes":
+                self.assertIn('"{0}"'.format(command), vba, command)
+
+    def test_the_sheets_it_writes_are_the_sheets_the_buttons_name(self):
+        source = _read(_SAMPLE)
+        for _title, _command, sheet, _what, _built in self.builder().COMMANDS:
+            if sheet:
+                self.assertIn('table("{0}"'.format(sheet), source, sheet)
+
+    def test_one_footing_under_every_grid_intersection(self):
+        sample = self.builder()
+        expected = len(sample.GRIDS_VERTICAL) * len(sample.GRIDS_HORIZONTAL)
+        self.assertEqual(len(sample.footing_rows()), expected)
+
+    def test_one_column_per_intersection_per_storey(self):
+        # Six storeys of a column are six rows, not one: six pours with a
+        # joint between each, and a size that is allowed to change on the way
+        # up. Verbose, and the only honest way to say it.
+        sample = self.builder()
+        expected = (len(sample.GRIDS_VERTICAL) * len(sample.GRIDS_HORIZONTAL)
+                    * len(sample.STOREYS))
+        self.assertEqual(len(sample.column_rows()), expected)
+
+    def test_a_column_row_names_two_levels_that_exist(self):
+        sample = self.builder()
+        names = [name for name, _elevation, _story in sample.LEVELS]
+        base = sample.COLUMN_PLACEMENT_HEADERS.index("BaseLevel")
+        top = sample.COLUMN_PLACEMENT_HEADERS.index("TopLevel")
+        for row in sample.column_rows():
+            self.assertIn(row[base], names)
+            self.assertIn(row[top], names)
+            self.assertNotEqual(row[base], row[top])
+
+    def test_every_placed_element_names_a_type_that_is_declared(self):
+        """A mark pointing at a type the TYPES sheet does not carry is the
+        commonest thing wrong with a real schedule, and it is silent."""
+        sample = self.builder()
+        pairs = (
+            (sample.footing_rows(), sample.FOOTING_PLACEMENT_HEADERS,
+             sample.FOOTING_TYPES),
+            (sample.column_rows(), sample.COLUMN_PLACEMENT_HEADERS,
+             sample.COLUMN_TYPES),
+            (sample.beam_rows(), sample.BEAM_PLACEMENT_HEADERS,
+             sample.BEAM_TYPES),
+            (sample.slab_rows(), sample.SLAB_PLACEMENT_HEADERS,
+             sample.SLAB_TYPES),
+        )
+        for rows, headers, types in pairs:
+            declared = [row[0] for row in types]
+            column = headers.index("TypeMark")
+            self.assertTrue(rows)
+            for row in rows:
+                self.assertIn(row[column], declared)
+
+    def test_every_mark_is_unique_within_its_sheet(self):
+        # Mark is the key the round trip matches on. Two rows sharing one is
+        # two elements the tool cannot tell apart on the second run, which is
+        # where idempotence stops being true.
+        sample = self.builder()
+        for rows in (sample.footing_rows(), sample.column_rows(),
+                     sample.beam_rows(), sample.slab_rows()):
+            marks = [row[0] for row in rows]
+            self.assertEqual(len(marks), len(set(marks)))
+
+    def test_a_placement_row_is_as_wide_as_its_header(self):
+        sample = self.builder()
+        pairs = (
+            (sample.footing_rows(), sample.FOOTING_PLACEMENT_HEADERS),
+            (sample.column_rows(), sample.COLUMN_PLACEMENT_HEADERS),
+            (sample.beam_rows(), sample.BEAM_PLACEMENT_HEADERS),
+            (sample.slab_rows(), sample.SLAB_PLACEMENT_HEADERS),
+            (sample.level_rows(), sample.LEVEL_HEADERS),
+            (sample.grid_rows(), sample.GRID_HEADERS),
+        )
+        for rows, headers in pairs:
+            for row in rows:
+                self.assertEqual(len(row), len(headers), headers[0])
+
+    def test_the_grid_angles_are_the_convention_the_command_reads(self):
+        # 0 along +X, 90 along +Y — the owner's convention, and grids.sync
+        # reads it. A sample using any other number teaches the wrong thing.
+        sample = self.builder()
+        angle = sample.GRID_HEADERS.index("Angle")
+        name = sample.GRID_HEADERS.index("Name")
+        vertical = [row[name] for row in sample.grid_rows()
+                    if row[angle] == 90]
+        horizontal = [row[name] for row in sample.grid_rows()
+                      if row[angle] == 0]
+        self.assertEqual(vertical,
+                         [n for n, _x in sample.GRIDS_VERTICAL])
+        self.assertEqual(horizontal,
+                         [n for n, _y in sample.GRIDS_HORIZONTAL])
+
+    def test_it_writes_nothing_on_a_first_press(self):
+        source = _read(_SAMPLE)
+        self.assertIn('column=6, value="No"', source)
 
 
 class ListenerWindowTests(unittest.TestCase):

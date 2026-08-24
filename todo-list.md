@@ -27,6 +27,8 @@ Excel becomes a transaction in Revit.
 | `building` | Being written now. |
 | `testing` | Built and in a build the project owner can test; waiting for in Revit result. |
 | `superseded` | It worked, and something else replaced it. Recorded rather than deleted — what it cost to build is part of the record. |
+| `failed` | Tested in Revit and wrong. It stays here, carrying what was seen, and does not reach `done-list.md`. |
+| `redo` | Failed, and being rebuilt. Deliberately not the same as `building` — something was built once and did not survive contact with a model, and that is worth being able to count. |
 | `done` | Confirmed on the in Revit, and copied into `done-list.md` with what was done. |
 
 An item leaves this file only by reaching `done`, and it is described in `done-list.md` when it
@@ -35,6 +37,41 @@ does. Nothing is deleted to make the list look shorter.
 **Anything new is recorded here first.** A requirement, a bug, an idea — it gets an ID in this file
 before it is built, argued about, or written into any other document. Standing instruction from the
 project owner, and it is what keeps this list the queue rather than a summary of one.
+
+### The build record
+
+Standing instruction from the project owner: **keep a record of what is built, tested, done, failed
+and redone.** One row per thing that ends up in a model, so the question *where are we* is answered
+by reading rather than by asking.
+
+It is a view of the entries below, not a second queue — every row names the ID that owns it, and the
+ID is where the detail lives. Four words, meaning exactly four things:
+
+| Word | What has to have happened |
+| --- | --- |
+| **Built** | The code is in the repository and the suite is green. Worth nothing on its own. |
+| **Tested** | The project owner ran it in Revit, against a model, and sent back what happened. |
+| **Done** | The owner said it was right. Only this reaches `done-list.md`. |
+| **Failed / redo** | It was tested and it was wrong, and how many times. Counted, because a thing that took four rounds is telling us something about the next thing like it. |
+
+| Thing | Command | Built | Tested in Revit | Done | Failed → redone | ID |
+| --- | --- | --- | --- | --- | --- | --- |
+| The wire — Excel posts, Revit runs, Excel reads the answer | — | 1.10.0 | yes, five jobs round-tripped | **yes** | 0 — but 4 rounds lost to bugs *in the diagnostic*, not the bridge | DONE-1..4 |
+| Sample project workbook — Foundation + G + 4 | — | 1.14.0 | **not yet — the format is the thing being reviewed** | no | 0 | FEAT-22 |
+| Levels | `levels.sync` | yes | dry run only: `created=2 matched=1 modified=1 written=0` | no — the write path has never run | 0 | FEAT-5 |
+| Grids | `grids.sync` | yes | **never run** | no | 0 | FEAT-6 |
+| Footings | `footings.sync` | declared, not written | — | no | 0 | FEAT-23 |
+| Columns | `columns.sync` | declared, not written | — | no | 0 | FEAT-10 |
+| Beams | `beams.sync` | declared, not written | — | no | 0 | FEAT-11 |
+| Slabs | `slabs.sync` | declared, not written | — | no | 0 | FEAT-13 |
+
+**Declared, not written** is a deliberate third state and not a synonym for missing. The name and
+the sheet are in `registry.py`, so the workbook can carry the button and the button answers *declared
+but not built yet*. A test holds the registry, the `Built?` column on `CONTROL` and the macros
+together, which means that column cannot quietly start claiming more than has been built.
+
+The order is the owner's: **level, grid, column, footing, beam, slab**, one at a time, each confirmed
+in a model before the next is started.
 
 ### Two queues, and which is which
 
@@ -405,6 +442,7 @@ Each carries the verdict from the PRD, so the queue and the estimate cannot drif
 | FEAT-1 | `CONTROL` sheet — a button per operation, with mode, dry-run, last-run status and findings count | **Built, `testing`.** `Write?` is `No` on every row, so a first press reports and touches nothing | `testing` |
 | FEAT-2 | VBA: post a job, wait for the result, write the `LOG` row | **Built, `testing`.** No JSON parser was needed after all — Revit writes the result twice, `.json` for machines and `.tsv` for Excel, and the macro reads lines. Colouring the source rows is still to do | `testing` |
 | FEAT-3 | **Build Template** pyRevit tool, and the written `.rvt` specification | Medium. The specification is the harder half | `pending` |
+| FEAT-22 | **Sample project workbook** — a whole Foundation + G + 4 frame, generated from constants by `bridge/excel/build_sample_project.py` | **Built, `testing`.** 24 m x 12 m, grids A–E and 1–3 at 6 m, seven levels, six storeys: 7 levels, 8 grids, 15 footings, 90 columns, 132 beams, 6 slabs. Its point is the **format** — every placement sheet names a grid intersection and leaves the coordinates as the fallback, and a column that rises six storeys is six rows. Waiting on the owner's keep / add / remove | `testing` |
 | FEAT-4 | `template.xlsm` build script — sheets, validation, `keep_vba=True` | **Built, `testing`.** `bridge/excel/build_workbook.py` writes `CONTROL`, `INFO`, `LEVELS`, `GRIDS`, `LOG`. One manual step remains and always will: `openpyxl` preserves a VBA project and cannot create one | `testing` |
 
 ### Datum and setup
@@ -421,6 +459,7 @@ Each carries the verdict from the PRD, so the queue and the estimate cannot drif
 
 | ID | What | Verdict | Phase |
 | --- | --- | --- | --- |
+| FEAT-23 | `footings.sync` — the bridge route to the footing placement RC Automation already does | Straightforward, and mostly already written. The pad-as-structural-floor path ships and is confirmed in a model; what is new is reading `FOOTING_PLACEMENT` and resolving a grid intersection to a point | `pending` |
 | FEAT-10 | `columns.sync` — `NewFamilyInstance` between two levels | Straightforward. Closes *RC Automation · CRIT-3*, where every run claims to place columns and places none | `pending` |
 | FEAT-11 | `beams.sync` | Medium. Creation is easy; joins and cutbacks are fiddly | `pending` |
 | FEAT-12 | `walls.sync` | Medium | `pending` |
@@ -551,3 +590,13 @@ anybody else.
 >
 > **Waiting on:** the RC Automation 0.7.0 bugs the owner found but has not sent, and the existing
 > project `.rvt` that `CRIT-2` and `FEAT-3` start from.
+
+> **Settled 2026-08-24 — the sample project, and the order.** No in Revit testing on this build; the
+> speed is deliberate. A sample project is built first as a workbook — foundation + G + 4, three
+> horizontal grids and five vertical, ordinary footings, columns, beams and slabs — and the owner
+> reviews the **format**, saying what to keep, add and remove, before anything else is written.
+> Then one element at a time: **level, grid, column, footing, beam, slab, and so on.**
+>
+> And: keep a record of what is built, tested, done, failed and redone. It is [the build
+> record](#the-build-record), at the top of this file, and it is a view of these entries rather than
+> a second list to keep in step by hand.

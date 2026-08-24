@@ -23,16 +23,24 @@ comes back into the workbook. One command exists — `bridge.echo` — and it re
 no workbook and writes nothing, on purpose: every command after it has two
 things that can be wrong, the wire and the work, and this one has only the wire.
 
-`levels.sync` and `grids.sync` are **declared and not built**. Pressing them
-answers *"declared but not built yet"*, which is a clear failure rather than a
-silent one.
+`levels.sync` and `grids.sync` are **built**; `levels.sync` has had a dry run
+against a model and its write path has not been used yet, and `grids.sync` has
+not been run at all. `footings.sync`, `columns.sync`, `beams.sync` and
+`slabs.sync` are **declared and not built** — pressing one answers *"declared
+but not built yet"*, which is a clear failure rather than a silent one.
+
+Which of those is true today is kept in one place, [the build
+record](../todo-list.md#the-build-record), rather than in this paragraph.
 
 ```
 bridge/
   excel/
-    modAnonGeeBridge.bas    the VBA. Import it into a workbook once.
-    build_workbook.py       writes the workbook. Run it here.
-    AnonGee_Bridge.xlsx     what it wrote — CONTROL, INFO, LEVELS, GRIDS, LOG
+    modAnonGeeBridge.bas         the VBA. Import it into a workbook once.
+    build_workbook.py            writes the datum workbook. Run it here.
+    AnonGee_Bridge.xlsx          what it wrote — CONTROL, INFO, LEVELS, GRIDS, LOG
+    build_sample_project.py      writes a whole sample building.
+    AnonGee_Sample_Project.xlsx  what it wrote — the datum sheets plus types
+                                 and placement for footings, columns, beams, slabs
 ```
 
 ---
@@ -78,6 +86,40 @@ like everything else.
 | `LOG` | Every job: when, id, command, status, counts, note. Append-only. |
 
 `FINDINGS` and `BRIDGE_SPIKE` are made by the macro when they are first needed.
+
+---
+
+## The sample project
+
+`build_sample_project.py` writes a second workbook: a whole small building,
+described the way a real schedule would describe it, so the **format** can be
+argued with before any of it is built.
+
+    24 m x 12 m, five vertical grids A-E and three horizontal 1-3 at 6 m,
+    seven levels from -1500 to +16500, six storeys.
+
+    7 levels - 8 grids - 15 footings - 90 columns - 132 beams - 6 slabs
+
+Everything is generated from the constants at the top of that file. Move a bay,
+add a storey, change a column size at the fourth floor — re-run it and the
+building stays consistent with itself.
+
+Two conventions are what there is to disagree with:
+
+| | |
+| --- | --- |
+| **Grid reference first, coordinates as the fallback** | every placement row names an intersection — `GridX` `A`, `GridY` `1` — and leaves X and Y empty. The coordinates are there for what a grid cannot describe, and for a model that has no grids in it yet. |
+| **One row per element that will exist** | a column rising six storeys is six rows, not one. In a reinforced concrete frame those are six pours with a joint between each, and a column that reduces at the fourth floor has to be able to say so. Verbose, and honest. |
+
+| Sheet | |
+| --- | --- |
+| `FOOTING_TYPES` `FOOTING_PLACEMENT` | F1 internal, F2 edge, F3 corner. One footing per intersection, `Outline` empty because the type is rectangular. |
+| `COLUMN_TYPES` `COLUMN_PLACEMENT` | C1 300x600 up to the second floor, C2 300x450 above it. One row per column per storey, marked `C-A1-S1`. |
+| `BEAM_TYPES` `BEAM_PLACEMENT` | B1 300x600 on every framed level, PB1 230x450 as plinth beams at ground. Each row names the two intersections it spans. |
+| `SLAB_TYPES` `SLAB_PLACEMENT` | One 150 slab per framed level, the footprint given as an `Outline`. |
+
+The `Built?` column on `CONTROL` says which buttons do anything yet. It is not
+maintained by hand — a test compares it with the registry.
 
 ---
 

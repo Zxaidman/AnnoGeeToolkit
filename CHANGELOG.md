@@ -35,6 +35,55 @@ of view of someone using the thing rather than someone reading the diff:
 
 ---
 
+## 1.14.0
+
+**Added**
+
+- **A sample project workbook — Foundation + G + 4, generated.**
+  `bridge/excel/build_sample_project.py` writes a whole small building so the
+  **format** of every sheet can be argued with before any of it is built:
+
+      24 m x 12 m, five vertical grids A-E and three horizontal 1-3 at 6 m,
+      seven levels from -1500 to +16500, six storeys.
+
+      7 levels - 8 grids - 15 footings - 90 columns - 132 beams - 6 slabs
+
+  Everything comes from the constants at the top of the file. Move a bay or add
+  a storey, re-run, and the building stays consistent with itself — the beams
+  follow the grids, the footings follow the intersections, the columns follow
+  the storeys.
+
+  Two conventions are what the review is actually about:
+
+  | | |
+  | --- | --- |
+  | **Grid reference first, coordinates as the fallback** | every placement row names an intersection and leaves X and Y empty. Coordinates are there for what a grid cannot describe, and for a model with no grids in it yet |
+  | **One row per element that will exist** | a column rising six storeys is six rows. In a reinforced concrete frame those are six pours with a joint between each — and a column that changes size at the fourth floor has to be able to say so. Verbose, and honest |
+
+- **`footings.sync`, `columns.sync`, `beams.sync` and `slabs.sync` declared —
+  and deliberately not written.** The name and the sheet are in `registry.py`,
+  so the workbook can carry the button and pressing it answers *declared but not
+  built yet*. That is a clear failure instead of an obscure one, and it is the
+  same thing the datum commands did before they existed.
+
+  A test holds the three files that could disagree — the registry, the `Built?`
+  column on `CONTROL`, and the macros — so the sheet cannot quietly start
+  claiming more than has been built.
+
+- **The build record**, at the top of `todo-list.md`: one row per thing that
+  ends up in a model, and four words that mean four different things — *built*
+  is code with a green suite and is worth nothing on its own, *tested* is the
+  owner running it in Revit, *done* is the owner saying it was right, and
+  *failed / redo* counts the rounds that came back. `failed` and `redo` are now
+  phases in their own right; a thing that took four rounds is telling us
+  something about the next thing like it.
+
+**Changed**
+
+- The test suite is 741 tests, from 727.
+
+---
+
 ## 1.13.0
 
 **Added**
