@@ -35,6 +35,41 @@ of view of someone using the thing rather than someone reading the diff:
 
 ---
 
+## 1.12.0
+
+**Added**
+
+- **`levels.sync` — the first command that builds something.** Match the LEVELS
+  sheet against the model, then create or move each level. Its rules live in
+  `anongee_toolkit/rc_automation/datum.py`, which imports nothing from Revit and
+  is tested off it, so all four refusals can be argued with before anybody
+  presses a button:
+
+  | | |
+  | --- | --- |
+  | **Never delete** | a level the sheet omits is left alone and reported — deleting one takes every view, every sheet reference and every element hosted on it |
+  | **Match by name only** | `naming.py` can match `Level 1` to `01 1st Floor Lvl.` by storey number, and that is right when a schedule *refers* to a level somebody else named. Here the sheet **is** the naming authority, so a fuzzy match would silently decide two differently named things are the same one |
+  | **Never fill an occupied elevation** | Revit allows two levels at one height, and then every plan view has two candidates. Reported with the occupant's name; the fix is a rename somebody makes on purpose |
+  | **Never rename** | a rename changes what every view and sheet refers to |
+
+  **Idempotence is the acceptance test, not creation.** Anything can create;
+  only a tool that can be run twice is one anybody trusts with a live model, and
+  a test runs the plan against the model its own first run would have built.
+
+  Headings are matched as prefixes, because a real sheet writes `RL (mm)` rather
+  than `Elevation` — and a column headed `Level` is deliberately a name and not
+  a height.
+
+**Fixed**
+
+- **The macro's dialogs showed mojibake.** Two em dashes in message strings came
+  back as `a-hat-euro`: Excel imports a `.bas` as the machine's ANSI code page,
+  not UTF-8, and there is nowhere in that format to say otherwise. The module is
+  pure ASCII now and a test fails on any byte above 127 in it — the same lesson
+  as the result TSV, one layer further out.
+
+---
+
 ## 1.11.0
 
 **Added**

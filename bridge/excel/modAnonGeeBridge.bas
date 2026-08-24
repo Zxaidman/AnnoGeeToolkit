@@ -28,6 +28,18 @@ Attribute VB_Name = "modAnonGeeBridge"
 
 Option Explicit
 
+' ---------------------------------------------------------------------------
+' THIS FILE MUST BE PURE ASCII.
+'
+' Excel's VBA importer reads a .bas as the machine's ANSI code page, not UTF-8.
+' Two em dashes in message strings arrived in the dialogs as "a-hat-euro" --
+' mojibake in the one place a user actually reads. It is the same lesson as the
+' result TSV, one layer further out: a file crossing into VBA has no way to
+' declare its encoding, so it must not need one.
+'
+' tests/test_bridge.py fails on any byte above 127 in this file.
+' ---------------------------------------------------------------------------
+
 ' Sleep, so polling does not spin a core. Excel has no wait that yields.
 #If VBA7 Then
     Public Declare PtrSafe Sub Sleep Lib "kernel32" (ByVal milliseconds As Long)
@@ -386,7 +398,7 @@ Public Sub RunCommand(ByVal command As String, ByVal sheetName As String)
     body = WaitForResult(resultPath)
     If body = "" Then
         LogRow jobId, command, "waiting", "", _
-               "no result after " & GIVE_UP_AFTER_SECONDS & "s — the job may " & _
+               "no result after " & GIVE_UP_AFTER_SECONDS & "s - the job may " & _
                "still be running. Is Bridge Listener switched on in Revit?"
         MsgBox "Queued as " & jobId & ", but no result yet." & vbCrLf & vbCrLf & _
                "Is Bridge Listener switched on in Revit?", _
@@ -524,7 +536,7 @@ Private Sub WriteResult(ByVal command As String, ByVal body As String)
 
     MsgBox command & ": " & status & vbCrLf & vbCrLf & _
            Trim$(counts) & vbCrLf & note & vbCrLf & vbCrLf & _
-           findings & " finding(s) — see the FINDINGS sheet.", _
+           findings & " finding(s) - see the FINDINGS sheet.", _
            vbInformation, "AnonGee Bridge"
 End Sub
 
