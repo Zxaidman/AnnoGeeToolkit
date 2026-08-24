@@ -28,6 +28,13 @@ Attribute VB_Name = "modAnonGeeBridge"
 
 Option Explicit
 
+' Sleep, so polling does not spin a core. Excel has no wait that yields.
+#If VBA7 Then
+    Public Declare PtrSafe Sub Sleep Lib "kernel32" (ByVal milliseconds As Long)
+#Else
+    Public Declare Sub Sleep Lib "kernel32" (ByVal milliseconds As Long)
+#End If
+
 ' The host and path also live in AnonGee.extension/startup.py, and a test in
 ' tests/test_bridge.py holds the two together. A URL that disagrees with its
 ' route costs an afternoon and looks like a network problem the whole time.
@@ -192,4 +199,310 @@ Public Function JsonValue(ByVal body As String, ByVal key As String) As String
         End If
     Next index
     JsonValue = Trim$(Left$(rest, ends - 1))
+End Function
+
+
+' ===========================================================================
+' Running a job
+' ===========================================================================
+' Post, then wait for a file. Not "post and wait for the response" -- Revit
+' cannot be driven while it is busy, so the route queues the job and answers
+' immediately. A synchronous call that waited for a five-thousand-element run
+' would time out and leave Excel hung while the job was still going.
+'
+' The macro never works out where the bridge folder is. The post's answer
+' carries resultTsv, so there is exactly one implementation of those rules and
+' it is not this one -- a third copy, in VBA, untestable, would be wrong the
+' first time somebody set ANONGEE_BRIDGE_HOME.
+'
+' It waits for the TSV rather than the JSON because VBA has no JSON parser and
+' should not be given a hand-written one. Revit writes both; this reads lines.
+' ===========================================================================
+
+Public Const POLL_EVERY_MS As Long = 500
+Public Const GIVE_UP_AFTER_SECONDS As Long = 300
+
+
+Public Sub Run_Echo()
+    RunCommand "bridge.echo", ""
+End Sub
+
+Public Sub Run_Levels()
+    RunCommand "levels.sync", "LEVELS"
+End Sub
+
+Public Sub Run_Grids()
+    RunCommand "grids.sync", "GRIDS"
+End Sub
+
+
+Public Sub RunCommand(ByVal command As String, ByVal sheetName As String)
+    ' The workbook on disk is what Revit reads, so it has to be the workbook
+    ' you are looking at. Saving first is not a courtesy, it is the contract.
+    On Error Resume Next
+    ThisWorkbook.Save
+    On Error GoTo 0
+
+    Dim dryRun As Boolean
+    dryRun = ReadDryRun(command)
+
+    Dim reply As String
+    reply = HttpPost(BridgeUrl("jobs"), JobJson(command, sheetName, dryRun))
+
+    Dim jobId As String
+    jobId = JsonValue(reply, "jobId")
+    If jobId = "" Then
+        LogRow "", command, "rejected", "", _
+               "no job id came back: " & Left$(reply, 200)
+        MsgBox "The job was not queued." & vbCrLf & vbCrLf & Left$(reply, 400), _
+               vbExclamation, "AnonGee Bridge"
+        Exit Sub
+    End If
+
+    Dim resultPath As String
+    resultPath = JsonValue(reply, "resultTsv")
+
+    Dim body As String
+    body = WaitForResult(resultPath)
+    If body = "" Then
+        LogRow jobId, command, "waiting", "", _
+               "no result after " & GIVE_UP_AFTER_SECONDS & "s — the job may " & _
+               "still be running. Is Bridge Listener switched on in Revit?"
+        MsgBox "Queued as " & jobId & ", but no result yet." & vbCrLf & vbCrLf & _
+               "Is Bridge Listener switched on in Revit?", _
+               vbInformation, "AnonGee Bridge"
+        Exit Sub
+    End If
+
+    WriteResult command, body
+End Sub
+
+
+Private Function JobJson(ByVal command As String, ByVal sheetName As String, _
+                         ByVal dryRun As Boolean) As String
+    ' Built by hand because it is four fields. Anything larger belongs in a
+    ' sheet Revit reads for itself -- the envelope carries which sheet, never
+    ' the data.
+    JobJson = "{""envelope"": ""1.0""" & _
+              ", ""command"": """ & command & """" & _
+              ", ""workbook"": """ & JsonEscape(ThisWorkbook.FullName) & """" & _
+              ", ""sheet"": """ & sheetName & """" & _
+              ", ""options"": {""dryRun"": " & LCase$(CStr(dryRun)) & "}}"
+End Function
+
+
+Private Function JsonEscape(ByVal text As String) As String
+    JsonEscape = Replace(Replace(text, "\", "\\"), """", "\""")
+End Function
+
+
+Public Function HttpPost(ByVal url As String, ByVal body As String) As String
+    On Error GoTo Failed
+    Dim winHttp As Object
+    Set winHttp = CreateObject("WinHttp.WinHttpRequest.5.1")
+    winHttp.SetTimeouts BRIDGE_TIMEOUT_SECONDS * 1000, _
+                        BRIDGE_TIMEOUT_SECONDS * 1000, _
+                        BRIDGE_TIMEOUT_SECONDS * 1000, _
+                        BRIDGE_TIMEOUT_SECONDS * 1000
+    winHttp.Open "POST", url, False
+    winHttp.SetRequestHeader "Content-Type", "application/json"
+    winHttp.Send body
+    HttpPost = winHttp.ResponseText
+    Exit Function
+Failed:
+    HttpPost = "{""ok"": false, ""error"": """ & _
+               Replace(Err.Description, """", "'") & """}"
+End Function
+
+
+Private Function WaitForResult(ByVal path As String) As String
+    If path = "" Then Exit Function
+
+    Dim giveUpAt As Date
+    giveUpAt = DateAdd("s", GIVE_UP_AFTER_SECONDS, Now)
+
+    Do While Now < giveUpAt
+        If Len(Dir$(path)) > 0 Then
+            WaitForResult = ReadAllText(path)
+            If WaitForResult <> "" Then Exit Function
+        End If
+        ' DoEvents so Excel stays answerable while it waits. Without it the
+        ' window greys out and the user decides it has crashed.
+        DoEvents
+        Sleep POLL_EVERY_MS
+    Loop
+End Function
+
+
+Private Function ReadAllText(ByVal path As String) As String
+    Dim handle As Integer
+    Dim text As String
+    On Error GoTo Failed
+    handle = FreeFile
+    Open path For Input As #handle
+    text = Input$(LOF(handle), #handle)
+    Close #handle
+    ReadAllText = text
+    Exit Function
+Failed:
+    ' Being written right now. The writer renames into place, so the next poll
+    ' gets the whole thing.
+    On Error Resume Next
+    Close #handle
+End Function
+
+
+' ===========================================================================
+' Reading the result
+' ===========================================================================
+' Two blocks, tab separated. #RESULT is key/value, #FINDINGS is a table. No
+' quoting rules, no escaping, no parser -- which is the entire reason Revit
+' writes this alongside the JSON.
+' ===========================================================================
+
+Private Sub WriteResult(ByVal command As String, ByVal body As String)
+    Dim lines() As String
+    lines = Split(Replace(body, vbCrLf, vbLf), vbLf)
+
+    Dim inFindings As Boolean
+    Dim jobId As String, status As String, note As String
+    Dim counts As String
+    Dim findings As Long
+
+    Dim index As Long
+    For index = LBound(lines) To UBound(lines)
+        Dim line As String
+        line = lines(index)
+        If line = "#RESULT" Then
+            inFindings = False
+        ElseIf line = "#FINDINGS" Then
+            inFindings = True
+        ElseIf line <> "" Then
+            Dim parts() As String
+            parts = Split(line, vbTab)
+            If inFindings Then
+                If parts(0) <> "Severity" Then findings = findings + 1
+            ElseIf UBound(parts) >= 1 Then
+                Select Case parts(0)
+                    Case "jobId": jobId = parts(1)
+                    Case "status": status = parts(1)
+                    Case "note": note = parts(1)
+                    Case "command", "started", "finished"
+                    Case Else
+                        If parts(1) <> "" Then
+                            counts = counts & parts(0) & "=" & parts(1) & "  "
+                        End If
+                End Select
+            End If
+        End If
+    Next index
+
+    LogRow jobId, command, status, counts, note
+    ShowFindings body
+
+    MsgBox command & ": " & status & vbCrLf & vbCrLf & _
+           Trim$(counts) & vbCrLf & note & vbCrLf & vbCrLf & _
+           findings & " finding(s) — see the FINDINGS sheet.", _
+           vbInformation, "AnonGee Bridge"
+End Sub
+
+
+Private Sub ShowFindings(ByVal body As String)
+    Dim sheet As Worksheet
+    Set sheet = EnsureSheet("FINDINGS")
+    sheet.Cells.Clear
+
+    Dim lines() As String
+    lines = Split(Replace(body, vbCrLf, vbLf), vbLf)
+
+    Dim writing As Boolean
+    Dim row As Long
+    row = 1
+
+    Dim index As Long
+    For index = LBound(lines) To UBound(lines)
+        If lines(index) = "#FINDINGS" Then
+            writing = True
+        ElseIf lines(index) = "#RESULT" Then
+            writing = False
+        ElseIf writing And lines(index) <> "" Then
+            Dim parts() As String
+            parts = Split(lines(index), vbTab)
+            Dim column As Long
+            For column = LBound(parts) To UBound(parts)
+                sheet.Cells(row, column + 1).Value = parts(column)
+            Next column
+            row = row + 1
+        End If
+    Next index
+
+    sheet.Rows(1).Font.Bold = True
+    sheet.Columns("A:E").AutoFit
+End Sub
+
+
+Private Sub LogRow(ByVal jobId As String, ByVal command As String, _
+                   ByVal status As String, ByVal counts As String, _
+                   ByVal note As String)
+    Dim sheet As Worksheet
+    Set sheet = EnsureSheet("LOG")
+
+    Dim row As Long
+    row = sheet.Cells(sheet.Rows.Count, 1).End(xlUp).row + 1
+    If row < 2 Then
+        sheet.Range("A1:F1").Value = _
+            Array("When", "Job", "Command", "Status", "Counts", "Note")
+        sheet.Rows(1).Font.Bold = True
+        row = 2
+    End If
+
+    sheet.Cells(row, 1).Value = Now
+    sheet.Cells(row, 2).Value = jobId
+    sheet.Cells(row, 3).Value = command
+    sheet.Cells(row, 4).Value = status
+    sheet.Cells(row, 5).Value = Trim$(counts)
+    sheet.Cells(row, 6).Value = note
+    sheet.Columns("A:F").AutoFit
+
+    WriteControlStatus command, status, note
+End Sub
+
+
+Private Sub WriteControlStatus(ByVal command As String, ByVal status As String, _
+                               ByVal note As String)
+    ' The CONTROL sheet carries one row per command; find it by name and put
+    ' the outcome beside the button that caused it.
+    On Error Resume Next
+    Dim sheet As Worksheet
+    Set sheet = ThisWorkbook.Worksheets("CONTROL")
+    On Error GoTo 0
+    If sheet Is Nothing Then Exit Sub
+
+    Dim row As Long
+    For row = 1 To 60
+        If sheet.Cells(row, 2).Value = command Then
+            sheet.Cells(row, 6).Value = status
+            sheet.Cells(row, 7).Value = Now
+            sheet.Cells(row, 8).Value = note
+            Exit For
+        End If
+    Next row
+End Sub
+
+
+Private Function ReadDryRun(ByVal command As String) As Boolean
+    ReadDryRun = True                       ' nothing is written unless asked
+    On Error Resume Next
+    Dim sheet As Worksheet
+    Set sheet = ThisWorkbook.Worksheets("CONTROL")
+    On Error GoTo 0
+    If sheet Is Nothing Then Exit Function
+
+    Dim row As Long
+    For row = 1 To 60
+        If sheet.Cells(row, 2).Value = command Then
+            ReadDryRun = (UCase$(Trim$(CStr(sheet.Cells(row, 5).Value))) <> "NO")
+            Exit Function
+        End If
+    Next row
 End Function

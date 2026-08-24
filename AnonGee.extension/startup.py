@@ -36,10 +36,12 @@ Written for IronPython 2.7 as well as CPython 3: no f-strings, no ``pathlib``,
 nothing newer than 2.7, because which one runs this is question 3.
 """
 
+import datetime
+import json
 import os
 import sys
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 #: The API name, and therefore the first path segment: ``/anongee/...``.
 #: The Excel macro in ``bridge/excel/`` names the same string, and a test holds
@@ -52,6 +54,145 @@ API_NAME = "anongee"
 #: and ``/ping`` reports the truth rather than this.
 DEFAULT_HOST = "localhost"
 DEFAULT_PORT = 48884
+
+
+# ---------------------------------------------------------------------------
+# Where a job lives
+# ---------------------------------------------------------------------------
+# These rules are also in ``anongee_toolkit/bridge/jobs.py``, in CPython 3, and
+# they have to agree. **That duplication is deliberate and it is the price of
+# the engine split**: this file is loaded by pyRevit's core engine, which is
+# IronPython 2.7, and the toolkit lives in ``lib/py3`` where this engine cannot
+# reach it. What the two ends share is a folder layout, not a module.
+#
+# Held down two ways, because "two files must agree" is exactly the contract
+# that rots: ``tests/test_bridge.py`` compares the constants, and ``/ping``
+# reports the home this file computed so a mismatch shows up as a sentence in a
+# dialog rather than as a job nobody ever sees.
+
+ENV_HOME = "ANONGEE_BRIDGE_HOME"
+APPDATA_PARTS = ("AnonGee", "bridge")
+HOME_PARTS = (".anongee", "bridge")
+
+OUTBOX = "outbox"
+INBOX = "inbox"
+
+JOB_SUFFIX = ".job.json"
+RUNNING_SUFFIX = ".running.json"
+RESULT_SUFFIX = ".result.json"
+
+#: Answered by ``/jobs`` when a caller wants the recent list rather than one
+#: job. Twenty is enough to find the one you just posted and short enough that
+#: the answer stays a mouthful.
+RECENT_LIMIT = 20
+
+#: Two presses in the same second are two jobs. Module scope, because this file
+#: is loaded once per session and that is exactly the lifetime wanted.
+_counter = [0]
+
+
+def bridge_home():
+    """The bridge folder. Same three rules as ``jobs.home()``, in order."""
+    override = os.environ.get(ENV_HOME)
+    if override:
+        return override
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        return os.path.join(appdata, *APPDATA_PARTS)
+    return os.path.join(os.path.expanduser("~"), *HOME_PARTS)
+
+
+def _ensure(root):
+    for folder in (os.path.join(root, OUTBOX), os.path.join(root, INBOX)):
+        if not os.path.isdir(folder):
+            try:
+                os.makedirs(folder)
+            except OSError:
+                if not os.path.isdir(folder):
+                    raise
+    return root
+
+
+def _next_job_id():
+    _counter[0] += 1
+    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    return "{0}-{1:04d}".format(stamp, _counter[0])
+
+
+def _body(request):
+    """The posted envelope as a dict, whatever shape the framework hands over.
+
+    pyRevit has carried the body on more than one attribute across releases and
+    may or may not have decoded it. Asking three questions costs nothing; being
+    wrong about which one costs a run that fails with "the job is not an
+    object" and no clue why.
+    """
+    for attribute in ("data", "body", "json"):
+        raw = getattr(request, attribute, None)
+        if raw is None:
+            continue
+        if isinstance(raw, dict):
+            return raw, ""
+        try:
+            return json.loads(raw), ""
+        except Exception as error:
+            return None, "the body is not JSON: {0}".format(error)
+    return None, "the request carried no body"
+
+
+def _write_json(path, payload):
+    """Written aside and renamed into place, so nothing reads half a file."""
+    partial = path + ".partial"
+    handle = open(partial, "w")
+    try:
+        handle.write(json.dumps(payload, indent=2, sort_keys=True))
+    finally:
+        handle.close()
+    if os.path.exists(path):
+        os.remove(path)
+    os.rename(partial, path)
+    return path
+
+
+def _read_json(path):
+    try:
+        handle = open(path, "r")
+        try:
+            return json.loads(handle.read())
+        finally:
+            handle.close()
+    except Exception:
+        return None
+
+
+def _recent(root, limit=RECENT_LIMIT):
+    """The last few jobs and where each got to. Mirrors ``jobs.recent``."""
+    seen = {}
+    outbox = os.path.join(root, OUTBOX)
+    if os.path.isdir(outbox):
+        for name in os.listdir(outbox):
+            for suffix, status in ((JOB_SUFFIX, "queued"),
+                                   (RUNNING_SUFFIX, "running")):
+                if name.endswith(suffix):
+                    seen[name[:-len(suffix)]] = {
+                        "jobId": name[:-len(suffix)], "status": status}
+
+    inbox = os.path.join(root, INBOX)
+    if os.path.isdir(inbox):
+        for name in os.listdir(inbox):
+            if not name.endswith(RESULT_SUFFIX):
+                continue
+            found = _read_json(os.path.join(inbox, name)) or {}
+            identifier = name[:-len(RESULT_SUFFIX)]
+            seen[identifier] = {
+                "jobId": identifier,
+                "status": found.get("status", ""),
+                "command": found.get("command", ""),
+                "summary": found.get("summary", {}),
+            }
+
+    ordered = sorted(seen.values(), key=lambda row: row["jobId"], reverse=True)
+    return ordered[:limit]
 
 
 def _engine():
@@ -136,6 +277,8 @@ def register():
             "engine": _engine(),
             "toolkit": _toolkit(),
             "extension": _extension_root(),
+            "bridge_home": bridge_home(),
+            "commands_endpoint": "/{0}/jobs".format(API_NAME),
             "revit_context": False,
         }
 
@@ -186,6 +329,89 @@ def register():
         except Exception as error:
             answer["document_error"] = "{0}".format(error)
         return answer
+
+    # -- the doorbell ------------------------------------------------------
+    # No Revit argument on any of these, deliberately. A job is *written*, not
+    # run: the route stamps it, drops it in the outbox and returns. Whatever
+    # picks it up runs on Revit's own thread when Revit is idle, which is the
+    # only time the API may be used and is not now.
+    #
+    # It also means posting a job answers instantly even mid-command, which is
+    # what stops Excel hanging on a five-thousand-element run.
+
+    @api.route("/jobs", methods=["POST"])
+    def submit(request):
+        """Queue a job. Answers with its id and nothing else."""
+        envelope, note = _body(request)
+        if envelope is None:
+            return {"ok": False, "status": "rejected", "note": note}
+        if not isinstance(envelope, dict):
+            return {"ok": False, "status": "rejected",
+                    "note": "the job is not an object"}
+        command = "{0}".format(envelope.get("command", "")).strip()
+        if not command:
+            return {"ok": False, "status": "rejected",
+                    "note": "the job names no command"}
+
+        # The id is stamped here rather than by the caller, so two workbooks
+        # cannot mint the same one and quietly overwrite each other's job.
+        identifier = envelope.get("jobId") or _next_job_id()
+        envelope["jobId"] = identifier
+        envelope["received"] = datetime.datetime.now().isoformat()
+        if not envelope.get("envelope"):
+            envelope["envelope"] = "1.0"
+
+        try:
+            root = _ensure(bridge_home())
+            _write_json(os.path.join(root, OUTBOX, identifier + JOB_SUFFIX),
+                        envelope)
+        except Exception as error:
+            return {"ok": False, "status": "rejected",
+                    "note": "the job could not be written: {0}".format(error)}
+
+        # The answer carries **where the result will be**, so no caller has to
+        # work the bridge home out for itself. The macro would otherwise be a
+        # third implementation of the three rules in `bridge_home` — in VBA,
+        # untestable, and wrong the first time somebody sets the environment
+        # variable. It waits for this file instead.
+        return {
+            "ok": True,
+            "status": "queued",
+            "jobId": identifier,
+            "command": command,
+            "home": root,
+            "resultTsv": os.path.join(root, INBOX,
+                                      identifier + ".result.tsv"),
+            "resultJson": os.path.join(root, INBOX,
+                                       identifier + RESULT_SUFFIX),
+        }
+
+    @api.route("/jobs", methods=["GET"])
+    def listing():
+        """The recent jobs and where each got to.
+
+        No id in the URL, so it needs no route pattern and no query string —
+        which is why the macro polls this rather than addressing one job. A
+        caller finds the id it was given in the list.
+        """
+        try:
+            return {"ok": True, "home": bridge_home(),
+                    "jobs": _recent(bridge_home())}
+        except Exception as error:
+            return {"ok": False, "note": "{0}".format(error)}
+
+    @api.route("/jobs/<string:job_id>", methods=["GET"])
+    def one(job_id):
+        """One job's answer, if it has been written."""
+        try:
+            path = os.path.join(bridge_home(), INBOX, job_id + RESULT_SUFFIX)
+            found = _read_json(path)
+        except Exception as error:
+            return {"ok": False, "jobId": job_id, "note": "{0}".format(error)}
+        if found is None:
+            return {"ok": True, "jobId": job_id, "status": "queued",
+                    "note": "no result yet"}
+        return found
 
     return api, ""
 

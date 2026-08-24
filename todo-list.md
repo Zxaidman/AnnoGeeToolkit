@@ -54,39 +54,21 @@ model.
 
 ## 1. Critical
 
-### CRIT-4 — the route runs in IronPython and cannot reach the toolkit · `pending`
+### CRIT-5 — `levels.sync` and `grids.sync` are declared and not built · `pending`
 
-**Found by the `CRIT-1` run, 2026-08-22.** `/anongee/ping` answered:
+The registry names them, the `CONTROL` sheet has a button for each, and pressing
+either answers *"declared but not built yet"*. That is a deliberate state and not
+a comfortable one: the workbook shows a capability the model does not have.
 
-```json
-"engine":  {"implementation": "IronPython", "version": "2.7.12 … on .NET 8.0.30 (64-bit)"}
-"toolkit": {"importable": false, "path_entries": [], "error": "No module named anongee_toolkit"}
-```
+Declared first on purpose — the workbook could then be built and checked against
+a registry that already knew what it would be asked for, and a test holds the
+`CONTROL` sheet, the registry and the macro to the same three names.
 
-pyRevit loads an extension's `startup.py` on its **core engine, which is IronPython 2.7**, and
-`lib/py3` is not on that engine's path. The toolkit is CPython 3 and needs openpyxl. **A route
-handler cannot do the work.**
-
-**This is a simplification, not a setback** — it forces the design the architecture already wanted
-and deletes a decision. See §2a of the architecture document.
-
-> The route is a doorbell. The worker is CPython. They share a folder, not a module.
-
-The route validates minimally, stamps a `jobId`, writes `outbox/<jobId>.job.json` and returns `202`;
-`GET /jobs/<id>` reads `inbox/<jobId>.result.json`. It needs `json` and `os` and nothing else. The
-CPython worker does everything else with the toolkit unchanged.
-
-**The two transports collapse into one.** HTTP and the file drop were two paths behind one envelope;
-they are now the same path, because HTTP is just a faster way to put a file in the outbox. There is
-no second implementation to keep in step.
-
-**What is left to decide, and it is the only open part:** something in the CPython engine has to
-notice a job has arrived. A pyRevit script is one-shot, so the answer is a `UIApplication.Idling`
-subscription — registered once by a **Bridge Listener** pushbutton, cheap per tick, raising the
-`ExternalEvent` RC Automation already owns. Idling fires only when Revit is idle, which is exactly
-when the API may be used.
-
-Until it exists the degraded behaviour is today's behaviour: press the button in Revit.
+**What each needs** is now only the handler: `anongee_toolkit/commands/levels.py`
+and `grids.py`, each `run(uiapp, envelope)` returning `(summary, findings, note)`.
+Everything under them exists — the transport, the listener, the workbook, the
+name matching (`rc_automation/naming.py`, already proven on level names), and the
+read-only level and grid adapters in `structural/`.
 
 ### CRIT-2 — neither template exists, and neither can be generated from here · `pending`
 
@@ -104,18 +86,17 @@ into it and the macros survive.
 Both are one manual step each, once. Neither is a limitation that can be coded around, and pretending
 otherwise wastes a session.
 
-### CRIT-3 — one envelope, two transports, one registry · `pending`
+### CRIT-3 — one envelope, one registry · `testing`
 
-If the HTTP route and the pushbutton do not call the same handler through the same envelope, every
-command gets two implementations and one of them is always behind. The symptom is a button that
-works in Revit and not from Excel, and it is unfixable once there are twelve commands.
+**Built** (extension 1.10.0). `anongee_toolkit/bridge/` holds `envelope`, `jobs` and `registry`;
+`anongee_toolkit/commands/` holds what runs. `filedrop.py` was never written and is not needed —
+`CRIT-4` collapsed the two transports into one, so the outbox *is* the transport and `jobs.py` owns
+it.
 
-Build `anongee_toolkit/bridge/` — `envelope.py`, `registry.py`, `jobs.py`, `filedrop.py` — before
-the first command, not after the third. `envelope.py` and `registry.py` have no Revit in them and
-are unit-testable here.
+**A command is declared once, in `registry.py`.** The `CONTROL` sheet, the macro and the registry
+are held to the same three names by a test, because that is exactly the contract that rots.
 
-**A command is declared once, in `registry.py`**, with its name, handler, sheet and whether it
-writes. Nothing hard-codes a command name anywhere else.
+**To close it:** run `bridge.echo` from the workbook and see a `LOG` row.
 
 ---
 
@@ -168,16 +149,16 @@ Each carries the verdict from the PRD, so the queue and the estimate cannot drif
 
 | ID | What | Verdict | Phase |
 | --- | --- | --- | --- |
-| FEAT-1 | `CONTROL` sheet — a button per operation, with mode, dry-run, last-run status and findings count | Straightforward | `pending` |
-| FEAT-2 | VBA: post a job, poll for the result, write the `LOG` row, colour the source rows | Straightforward — and it must stay small. Anything it knows has to be kept in step with Python. **VBA has no JSON parser**, so one has to be written; the spike module ships a deliberately-named `JsonValue` that is *not* one, so nobody mistakes it for the real thing | `pending` |
+| FEAT-1 | `CONTROL` sheet — a button per operation, with mode, dry-run, last-run status and findings count | **Built, `testing`.** `Write?` is `No` on every row, so a first press reports and touches nothing | `testing` |
+| FEAT-2 | VBA: post a job, wait for the result, write the `LOG` row | **Built, `testing`.** No JSON parser was needed after all — Revit writes the result twice, `.json` for machines and `.tsv` for Excel, and the macro reads lines. Colouring the source rows is still to do | `testing` |
 | FEAT-3 | **Build Template** pyRevit tool, and the written `.rvt` specification | Medium. The specification is the harder half | `pending` |
-| FEAT-4 | `template.xlsm` build script — sheets, tables, named ranges, validation, `keep_vba=True` | Straightforward | `pending` |
+| FEAT-4 | `template.xlsm` build script — sheets, validation, `keep_vba=True` | **Built, `testing`.** `bridge/excel/build_workbook.py` writes `CONTROL`, `INFO`, `LEVELS`, `GRIDS`, `LOG`. One manual step remains and always will: `openpyxl` preserves a VBA project and cannot create one | `testing` |
 
 ### Datum and setup
 
 | ID | What | Verdict | Phase |
 | --- | --- | --- | --- |
-| FEAT-5 | `levels.sync` | **Straightforward.** Matching already built and proven. Sync-and-modify only — deleting a level deletes everything hosted on it | `pending` |
+| FEAT-5 | `levels.sync` | **Straightforward, and now only a handler** — see `CRIT-5`. Matching already built and proven. Sync-and-modify only: deleting a level deletes everything hosted on it | `pending` |
 | FEAT-6 | `grids.sync` | **Straightforward, with a fiddly tail.** Creating them is an afternoon; per-view bubbles and 3D extents are where the time goes | `pending` |
 | FEAT-7 | `types.sync` — duplicate, parameterise, load from a library | **Partly possible, and the boundary matters.** Duplicating and loading covers most of a real job. **Authoring a family from a spreadsheet is not on the table** — the template carries the families | `pending` |
 | FEAT-8 | `views.sync` — plans, sections, 3D, templates, scope boxes, crops, filters | **Yes, medium.** The workbook supplies the judgement so the code does not guess | `pending` |
@@ -236,7 +217,7 @@ confirmed in a model.
 
 | Stage | Ships | Items |
 | --- | --- | --- |
-| 0 · Bridge spike | ~~`ping` and `status`, end to end~~ **done** · then the doorbell and the listener | ~~CRIT-1~~ → DONE-1 · CRIT-3 · CRIT-4 |
+| 0 · Bridge spike | ~~the wire~~ **done** · ~~the doorbell and the listener~~ **built, unrun** | ~~CRIT-1~~ → DONE-1 · ~~CRIT-4~~ · CRIT-3 `testing` |
 | 1 · Datum | Both templates; levels; grids | CRIT-2, FEAT-1..6 |
 | 2 · Setup | Types, views, sheets | FEAT-7, 8, 9 |
 | 3 · Structure | Columns, beams, walls, slabs | FEAT-10..13 |
@@ -285,6 +266,10 @@ anybody else.
 >
 > **`CRIT-1` is confirmed** — both routes answered, the marshalling is real, and the engine question
 > is settled. It moved to `done-list.md` as `DONE-1` and left `CRIT-4`, `BUG-1` and `BUG-2` behind it.
+>
+> **Next run to do:** switch **Bridge Listener** on, build the `.xlsm` (see
+> [`bridge/README.md`](bridge/README.md)), and press **Run_Echo**. A `LOG` row closes `CRIT-3`,
+> `FEAT-1`, `FEAT-2` and `FEAT-4` in one go — they all describe the same journey.
 >
 > **Waiting on:** the RC Automation 0.7.0 bugs the owner found but has not sent, and the existing
 > project `.rvt` that `CRIT-2` and `FEAT-3` start from.

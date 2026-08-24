@@ -18,12 +18,51 @@ bridge/
 
 ## What this is right now
 
-**The spike, and only the spike** — `CRIT-1` in the repository's
-[`todo-list.md`](../todo-list.md). It proves the wire exists. It does not post a
-job, it does not read a sheet, and it changes nothing in any model.
+**A job goes end to end.** Press a button in Excel, Revit runs it, the answer
+comes back into the workbook. One command exists — `bridge.echo` — and it reads
+no workbook and writes nothing, on purpose: every command after it has two
+things that can be wrong, the wire and the work, and this one has only the wire.
 
-Every estimate in the PRD is conditional on this working, which is why it is
-built before anything that would sit on top of it.
+`levels.sync` and `grids.sync` are **declared and not built**. Pressing them
+answers *"declared but not built yet"*, which is a clear failure rather than a
+silent one.
+
+```
+bridge/
+  excel/
+    modAnonGeeBridge.bas    the VBA. Import it into a workbook once.
+    build_workbook.py       writes the workbook. Run it here.
+    AnonGee_Bridge.xlsx     what it wrote — CONTROL, INFO, LEVELS, GRIDS, LOG
+```
+
+---
+
+## The workbook
+
+`build_workbook.py` writes every sheet, header and validation. **It cannot make
+a working `.xlsm`, and that is a fact about the format**: `openpyxl` can
+*preserve* a VBA project with `keep_vba=True` but cannot create one, because a
+`vbaProject.bin` is an OLE compound document holding compressed VBA source.
+
+So, once:
+
+1. `python3 bridge/excel/build_workbook.py`
+2. Open `AnonGee_Bridge.xlsx`, **Save As** `.xlsm`.
+3. `Alt+F11` → File → Import File → `modAnonGeeBridge.bas`.
+4. From then on run `build_workbook.py <path to the .xlsm>` and **the macros
+   survive** — they are preserved, not recreated.
+
+The VBA lives here as `.bas` source, which is why it is reviewable in a diff
+like everything else.
+
+| Sheet | |
+| --- | --- |
+| `CONTROL` | One row per command. `Write?` is `No` by default — a dry run reports what it would do and touches nothing. The outcome is written back beside the row that caused it. |
+| `INFO` | Project, units, standard, template path, bridge URL. |
+| `LEVELS` `GRIDS` | The datum. Sample rows included so the format is visible rather than described. |
+| `LOG` | Every job: when, id, command, status, counts, note. Append-only. |
+
+`FINDINGS` and `BRIDGE_SPIKE` are made by the macro when they are first needed.
 
 ---
 
@@ -56,14 +95,25 @@ it here first takes the network out of the question — and when Excel later get
 no answer, this is how you tell "the bridge is down" from "Excel cannot reach
 it".
 
-### 3. Then from Excel
+### 3. Switch the listener on
 
-1. Open any workbook (a blank one is fine).
-2. `Alt+F11` → **File → Import File…** → `bridge/excel/modAnonGeeBridge.bas`
-3. `Alt+F8` → **AnonGeeBridge_Ping** → Run.
-4. `Alt+F8` → **AnonGeeBridge_Status** → Run.
+AnonGee tab → Dev → **Bridge Listener**. It is a toggle; press it again to stop.
 
-Each writes a row to a `BRIDGE_SPIKE` sheet and shows the raw response.
+The route only ever *writes a job into a folder* — pyRevit serves it on
+IronPython, where the CPython toolkit does not exist. This is the half that
+notices and does the work. **Without it, jobs queue and nothing happens**, which
+the macro says in as many words after five minutes.
+
+### 4. Then from Excel
+
+1. Open the `.xlsm` (see **The workbook** above).
+2. `Alt+F8` → **AnonGeeBridge_Ping** → Run. Then **AnonGeeBridge_Status**.
+   These write to a `BRIDGE_SPIKE` sheet and are the diagnostics.
+3. `Alt+F8` → **Run_Echo**. This is the real thing: it posts a job, waits for
+   the result file, and writes a `LOG` row.
+
+Assign `Run_Echo`, `Run_Levels` and `Run_Grids` to buttons on `CONTROL` when you
+want them clickable — right-click a shape → Assign Macro.
 
 ---
 
@@ -107,31 +157,42 @@ you next have the model closed — the second is the one a real user hits first.
 
 ---
 
-## What this is not
-
-Not the product. The real bridge **posts a job and polls for a result**:
+## How a job actually travels
 
 ```
-POST /anongee/jobs   {command, workbook, sheet, options}  → 202 {jobId}
-GET  /anongee/jobs/<jobId>                                → status, summary, findings
+Excel                    Revit (IronPython)        Revit (CPython)
+  │ save the workbook
+  │ POST /anongee/jobs ──►  stamp a jobId
+  │                         write outbox/<id>.job.json
+  │ ◄── {jobId, resultTsv}  return, immediately
+  │                                            Idling: anything waiting?
+  │ wait for resultTsv                         claim it (atomic rename)
+  │                                            ExternalEvent.Raise()
+  │                                              └─ run it on Revit's thread
+  │                                                 write inbox/<id>.result.json
+  │                                                            + .result.tsv
+  │ read the TSV, write LOG
 ```
 
-Because Revit cannot be driven while it is busy, an Excel button **queues a job**
-— it does not remote-control the application. A synchronous call that waits for a
-5,000-element run will time out and leave Excel hung while the job is still
-going.
+Four decisions in that picture are worth knowing before reading the code and
+wondering why it is shaped this way:
 
-Two other rules from the architecture, worth knowing before reading the VBA and
-wondering why it is so short:
-
+- **Posting answers instantly.** The route declares no Revit argument, so pyRevit
+  does not run it as an External Event and it never waits for Revit to be idle.
+  A synchronous call waiting on a 5,000-element run would time out and leave
+  Excel hung while the job was still going.
+- **The macro never works out where the bridge folder is.** The post's answer
+  carries `resultTsv`. A third implementation of those rules, in VBA and
+  untestable, would be wrong the first time somebody set
+  `ANONGEE_BRIDGE_HOME`.
+- **The result is written twice** — `.result.json` for machines, `.result.tsv`
+  for Excel. VBA has no JSON parser and should not be given a hand-written one:
+  a hundred and twenty lines that get escaping wrong the first time a sheet name
+  contains a quote. Excel reads lines; give it lines.
 - **The envelope carries which sheet, not the data.** Revit opens the workbook
   itself, with the reader that already handles six formats. A JSON payload would
-  be a second reader that eventually disagrees with the first.
-- **Revit never writes into the open `.xlsm`.** Excel has it locked. Revit writes
-  a JSON result file; the macro reads it and writes the sheet.
-
-Which is why the macro must stay small. Anything it knows has to be kept in step
-with Python by hand.
+  be a second reader that eventually disagrees with the first — and it is why the
+  macro can stay this short.
 
 ---
 

@@ -35,6 +35,48 @@ of view of someone using the thing rather than someone reading the diff:
 
 ---
 
+## 1.10.0
+
+**Added**
+
+- **The bridge carries a job end to end.** An Excel button writes one, Revit
+  runs it, and the answer comes back into the workbook. Stage 0 of the
+  programme, closing the design left open by `DONE-1`.
+- `anongee_toolkit/bridge/` — `envelope` (the command and result shapes,
+  versioned), `jobs` (where a job lives on disk, from written to answered) and
+  `registry` (every command declared once). Pure Python: no Revit, no openpyxl,
+  and none of it importable by the IronPython route, which is the point.
+- `anongee_toolkit/commands/` — where a job meets a model. Ships `bridge.echo`,
+  which reads no workbook and writes nothing: every command after it has two
+  things that can be wrong, the wire and the work, and this one has only the
+  wire.
+- **Bridge Listener** pushbutton — `Idling` to notice a job, an **external
+  event** to run it. Work never happens in the Idling callback, which holds the
+  UI while it runs; the callback does a timestamp check and one directory
+  listing, then hands off. Claiming is an atomic rename, so two Revit sessions
+  watching one folder never run the same job twice.
+- `POST /anongee/jobs`, `GET /anongee/jobs`, `GET /anongee/jobs/<id>` — the
+  doorbell. **No Revit argument on any of them**, so posting answers instantly
+  even mid-command; a route that waited for Revit to be idle is the exact hang
+  the design exists to avoid.
+- **The minimal workbook** — `CONTROL`, `INFO`, `LEVELS`, `GRIDS`, `LOG`, built
+  by `bridge/excel/build_workbook.py`. "Write?" starts at No on every row.
+- The macro submits a job and waits for a file rather than for a response.
+  **The post's answer carries the path the result will be written to**, so the
+  macro never works out where the bridge folder is — a third implementation of
+  those rules, in VBA and untestable, would be wrong the first time somebody
+  set `ANONGEE_BRIDGE_HOME`.
+
+**Fixed**
+
+- `findings_from_issues` read `row_number` off a workbook `Issue`, which
+  carries `row`. Every finding would have crossed the bridge without the one
+  field that makes it actionable — the spreadsheet row you type into Excel's
+  Name Box — and nothing would have said so. Caught by a test written against
+  the real DTO rather than against the name I remembered.
+
+---
+
 ## 1.9.1
 
 **Fixed**

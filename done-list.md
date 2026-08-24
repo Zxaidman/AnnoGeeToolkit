@@ -66,6 +66,34 @@ faster way to write a file into the outbox.
 
 ---
 
+## DONE-2 — the engine split, resolved into one transport
+
+**Shipped in** extension 1.10.0 · **Confirmed** by `DONE-1`'s `/ping` response, which is what
+settled it. The code that follows from it is built and unrun; this entry records the *decision*,
+which is confirmed, not the run.
+
+`CRIT-1` reported IronPython 2.7 with no toolkit on its path. The design that came out of it:
+
+> **The route is a doorbell. The worker is CPython. They share a folder, not a module.**
+
+**What that deleted.** The architecture had two transports — HTTP and a file drop — behind one
+envelope, and warned that keeping two implementations in step was the thing most likely to rot.
+There is now one. HTTP writes into the outbox; so does anything else. `filedrop.py` was on the
+module map and never needed writing.
+
+**What it cost.** The folder rules are written twice, in two languages —
+`anongee_toolkit/bridge/jobs.py` in CPython 3 and `AnonGee.extension/startup.py` in IronPython 2.7
+— because neither engine can import the other's code. That duplication is the price of the split
+and it is held down two ways: a test compares the constants, and `/ping` reports the home the route
+computed so a disagreement shows up as a sentence in a dialog rather than as a job nobody ever sees.
+
+**A third copy was very nearly written.** The macro needed to know where the result file would be,
+which would have put those same rules in VBA, untestable, and wrong the first time somebody set
+`ANONGEE_BRIDGE_HOME`. Instead the post's answer carries `resultTsv` and the macro waits for a path
+it was given.
+
+---
+
 ## What this programme inherits
 
 Not entries — these were built and confirmed under **RC Automation**, and they are described in
