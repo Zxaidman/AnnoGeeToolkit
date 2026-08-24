@@ -109,6 +109,112 @@ def unresolved(path):
     return sorted(found)
 
 
+#: Revit and .NET interfaces a Python class can subclass. Doing so has three
+#: rules under Python.NET and none under IronPython, which is why this list and
+#: the engine test above are the same subject.
+REVIT_INTERFACES = ("IExternalEventHandler", "IFailuresPreprocessor", "IUpdater",
+                    "ISelectionFilter", "IExternalApplication",
+                    "IExternalCommand", "IExternalDBApplication",
+                    "IDockablePaneProvider")
+
+
+def interface_classes(path):
+    """``[(ClassDef, guarded)]`` for every Revit-interface subclass in a file."""
+    tree = ast.parse(_read(path))
+    top_level = set(id(node) for node in tree.body)
+    found = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        bases = [base.id for base in node.bases if isinstance(base, ast.Name)]
+        if any(base in REVIT_INTERFACES for base in bases):
+            found.append((node, id(node) not in top_level))
+    return found
+
+
+def runs_on_cpython(path):
+    """Whether Python.NET's rules apply to this file at all.
+
+    A toolkit module always: ``lib/py3`` is only ever on a CPython engine's
+    path. A script only if it selects the engine — IronPython subclasses .NET
+    interfaces without ceremony, and one script in this repository relies on
+    that.
+    """
+    if os.sep + "lib" + os.sep + "py3" + os.sep in path:
+        return True
+    return _read(path).startswith("#! python3")
+
+
+class InterfaceSubclassTests(unittest.TestCase):
+    """The three Python.NET rules, from the brand guidelines §12.8.7.1.
+
+    Every one of them fails **at instantiation**, in Revit, with an error that
+    names the symptom and not the cause:
+
+    ============================== ==========================================
+    Missing ``__namespace__``      ``TypeError: interface takes exactly one
+                                   argument`` — pythonnet routes the
+                                   constructor to the interface's one-argument
+                                   cast instead of building a derived CLR type
+    An ``__init__``                the same error, even with ``__namespace__``
+    Defined more than once         ``Duplicate type name within an assembly``,
+                                   on the *second* press
+    ============================== ==========================================
+
+    Bridge Listener had ``__namespace__`` at **module** scope, where it does
+    nothing. It ran anyway for a release because it was on IronPython, where
+    none of this applies — so fixing the engine is what exposed it, and neither
+    fault was visible until then.
+    """
+
+    def cases(self):
+        for path in scripts() + toolkit_modules():
+            if not runs_on_cpython(path):
+                continue
+            for node, guarded in interface_classes(path):
+                yield os.path.relpath(path, _ROOT), node, guarded
+
+    def test_every_interface_subclass_declares_its_namespace_on_the_class(self):
+        missing = []
+        for where, node, _guarded in self.cases():
+            declared = any(
+                isinstance(statement, ast.Assign)
+                and any(isinstance(target, ast.Name)
+                        and target.id == "__namespace__"
+                        for target in statement.targets)
+                for statement in node.body)
+            if not declared:
+                missing.append("{0}: {1}".format(where, node.name))
+        self.assertEqual(missing, [], "; ".join(missing))
+
+    def test_no_interface_subclass_defines_init(self):
+        offenders = []
+        for where, node, _guarded in self.cases():
+            names = [statement.name for statement in node.body
+                     if isinstance(statement, ast.FunctionDef)]
+            if "__init__" in names:
+                offenders.append("{0}: {1}".format(where, node.name))
+        self.assertEqual(offenders, [], "; ".join(offenders))
+
+    def test_no_interface_subclass_is_emitted_at_module_scope(self):
+        """It has to be built once per session, so it cannot be top level.
+
+        A class statement at module scope re-runs on every press under the
+        persistent engine, and pythonnet refuses a second CLR type of the same
+        name. Guarded means inside an ``if`` that checks a cache, or inside a
+        factory the registry calls once — both patterns are in use here.
+        """
+        offenders = []
+        for where, node, guarded in self.cases():
+            if not guarded:
+                offenders.append("{0}: {1}".format(where, node.name))
+        self.assertEqual(offenders, [], "; ".join(offenders))
+
+    def test_the_rule_is_not_vacuous(self):
+        """Guard against the checks passing because they found nothing."""
+        self.assertGreaterEqual(len(list(self.cases())), 6)
+
+
 class EngineTests(unittest.TestCase):
 
     def test_every_script_that_uses_the_toolkit_selects_the_engine(self):

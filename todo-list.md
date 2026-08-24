@@ -274,6 +274,70 @@ selecting the engine, and fails if any script or toolkit module reads a name it
 never binds. 107 of 108 scripts resolve completely; the one that does not uses a
 star import and is exempted by name so the exemption cannot quietly widen.
 
+### BUG-10 — the listener could not create its event handler · `testing`
+
+**Found by the owner's run**, once `BUG-9` put it on the right engine:
+`TypeError: interface takes exactly one argument`, at
+`_state.handler = BridgeJobHandler()`.
+
+Python.NET routes the constructor of a .NET interface subclass to the
+interface's one-argument cast unless `__namespace__` is declared **on the
+class**. I put it at module scope, where it does nothing at all.
+
+**This repository's own brand guidelines state the rule and quote this exact
+error.** §12.8.7.1, rule 1 of three.
+
+**Reproduced:** yes, and then found statically — an audit of every
+Revit-interface subclass in the repository turned up two more.
+
+**It ran for a release anyway**, because it was on IronPython, where none of
+these rules apply. `BUG-9` and this one were hiding each other: fixing the
+engine is what made this visible, and until then the tool looked correct.
+
+**Fixed, unconfirmed.** `__namespace__` on the class, and `claimed` as a class
+attribute since rule 2 forbids the `__init__` that would otherwise set it.
+
+**Guarded repo-wide**, since one instance of a documented rule being missed
+means the rule needs a test rather than a paragraph: `tests/test_scripts.py`
+checks all three rules across every interface subclass, scoped to the files
+where Python.NET applies — IronPython needs none of them, and one script here
+relies on that.
+
+### BUG-11 — `SuppressWarningsPreprocessor` is missing the same line · `testing`
+
+**Found by the audit for `BUG-10`**, not by a failure.
+`anongee_toolkit/revit/transactions.py` declares no `__namespace__`, and
+`RevitTransaction` instantiates it whenever `suppress_warnings` is set — which
+on CPython should raise the same `TypeError`.
+
+**Not reproduced.** It may be that nothing has taken that path on CPython yet.
+Recorded honestly rather than claimed: the line is added because it is the rule,
+not because a failure was seen.
+
+### BUG-12 — Bridge Check deadlocked itself and blamed the bridge · `testing`
+
+**Found in the owner's pasted console output**, which is the first round of
+findings that arrived as text rather than a screenshot — and it is why this was
+diagnosable at all.
+
+`/status` declares `uiapp`, so pyRevit runs it as an External Event, which fires
+only when Revit is **idle**. Revit was not idle: it was running Bridge Check,
+which was blocking on the response. The two waited for each other until every
+timeout expired — HttpClient, raw socket, urllib, then WebClient's unbounded
+hundred seconds.
+
+**Then it reported the wrong conclusion**: *"Ping answered and status did not.
+The server is up and the External Event marshalling is not"*. **That is false.**
+The marshalling was proved from Excel in `DONE-1` and has never stopped working.
+The diagnostic invented a fault in the thing it was diagnosing.
+
+**Reproduced:** yes, and it is structural — a tool inside Revit can *never*
+call that route successfully.
+
+**Fixed, unconfirmed.** `/status` is not called from inside Revit at all. The
+document is read directly from `__revit__`, which is what that route would have
+said and is instant. The report explains the absence and points at Excel.
+
 ### BUG-2 — the Routes server listens on every interface · `pending`
 
 **Found while reading the settings panel**, which reports `listening on http://0.0.0.0:48884`;
@@ -425,8 +489,13 @@ anybody else.
 > 1. **pyRevit tab → Reload** (or restart Revit) so the new `startup.py` loads.
 > 2. **Bridge Check.** It now says which of three things is wrong and what to do.
 >    Send that dialog whatever it says — it is the whole diagnosis now.
-> 3. Once it is up: switch **Bridge Listener** on and press **Run_Echo**. The
->    `.bas` is already re-imported and `/ping` answers from Excel.
+> 3. Switch **Bridge Listener** on — `BUG-10` means it has never actually
+>    created its handler, so this is the first time it will really watch.
+> 4. Press **Run_Echo** in Excel.
+>
+> The `.bas` is already re-imported and `/ping` answers from Excel, so the wire
+> is not in question any more. What is untested is everything after the job file
+> lands.
 >
 > A `LOG` row closes `CRIT-3`, `FEAT-1`, `FEAT-2` and `FEAT-4` in one go — they
 > all describe the same journey — and `BUG-3` through `BUG-8` with it.

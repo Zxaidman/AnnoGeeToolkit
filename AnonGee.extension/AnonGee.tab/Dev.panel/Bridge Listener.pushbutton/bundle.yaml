@@ -32,4 +32,4 @@ tooltip: |
     • A job that fails becomes a result file saying so. The listener does not
       stop — one bad job must not take the next five with it.
 
-  Version: 0.2.0
+  Version: 0.3.0

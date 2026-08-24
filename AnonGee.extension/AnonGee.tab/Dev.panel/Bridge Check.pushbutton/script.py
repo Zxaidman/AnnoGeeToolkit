@@ -22,30 +22,42 @@ is the one thing Excel cannot do for itself.
 Read-only. No transaction, no model change, nothing written anywhere.
 
     /anongee/ping      the server, with no Revit in the question
-    /anongee/status    the model, through an External Event
 
-**If ping answers and status does not**, the server is fine and the External
-Event marshalling is not — which is the whole reason there are two routes rather
-than one.
+**``/status`` is deliberately not called from here, and cannot be.** It declares
+``uiapp``, so pyRevit runs it as an External Event — which fires only when Revit
+is idle. Revit is not idle: it is busy running *this tool*, which would be
+blocking on the response. The two wait for each other until every timeout
+expires, and a run of 0.5.0 did exactly that and then reported *"the External
+Event marshalling is not [up]"* — **which was false**. The marshalling had
+already been proved from Excel. The tool was deadlocking itself and blaming the
+bridge for it.
+
+A tool inside Revit can never test that route. Excel can, because Excel is not
+holding Revit's thread. What this does instead is read the document **directly**
+— it is already inside Revit and does not need a round trip to know what is
+open.
 """
 
 __title__ = "Bridge\nCheck"
 __author__ = "AnonGee"
 __doc__ = """Ask the AnonGee Bridge whether it is running.
 
-Calls the two routes pyRevit serves from inside this Revit session — the same
-URLs an Excel button calls — and shows what comes back.
+Probes the port, calls /ping, and reports the open document — the three things
+that can be known from inside Revit.
 
-  ping    the Routes server, answered even while Revit is busy
-  status  the open model, answered only once Revit is idle
+/status is NOT called from here. It runs as an External Event, which fires only
+when Revit is idle, and Revit is busy running this tool: the two would wait for
+each other until every timeout expired. Test that route from Excel, where
+nothing is holding Revit's thread.
 
-If ping answers and status does not, the server is up and the External Event
-marshalling is not. If neither answers, the Routes server is off: turn it on in
-pyRevit Settings and restart Revit.
+If nothing answers, the report says which of three things is wrong — the Routes
+server switched off, the startup script failing to register, or the extension
+never reloading — and what to do about each.
 
-Read-only. Nothing is written to the model."""
+Read-only. Nothing is written to the model. The report also prints to the
+pyRevit console, where it can be selected and pasted."""
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 
 import os
 import sys
@@ -54,8 +66,9 @@ HOST = "localhost"
 PORT = 48884
 API = "anongee"
 
-#: For ``/status``, which legitimately waits: it runs as an External Event and
-#: cannot answer until Revit is idle.
+#: The ceiling for anything not otherwise bounded. Nothing this tool calls
+#: should come near it — ``/status``, the one route that legitimately waits, is
+#: not called from here at all.
 TIMEOUT_SECONDS = 20
 
 #: For ``/ping``, which touches no Revit and should answer at once.
@@ -309,6 +322,38 @@ def _value(text, key):
     return rest.strip()
 
 
+def document():
+    """What this Revit session has open, read directly. ``[lines]``.
+
+    No round trip: this code is already inside Revit, on Revit's own thread. It
+    is what ``/status`` would have said, obtained the one way that cannot
+    deadlock.
+    """
+    try:
+        uiapp = __revit__                                     # noqa: F821
+    except Exception as error:
+        return ["Revit: could not be reached from here - {0}".format(error)]
+
+    lines = []
+    try:
+        lines.append("Revit {0} {1}".format(
+            uiapp.Application.VersionName, uiapp.Application.VersionBuild))
+    except Exception as error:
+        lines.append("Revit version could not be read: {0}".format(error))
+
+    try:
+        uidoc = uiapp.ActiveUIDocument
+        if uidoc is None:
+            lines.append("Document: none open")
+        else:
+            doc = uidoc.Document
+            lines.append("Document: {0}".format(doc.Title))
+            lines.append("  {0}".format(doc.PathName or "(unsaved)"))
+    except Exception as error:
+        lines.append("Document could not be read: {0}".format(error))
+    return lines
+
+
 def report():
     """The whole diagnosis as lines. Ordered so the answer comes first."""
     lines = ["AnonGee Bridge Check {0}".format(__version__),
@@ -338,21 +383,17 @@ def report():
                 "then run this again.")
         return lines, False
 
-    lines.append("The port is open. Asking the routes.")
+    lines.append("The port is open. Asking /ping.")
     lines.append("")
     ping_line, ping_detail = describe("ping", PING_TIMEOUT_SECONDS)
-    status_line, status_detail = describe("status", TIMEOUT_SECONDS)
-    lines.extend([ping_line, "", status_line, ""])
+    lines.extend([ping_line, ""])
+    lines.extend(document())
+    lines.append("")
     lines.extend(record)
     lines.append("")
 
     answered = "no answer" not in ping_line
-    if answered and "no answer" in status_line:
-        lines.append(
-            "Ping answered and status did not. The server is up and the "
-            "External Event marshalling is not - a finding, not a failure, "
-            "and it belongs in the report.")
-    elif answered:
+    if answered:
         lines.append("The bridge is up.")
     else:
         lines.append(
@@ -360,7 +401,13 @@ def report():
             "another program has {0}, or the routes did not register - the "
             "startup record above says which.".format(PORT))
 
-    lines.extend(["", "--- detail ---", ping_detail, status_detail])
+    lines.append("")
+    lines.append(
+        "/status is not called from here and cannot be: it runs as an "
+        "External Event, which fires only when Revit is idle, and Revit is "
+        "busy running this tool. Test it from Excel.")
+
+    lines.extend(["", "--- detail ---", ping_detail])
     return lines, answered
 
 

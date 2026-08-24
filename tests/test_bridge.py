@@ -128,14 +128,37 @@ class UrlContractTests(unittest.TestCase):
     def test_every_route_a_caller_names_is_one_that_is_served(self):
         served = set(route.strip("/") for route in _routes(_read(_STARTUP)))
         self.assertEqual(served, set(["ping", "status", "jobs"]))
-        # The two diagnostic routes are what both callers use by name. The job
-        # routes are called by the macro through a URL it builds, and are
-        # covered by the constants above rather than by a literal.
-        for caller, source in (("the VBA", self.vba),
-                               ("Bridge Check", _read(_CHECK))):
-            for route in ("ping", "status"):
-                self.assertIn('"{0}"'.format(route), source,
-                              "{0} never calls /{1}".format(caller, route))
+        # The macro names both, because Excel can call both. Bridge Check names
+        # only ping — see the test below for why it must not name the other.
+        for route in ("ping", "status"):
+            self.assertIn('"{0}"'.format(route), self.vba,
+                          "the VBA never calls /{0}".format(route))
+        self.assertIn('"ping"', _read(_CHECK))
+
+    def test_bridge_check_never_calls_status(self):
+        """It runs *inside* Revit, and ``/status`` needs Revit to be idle.
+
+        ``/status`` declares ``uiapp``, so pyRevit runs it as an External Event
+        — which fires only when Revit has nothing else to do. Revit is not idle
+        while it is running Bridge Check, and Bridge Check would be blocking on
+        the response. **They wait for each other until every timeout expires.**
+
+        A run of 0.5.0 did exactly that and then reported *"the External Event
+        marshalling is not [up]"*, which was false: the marshalling had already
+        been proved from Excel. The diagnostic deadlocked itself and blamed the
+        bridge. Excel can test that route because Excel is not holding Revit's
+        thread; nothing inside Revit ever can.
+        """
+        body = _read(_CHECK).split("def report(")[1].split("\ndef ")[0]
+        self.assertNotIn('describe("status"', body)
+        self.assertIn("document()", body)
+
+    def test_bridge_check_reads_the_document_directly_instead(self):
+        # It is already inside Revit. It does not need a round trip to know
+        # what is open, and the round trip is the thing that cannot work.
+        body = _read(_CHECK).split("def document(")[1].split("\ndef ")[0]
+        self.assertIn("__revit__", body)
+        self.assertIn("ActiveUIDocument", body)
 
     def test_the_job_routes_carry_no_revit_argument(self):
         """A job is written, not run — which is what makes posting instant.

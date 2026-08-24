@@ -35,6 +35,40 @@ of view of someone using the thing rather than someone reading the diff:
 
 ---
 
+## 1.10.4
+
+**Fixed**
+
+- **`Bridge Listener` could not create its event handler.**
+  `TypeError: interface takes exactly one argument` — Python.NET routes the
+  constructor of a .NET interface subclass to the interface's one-argument cast
+  unless `__namespace__` is declared **on the class**. It was at module scope,
+  which does nothing. It ran anyway for one release because it was on
+  IronPython, where none of these rules apply; selecting the right engine is
+  what exposed it. Two faults, one hiding the other.
+- **The same line was missing from `SuppressWarningsPreprocessor`** in
+  `anongee_toolkit/revit/transactions.py`, which `RevitTransaction` instantiates
+  when `suppress_warnings` is set. Found by an audit rather than by a failure
+  and **not reproduced** — it may be that nothing has taken that path on CPython
+  yet. One line either way.
+- **`Bridge Check` was deadlocking itself and blaming the bridge.** It called
+  `/status`, which runs as an External Event and fires only when Revit is idle —
+  and Revit was busy running Bridge Check, which was blocking on the response.
+  After every timeout expired it reported *"the External Event marshalling is
+  not [up]"*, **which was false**: that had already been proved from Excel. The
+  route is no longer called from inside Revit, because it never can be. The tool
+  reads the document directly instead, which is instant and cannot deadlock.
+
+**Added**
+
+- `tests/test_scripts.py` now enforces the three Python.NET interface rules
+  across the repository — `__namespace__` on the class, no `__init__`, and the
+  class emitted once per session — scoped to the files where they apply, since
+  IronPython needs none of them. Eight interface subclasses are checked, and a
+  further test fails if that count ever collapses to nothing.
+
+---
+
 ## 1.10.3
 
 **Fixed**

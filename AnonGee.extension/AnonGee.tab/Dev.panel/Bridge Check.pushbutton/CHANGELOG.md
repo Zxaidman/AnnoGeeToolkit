@@ -1,5 +1,24 @@
 # Bridge Check — changelog
 
+## 0.6.0 — 2026-08-24
+
+It stops calling the one route it can never reach, and stops blaming the bridge
+for its own deadlock.
+
+- **`/status` is no longer called from here, and cannot be.** It declares
+  `uiapp`, so pyRevit runs it as an External Event — which fires only when Revit
+  is idle. Revit is not idle: it is busy running this tool, which was blocking
+  on the response. They waited for each other until every timeout expired, and
+  0.5.0 then reported *"the External Event marshalling is not [up]"* — **which
+  was false.** The marshalling had already been proved from Excel. A tool inside
+  Revit can never test that route; Excel can, because Excel is not holding
+  Revit's thread.
+- **It reads the document directly instead**, from `__revit__`. That is what
+  `/status` would have said, obtained the one way that cannot deadlock — and it
+  is instant.
+- The report now says, in as many words, why `/status` is absent and where to
+  test it.
+
 ## 0.5.0 — 2026-08-24
 
 The engine line, the import it hid, and the engine now reported.

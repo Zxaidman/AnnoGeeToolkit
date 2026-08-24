@@ -34,7 +34,8 @@ runs of the same command against two models.
 This button toggles. Press it to start watching, press it again to stop.
 
 **§12.9 applies in full here.** The external event handler is a CLR type: no
-``__init__``, ``__namespace__`` set, and defined **once per session** — a second
+``__init__``, ``__namespace__`` set **on the class**, and defined **once per
+session** — a second
 definition raises *"Duplicate type name within an assembly"*. The Idling delegate
 has to be held in session state too, or .NET keeps the subscription and Python
 garbage-collects the callable behind it.
@@ -56,8 +57,7 @@ own thread. Toggle: press to start watching, press again to stop.
 Jobs live under %APPDATA%\\AnonGee\\bridge (or ANONGEE_BRIDGE_HOME). Use
 Bridge Check to see where this session thinks that is."""
 
-__version__ = "0.2.0"
-__namespace__ = "anongee_bridge_listener"
+__version__ = "0.3.0"
 
 import datetime
 import os
@@ -132,12 +132,27 @@ def _note(text):
 if _state.handler_cls is None:
 
     class BridgeJobHandler(IExternalEventHandler):
-        """Runs one claimed job. **No ``__init__``** — §12.9.2.
+        """Runs one claimed job.
 
         Raised by the Idling callback rather than doing the watching itself,
         because this is where Revit lets go of the UI and the Idling callback is
         where it does not.
+
+        **All three Python.NET interface rules apply, and the first one bit.**
+        ``__namespace__`` has to be a *class* attribute: without it pythonnet
+        routes ``BridgeJobHandler()`` to the interface's one-argument cast
+        instead of building a real derived CLR type, and the failure is
+        ``TypeError: interface takes exactly one argument``. It was written at
+        module scope here, which does nothing at all — and the tool ran anyway
+        for a release, because it was on IronPython where none of this applies.
+        Fixing the engine is what exposed it.
         """
+
+        __namespace__ = "AnonGee"
+
+        #: Set after construction, but declared here so an instance always has
+        #: it — rule 2 forbids the ``__init__`` that would otherwise do it.
+        claimed = None
 
         def GetName(self):
             return "AnonGee Bridge Listener"

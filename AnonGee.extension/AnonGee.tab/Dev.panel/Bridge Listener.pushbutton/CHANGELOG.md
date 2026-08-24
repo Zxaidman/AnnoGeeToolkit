@@ -1,5 +1,19 @@
 # Bridge Listener — changelog
 
+## 0.3.0 — 2026-08-24
+
+- **`__namespace__` moved onto the class, where Python.NET looks for it.** It
+  was at module scope, which does nothing. Without it pythonnet routes
+  `BridgeJobHandler()` to the interface's one-argument cast instead of building
+  a real derived CLR type, and the failure is
+  `TypeError: interface takes exactly one argument`.
+
+  It ran anyway for one release **because it was on IronPython**, where none of
+  these rules apply. Selecting the right engine in 0.2.0 is what exposed it —
+  two faults, one hiding the other.
+- `claimed` is a class attribute now, so an instance always has it. Rule 2
+  forbids the `__init__` that would otherwise set it.
+
 ## 0.2.0 — 2026-08-24
 
 - **`#! python3` on the first line**, and this tool cannot work without it. It
