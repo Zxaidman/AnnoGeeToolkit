@@ -54,21 +54,23 @@ model.
 
 ## 1. Critical
 
-### CRIT-5 — `levels.sync` and `grids.sync` are declared and not built · `pending`
+### CRIT-5 — `grids.sync` is declared and not built · `pending`
 
-The registry names them, the `CONTROL` sheet has a button for each, and pressing
-either answers *"declared but not built yet"*. That is a deliberate state and not
-a comfortable one: the workbook shows a capability the model does not have.
+**`levels.sync` is built** (extension 1.12.0) and moved to `FEAT-5`. `grids.sync`
+remains: the registry names it, the `CONTROL` sheet has a button, and pressing it
+answers *"declared but not built yet"* — which the owner's run confirmed is a
+clear failure rather than an obscure one.
 
 Declared first on purpose — the workbook could then be built and checked against
 a registry that already knew what it would be asked for, and a test holds the
 `CONTROL` sheet, the registry and the macro to the same three names.
 
-**What each needs** is now only the handler: `anongee_toolkit/commands/levels.py`
-and `grids.py`, each `run(uiapp, envelope)` returning `(summary, findings, note)`.
-Everything under them exists — the transport, the listener, the workbook, the
-name matching (`rc_automation/naming.py`, already proven on level names), and the
-read-only level and grid adapters in `structural/`.
+**What it needs** is `anongee_toolkit/commands/grids.py` and the planning half in
+`rc_automation/datum.py` beside `plan_levels`. `levels.sync` is the worked
+example of both, and the four refusals it encodes apply almost unchanged — with
+one addition, since a grid is a line rather than a number: two grids at the same
+position under different names are the same collision, and bubble ends and 3D
+extents are per-view and belong in a later pass.
 
 ### CRIT-2 — neither template exists, and neither can be generated from here · `pending`
 
@@ -374,6 +376,23 @@ as mojibake.
 keeps the full text and names UTF-8. That split is the one real cost of writing
 the answer twice, and it is still cheaper than a JSON parser in VBA.
 
+### BUG-15 — the macro's dialogs showed mojibake · `testing`
+
+**Found in the owner's screenshots of the first successful job**: every dialog
+ended `0 finding(s) a-hat-euro see the FINDINGS sheet.`
+
+Two em dashes in message strings. **Excel imports a `.bas` as the machine's ANSI
+code page**, not UTF-8, and there is nowhere in that format to declare
+otherwise — so a file crossing into VBA must not need an encoding at all.
+
+The same lesson as the result TSV two rounds earlier, one layer further out, and
+I did not carry it across at the time.
+
+**Reproduced:** by reading the bytes — six above 127, on two lines.
+
+**Fixed, unconfirmed.** The module is pure ASCII and a test fails on any byte
+above 127 in it.
+
 ### BUG-2 — the Routes server listens on every interface · `pending`
 
 **Found while reading the settings panel**, which reports `listening on http://0.0.0.0:48884`;
@@ -410,7 +429,7 @@ Each carries the verdict from the PRD, so the queue and the estimate cannot drif
 
 | ID | What | Verdict | Phase |
 | --- | --- | --- | --- |
-| FEAT-5 | `levels.sync` | **Straightforward, and now only a handler** — see `CRIT-5`. Matching already built and proven. Sync-and-modify only: deleting a level deletes everything hosted on it | `pending` |
+| FEAT-5 | `levels.sync` | **Built, `testing`.** Rules in `rc_automation/datum.py`, tested off Revit: never delete, never rename, never fill an occupied elevation, match by name only. Idempotence is the acceptance test and there is one for it | `testing` |
 | FEAT-6 | `grids.sync` | **Straightforward, with a fiddly tail.** Creating them is an afternoon; per-view bubbles and 3D extents are where the time goes | `pending` |
 | FEAT-7 | `types.sync` — duplicate, parameterise, load from a library | **Partly possible, and the boundary matters.** Duplicating and loading covers most of a real job. **Authoring a family from a spreadsheet is not on the table** — the template carries the families | `pending` |
 | FEAT-8 | `views.sync` — plans, sections, 3D, templates, scope boxes, crops, filters | **Yes, medium.** The workbook supplies the judgement so the code does not guess | `pending` |
@@ -520,18 +539,27 @@ anybody else.
 > **`CRIT-1` is confirmed** — both routes answered, the marshalling is real, and the engine question
 > is settled. It moved to `done-list.md` as `DONE-1` and left `CRIT-4`, `BUG-1` and `BUG-2` behind it.
 >
+> **The first job went end to end on 2026-08-24** — recorded as `DONE-1` through
+> `DONE-4`. `CRIT-3`, `FEAT-1`, `FEAT-2`, `FEAT-4`, `FEAT-21` and `BUG-3`
+> through `BUG-14` are all closed by that one screenshot.
+>
 > **Next run to do**, in this order:
 >
 > 1. **pyRevit tab → Reload** (or restart Revit) so the new `startup.py` loads.
 > 2. **Bridge Check.** It now says which of three things is wrong and what to do.
 >    Send that dialog whatever it says — it is the whole diagnosis now.
-> 3. Switch **Bridge Listener** on — `BUG-10` means it has never actually
->    created its handler, so this is the first time it will really watch.
-> 4. Press **Run_Echo** in Excel.
+> 3. Switch **Bridge Listener** on.
+> 4. **`Run_Levels` with Write? = No.** A dry run reports what it would do to
+>    your four levels and writes nothing. The model has two levels and the sheet
+>    names four, so expect two creates and two of something else — and whatever
+>    it says, that is the plan a real run would follow exactly.
+> 5. Then Write? = Yes, and run it twice. **The second run must report four
+>    matches and nothing else.** That is the acceptance test, not the first one:
+>    anything can create.
 >
-> The `.bas` is already re-imported and `/ping` answers from Excel, so the wire
-> is not in question any more. What is untested is everything after the job file
-> lands.
+> Re-import the `.bas` once more first — `BUG-15` is in it. The workbook itself
+> was rebuilt too, so its CONTROL sheet now describes what `levels.sync`
+> actually does.
 >
 > A `LOG` row closes `CRIT-3`, `FEAT-1`, `FEAT-2` and `FEAT-4` in one go — they
 > all describe the same journey — and `BUG-3` through `BUG-8` with it.

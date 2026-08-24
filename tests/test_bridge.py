@@ -686,6 +686,30 @@ class VbaErrorHandlingTests(unittest.TestCase):
                         "starts at line {2} — VBA ignores it".format(
                             name, target, label_at))
 
+    def test_the_module_is_pure_ascii(self):
+        """Excel imports a ``.bas`` as the machine's ANSI code page.
+
+        Not UTF-8, and there is nowhere in the format to say otherwise. Two em
+        dashes written into message strings arrived in the dialogs as
+        ``a-hat-euro`` — mojibake in the one place a user actually reads.
+
+        The same lesson as the result TSV, one layer further out: a file
+        crossing into VBA has no way to declare its encoding, so it must not
+        need one.
+        """
+        with open(_VBA, "rb") as handle:
+            raw = handle.read()
+        offenders = []
+        line = 1
+        for byte in raw:
+            if byte == 10:
+                line += 1
+            elif byte > 127:
+                offenders.append(line)
+        self.assertEqual(sorted(set(offenders)), [],
+                         "non-ASCII on line(s) {0}".format(
+                             sorted(set(offenders))))
+
     def test_the_two_ways_to_the_wire_are_separate_procedures(self):
         names = [name for name, _lines in self.procedures()]
         self.assertIn("HttpGetWinHttp", names)

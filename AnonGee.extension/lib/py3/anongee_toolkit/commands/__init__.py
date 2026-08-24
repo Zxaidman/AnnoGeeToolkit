@@ -37,7 +37,8 @@ def register_all():
 
     bound = []
     for name, module_name, function in (
-            ("bridge.echo", "echo", "run"),):
+            ("bridge.echo", "echo", "run"),
+            ("levels.sync", "levels", "run"),):
         try:
             module = __import__(
                 "anongee_toolkit.commands." + module_name,

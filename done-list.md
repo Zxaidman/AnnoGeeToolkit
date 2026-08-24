@@ -137,6 +137,54 @@ Excel refuses to compile. Both are now held by tests that read the `.bas`.
 
 ---
 
+## DONE-4 — a button in Excel changed a Revit model's report, end to end
+
+**Shipped in** extension 1.11.0 · **Confirmed** 2026-08-24 by the owner, five
+jobs in the listener window:
+
+```
+20260824-174025-0005  grids.sync   rejected
+20260824-174002-0004  bridge.echo  done   grids=0 levels=2 option.dryRun=True
+                                          title=R25_REBAR_AUTOMATION read=2 written=0
+20260824-173933-0003  levels.sync  rejected
+20260824-173919-0002  grids.sync   rejected
+20260824-173909-0001  bridge.echo  done   option.dryRun=False …
+```
+
+**Everything in the chain is now proved by something that ran.** Excel posted;
+the IronPython route stamped a job and wrote it; the CPython listener noticed it
+on an Idling tick, claimed it with an atomic rename and raised its external
+event; the command ran on Revit's own thread and read the real model — `levels=2`,
+`grids=0`, `R25_REBAR_AUTOMATION`; the result was written twice; the macro read
+the TSV and reported it.
+
+Three details worth keeping:
+
+**`dryRun` round-tripped.** Job 0001 carried `False` and job 0004 `True`, which
+is the CONTROL sheet's *Write?* column arriving intact at the far end. The
+option channel works, and that is what makes every later command safe to try.
+
+**The unbuilt commands rejected themselves.** `levels.sync` and `grids.sync`
+answered *"declared but not built yet"* rather than failing obscurely — the
+reason for declaring commands before writing them.
+
+**The window earned itself immediately.** Five jobs, their statuses and their
+counts, visible at once. The `TaskDialog` it replaced could not have shown any
+of it.
+
+**Cost.** Fourteen bugs between the first spike and this screenshot, and the
+shape of them is the lesson. Four were in the diagnostic rather than the thing
+being diagnosed — it could not reach the wire, hid the reason behind a collapsed
+panel, took minutes to show nothing, and finally invented a fault in the bridge
+that did not exist. Two were engine mistakes hiding each other. Three were VBA
+and encoding rules that have no runtime error until the moment a user sees them.
+
+The round that broke the pattern was the first one whose findings arrived as
+**pasted console text rather than a screenshot** — three separate bugs were
+diagnosable from it at once. That is why the report prints to the console.
+
+---
+
 ## What this programme inherits
 
 Not entries — these were built and confirmed under **RC Automation**, and they are described in

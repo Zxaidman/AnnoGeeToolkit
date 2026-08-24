@@ -47,9 +47,10 @@ COMMANDS = [
      "first — every command after it has two things that can be wrong, and "
      "this one has only the wire."),
     ("Create / update levels", "levels.sync", "LEVELS",
-     "Match the LEVELS sheet against the model, then create, modify or leave "
-     "each level alone. Never deletes: removing a level takes everything "
-     "hosted on it."),
+     "Match the LEVELS sheet against the model by name, then create or move "
+     "each level. Never deletes one the sheet omits, never renames one, and "
+     "never creates a second level where one already sits - each of those is "
+     "reported instead. Run it twice and the second run changes nothing."),
     ("Create / update grids", "grids.sync", "GRIDS",
      "Match the GRIDS sheet against the model, then create, modify or leave "
      "each grid alone."),
