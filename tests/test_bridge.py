@@ -637,6 +637,69 @@ class StartupRecordTests(unittest.TestCase):
         self.assertIn("errors[0]", headline)
 
 
+class MacroSurvivalTests(unittest.TestCase):
+    """Rebuilding the workbook must never destroy the macros in it.
+
+    The whole one-manual-step story rests on this: ``openpyxl`` preserves a VBA
+    project and cannot create one, so the `.xlsm` in this folder is the only
+    copy of that import. A builder that quietly dropped it would cost that step
+    again every time the sheets changed — and the loss would be invisible until
+    somebody pressed a button.
+
+    Checked against the real workbook rather than a synthetic one, because what
+    is being tested is a claim about `openpyxl` and a specific file, not about
+    code.
+    """
+
+    WORKBOOK = os.path.join(_ROOT, "bridge", "excel", "AnonGee_Bridge.xlsm")
+
+    def setUp(self):
+        if not os.path.exists(self.WORKBOOK):
+            self.skipTest("no .xlsm in the repository yet")
+        try:
+            import openpyxl                                    # noqa: F401
+        except ImportError:
+            self.skipTest("openpyxl is not installed here")
+
+    def builder(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("build_workbook", _BUILDER)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_the_shipped_workbook_carries_its_macros(self):
+        import zipfile
+        with zipfile.ZipFile(self.WORKBOOK) as archive:
+            self.assertIn("xl/vbaProject.bin", archive.namelist())
+
+    def test_rebuilding_it_keeps_them(self):
+        import shutil
+        import zipfile
+        folder = tempfile.mkdtemp()
+        try:
+            copy = os.path.join(folder, "AnonGee_Bridge.xlsm")
+            shutil.copy(self.WORKBOOK, copy)
+            self.builder().build(copy)
+            with zipfile.ZipFile(copy) as archive:
+                self.assertIn("xl/vbaProject.bin", archive.namelist())
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
+
+    def test_rebuilding_it_rewrites_every_sheet(self):
+        import shutil
+        from openpyxl import load_workbook
+        folder = tempfile.mkdtemp()
+        try:
+            copy = os.path.join(folder, "AnonGee_Bridge.xlsm")
+            shutil.copy(self.WORKBOOK, copy)
+            self.builder().build(copy)
+            self.assertEqual(load_workbook(copy).sheetnames,
+                             ["CONTROL", "INFO", "LEVELS", "GRIDS", "LOG"])
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
+
+
 class ListenerTests(unittest.TestCase):
     """§12.9, and the rule that work never happens in the Idling callback."""
 
