@@ -1,4 +1,4 @@
-title: Bridge\nListener
+title: Bridge Listener
 author: AnonGee
 tooltip: |
   Watch for bridge jobs and run them. Toggle — press to start, press to stop.
