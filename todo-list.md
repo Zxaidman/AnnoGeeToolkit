@@ -61,10 +61,11 @@ ID is where the detail lives. Four words, meaning exactly four things:
 | **Levels** | `levels.sync` | yes | **built in Revit 2026-08-25** | **yes** | 0 | FEAT-5 |
 | **Grids** | `grids.sync` | yes | **built in Revit 2026-08-25** | **yes** | 0 | FEAT-6 |
 | Sample project workbook — Foundation + G + 4 | — | 1.16.0, third format | reviewed twice; ten changes asked for and made | no | 0 | FEAT-22, 24–33 |
-| Columns | `columns.sync` | 1.17.0, `redo` | **failed 2026-08-25**: `created=90 written=0`. Every row reported *no column type called `C-300x600`* and stopped. Correct, and useless | no | **1** | FEAT-10, 28, 34 |
-| Footings | `footings.sync` | 1.17.0, `redo` | **failed 2026-08-25**: `created=15 written=0`, same cause | no | **1** | FEAT-23, 27, 34 |
-| Extract Template | — | 1.18.0, `redo` | **failed 2026-08-25**: could not import the toolkit — and said the wrong reason | no | **1** | FEAT-35, BUG-18 |
-| Buttons | — | 1.18.0 | style matched exactly; **they do not move or size with their cells** | no | **1** | FEAT-32, BUG-19 |
+| **Footings** | `footings.sync` | 1.19.0 | **built in Revit 2026-08-25**: 15 written, then 15 matched | **yes** | **1** | FEAT-23, 27, 34 |
+| Columns | `columns.sync` | 1.19.0, `redo` | **75 of 90 built.** The 15 missing all name a level that was never created; and `Mark` collided | no | **2** | FEAT-10, 28, 34, BUG-22, 23 |
+| Levels | `levels.sync` | 1.19.0, `redo` | built 6 of 7; the seventh was **blocked** by the template's own `Level 0` | no | **1** | FEAT-5, BUG-23 |
+| Extract Template | — | 1.19.0, `redo` | **ran, and its parameter section was wrong** — everything filed as project, no shared section | no | **2** | FEAT-35, BUG-18, 21 |
+| Buttons | — | 1.19.0 | **style, position and scaling all confirmed** | **yes** | **1** | FEAT-32, BUG-19 |
 | Beams | `beams.sync` | declared, not written | — | no | 0 | FEAT-11, 29 |
 | Slabs | `slabs.sync` | declared, not written | — | no | 0 | FEAT-13, 30 |
 
@@ -406,6 +407,69 @@ as mojibake.
 **Fixed, unconfirmed.** The TSV is ASCII with anything else replaced; the JSON
 keeps the full text and names UTF-8. That split is the one real cost of writing
 the answer twice, and it is still cheaper than a JSON parser in VBA.
+
+### BUG-20 — the FINDINGS sheet was wiped by the next job · `testing`
+
+**How it was found.** Reading the pushed workbook: `columns.sync` reported `written=75` of `created=90`,
+and `FINDINGS` was **empty**. Fifteen columns failed for a reason the run knew exactly, and the sheet
+that was supposed to say it had nothing in it.
+
+**Cause.** `ShowFindings` clears the sheet on every result, including one with nothing to say. The
+owner pressed *Create beams* and *Create slabs* after the columns run; both were rejected as unbuilt,
+both cleared the sheet, and the fifteen explanations went with them.
+
+**Fix.** The sheet carries a header saying which job and command its findings belong to, and how many
+there were. A run with none says *no findings* under that header rather than leaving a blank sheet —
+which is the same picture as a run that failed to report and cannot be told apart from one.
+
+### BUG-21 — the extraction called every parameter a project parameter · `testing`
+
+**How it was found.** Reading the report the owner sent. It has a **Project** section, a **Family**
+section, and **no Shared section at all** — for a template that has been through a real job. And every
+parameter's type reads `Autodesk.Revit.DB.ForgeTypeId`, which is the name of a class rather than the
+name of anything.
+
+**Two causes, both in `inventory`.** `_is_shared` tests `isinstance(definition, ExternalDefinition)`,
+and `doc.ParameterBindings` hands out `InternalDefinition` — for shared and project parameters alike.
+So the test is **always false** and everything lands under *project*. And `_definition_kind` calls
+`GetDataType()`, which returns a `ForgeTypeId` object; printing it prints the class.
+
+**Why this one is the worst of the four.** The report exists to answer *where may the workbook safely
+write*, and the difference between shared and project is the whole answer. A wrong answer here is
+acted on — parameters bound in the wrong scope, values that vanish on the next family reload — and it
+is expensive to unpick.
+
+### BUG-22 — `Mark` was given a value that repeats, and Revit warned · `testing`
+
+**How it was found.** The project owner's screenshot: *Elements have duplicate "Mark" values*, three
+warnings.
+
+**Cause, and it is a design mistake rather than a slip.** The owner's marking rule is that `C1` repeats
+— up a stack and across a floor — and `Mark` is the one Revit parameter that is expected to be unique
+per instance. Writing a deliberately repeating label into it was always going to warn.
+
+**Fix.** `Mark` gets the **key**, which is unique by construction: `C1-A1-S1`. The schedule label goes
+to a parameter the workbook names, and if no parameter is named it is not written and one finding says
+which one to bind. That is the template/workbook boundary doing its job rather than being worked
+around.
+
+### BUG-23 — one blocked level cost fifteen columns and left a storey-high gap · `testing`
+
+**How it was found.** Two symptoms, one cause. The project owner's section shows the lowest columns
+stopping at `Level 0` with a storey-high gap above them, and `columns.sync` wrote 75 of 90.
+
+**Cause.** `levels.sync` reported `blocked=1`. The template carries `Level 0` at 0.000, and the sheet
+asks for `01 GROUND LVL.` at 0.000 — so the rule *never create a second level at an occupied
+elevation* refused it, correctly. Then every column naming `01 GROUND LVL.` as its **base** failed
+(fifteen of them, exactly the S2 lift) and every column naming it as its **top** was placed without one.
+
+Both were reported. **The reports were wiped by BUG-20**, which is why this arrived as a picture rather
+than a message.
+
+**Fix.** A `RenameFrom` column on `LEVELS`. A row that names the level it is replacing renames it
+instead of being blocked — explicit, auditable, and it does not weaken the rule for anything that does
+not ask. Renaming stays a thing somebody writes down, which is what the original refusal was
+protecting.
 
 ### BUG-18 — Extract Template could not import the toolkit, and blamed the wrong thing · `testing`
 

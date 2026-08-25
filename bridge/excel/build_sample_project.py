@@ -278,6 +278,10 @@ INFO_ROWS = [
      "here, then press ApplyUnits. Cover and diameter stay in mm."),
     ("SURVEY_OFFSET", SURVEY_OFFSET_MM,
      "What the Survey Point reads where the Project Base Point reads zero."),
+    ("SCHEDULE_MARK_PARAM", "",
+     "Which parameter carries the repeating schedule mark - C1, C2. Revit's "
+     "own Mark holds the unique key instead, because a repeating Mark is what "
+     "Revit warns about. Leave blank until the template binds one."),
     ("STANDARD", "BS 8666:2020", "The reinforcement standard, for later."),
     ("REVIT_TEMPLATE", "", "Path to the .rvt this job is built from."),
     ("BRIDGE_URL", "http://localhost:48884/anongee",
@@ -343,7 +347,14 @@ CONTROL_HEADERS = ("Run", "Command", "Sheet", "What it does", "Built?",
                    "Write?", "Last status", "When", "Note")
 
 LEVEL_HEADERS = ("Name", unit("Elevation PBP"), unit("Elevation Survey"),
-                 "ElevationBase", "LevelType", "Story", "Comments")
+                 "ElevationBase", "RenameFrom", "LevelType", "Story",
+                 "Comments")
+
+#: A template ships with its own level at 0.000 and a real sheet wants that
+#: elevation for the ground floor. Naming it here renames it; leaving this
+#: blank means the row is blocked instead, which is the safe default and the
+#: one that cost fifteen columns before this column existed.
+RENAME_AT_GROUND = "Level 0"
 GRID_HEADERS = ("Name", unit("X1"), unit("Y1"), unit("X2"), unit("Y2"),
                 "Angle", unit("Length"), "BubbleStart", "BubbleEnd",
                 "Comments")
@@ -429,9 +440,12 @@ def level_rows():
     """
     rows = []
     for name, elevation, story in LEVELS:
+        rename = RENAME_AT_GROUND if elevation == 0 else ""
+        note = ("renames the template's own level at this elevation"
+                if rename else "")
         rows.append((name, length(elevation),
                      length(elevation + SURVEY_OFFSET_MM),
-                     ELEVATION_BASES[0], "", story, ""))
+                     ELEVATION_BASES[0], rename, "", story, note))
     return rows
 
 

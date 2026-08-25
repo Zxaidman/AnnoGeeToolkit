@@ -667,7 +667,7 @@ Private Sub WriteResult(ByVal command As String, ByVal body As String)
     Next index
 
     LogRow jobId, command, status, counts, note
-    ShowFindings body
+    ShowFindings body, command, jobId
 
     MsgBox command & ": " & status & vbCrLf & vbCrLf & _
            Trim$(counts) & vbCrLf & note & vbCrLf & vbCrLf & _
@@ -676,17 +676,31 @@ Private Sub WriteResult(ByVal command As String, ByVal body As String)
 End Sub
 
 
-Private Sub ShowFindings(ByVal body As String)
+Private Sub ShowFindings(ByVal body As String, ByVal command As String, _
+                         ByVal jobId As String)
+    ' Write this job's findings, under a header saying whose they are.
+    '
+    ' The header is not decoration. This sheet used to be cleared by every
+    ' result including one with nothing to say -- so pressing two unbuilt
+    ' commands after a run that reported fifteen failures left an empty sheet,
+    ' and an empty sheet is the same picture as a run that never reported.
+    ' Fifteen columns went unexplained exactly that way. BUG-20.
     Dim sheet As Worksheet
     Set sheet = EnsureSheet("FINDINGS")
     sheet.Cells.Clear
+
+    sheet.Cells(1, 1).Value = "Findings from"
+    sheet.Cells(1, 2).Value = command
+    sheet.Cells(1, 3).Value = jobId
+    sheet.Cells(1, 4).Value = Now
+    sheet.Rows(1).Font.Bold = True
 
     Dim lines() As String
     lines = Split(Replace(body, vbCrLf, vbLf), vbLf)
 
     Dim writing As Boolean
     Dim row As Long
-    row = 1
+    row = 3
 
     Dim index As Long
     For index = LBound(lines) To UBound(lines)
@@ -705,7 +719,11 @@ Private Sub ShowFindings(ByVal body As String)
         End If
     Next index
 
-    sheet.Rows(1).Font.Bold = True
+    If row = 3 Then
+        sheet.Cells(3, 1).Value = "No findings. This run had nothing to report."
+    Else
+        sheet.Rows(3).Font.Bold = True
+    End If
     sheet.Columns("A:E").AutoFit
 End Sub
 

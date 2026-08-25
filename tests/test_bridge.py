@@ -1599,6 +1599,19 @@ class ControlColumnTests(unittest.TestCase):
         self.assertIn("CountAnchored", self.bodies()["AnonGeeBridge_AddButtons"])
         self.assertIn("move ", self.bodies()["AnonGeeBridge_AddButtons"])
 
+    def test_findings_say_which_job_they_came_from(self):
+        """An empty FINDINGS sheet is the same picture as a run that failed to
+        report, and fifteen columns went unexplained exactly that way.
+
+        The sheet was cleared by every result, including one with nothing to
+        say — so pressing two unbuilt commands after a run that reported
+        fifteen failures wiped the explanations.
+        """
+        body = self.bodies()["ShowFindings"]
+        self.assertIn('"Findings from"', body)
+        self.assertIn("No findings", body)
+        self.assertIn("ShowFindings body, command, jobId", self.vba)
+
     def test_anchoring_can_be_run_on_its_own(self):
         self.assertIn("Public Sub AnonGeeBridge_AnchorButtons()", self.vba)
 

@@ -69,8 +69,44 @@ def find_symbol(doc, wanted, cache=None):
             return (_activate(doc, symbol_id, cache, key),
                     "matched {0!r} to {1}".format(wanted, label))
 
+    # Fourth pass: the same two dimensions, whatever the name around them.
+    #
+    # A real template holds `300 X 600` and a workbook asks for `S_Col_300x600`.
+    # Those are the same section, and duplicating it because the words differ
+    # would fill somebody's model with types that already existed. Two numbers
+    # matching two numbers is a strong enough claim to make, and it is
+    # reported every time it is used so a loose match is never silent.
+    wanted_size = _dimensions(wanted)
+    if len(wanted_size) == 2:
+        for label, name, _type_mark, symbol_id in loaded:
+            if _dimensions(name) == wanted_size:
+                return (_activate(doc, symbol_id, cache, key),
+                        "matched {0!r} to {1} - same section, different "
+                        "name".format(wanted, label))
+
     return None, ("no column type called {0!r}. This model has: {1}".format(
         wanted, ", ".join(label for label, _n, _t, _i in loaded[:8])))
+
+
+def _dimensions(text):
+    """The numbers in a type name, as a tuple. ``"300 X 600"`` -> ``(300, 600)``.
+
+    Order matters and is kept: a 300 x 600 column is not a 600 x 300 one, and
+    treating them as the same would turn every column in a frame ninety
+    degrees.
+    """
+    found = []
+    digits = ""
+    for character in str(text or ""):
+        if character.isdigit():
+            digits += character
+        else:
+            if digits:
+                found.append(int(digits))
+            digits = ""
+    if digits:
+        found.append(int(digits))
+    return tuple(found)
 
 
 #: What a rectangular column's two dimensions are called, across the families

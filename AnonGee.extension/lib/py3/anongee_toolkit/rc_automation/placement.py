@@ -119,6 +119,27 @@ class PlacementRow(object):
                 round(self.offset_x_mm or 0.0, 1),
                 round(self.offset_y_mm or 0.0, 1))
 
+    @property
+    def unique_mark(self):
+        """What goes in Revit's ``Mark``, and it is not the schedule label.
+
+        Revit expects ``Mark`` to be unique per instance and warns when it is
+        not. The owner's schedule label repeats on purpose — ``C1`` is ``C1``
+        up a whole stack and across a floor — so writing the label there
+        produced *Elements have duplicate "Mark" values* on the first real run.
+
+        The key does not repeat, by construction: ``C1-A1-S1``. The label is
+        still in it, so the schedule mark is readable from the model, and the
+        grid and storey make it unique.
+        """
+        parts = [self.mark or "?"]
+        where = "{0}{1}".format(self.grid_x or "", self.grid_y or "")
+        if where:
+            parts.append(where)
+        if self.storey:
+            parts.append(self.storey)
+        return "-".join(parts)
+
     def __repr__(self):
         return "<PlacementRow {0!r} at {1}{2}>".format(
             self.mark, self.grid_x, self.grid_y)

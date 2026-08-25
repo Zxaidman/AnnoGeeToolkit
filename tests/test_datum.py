@@ -587,5 +587,91 @@ class SurveyElevationTests(unittest.TestCase):
         self.assertFalse(plans[0].will_write)
 
 
+def _errors(issues):
+    return [issue for issue in issues
+            if issue.severity == models.SEVERITY_ERROR]
+
+
+class RenameTests(unittest.TestCase):
+    """One blocked level cost fifteen columns, and this is the way out.
+
+    A template ships with ``Level 0`` at 0.000; a real sheet asks for
+    ``01 GROUND LVL.`` at 0.000. The rule *never create a second level at an
+    occupied elevation* refused it — correctly — and then every column naming
+    the level that was never created failed too. Two symptoms, one cause, and
+    both of them a long way from the level sheet.
+
+    So a row can name the level it replaces. Explicitly, in a column, where
+    somebody wrote it down — which is what the original refusal was protecting.
+    """
+
+    def existing(self):
+        return [("Level 0", "id-0", 0.0)]
+
+    def row(self, rename_from=""):
+        return datum.LevelRow("01 GROUND LVL.", 0.0, row=2,
+                              rename_from=rename_from)
+
+    def test_without_the_column_it_is_still_blocked(self):
+        plans, issues = datum.plan_levels([self.row()], self.existing())
+        self.assertEqual(plans[0].action, datum.BLOCKED)
+        self.assertEqual(len(_errors(issues)), 1)
+
+    def test_the_block_says_how_to_get_past_it(self):
+        _plans, issues = datum.plan_levels([self.row()], self.existing())
+        self.assertIn("RenameFrom", issues[0].message)
+        self.assertIn("Level 0", issues[0].message)
+
+    def test_naming_the_level_renames_it(self):
+        plans, issues = datum.plan_levels([self.row("Level 0")],
+                                          self.existing())
+        self.assertEqual(plans[0].action, datum.RENAME)
+        self.assertEqual(plans[0].key, "id-0")
+        self.assertTrue(plans[0].will_write)
+        self.assertEqual(_errors(issues), [])
+
+    def test_the_rename_is_reported_because_it_is_not_reversible_cheaply(self):
+        _plans, issues = datum.plan_levels([self.row("Level 0")],
+                                           self.existing())
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].severity, models.SEVERITY_INFO)
+        self.assertIn("never renamed on a guess", issues[0].message)
+
+    def test_naming_the_wrong_level_does_not_rename_anything(self):
+        # The column is a permission for one named level, not a licence.
+        plans, _issues = datum.plan_levels([self.row("Level 42")],
+                                           self.existing())
+        self.assertEqual(plans[0].action, datum.BLOCKED)
+
+    def test_a_renamed_level_is_counted_separately(self):
+        plans, _issues = datum.plan_levels([self.row("Level 0")],
+                                           self.existing())
+        counts = datum.summarise(plans)
+        self.assertEqual(counts["renamed"], 1)
+        self.assertEqual(counts["created"], 0)
+        self.assertEqual(counts["blocked"], 0)
+
+    def test_the_column_is_read_from_the_sheet(self):
+        grid = [["Name", "Elevation", "RenameFrom"],
+                ["01 GROUND LVL.", 0, "Level 0"]]
+        rows, _issues = datum.parse_levels(grid)
+        self.assertEqual(rows[0].rename_from, "Level 0")
+
+    def test_rename_from_is_not_swallowed_by_the_name_column(self):
+        # Both are names. A reader that took RenameFrom for the level's own
+        # name would rename every level to the one it was replacing.
+        grid = [["Name", "Elevation", "RenameFrom"],
+                ["01 GROUND LVL.", 0, "Level 0"]]
+        rows, _issues = datum.parse_levels(grid)
+        self.assertEqual(rows[0].name, "01 GROUND LVL.")
+
+    def test_a_second_run_matches_the_level_it_renamed(self):
+        # Idempotence across the rename: once Level 0 is 01 GROUND LVL., the
+        # next run must match it by name and do nothing.
+        plans, _issues = datum.plan_levels(
+            [self.row("Level 0")], [("01 GROUND LVL.", "id-0", 0.0)])
+        self.assertEqual(plans[0].action, datum.MATCH)
+
+
 if __name__ == "__main__":
     unittest.main()

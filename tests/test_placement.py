@@ -482,5 +482,78 @@ class TypeCreationTests(unittest.TestCase):
         self.assertEqual(sizes["x1"]["thickness_mm"], 150.0)
 
 
+class UniqueMarkTests(unittest.TestCase):
+    """Revit's ``Mark`` and the schedule's mark are two different things.
+
+    Revit expects ``Mark`` to be unique per instance and warns when it is not.
+    The owner's schedule label repeats on purpose — ``C1`` is ``C1`` up a whole
+    stack and across a floor — so writing the label there produced *Elements
+    have duplicate "Mark" values* on the first real run. The label was right;
+    the parameter was wrong.
+    """
+
+    def row(self, **fields):
+        fields.setdefault("mark", "C1")
+        return placement.PlacementRow(row=2, **fields)
+
+    def test_the_key_carries_the_label_the_grid_and_the_storey(self):
+        row = self.row(grid_x="A", grid_y="1", storey="S1")
+        self.assertEqual(row.unique_mark, "C1-A1-S1")
+
+    def test_a_footing_has_no_storey_and_says_so_by_omission(self):
+        row = self.row(mark="F-A1", grid_x="A", grid_y="1")
+        self.assertEqual(row.unique_mark, "F-A1-A1")
+
+    def test_every_column_in_the_sample_gets_a_different_one(self):
+        # The property that matters. Ninety rows, ninety marks, no warning.
+        sample = _sample()
+        rows, _issues = placement.parse_columns(
+            _grid(sample.COLUMN_PLACEMENT_HEADERS, sample.column_rows()),
+            units="mm")
+        marks = [row.unique_mark for row in rows]
+        self.assertEqual(len(marks), 90)
+        self.assertEqual(len(set(marks)), 90)
+
+    def test_the_schedule_label_still_repeats_as_it_should(self):
+        # The other half: if the labels had become unique too, the owner's
+        # marking rule would have been quietly thrown away to silence a
+        # warning.
+        sample = _sample()
+        rows, _issues = placement.parse_columns(
+            _grid(sample.COLUMN_PLACEMENT_HEADERS, sample.column_rows()),
+            units="mm")
+        labels = set(row.mark for row in rows)
+        self.assertEqual(sorted(labels), ["C1", "C2", "C3"])
+
+    def test_the_label_is_readable_inside_the_key(self):
+        # So somebody looking at a column in Revit can still see it is a C1.
+        row = self.row(grid_x="B", grid_y="2", storey="S4")
+        self.assertTrue(row.unique_mark.startswith("C1"))
+
+    def test_the_command_writes_the_key_and_not_the_label(self):
+        path = os.path.join(_ROOT, "AnonGee.extension", "lib", "py3",
+                            "anongee_toolkit", "commands", "columns.py")
+        with open(path, encoding="utf-8") as handle:
+            body = handle.read()
+        self.assertIn("_mark(instance, row.unique_mark)", body)
+        self.assertNotIn("_mark(instance, row.mark)", body)
+
+    def test_the_label_goes_where_the_workbook_says(self):
+        path = os.path.join(_ROOT, "AnonGee.extension", "lib", "py3",
+                            "anongee_toolkit", "commands", "columns.py")
+        with open(path, encoding="utf-8") as handle:
+            body = handle.read()
+        self.assertIn('LABEL_KEY = "SCHEDULE_MARK_PARAM"', body)
+        self.assertIn("def _label_parameter(context)", body)
+
+    def test_a_missing_label_parameter_is_reported_once_not_ninety_times(self):
+        path = os.path.join(_ROOT, "AnonGee.extension", "lib", "py3",
+                            "anongee_toolkit", "commands", "columns.py")
+        with open(path, encoding="utf-8") as handle:
+            body = handle.read()
+        self.assertIn("reported", body)
+        self.assertIn('reported.add("unset")', body)
+
+
 if __name__ == "__main__":
     unittest.main()

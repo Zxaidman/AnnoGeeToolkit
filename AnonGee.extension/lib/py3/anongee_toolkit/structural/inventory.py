@@ -171,10 +171,47 @@ def _parameters(doc):
     return found
 
 
+def _shared_names(doc):
+    """``{folded name: guid}`` for every shared parameter this model knows.
+
+    ``doc.ParameterBindings`` hands out an ``InternalDefinition`` for shared and
+    project parameters alike, so ``isinstance(definition, ExternalDefinition)``
+    is **always false** and cannot tell them apart — which is how the first
+    report put every parameter in a real template under *project* and showed no
+    shared section at all.
+
+    A shared parameter that is bound leaves a ``SharedParameterElement`` in the
+    document. That is the thing to ask.
+    """
+    found = {}
+    try:
+        from Autodesk.Revit.DB import (FilteredElementCollector,
+                                       SharedParameterElement)
+    except Exception:
+        return found
+    try:
+        for element in (FilteredElementCollector(doc)
+                        .OfClass(SharedParameterElement)
+                        .ToElements()):
+            try:
+                found[_fold(element.Name)] = str(element.GuidValue)
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return found
+
+
+def _fold(text):
+    return "".join(character for character in str(text or "").lower()
+                   if character.isalnum())
+
+
 def _bindings(doc):
     """Project and shared parameters bound in this file."""
     from Autodesk.Revit.DB import InstanceBinding
 
+    shared = _shared_names(doc)
     rows = []
     try:
         iterator = doc.ParameterBindings.ForwardIterator()
@@ -194,14 +231,15 @@ def _bindings(doc):
                 categories.append(category.Name)
         except Exception:
             pass
+        name = _definition_name(definition)
         rows.append({
-            "name": _definition_name(definition),
+            "name": name,
             "kind": _definition_kind(definition),
             "group": _definition_group(definition),
             "categories": sorted(categories),
             "instance": isinstance(binding, InstanceBinding),
-            "shared": _is_shared(definition),
-            "guid": _guid(definition),
+            "shared": _fold(name) in shared,
+            "guid": shared.get(_fold(name), ""),
         })
     return sorted(rows, key=lambda row: row["name"].lower())
 
@@ -236,6 +274,7 @@ def _family_parameters(doc):
     """
     from Autodesk.Revit.DB import FamilySymbol, FilteredElementCollector
 
+    shared = _shared_names(doc)
     seen = {}
     for symbol in (FilteredElementCollector(doc)
                    .OfClass(FamilySymbol)
@@ -247,10 +286,11 @@ def _family_parameters(doc):
             names = []
             for parameter in symbol.Parameters:
                 definition = parameter.Definition
+                parameter_name = _definition_name(definition)
                 names.append({
-                    "name": _definition_name(definition),
+                    "name": parameter_name,
                     "kind": _definition_kind(definition),
-                    "shared": _is_shared(definition),
+                    "shared": _fold(parameter_name) in shared,
                     "read_only": bool(parameter.IsReadOnly),
                 })
             seen[family] = sorted(names, key=lambda row: row["name"].lower())
@@ -373,7 +413,21 @@ def _definition_name(definition):
 
 
 def _definition_kind(definition):
-    for attempt in ("GetDataType", "ParameterType", "UnitType"):
+    """What a parameter holds — ``length``, ``text``, ``number``.
+
+    ``GetDataType()`` returns a ``ForgeTypeId`` **object**, and printing one
+    prints ``Autodesk.Revit.DB.ForgeTypeId`` — the name of a class, in a column
+    headed Type, for every row. Its ``TypeId`` is the string
+    (``autodesk.spec.aec:length-2.0.0``), which the report shortens.
+    """
+    try:
+        found = definition.GetDataType()
+        text = getattr(found, "TypeId", None)
+        if text:
+            return str(text)
+    except Exception:
+        pass
+    for attempt in ("ParameterType", "UnitType"):
         try:
             value = getattr(definition, attempt)
             return str(value() if callable(value) else value)
@@ -390,25 +444,6 @@ def _definition_group(definition):
         except Exception:
             continue
     return ""
-
-
-def _is_shared(definition):
-    try:
-        from Autodesk.Revit.DB import ExternalDefinition
-        return isinstance(definition, ExternalDefinition)
-    except Exception:
-        pass
-    try:
-        return bool(definition.GUID)
-    except Exception:
-        return False
-
-
-def _guid(definition):
-    try:
-        return str(definition.GUID)
-    except Exception:
-        return ""
 
 
 def _family_name(element):

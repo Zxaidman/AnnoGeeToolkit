@@ -20,6 +20,9 @@ __version__ = "0.1.0"
 #: Where a column's section comes from when the model does not have the type.
 TYPES_SHEET = "COLUMN_TYPES"
 
+#: The INFO key naming the parameter that carries the repeating schedule label.
+LABEL_KEY = "SCHEDULE_MARK_PARAM"
+
 
 def run(uiapp, envelope):
     """``(summary, findings, note)``. Never raises."""
@@ -54,6 +57,8 @@ def _apply(doc, plans, findings, finding, context):
 
     levels = _levels(doc)
     sizes = _sizes(context, findings, finding)
+    label_parameter = _label_parameter(context)
+    reported = set()
     cache = {}
     written = 0
 
@@ -105,7 +110,9 @@ def _apply(doc, plans, findings, finding, context):
             instance = columns.create(
                 doc, row.point_mm, symbol, base, top,
                 row.base_offset_mm, row.top_offset_mm)
-            _mark(instance, row.mark)
+            _mark(instance, row.unique_mark)
+            _schedule_mark(instance, row.mark, label_parameter, reported,
+                           findings, finding, row)
             _rotate(doc, instance, row)
             written += 1
         except Exception as error:
@@ -157,11 +164,75 @@ def _levels(doc):
 
 
 def _mark(instance, mark):
+    """Revit's own ``Mark``, which gets the key rather than the label.
+
+    ``Mark`` is expected to be unique per instance and Revit warns when it is
+    not — so the repeating schedule label never goes here. See
+    ``PlacementRow.unique_mark``.
+    """
     from Autodesk.Revit.DB import BuiltInParameter
     try:
         parameter = instance.get_Parameter(BuiltInParameter.ALL_MODEL_MARK)
         if parameter is not None and not parameter.IsReadOnly:
             parameter.Set(mark or "")
+    except Exception:
+        pass
+
+
+def _label_parameter(context):
+    """Which parameter carries the schedule label, from INFO.
+
+    Named in the workbook rather than chosen here, because it is a property of
+    the *template* — a parameter has to be bound to Structural Columns before
+    anything can write to it, and binding one is a decision somebody makes on
+    purpose.
+    """
+    sheets = (context or {}).get("sheets") or {}
+    for name, values in sheets.items():
+        if _fold(name) != "info":
+            continue
+        for row in values or []:
+            if not row:
+                continue
+            key = _fold(str(row[0]).split("(")[0])
+            if key == _fold(LABEL_KEY) and len(row) > 1:
+                return str(row[1] or "").strip()
+    return ""
+
+
+def _schedule_mark(instance, label, parameter_name, reported, findings,
+                   finding, row):
+    """Write the repeating schedule label — ``C1`` — where the sheet says.
+
+    Reported **once** rather than ninety times when there is nowhere to put it:
+    ninety identical findings is a findings sheet nobody reads.
+    """
+    if not label:
+        return
+    if not parameter_name:
+        if "unset" not in reported:
+            reported.add("unset")
+            findings.append(finding(
+                "Info", row.row,
+                "the schedule mark ({0!r}) was not written: INFO has no {1} "
+                "saying which parameter carries it. Revit's own Mark holds "
+                "the unique key instead, because a repeating Mark is what "
+                "Revit warns about.".format(label, LABEL_KEY)))
+        return
+    try:
+        parameter = instance.LookupParameter(parameter_name)
+        if parameter is None:
+            if parameter_name not in reported:
+                reported.add(parameter_name)
+                findings.append(finding(
+                    "Warning", row.row,
+                    "no parameter called {0!r} on a structural column in this "
+                    "model, so the schedule mark was not written. Bind it to "
+                    "Structural Columns as an instance text parameter."
+                    .format(parameter_name)))
+            return
+        if not parameter.IsReadOnly:
+            parameter.Set(label)
     except Exception:
         pass
 

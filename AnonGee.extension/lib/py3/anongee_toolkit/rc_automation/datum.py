@@ -42,6 +42,7 @@ SHEET_LEVELS = "LEVELS"
 #: What the plan decided for one row.
 CREATE = "Create"
 MODIFY = "Modify"
+RENAME = "Rename"
 MATCH = "Matches"
 BLOCKED = "Blocked"
 INVALID = "Invalid"
@@ -71,6 +72,16 @@ _ELEVATION_BASE = ("elevationbase", "basepoint", "datum")
 BASE_PROJECT = "Project Base Point"
 BASE_SURVEY = "Survey Point"
 
+#: The level this row replaces. A template ships with ``Level 0`` at 0.000 and
+#: a real sheet asks for ``01 GROUND LVL.`` at 0.000 — which the *never create a
+#: second level at an occupied elevation* rule refuses, correctly, and then
+#: every column naming the level that was never created fails too.
+#:
+#: Naming the level to be renamed is how a row asks for that, explicitly. The
+#: rule is not weakened for anything that does not ask, and renaming stays
+#: something somebody wrote down — which is what the refusal was protecting.
+_RENAME_FROM = ("renamefrom", "replaces", "wasnamed", "oldname")
+
 _TYPE = ("leveltype", "type")
 _STORY = ("story", "storey", "buildingstory", "isstory")
 _COMMENTS = ("comment", "note")
@@ -80,11 +91,12 @@ class LevelRow(object):
     """One row of the LEVELS sheet, coerced and remembering where it came from."""
 
     __slots__ = ("name", "elevation_mm", "level_type", "story", "comments",
-                 "row", "elevation_survey_mm", "elevation_base")
+                 "row", "elevation_survey_mm", "elevation_base",
+                 "rename_from")
 
     def __init__(self, name, elevation_mm=None, level_type="", story=None,
                  comments="", row=None, elevation_survey_mm=None,
-                 elevation_base=""):
+                 elevation_base="", rename_from=""):
         self.name = name
         #: The Project Base Point elevation, in millimetres. This is what gets
         #: written, whichever column the sheet said was authoritative — see
@@ -94,6 +106,8 @@ class LevelRow(object):
         self.elevation_survey_mm = elevation_survey_mm
         #: Which of the two the sheet means. Blank is the project base point.
         self.elevation_base = elevation_base
+        #: The existing level this row renames rather than being blocked by.
+        self.rename_from = rename_from
         self.level_type = level_type
         #: ``True``/``False``/``None``. ``None`` means the sheet did not say,
         #: and a thing the sheet did not say is a thing this does not change.
@@ -124,7 +138,7 @@ class LevelPlan(object):
 
     @property
     def will_write(self):
-        return self.action in (CREATE, MODIFY)
+        return self.action in (CREATE, MODIFY, RENAME)
 
     def __repr__(self):
         return "<LevelPlan {0} {1!r}>".format(self.action, self.row.name)
@@ -207,6 +221,7 @@ def _header_map(header):
         # ones are asked first — otherwise the survey column would be taken
         # for the elevation and the level would be built 100 m in the air.
         for field, names in (("level_type", _TYPE),
+                             ("rename_from", _RENAME_FROM),
                              ("elevation_base", _ELEVATION_BASE),
                              ("elevation_survey_mm", _ELEVATION_SURVEY),
                              ("name", _NAME),
@@ -310,7 +325,8 @@ def parse_levels(grid, sheet=SHEET_LEVELS, units=UNITS_MM):
             str(values.get("comments") or "").strip(),
             header_at + offset + 2,
             elevation_survey_mm=survey,
-            elevation_base=str(values.get("elevation_base") or "").strip())
+            elevation_base=str(values.get("elevation_base") or "").strip(),
+            rename_from=str(values.get("rename_from") or "").strip())
         if number is None and survey is None:
             issues.append(models.Issue(
                 models.SEVERITY_ERROR,
@@ -453,6 +469,22 @@ def plan_levels(rows, existing, tolerance_mm=ELEVATION_TOLERANCE_MM,
         occupant = _at_elevation(existing, row.elevation_mm, tolerance_mm,
                                  claimed)
         if occupant is not None:
+            if row.rename_from and _fold(row.rename_from) == _fold(occupant):
+                key = _key_of(existing, occupant)
+                claimed.add(key)
+                plans.append(LevelPlan(
+                    row, RENAME,
+                    "renaming {0!r}, which the sheet asked for by "
+                    "name".format(occupant), key, row.elevation_mm))
+                issues.append(models.Issue(
+                    models.SEVERITY_INFO,
+                    "{0!r} is being renamed to {1!r}. The sheet named it in "
+                    "RenameFrom, which is the only way this happens — a level "
+                    "is never renamed on a guess, because a rename changes "
+                    "what every view and sheet refers to.".format(
+                        occupant, row.name),
+                    sheet=sheet, row=row.row, column="RenameFrom"))
+                continue
             plans.append(LevelPlan(
                 row, BLOCKED,
                 "{0!r} is already at {1:g} mm".format(occupant,
@@ -460,9 +492,10 @@ def plan_levels(rows, existing, tolerance_mm=ELEVATION_TOLERANCE_MM,
             issues.append(models.Issue(
                 models.SEVERITY_ERROR,
                 "A level called {0!r} already sits at {1:g} mm. Creating a "
-                "second one there would give every plan view two candidates — "
-                "rename one of them, or change the elevation.".format(
-                    occupant, row.elevation_mm),
+                "second one there would give every plan view two candidates. "
+                "**Put {0!r} in this row's RenameFrom column** and it will be "
+                "renamed to {2!r} instead — or change the elevation.".format(
+                    occupant, row.elevation_mm, row.name),
                 sheet=sheet, row=row.row, column="Elevation"))
             continue
 
@@ -478,6 +511,14 @@ def plan_levels(rows, existing, tolerance_mm=ELEVATION_TOLERANCE_MM,
     return plans, issues
 
 
+def _key_of(existing, name):
+    """The caller's key for the level it calls *name*."""
+    for found, key, _elevation in existing or ():
+        if _fold(found) == _fold(name):
+            return key
+    return None
+
+
 def _at_elevation(existing, elevation_mm, tolerance_mm, claimed):
     """The name of a level already at this height, or ``None``."""
     for name, key, found in existing or ():
@@ -489,10 +530,11 @@ def _at_elevation(existing, elevation_mm, tolerance_mm, claimed):
 
 
 def summarise(plans):
-    """``{created: n, modified: n, matched: n, blocked: n, invalid: n}``."""
-    counts = {"created": 0, "modified": 0, "matched": 0, "blocked": 0,
-              "invalid": 0}
+    """``{created, modified, renamed, matched, blocked, invalid}``."""
+    counts = {"created": 0, "modified": 0, "renamed": 0, "matched": 0,
+              "blocked": 0, "invalid": 0}
     for action, key in ((CREATE, "created"), (MODIFY, "modified"),
+                        (RENAME, "renamed"),
                         (MATCH, "matched"), (BLOCKED, "blocked"),
                         (INVALID, "invalid")):
         counts[key] = len([plan for plan in plans if plan.action == action])

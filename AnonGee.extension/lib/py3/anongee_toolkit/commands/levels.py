@@ -28,8 +28,8 @@ def run(uiapp, envelope):
     from anongee_toolkit.rc_automation import datum
     from anongee_toolkit.rc_automation import excel_engine
 
-    summary = {"created": 0, "modified": 0, "matched": 0, "blocked": 0,
-               "invalid": 0, "written": 0}
+    summary = {"created": 0, "modified": 0, "renamed": 0, "matched": 0,
+               "blocked": 0, "invalid": 0, "written": 0}
 
     uidoc = getattr(uiapp, "ActiveUIDocument", None)
     if uidoc is None:
@@ -141,6 +141,19 @@ def _apply(doc, plans):
                         level = Level.Create(
                             doc, mm_to_ft(plan.row.elevation_mm))
                         _name(level, plan.row.name, findings, plan)
+                        _story(level, plan.row.story, BuiltInParameter)
+                    elif plan.action == datum.RENAME:
+                        # The one place a level is renamed, and only because
+                        # the sheet named it in RenameFrom.
+                        level = doc.GetElement(plan.key)
+                        if level is None:
+                            findings.append(_finding(
+                                "Error", "", plan.row.row,
+                                "the level to rename vanished between "
+                                "planning and writing"))
+                            continue
+                        _name(level, plan.row.name, findings, plan)
+                        level.Elevation = mm_to_ft(plan.row.elevation_mm)
                         _story(level, plan.row.story, BuiltInParameter)
                     else:
                         level = doc.GetElement(plan.key)

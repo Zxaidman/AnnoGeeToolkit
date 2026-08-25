@@ -35,6 +35,73 @@ of view of someone using the thing rather than someone reading the diff:
 
 ---
 
+## 1.19.0
+
+**Fixed**
+
+- **`Mark` was given a value that repeats, and Revit warned.** The owner's
+  marking rule is that `C1` repeats — up a stack and across a floor — and `Mark`
+  is the one Revit parameter expected to be unique per instance. Writing a
+  deliberately repeating label into it was always going to warn.
+
+  `Mark` now carries the **key**, unique by construction: `C1-A1-S1`. The
+  schedule label goes to a parameter the workbook names on `INFO` under
+  `SCHEDULE_MARK_PARAM`; with none named it is not written and **one** finding
+  per run says which parameter to bind — not ninety identical ones.
+
+- **One blocked level cost fifteen columns and left a storey-high gap.** The
+  template carries `Level 0` at 0.000 and the sheet asks for `01 GROUND LVL.` at
+  0.000, so *never create a second level at an occupied elevation* refused it —
+  correctly. Then every column naming that level as its **base** failed (fifteen,
+  exactly the S2 lift) and every column naming it as its **top** was placed
+  without one.
+
+  `LEVELS` gains a **`RenameFrom`** column. A row that names the level it
+  replaces renames it instead of being blocked — explicit, auditable, and it
+  does not weaken the rule for anything that does not ask. The refusal now also
+  says what to type where.
+
+- **The FINDINGS sheet was wiped by the next job.** It was cleared on every
+  result including one with nothing to say, so pressing two unbuilt commands
+  after the columns run erased fifteen explanations. It now carries a header
+  saying which job and command its findings belong to, and a run with none says
+  *no findings* — because a blank sheet and a run that failed to report look
+  identical.
+
+- **The extraction called every parameter a project parameter.**
+  `doc.ParameterBindings` hands out an `InternalDefinition` for shared and
+  project parameters alike, so the `isinstance(…, ExternalDefinition)` test was
+  **always false** — a real template came back with no shared section at all.
+  Shared parameters are now found through `SharedParameterElement`. And the Type
+  column printed `Autodesk.Revit.DB.ForgeTypeId`, the name of a class: it is the
+  `TypeId` string that was wanted.
+
+  Worst of the four, because the report exists to answer *where may the workbook
+  safely write* and that is the whole answer. **Re-run the extraction.**
+
+**Added**
+
+- **A type is matched by its dimensions when the names differ.** A template
+  holding `300 X 600` and a workbook asking for `S_Col_300x600` mean the same
+  section; duplicating it because the words differ fills a model with types that
+  already existed. Reported every time it is used, and order is kept — 300 × 600
+  is not 600 × 300, and treating them as the same would turn every column in a
+  frame ninety degrees.
+
+- **A critique of the real template**,
+  `docs/specs/2026-08-25-template-critique.md`, read from the extraction: about
+  ninety leftover column types where a template wants six, three naming styles
+  across three foundation families, seven project parameters bound to two
+  hundred categories including `Food Service Equipment`, and one sheet called
+  *Unnamed*. With a naming proposal, and the two items that actually block
+  something separated from the five that are tidiness.
+
+**Changed**
+
+- The test suite is 871 tests, from 853.
+
+---
+
 ## 1.18.0
 
 **Fixed**
