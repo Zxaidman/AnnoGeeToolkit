@@ -278,14 +278,18 @@ INFO_ROWS = [
      "here, then press ApplyUnits. Cover and diameter stay in mm."),
     ("SURVEY_OFFSET", SURVEY_OFFSET_MM,
      "What the Survey Point reads where the Project Base Point reads zero."),
-    ("SCHEDULE_MARK_PARAM", "",
-     "Which parameter carries the repeating schedule mark - C1, C2. Revit's "
-     "own Mark holds the unique key instead, because a repeating Mark is what "
-     "Revit warns about. Leave blank until the template binds one."),
+    ("SCHEDULE_MARK_PARAM", "S_ScheduleMark, ID, Comments",
+     "Which parameter carries the repeating schedule mark - C1, C2 - tried in "
+     "order, first one the model has wins. Revit's own Mark holds the unique "
+     "key instead, because a repeating Mark is what Revit warns about. A "
+     "fallback that gets used is reported, so a schedule reading the first "
+     "name is never quietly empty."),
     ("STANDARD", "BS 8666:2020", "The reinforcement standard, for later."),
     ("REVIT_TEMPLATE", "", "Path to the .rvt this job is built from."),
     ("BRIDGE_URL", "http://localhost:48884/anongee",
-     "Where Revit is listening. Change it only if the port moved."),
+     "Where Revit is listening, and this cell is read - pyRevit takes the "
+     "next free port when 48884 is busy, so it moves. If a run says nothing "
+     "is listening it will have looked, and will name the port that answered."),
     ("GRID_SPACING", "6 x 6", "Four bays by two, 24 m x 12 m."),
     ("STOREY_HEIGHT", 3300,
      "S1 to S6 are the lifts between levels; every COLUMN_PLACEMENT row names "

@@ -408,6 +408,27 @@ as mojibake.
 keeps the full text and names UTF-8. That split is the one real cost of writing
 the answer twice, and it is still cheaper than a JSON parser in VBA.
 
+### BUG-27 — `BRIDGE_URL` on `INFO` was decoration · `testing`
+
+**How it was found.** pyRevit moved from port 48884 to **48885**. The project owner changed
+`BRIDGE_URL` on `INFO` to match, pressed the button, and the error still named **48884**.
+
+**Cause.** `BridgeUrl` built the address from the module constants and never read the sheet. The row
+had been there since the first workbook, describing something nothing consulted.
+
+**Why the port moves at all**, which is the part worth knowing: pyRevit takes 48884 when it can and
+**the next free one when it cannot**. A second Revit session, or one that did not shut down cleanly,
+is enough. So the port is not a constant and never was.
+
+**Fix, and the better half of it.** `BridgeUrl` reads `INFO` and falls back to the constants. And
+when a call fails, the macro **looks** — pinging 48884 to 48892 with a one-second timeout each — and
+says *"something IS answering on 48885, put this in INFO"*. That turns a dead end into an
+instruction.
+
+One second, not the usual fifteen: nine ports at fifteen seconds is over two minutes of Excel not
+responding, which is exactly the shape of `BUG-8`. A diagnostic slower than the user's patience is
+worse than none, because they stop it and learn nothing.
+
 ### BUG-24 — every rebuild leaked thirteen VBA sheet modules · `testing`
 
 **How it was found.** The project owner's screenshot of the VBA editor: **forty**

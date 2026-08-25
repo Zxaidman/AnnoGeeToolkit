@@ -35,6 +35,46 @@ of view of someone using the thing rather than someone reading the diff:
 
 ---
 
+## 1.21.0
+
+**Fixed**
+
+- **`BRIDGE_URL` on `INFO` was decoration.** pyRevit moved from 48884 to
+  **48885**, the owner changed the cell to match, and the error still named
+  48884 — because `BridgeUrl` built the address from the module constants and
+  never read the sheet.
+
+  Worth knowing why the port moves at all: **pyRevit takes 48884 when it can and
+  the next free one when it cannot.** A second Revit session, or one that did
+  not shut down cleanly, is enough. So it was never a constant.
+
+  The cell is read now, with the constants as a fallback. And when a call fails
+  the macro **looks** — pinging 48884 to 48892 — and answers *"something IS
+  answering on 48885, put this in INFO"*. A dead end becomes an instruction.
+
+  The probe waits **one second** per port rather than the usual fifteen. Nine
+  ports at fifteen is over two minutes of Excel not responding, which is the
+  exact shape of `BUG-8`: a diagnostic slower than the user's patience is worse
+  than none, because they stop it and learn nothing.
+
+**Added**
+
+- **The schedule mark falls back through a chain**, as the owner asked:
+  `SCHEDULE_MARK_PARAM` now reads `S_ScheduleMark, ID, Comments` and the first
+  one the model actually has wins. The order is the point — a shared parameter
+  is the proper home, `ID` is an existing shared one that will at least
+  schedule, and `Comments` is where things end up when nothing better exists.
+
+  **A fallback that gets used is reported.** Falling back silently would leave a
+  schedule reading `S_ScheduleMark` empty while the values sat in `Comments`,
+  where nobody looked.
+
+**Changed**
+
+- The test suite is 882 tests, from 878.
+
+---
+
 ## 1.20.0
 
 **Fixed**

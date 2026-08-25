@@ -1599,6 +1599,41 @@ class ControlColumnTests(unittest.TestCase):
         self.assertIn("CountAnchored", self.bodies()["AnonGeeBridge_AddButtons"])
         self.assertIn("move ", self.bodies()["AnonGeeBridge_AddButtons"])
 
+    def test_the_url_is_read_from_the_workbook_not_a_constant(self):
+        """pyRevit's port is not fixed and the workbook has to be believed.
+
+        It takes 48884 when it can and the next free one when it cannot, so a
+        second Revit session moves it. The owner hit exactly that: pyRevit on
+        48885, INFO changed to match, and the macro still calling 48884 —
+        because the port was a constant and the INFO row was decoration.
+        """
+        body = self.bodies()["BridgeUrl"]
+        self.assertIn("ReadInfo(INFO_URL_KEY)", body)
+        self.assertIn('INFO_URL_KEY As String = "BRIDGE_URL"', self.vba)
+
+    def test_the_constant_is_still_there_as_a_fallback(self):
+        # A workbook with no INFO sheet, or no BRIDGE_URL row, must still work.
+        body = self.bodies()["BridgeUrl"]
+        self.assertIn("BRIDGE_HOST", body)
+        self.assertIn("BRIDGE_PORT", body)
+
+    def test_a_failed_call_looks_for_the_port_before_giving_up(self):
+        body = self.bodies()["RunCommand"]
+        self.assertIn("FindListeningPort()", body)
+        self.assertIn(str("INFO_URL_KEY"), body)
+
+    def test_the_port_probe_is_fast_enough_to_be_worth_running(self):
+        """Nine ports at the normal timeout is two minutes of frozen Excel.
+
+        BUG-8 was exactly this shape: a diagnostic slower than the user's
+        patience is worse than no diagnostic, because they stop it and learn
+        nothing.
+        """
+        self.assertIn("PROBE_TIMEOUT_MS As Long = 1000", self.vba)
+        body = self.bodies()["PortAnswers"]
+        self.assertIn("PROBE_TIMEOUT_MS", body)
+        self.assertNotIn("BRIDGE_TIMEOUT_SECONDS", body)
+
     def test_findings_say_which_job_they_came_from(self):
         """An empty FINDINGS sheet is the same picture as a run that failed to
         report, and fifteen columns went unexplained exactly that way.

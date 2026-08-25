@@ -57,7 +57,7 @@ def _apply(doc, plans, findings, finding, context):
 
     levels = _levels(doc)
     sizes = _sizes(context, findings, finding)
-    label_parameter = _label_parameter(context)
+    label_parameters = _label_parameter(context)
     reported = set()
     cache = {}
     written = 0
@@ -111,7 +111,7 @@ def _apply(doc, plans, findings, finding, context):
                 doc, row.point_mm, symbol, base, top,
                 row.base_offset_mm, row.top_offset_mm)
             _mark(instance, row.unique_mark)
-            _schedule_mark(instance, row.mark, label_parameter, reported,
+            _schedule_mark(instance, row.mark, label_parameters, reported,
                            findings, finding, row)
             _rotate(doc, instance, row)
             written += 1
@@ -180,7 +180,7 @@ def _mark(instance, mark):
 
 
 def _label_parameter(context):
-    """Which parameter carries the schedule label, from INFO.
+    """Which parameters may carry the schedule label, in order, from INFO.
 
     Named in the workbook rather than chosen here, because it is a property of
     the *template* — a parameter has to be bound to Structural Columns before
@@ -196,20 +196,45 @@ def _label_parameter(context):
                 continue
             key = _fold(str(row[0]).split("(")[0])
             if key == _fold(LABEL_KEY) and len(row) > 1:
-                return str(row[1] or "").strip()
-    return ""
+                return _candidates(row[1])
+    return []
 
 
-def _schedule_mark(instance, label, parameter_name, reported, findings,
-                   finding, row):
-    """Write the repeating schedule label — ``C1`` — where the sheet says.
+def _candidates(cell):
+    """``"S_ScheduleMark, ID, Comments"`` -> the three, in order.
 
-    Reported **once** rather than ninety times when there is nowhere to put it:
-    ninety identical findings is a findings sheet nobody reads.
+    A list rather than one name because the three are not equivalent and the
+    order is the point: the proper home first, then what will do, then where
+    things end up.
+    """
+    found = []
+    for part in str(cell or "").replace(";", ",").split(","):
+        part = part.strip()
+        if part and part not in found:
+            found.append(part)
+    return found
+
+
+def _schedule_mark(instance, label, candidates, reported, findings, finding,
+                   row):
+    """Write the repeating schedule label — ``C1`` — into the first parameter
+    the model actually has.
+
+    *candidates* is the `SCHEDULE_MARK_PARAM` cell, split on commas: the owner
+    asked for ``S_ScheduleMark`` with ``ID`` and ``Comments`` behind it. A
+    fallback chain is right here because the three are not equivalent and the
+    order says so — a shared parameter is the proper home, ``ID`` is an
+    existing shared one that will at least schedule, and ``Comments`` is where
+    anything ends up when nothing better exists.
+
+    **Which one was used is reported, once.** Falling back silently would mean
+    a schedule reading from `S_ScheduleMark` finding it empty, with the values
+    sitting in `Comments` where nobody looked.
     """
     if not label:
         return
-    if not parameter_name:
+
+    if not candidates:
         if "unset" not in reported:
             reported.add("unset")
             findings.append(finding(
@@ -219,22 +244,36 @@ def _schedule_mark(instance, label, parameter_name, reported, findings,
                 "the unique key instead, because a repeating Mark is what "
                 "Revit warns about.".format(label, LABEL_KEY)))
         return
-    try:
-        parameter = instance.LookupParameter(parameter_name)
+
+    for index, name in enumerate(candidates):
+        try:
+            parameter = instance.LookupParameter(name)
+        except Exception:
+            parameter = None
         if parameter is None:
-            if parameter_name not in reported:
-                reported.add(parameter_name)
-                findings.append(finding(
-                    "Warning", row.row,
-                    "no parameter called {0!r} on a structural column in this "
-                    "model, so the schedule mark was not written. Bind it to "
-                    "Structural Columns as an instance text parameter."
-                    .format(parameter_name)))
-            return
-        if not parameter.IsReadOnly:
+            continue
+        try:
+            if parameter.IsReadOnly:
+                continue
             parameter.Set(label)
-    except Exception:
-        pass
+        except Exception:
+            continue
+        if index and "fell-back" not in reported:
+            reported.add("fell-back")
+            findings.append(finding(
+                "Warning", row.row,
+                "the schedule mark went into {0!r}, not {1!r} — this model "
+                "has no {1!r} on a structural column. A schedule reading "
+                "{1!r} will be empty.".format(name, candidates[0])))
+        return
+
+    if "none" not in reported:
+        reported.add("none")
+        findings.append(finding(
+            "Warning", row.row,
+            "none of {0} exists on a structural column in this model, so the "
+            "schedule mark was not written. Bind one as an instance text "
+            "parameter.".format(", ".join(repr(name) for name in candidates))))
 
 
 def _rotate(doc, instance, row):

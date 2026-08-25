@@ -83,7 +83,17 @@ Public Const COLUMN_NOTE As String = "Note"
 ' until something says which unit it is in.
 Public Const INFO_SHEET As String = "INFO"
 Public Const INFO_UNITS_KEY As String = "UNITS"
+Public Const INFO_URL_KEY As String = "BRIDGE_URL"
 Public Const UNITS_DEFAULT As String = "mm"
+
+' How many ports past the default to try when nothing answers. pyRevit takes
+' 48884 when it can and the next free one when it cannot.
+Public Const PORT_SEARCH_RANGE As Long = 8
+
+' And how long to wait on each. One second, not the usual fifteen: nine ports
+' at fifteen seconds is over two minutes of Excel not responding, and a
+' diagnostic slower than the user's patience is worse than none. BUG-8.
+Public Const PROBE_TIMEOUT_MS As Long = 1000
 
 ' How far down a sheet a header row is looked for. Deep enough for a title
 ' block above the table, shallow enough to be instant.
@@ -135,8 +145,87 @@ Public Const BUTTON_BORDER As Long = 1
 
 
 Public Function BridgeUrl(ByVal route As String) As String
-    BridgeUrl = "http://" & BRIDGE_HOST & ":" & CStr(BRIDGE_PORT) & _
-                "/" & BRIDGE_API & "/" & route
+    ' Where Revit is listening, from INFO if it says, from the constants if not.
+    '
+    ' **pyRevit's port is not fixed.** It takes 48884 when it can and the next
+    ' free one when it cannot, so a second Revit session, or one that did not
+    ' shut down cleanly, moves it. The project owner hit exactly that: pyRevit
+    ' on 48885, INFO changed to match, and the macro still calling 48884 --
+    ' because the port was a constant and the INFO row was decoration.
+    Dim base As String
+    base = ReadInfo(INFO_URL_KEY)
+    If base = "" Then
+        base = "http://" & BRIDGE_HOST & ":" & CStr(BRIDGE_PORT) & _
+               "/" & BRIDGE_API
+    End If
+    Do While Right$(base, 1) = "/"
+        base = Left$(base, Len(base) - 1)
+    Loop
+    BridgeUrl = base & "/" & route
+End Function
+
+
+Public Function ReadInfo(ByVal key As String) As String
+    ' One value from the INFO sheet, by key. "" when it is not there.
+    '
+    ' The key may carry a unit -- SURVEY_OFFSET (m) -- so the brackets are
+    ' stripped before comparing, which is the same rule ReadUnits uses.
+    ReadInfo = ""
+    On Error Resume Next
+    Dim sheet As Worksheet
+    Set sheet = ThisWorkbook.Worksheets(INFO_SHEET)
+    On Error GoTo 0
+    If sheet Is Nothing Then Exit Function
+
+    Dim row As Long
+    For row = 1 To HEADER_SEARCH_ROWS
+        If Fold(StripUnit(CStr(sheet.Cells(row, 1).Value))) = Fold(key) Then
+            ReadInfo = Trim$(CStr(sheet.Cells(row, 2).Value))
+            Exit Function
+        End If
+    Next row
+End Function
+
+
+Public Function FindListeningPort() As Long
+    ' Which nearby port answers a ping, or 0. Used only when a call has already
+    ' failed, so its cost is paid once and only when it buys something.
+    '
+    ' Turning "nothing is listening" into "pyRevit is on 48885, put that in
+    ' INFO" is the difference between a dead end and an instruction.
+    FindListeningPort = 0
+    Dim port As Long
+    For port = BRIDGE_PORT To BRIDGE_PORT + PORT_SEARCH_RANGE
+        If PortAnswers(port) Then
+            FindListeningPort = port
+            Exit Function
+        End If
+    Next port
+End Function
+
+
+Private Function PortAnswers(ByVal port As Long) As Boolean
+    ' One ping, with a **one second** timeout rather than the usual fifteen.
+    '
+    ' Nine ports at the normal timeout is over two minutes of Excel not
+    ' responding, which is how BUG-8 went: a diagnostic slow enough that the
+    ' user gives up before it answers is worse than no diagnostic. A port that
+    ' is open answers a ping immediately or is not the one being looked for.
+    PortAnswers = False
+    On Error GoTo Failed
+
+    Dim winHttp As Object
+    Set winHttp = CreateObject("WinHttp.WinHttpRequest.5.1")
+    winHttp.SetTimeouts PROBE_TIMEOUT_MS, PROBE_TIMEOUT_MS, _
+                        PROBE_TIMEOUT_MS, PROBE_TIMEOUT_MS
+    winHttp.Open "GET", "http://" & BRIDGE_HOST & ":" & CStr(port) & "/" & _
+                 BRIDGE_API & "/ping", False
+    winHttp.Send
+    PortAnswers = (winHttp.Status = 200)
+    Exit Function
+
+Failed:
+    PortAnswers = False
 End Function
 
 
@@ -465,14 +554,39 @@ Public Sub RunCommand(ByVal command As String, ByVal sheetName As String)
         ' halves is missing rather than showing the raw error and leaving the
         ' user to guess -- they are different switches in different places.
         If InStr(reply, """ok"": false") > 0 Then
+            ' Before saying nothing is listening, look. pyRevit takes the next
+            ' free port when 48884 is busy, so "nothing is listening" is often
+            ' "something is listening, one port along" -- which is a thing to
+            ' fix rather than a thing to despair at.
+            Dim elsewhere As Long
+            elsewhere = FindListeningPort()
+
+            Dim advice As String
+            If elsewhere > 0 Then
+                advice = "But something IS answering on port " & elsewhere & _
+                         "." & vbCrLf & vbCrLf & _
+                         "pyRevit takes the next free port when its usual " & _
+                         "one is busy. Put this in INFO -> " & INFO_URL_KEY & _
+                         ":" & vbCrLf & vbCrLf & _
+                         "    http://" & BRIDGE_HOST & ":" & elsewhere & "/" & _
+                         BRIDGE_API & vbCrLf & vbCrLf & _
+                         "then press the button again. Nothing else needs " & _
+                         "changing."
+            Else
+                advice = "In Revit: pyRevit Settings -> Routes -> " & _
+                         "Routes Server (Beta)" & _
+                         ", then restart Revit." & vbCrLf & _
+                         vbCrLf & "Then AnonGee tab -> Dev -> Bridge Check, " & _
+                         "which says whether the startup script ran." & _
+                         vbCrLf & vbCrLf & "Ports " & BRIDGE_PORT & " to " & _
+                         (BRIDGE_PORT + PORT_SEARCH_RANGE) & " were all " & _
+                         "tried and none answered."
+            End If
+
             MsgBox "Nothing is listening at " & BridgeUrl("jobs") & vbCrLf & _
-                   vbCrLf & _
-                   "In Revit: pyRevit Settings -> Routes -> Routes Server " & _
-                   "(Beta), then restart Revit." & vbCrLf & vbCrLf & _
-                   "Then AnonGee tab -> Dev -> Bridge Check, which says " & _
-                   "whether the startup script ran." & vbCrLf & vbCrLf & _
+                   vbCrLf & advice & vbCrLf & vbCrLf & _
                    Left$(reply, 300), vbExclamation, "AnonGee Bridge"
-            LogRow "", command, "unreachable", "", Left$(reply, 200)
+            LogRow "", command, "unreachable", "", advice
             Exit Sub
         End If
         LogRow "", command, "rejected", "", _
