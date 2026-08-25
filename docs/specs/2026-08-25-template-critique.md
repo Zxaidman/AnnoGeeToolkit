@@ -5,13 +5,10 @@ the real template. Everything below is a fact from that file or a proposal built
 on one. The owner's words were *"half baked, nothing is set in stone"* — so this
 is written as a set of changes to argue with, not a verdict.
 
-**One correction first, because it changes how to read the report.** The
-parameter section of that extraction is **wrong**. It lists everything under
-*Project* and shows no *Shared* section at all — not because the template has no
-shared parameters, but because the code asked the wrong question (`BUG-21`). It
-also printed `Autodesk.Revit.DB.ForgeTypeId` in every Type column, which is the
-name of a class rather than the name of anything. Both are fixed; **re-run the
-extraction before trusting that section.** The rest of the report is sound.
+**Corrected 2026-08-25**, against the re-run. The first extraction's parameter
+section was wrong — it filed everything under *Project* and showed no *Shared*
+section, because the code asked the wrong question (`BUG-21`) — and §6 below is
+now written from the corrected report. Everything else stands as first written.
 
 ---
 
@@ -137,19 +134,38 @@ carries on.
 **This is the one item on this list that blocks something.** Schedules, tags and
 the whole of stage 4 need it.
 
-## 6. Seven project parameters bound to almost everything
+## 6. One shared parameter, six project ones, and a lot of categories
 
-`CHECK`, `ID`, `ID_LIC`, `ID_V`, `ITEM`, `LEVEL_V`, `WING` — each bound to
-between eighty and two hundred categories, including `Analytical Pipe
-Connections` and `Food Service Equipment` in a structural template.
+The corrected extraction says this, and it is better news than the first one:
 
-`ID_LIC` in particular looks like a third-party add-in's licence marker rather
-than anything the practice chose. **Worth checking what put them there before
-deleting any of them** — an add-in that expects its parameter and does not find
-it usually fails in an interesting way.
+| Parameter | Scope | Per | Type |
+| --- | --- | --- | --- |
+| `ID` | **shared** | instance | text |
+| `CHECK` | project | instance | yes/no |
+| `ID_LIC`, `ID_V`, `ITEM`, `LEVEL_V`, `WING` | project | instance | text |
+| `Occupant` | project | instance | text |
+| `Weight Per Unit Meter` | project | **type** | mass per unit length |
 
-If they are the practice's own QA scheme, they should be **shared** rather than
-project, or they will not survive being copied into another model.
+Two things follow.
+
+**The template already has a shared parameter file wired up**, because `ID` is
+in it. So §5's `S_ScheduleMark` is a small addition rather than a new piece of
+setup — the file exists, the habit exists, one more definition goes in it.
+
+**Six of these should probably be shared and are not.** `ITEM`, `WING`,
+`LEVEL_V`, `ID_V` read like one identity scheme with `ID`, and a scheme where one
+member is shared and five are project will not survive being copied into another
+model — the five will silently not arrive. Worth deciding whether that is
+intentional.
+
+`ID_LIC` still looks like a third-party add-in's licence marker rather than
+anything the practice chose. **Check what put it there before deleting it** — an
+add-in that expects its parameter and does not find it usually fails in an
+interesting way.
+
+The category lists are enormous — `ID` is bound to something like two hundred
+categories including `Food Service Equipment` in a structural template. Harmless
+in itself; it just means every schedule offers them.
 
 ## 7. The drawing half is empty
 
@@ -166,14 +182,14 @@ starts from nothing rather than from something.
 
 | # | Change | Cost | Blocks |
 | --- | --- | --- | --- |
-| 1 | **Re-run Extract Template** — the parameter section was wrong | one press | reading everything below |
-| 2 | Bind `S_ScheduleMark` — shared, instance, text, three categories | ten minutes | schedules, tags, stage 4 |
+| 1 | ~~Re-run Extract Template~~ **done** — §6 is rewritten from the corrected report | — | — |
+| 2 | Bind `S_ScheduleMark` — shared, instance, text, three categories. The shared parameter file already exists, because `ID` is in it | ten minutes | schedules, tags, stage 4 |
 | 3 | Delete the ~80 leftover column types; keep the standard set | an hour, careful | nothing, but it compounds |
 | 4 | Decide pad footings are foundation slabs; retire `Footing-Rectangular` | a decision | `footings.sync` staying simple |
 | 5 | Agree a type-naming convention — §4, or your own | a decision | nothing now that dimensions match |
-| 6 | Work out what `ID_LIC` and friends belong to | an afternoon | deleting them safely |
+| 6 | Work out what `ID_LIC` belongs to, and whether the other five should be shared like `ID` | an afternoon | deleting them safely, and copying them at all |
 | 7 | A real title block and a sheet naming scheme | a day | stage 6 |
 
-**Only items 1 and 2 are urgent.** Everything else is tidiness that gets more
+**Only item 2 is urgent now.** Everything else is tidiness that gets more
 expensive the longer the template is used, which is an argument for doing it
 now rather than an argument for doing it today.

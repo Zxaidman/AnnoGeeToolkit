@@ -35,6 +35,48 @@ of view of someone using the thing rather than someone reading the diff:
 
 ---
 
+## 1.20.0
+
+**Fixed**
+
+- **Every rebuild leaked thirteen VBA sheet modules.** The VBA editor listed
+  **forty** `Sheet` objects for a workbook with fourteen sheets, growing with
+  each rebuild, and none of it visible from Excel.
+
+  A rebuild deleted every worksheet and made new ones with the same names — not
+  the same operation to a workbook carrying VBA, which holds a **code module per
+  sheet** that `openpyxl` rewrites worksheets without touching. Thirteen modules
+  orphaned, thirteen more added, every time. The sheets are cleared in place
+  now; only sheets the build no longer writes are deleted, and those are the
+  ones whose modules should go too.
+
+- **The same survey disagreement was reported seven times.** One warning per
+  level, all saying the same thing: the model puts its survey point at the
+  origin and the workbook says 100 m. One wrong cell, seven findings, and the
+  one instruction that mattered buried among them.
+
+  Reported once now, naming the number and where to change it. Rows out by
+  *different* amounts are still reported one each — then they really are
+  separate mistakes, and collapsing them would hide six of the seven.
+
+- **A test hard-coded a ribbon path**, and the owner reorganising `Dev.panel`
+  into stacks broke it. It searches for the file now: a ribbon gets
+  reorganised, and a failure that says nothing about the code costs somebody the
+  time it takes to work out that it says nothing.
+
+**Changed**
+
+- **The template critique is rewritten from the corrected extraction.** The
+  re-run confirms the fix: `ID` is shared, six others are project, and the types
+  read `spec.string` and `massPerUnitLength` rather than the name of a class.
+  Which changes the recommendation — **the template already has a shared
+  parameter file**, so adding `S_ScheduleMark` is one definition rather than a
+  new piece of setup.
+
+- The test suite is 878 tests, from 871.
+
+---
+
 ## 1.19.0
 
 **Fixed**

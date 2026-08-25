@@ -570,7 +570,38 @@ class SurveyElevationTests(unittest.TestCase):
         self.assertEqual(len(issues), 1)
         self.assertEqual(issues[0].severity, models.SEVERITY_WARNING)
         self.assertEqual(rows[0].elevation_mm, 3300.0)
-        self.assertIn("one of the two is wrong", issues[0].message)
+        self.assertIn("One number is wrong", issues[0].message)
+
+    def test_a_whole_sheet_out_by_the_same_amount_is_one_finding(self):
+        """Seven rows saying the same thing is one thing, said seven times.
+
+        A real run reported the survey disagreement on every level in the
+        building — seven warnings describing a single wrong cell. That is not
+        seven problems, and a findings sheet with seven of them has buried the
+        one instruction that matters.
+        """
+        rows = [datum.LevelRow("L{0}".format(index), index * 3300.0, row=index,
+                               elevation_survey_mm=index * 3300.0 + 100000.0)
+                for index in range(1, 8)]
+        issues = datum.resolve_elevations(rows, 0.0)
+        self.assertEqual(len(issues), 1)
+        self.assertIn("All 7 level(s)", issues[0].message)
+        self.assertIn("SURVEY_OFFSET", issues[0].message)
+
+    def test_rows_out_by_different_amounts_are_reported_one_each(self):
+        # Then they really are separate mistakes, and collapsing them would
+        # hide six of the seven.
+        rows = [datum.LevelRow("L1", 0.0, row=2, elevation_survey_mm=100000.0),
+                datum.LevelRow("L2", 3300.0, row=3,
+                               elevation_survey_mm=104000.0)]
+        issues = datum.resolve_elevations(rows, 0.0)
+        self.assertEqual(len(issues), 2)
+
+    def test_a_sheet_that_agrees_says_nothing_at_all(self):
+        rows = [datum.LevelRow("L1", 0.0, row=2, elevation_survey_mm=100000.0),
+                datum.LevelRow("L2", 3300.0, row=3,
+                               elevation_survey_mm=103300.0)]
+        self.assertEqual(datum.resolve_elevations(rows, 100000.0), [])
 
     def test_two_elevations_that_agree_say_nothing(self):
         rows = self.rows(pbp=3300.0, survey=103300.0)

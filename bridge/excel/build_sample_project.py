@@ -411,6 +411,15 @@ SLAB_PLACEMENT_HEADERS = ("Mark", "TypeMark", "Level", "FromGridX", "ToGridX",
 
 LOG_HEADERS = ("When", "Job", "Command", "Status", "Counts", "Note")
 
+#: Every sheet this build writes, in the order they appear. A rebuild clears
+#: these in place and deletes anything else — see :func:`_empty` for why the
+#: distinction matters to a workbook carrying VBA.
+EXPECTED_SHEETS = (
+    "CONTROL", "INFO", "LEVELS", "GRIDS", "FOOTING_TYPES",
+    "FOOTING_PLACEMENT", "COLUMN_TYPES", "COLUMN_PLACEMENT", "BEAM_TYPES",
+    "BEAM_PLACEMENT", "SLAB_TYPES", "SLAB_PLACEMENT", "LOG",
+)
+
 
 def typed_rows(rows, length_columns, headers):
     """A TYPES table with each length column converted to *its own* unit.
@@ -646,9 +655,7 @@ def build(target=DEFAULT_TARGET):
         history = _existing_log(existing)
         if keep_vba:
             book = existing
-            for name in list(book.sheetnames):
-                del book[name]
-            book.create_sheet("CONTROL")
+            _empty(book)
         else:
             book = Workbook()
             book.active.title = "CONTROL"
@@ -715,7 +722,7 @@ def build(target=DEFAULT_TARGET):
                     cell.font = body
 
     def table(name, headers, rows):
-        sheet = book.create_sheet(name)
+        sheet = book[name] if name in book.sheetnames else book.create_sheet(name)
         header(sheet, headers)
         for index, values in enumerate(rows):
             for column, value in enumerate(values, start=1):
@@ -762,7 +769,7 @@ def build(target=DEFAULT_TARGET):
     # Key, value, description in rows -- not a column table, which is why the
     # unit converter walked straight past it. The key carries the unit now, in
     # the same brackets, in the cell beside the number. BUG-17.
-    info = book.create_sheet("INFO")
+    info = book["INFO"] if "INFO" in book.sheetnames else book.create_sheet("INFO")
     rows = info_rows()
     header(info, INFO_HEADERS)
     for index, (key, value, what) in enumerate(rows):
@@ -807,6 +814,37 @@ def build(target=DEFAULT_TARGET):
 
     book.save(target)
     return target
+
+
+def _empty(book):
+    """Clear every sheet in place, **without deleting any of them**.
+
+    Deleting a worksheet and making a new one with the same name is not the
+    same operation to a workbook that carries VBA. A macro-enabled file holds a
+    code module per sheet — ``Sheet1``, ``Sheet2`` — and openpyxl rewrites the
+    worksheets without touching that project. So every rebuild orphaned
+    thirteen modules and added thirteen more: after three rebuilds the VBA
+    editor listed forty sheets for a workbook with fourteen. Invisible from
+    Excel, and it grows for ever.
+
+    Clearing in place keeps the sheets, so the modules stay matched to them.
+    Sheets the build no longer writes are still removed — but only those, and
+    they are the ones whose modules should go too.
+    """
+    for name in list(book.sheetnames):
+        if name in EXPECTED_SHEETS:
+            sheet = book[name]
+            sheet.delete_rows(1, sheet.max_row + 1)
+            sheet.delete_cols(1, sheet.max_column + 1)
+            for rule in list(getattr(sheet, "data_validations", None).dataValidation
+                             if getattr(sheet, "data_validations", None) else []):
+                sheet.data_validations.dataValidation.remove(rule)
+        else:
+            del book[name]
+    for name in EXPECTED_SHEETS:
+        if name not in book.sheetnames:
+            book.create_sheet(name)
+    book._sheets.sort(key=lambda sheet: EXPECTED_SHEETS.index(sheet.title))
 
 
 def _existing_log(book):

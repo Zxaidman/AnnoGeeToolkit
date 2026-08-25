@@ -46,9 +46,22 @@ _FIXTURES = os.path.join(_ROOT, "tests", "fixtures", "rc_automation")
 _LEGACY_XLS = os.path.join(_FIXTURES, "sample_schedule-R1.xls")
 _EXCEL_XLSM = os.path.join(_FIXTURES, "sample_schedule-R1.xlsm")
 
-_BBS_STANDARD = os.path.join(
-    _ROOT, "AnonGee.extension", "AnonGee.tab", "Dev.panel",
-    "BBS Generator.pushbutton", "standards", "BS_8666_2020.py")
+def _find(root, name):
+    """The one file called *name* under *root*, or "" — searched, not assumed.
+
+    The ribbon gets reorganised: panels grow stacks, buttons move between them,
+    and a test that hard-codes a path fails on a commit that only moved a
+    folder. That failure says nothing about the code and costs somebody the
+    time it takes to work out it says nothing.
+    """
+    for folder, _dirs, files in os.walk(root):
+        if name in files:
+            return os.path.join(folder, name)
+    return ""
+
+
+_BBS_STANDARD = _find(os.path.join(_ROOT, "AnonGee.extension"),
+                      "BS_8666_2020.py")
 
 
 # ── helpers ────────────────────────────────────────────────────────────────

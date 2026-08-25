@@ -64,7 +64,7 @@ ID is where the detail lives. Four words, meaning exactly four things:
 | **Footings** | `footings.sync` | 1.19.0 | **built in Revit 2026-08-25**: 15 written, then 15 matched | **yes** | **1** | FEAT-23, 27, 34 |
 | Columns | `columns.sync` | 1.19.0, `redo` | **75 of 90 built.** The 15 missing all name a level that was never created; and `Mark` collided | no | **2** | FEAT-10, 28, 34, BUG-22, 23 |
 | Levels | `levels.sync` | 1.19.0, `redo` | built 6 of 7; the seventh was **blocked** by the template's own `Level 0` | no | **1** | FEAT-5, BUG-23 |
-| Extract Template | — | 1.19.0, `redo` | **ran, and its parameter section was wrong** — everything filed as project, no shared section | no | **2** | FEAT-35, BUG-18, 21 |
+| **Extract Template** | — | 1.20.0 | **ran twice, and the second report is right**: `ID` shared, six project, real data types | **yes** | **2** | FEAT-35, BUG-18, 21 |
 | Buttons | — | 1.19.0 | **style, position and scaling all confirmed** | **yes** | **1** | FEAT-32, BUG-19 |
 | Beams | `beams.sync` | declared, not written | — | no | 0 | FEAT-11, 29 |
 | Slabs | `slabs.sync` | declared, not written | — | no | 0 | FEAT-13, 30 |
@@ -407,6 +407,38 @@ as mojibake.
 **Fixed, unconfirmed.** The TSV is ASCII with anything else replaced; the JSON
 keeps the full text and names UTF-8. That split is the one real cost of writing
 the answer twice, and it is still cheaper than a JSON parser in VBA.
+
+### BUG-24 — every rebuild leaked thirteen VBA sheet modules · `testing`
+
+**How it was found.** The project owner's screenshot of the VBA editor: **forty**
+`Sheet` objects listed for a workbook with fourteen sheets, and *"with each pull the count
+increases"*. Nothing visible from Excel.
+
+**Cause.** A rebuild deleted every worksheet and made new ones with the same names. That is not the
+same operation to a workbook carrying VBA: a macro-enabled file holds a **code module per sheet**,
+and `openpyxl` rewrites the worksheets without touching the VBA project. So thirteen modules were
+orphaned and thirteen more added, every time, for ever.
+
+**Fix.** Clear the sheets in place instead. Sheets the build no longer writes are still removed —
+only those, and they are the ones whose modules should go too.
+
+### BUG-25 — the same survey disagreement was reported seven times · `testing`
+
+**How it was found.** Reading the `FINDINGS` sheet from a real run: seven warnings, one per level,
+all saying the survey elevation disagreed. The model puts its survey point at the origin; the
+workbook says 100 m. **One wrong cell, reported seven times.**
+
+**Fix.** When every row is out by the same amount it is one fact, and it is said once, naming the
+number to change and where. Rows out by *different* amounts are still reported one each — then they
+really are separate mistakes and collapsing them would hide six of the seven.
+
+### BUG-26 — a test hard-coded a ribbon path and the panel moved · `testing`
+
+**How it was found.** The project owner reorganised `Dev.panel` into stacks. One test failed —
+`BBS Generator.pushbutton` had moved into `col1.stack/`.
+
+**Fix.** The test searches for the file. A ribbon gets reorganised; a failure that says nothing about
+the code costs somebody the time it takes to work out that it says nothing.
 
 ### BUG-20 — the FINDINGS sheet was wiped by the next job · `testing`
 

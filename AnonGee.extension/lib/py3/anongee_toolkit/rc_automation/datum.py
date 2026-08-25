@@ -364,6 +364,7 @@ def resolve_elevations(rows, survey_offset_mm=None, sheet=SHEET_LEVELS):
     which is the common case and stays cheap.
     """
     issues = []
+    disagreed = []
     for row in rows:
         base = _fold(row.elevation_base)
         wants_survey = base.startswith(_fold(BASE_SURVEY))
@@ -392,16 +393,50 @@ def resolve_elevations(rows, survey_offset_mm=None, sheet=SHEET_LEVELS):
                 and survey_offset_mm is not None):
             expected = row.elevation_mm + survey_offset_mm
             if abs(expected - row.elevation_survey_mm) > ELEVATION_TOLERANCE_MM:
-                issues.append(models.Issue(
-                    models.SEVERITY_WARNING,
-                    "{0!r}: the survey elevation says {1:g} and the project "
-                    "elevation says {2:g}, which with this model's survey "
-                    "offset of {3:g} should be {4:g}. Building the project "
-                    "elevation; one of the two is wrong.".format(
-                        row.name, row.elevation_survey_mm, row.elevation_mm,
-                        survey_offset_mm, expected),
-                    sheet=sheet, row=row.row, column="Elevation Survey"))
+                disagreed.append(
+                    (row, row.elevation_survey_mm - row.elevation_mm))
+
+    issues.extend(_survey_disagreements(disagreed, survey_offset_mm, sheet))
     return issues
+
+
+def _survey_disagreements(disagreed, survey_offset_mm, sheet):
+    """One finding when every row is out by the same amount, or one each.
+
+    Seven rows each saying *the survey elevation disagrees* is seven findings
+    describing one fact: **the workbook and the model do not agree about where
+    the survey point is.** That is a single thing to fix, in a single cell, and
+    a run that reports it seven times has buried it.
+
+    Row-by-row is still right when the disagreements differ — then they really
+    are separate mistakes, and each row is one of them.
+    """
+    if not disagreed:
+        return []
+
+    deltas = set(round(delta, 3) for _row, delta in disagreed)
+    if len(deltas) == 1:
+        delta = deltas.pop()
+        first = disagreed[0][0]
+        return [models.Issue(
+            models.SEVERITY_WARNING,
+            "All {0} level(s) put the survey point {1:g} mm above the project "
+            "base point, and this model puts it {2:g} mm above. One number is "
+            "wrong and it is the same number every time — change INFO's "
+            "SURVEY_OFFSET to {2:g}, or move the model's survey point. The "
+            "project elevations are being built, which are the ones Revit "
+            "stores.".format(len(disagreed), delta, survey_offset_mm),
+            sheet=sheet, row=first.row, column="Elevation Survey")]
+
+    return [models.Issue(
+        models.SEVERITY_WARNING,
+        "{0!r}: the survey elevation says {1:g} and the project elevation "
+        "says {2:g}, which with this model's survey offset of {3:g} should be "
+        "{4:g}. Building the project elevation; one of the two is wrong."
+        .format(row.name, row.elevation_survey_mm, row.elevation_mm,
+                survey_offset_mm, row.elevation_mm + survey_offset_mm),
+        sheet=sheet, row=row.row, column="Elevation Survey")
+        for row, _delta in disagreed]
 
 
 def plan_levels(rows, existing, tolerance_mm=ELEVATION_TOLERANCE_MM,

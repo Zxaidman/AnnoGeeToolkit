@@ -1660,6 +1660,82 @@ class LogHistoryTests(unittest.TestCase):
             shutil.rmtree(folder, ignore_errors=True)
 
 
+class VbaSheetLeakTests(unittest.TestCase):
+    """A rebuild must not delete a worksheet it is about to recreate.
+
+    Deleting a sheet and making a new one with the same name is not the same
+    operation to a workbook carrying VBA. A macro-enabled file holds a code
+    module per sheet — ``Sheet1``, ``Sheet2`` — and openpyxl rewrites the
+    worksheets without touching that project. So every rebuild orphaned
+    thirteen modules and added thirteen more: after three rebuilds the VBA
+    editor listed **forty** sheets for a workbook with fourteen.
+
+    Invisible from Excel, harmless until it is not, and it grows for ever.
+    """
+
+    def builder(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("build_sample_project",
+                                                      _SAMPLE)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_the_rebuild_clears_sheets_rather_than_deleting_them(self):
+        source = _read(_SAMPLE)
+        self.assertIn("def _empty(book)", source)
+        self.assertIn("sheet.delete_rows(", source)
+        # The line that caused it. Deleting every sheet by name is what a
+        # rebuild used to do.
+        self.assertNotIn("for name in list(book.sheetnames):\n            del book[name]",
+                         source)
+
+    def test_a_sheet_the_build_writes_is_never_deleted(self):
+        sample = self.builder()
+        self.assertIn("CONTROL", sample.EXPECTED_SHEETS)
+        self.assertIn("LOG", sample.EXPECTED_SHEETS)
+        self.assertEqual(len(sample.EXPECTED_SHEETS),
+                         len(set(sample.EXPECTED_SHEETS)))
+
+    def test_rebuilding_twice_leaves_the_same_sheets(self):
+        try:
+            from openpyxl import load_workbook
+        except ImportError:
+            self.skipTest("openpyxl is not installed here")
+        sample = self.builder()
+        folder = tempfile.mkdtemp()
+        try:
+            target = os.path.join(folder, "sample.xlsx")
+            sample.build(target)
+            first = load_workbook(target).sheetnames
+            sample.build(target)
+            sample.build(target)
+            third = load_workbook(target).sheetnames
+            self.assertEqual(first, third)
+            self.assertEqual(third, list(sample.EXPECTED_SHEETS))
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
+
+    def test_the_rows_do_not_accumulate_either(self):
+        # Clearing in place is only correct if it actually clears. A sheet
+        # that kept its old rows would double in length every rebuild.
+        try:
+            from openpyxl import load_workbook
+        except ImportError:
+            self.skipTest("openpyxl is not installed here")
+        sample = self.builder()
+        folder = tempfile.mkdtemp()
+        try:
+            target = os.path.join(folder, "sample.xlsx")
+            sample.build(target)
+            first = load_workbook(target)["COLUMN_PLACEMENT"].max_row
+            sample.build(target)
+            second = load_workbook(target)["COLUMN_PLACEMENT"].max_row
+            self.assertEqual(first, second)
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
+
+
 class ListenerTests(unittest.TestCase):
     """§12.9, and the rule that work never happens in the Idling callback."""
 
