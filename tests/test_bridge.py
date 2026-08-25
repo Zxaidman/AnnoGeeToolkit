@@ -500,9 +500,12 @@ class RegistryTests(unittest.TestCase):
         is built it moves to the bound side of this test rather than the test
         being deleted -- that is the record of what was built and when.
         """
-        self.assertEqual(_registry.unbound(),
-                         ["beams.sync", "columns.sync", "footings.sync",
-                          "slabs.sync"])
+        self.assertEqual(_registry.unbound(), ["beams.sync", "slabs.sync"])
+
+    def test_the_built_commands_are_bound(self):
+        self.assertEqual(sorted(_BOUND),
+                         ["bridge.echo", "columns.sync", "footings.sync",
+                          "grids.sync", "levels.sync"])
 
     def test_a_command_that_writes_says_so(self):
         self.assertFalse(_registry.get("bridge.echo").writes)
@@ -888,7 +891,31 @@ class WorkbookUnitTests(unittest.TestCase):
         named = [head for head in headers if datum.unit_in_header(head)]
         self.assertTrue(named)
         for head in named:
-            self.assertEqual(datum.unit_in_header(head), sample.UNITS, head)
+            self.assertEqual(datum.unit_in_header(head),
+                             sample.unit_of(head), head)
+
+    def test_cover_and_diameter_stay_in_millimetres(self):
+        """Metres were bought for readability, and 0.05 is not readable.
+
+        So the workbook is not uniformly metres and should not be: a cover and
+        a bar diameter are pinned. The pin is a rule about what the column *is*
+        — its name — rather than a list of headers somebody keeps in step.
+        """
+        sample = self.builder()
+        self.assertEqual(sample.unit_of("CoverTop"), "mm")
+        self.assertEqual(sample.unit_of("BarDia"), "mm")
+        self.assertEqual(sample.unit_of("Thickness"), sample.UNITS)
+        self.assertEqual(sample.unit("CoverTop"), "CoverTop (mm)")
+
+    def test_a_pinned_value_is_written_in_millimetres(self):
+        sample = self.builder()
+        rows = sample.typed_rows(sample.FOOTING_TYPES,
+                                 sample.FOOTING_TYPE_LENGTHS,
+                                 sample.FOOTING_TYPE_HEADERS)
+        cover = sample.FOOTING_TYPE_HEADERS.index(sample.unit("CoverTop"))
+        thickness = sample.FOOTING_TYPE_HEADERS.index(sample.unit("Thickness"))
+        self.assertEqual(rows[0][cover], 50.0)
+        self.assertAlmostEqual(rows[0][thickness], 0.6)
 
     def test_the_reader_gets_the_elevations_the_builder_wrote(self):
         # The round trip that matters: metres out of the builder, millimetres

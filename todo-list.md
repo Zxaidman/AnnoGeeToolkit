@@ -57,19 +57,23 @@ ID is where the detail lives. Four words, meaning exactly four things:
 | Thing | Command | Built | Tested in Revit | Done | Failed → redone | ID |
 | --- | --- | --- | --- | --- | --- | --- |
 | The wire — Excel posts, Revit runs, Excel reads the answer | — | 1.10.0 | yes, five jobs round-tripped | **yes** | 0 — but 4 rounds lost to bugs *in the diagnostic*, not the bridge | DONE-1..4 |
-| The `Write?` switch | — | 1.15.0 | **failed 2026-08-25**, rebuilt | no | **1** — read from the wrong column, so no run could ever write | BUG-16 |
-| Sample project workbook — Foundation + G + 4 | — | 1.15.0, second format | reviewed once; six changes asked for and made | no | 0 | FEAT-22, 24–30 |
-| Levels | `levels.sync` | yes | dry run twice: `created=6 matched=1 written=0`. **The write has still never run** — BUG-16 was in the way both times | no | 0 | FEAT-5 |
-| Grids | `grids.sync` | yes | dry run: `created=8 written=0`. Same blocker | no | 0 | FEAT-6 |
-| Footings | `footings.sync` | declared, not written | — | no | 0 | FEAT-23, 27 |
-| Columns | `columns.sync` | declared, not written | — | no | 0 | FEAT-10, 28 |
+| The `Write?` switch | — | 1.15.0 | **fixed and confirmed**: levels and grids were written the run after | **yes** | **1** — read from the wrong column, so no run could ever write | BUG-16 |
+| **Levels** | `levels.sync` | yes | **built in Revit 2026-08-25** | **yes** | 0 | FEAT-5 |
+| **Grids** | `grids.sync` | yes | **built in Revit 2026-08-25** | **yes** | 0 | FEAT-6 |
+| Sample project workbook — Foundation + G + 4 | — | 1.16.0, third format | reviewed twice; ten changes asked for and made | no | 0 | FEAT-22, 24–33 |
+| Columns | `columns.sync` | 1.16.0 | **not yet.** Idempotent at the planning layer — 90 created, then 90 matched, then 90 again — which is not the same as ninety columns in a model | no | 0 | FEAT-10, 28 |
+| Footings | `footings.sync` | 1.16.0 | **not yet.** Same: 15 created, then 15 matched | no | 0 | FEAT-23, 27 |
 | Beams | `beams.sync` | declared, not written | — | no | 0 | FEAT-11, 29 |
 | Slabs | `slabs.sync` | declared, not written | — | no | 0 | FEAT-13, 30 |
 
-**Two dry runs are not two tests of the same thing.** Both said `created=6` and both wrote nothing,
-and the second one was not a repeat — it was the round that made BUG-16 findable, because a *workbook*
-came back rather than a screenshot, and the wrong column was visible in it. The `Failed → redone`
-column counts one failure, not two runs.
+**The first two things this ever built** were levels and grids, on 2026-08-25, the run after BUG-16
+was fixed. Both had been reported as *created* twice before that while writing nothing — which is
+worth keeping in the record, because both reports were true and the tool was right about itself the
+whole way through.
+
+**Idempotent in a test is not idempotent in a model.** Columns and footings are proved to plan
+correctly against the sample — created once, matched twice after — and that is worth exactly as much
+as a green suite always is. Neither has met a family symbol, a real grid or a transaction.
 
 **Declared, not written** is a deliberate third state and not a synonym for missing. The name and
 the sheet are in `registry.py`, so the workbook can carry the button and the button answers *declared
@@ -401,6 +405,20 @@ as mojibake.
 keeps the full text and names UTF-8. That split is the one real cost of writing
 the answer twice, and it is still cheaper than a JSON parser in VBA.
 
+### BUG-17 — `ApplyUnits` skipped the `INFO` sheet · `testing`
+
+**How it was found.** The project owner switched the workbook to metres, ran the converter, and
+found `INFO` still carrying metres values while the rest of the workbook had moved. **Reproduced by
+reading the pushed workbook**: `INFO!B4` is `100` under a key cell reading `SURVEY_OFFSET`.
+
+**Cause.** The converter finds length columns by their header — `Elevation PBP (m)` — and scales the
+column under it. `INFO` is not a column table. It is key, value, description in rows, so there is no
+header above the number and nothing for the converter to find.
+
+**Fix.** The key carries the unit instead: `SURVEY_OFFSET (m)`, in the same brackets, in the cell
+beside the value. One extra shape of table for the converter to know about, and the rule stays
+"a cell that names a unit says what the number next to it is".
+
 ### BUG-16 — `Write? = Yes` did nothing, and the switch overwrote itself · `testing`
 
 **How it was found.** The project owner ran `levels.sync` and `grids.sync` against a model with
@@ -482,6 +500,9 @@ Each carries the verdict from the PRD, so the queue and the estimate cannot drif
 | FEAT-24 | **Buttons on `CONTROL`** — real Form Control buttons, one per command | `openpyxl` cannot draw a form control, so the workbook cannot ship with them. A macro can: `AnonGeeBridge_AddButtons` draws one per row and assigns its macro, and re-running it replaces rather than stacks them. One `Alt+F8`, like the `.bas` import, and never again | `testing` |
 | FEAT-25 | **A unit for the whole workbook** — `mm` or `m`, chosen on `INFO`, **`m` by default** | Every length header carries its unit — `Elevation (m)` — so the unit is visible in the sheet rather than remembered, and a converter can find exactly the columns it must scale. The job carries the unit to Revit, which is always internal feet whatever the project units say | `testing` |
 | FEAT-26 | **Two elevations on `LEVELS`** — Project Base Point and Survey Point | Both columns, one authority. `ElevationBase` says which one drives, PBP by default; the other is checked against the model's survey offset and a disagreement is reported rather than resolved | `testing` |
+| FEAT-31 | **The workbook's formatting**, as a build output rather than something re-applied by hand | Fonts `Inter, Segoe UI, Cambria, Calibri`; three sizes a step apart, not a jump; every row 20 units; every column width computed from what is in it; `mm` shown as a whole number and `m` to two decimals. All of it generated, because a rebuild throws away anything done by hand | `testing` |
+| FEAT-32 | **Shape buttons, from the owner's own template** | The owner replaced the Form Controls with rounded rectangles — and `openpyxl` deletes every drawing on a rebuild, so the buttons have to be redrawable rather than drawn. `AnonGeeBridge_AddButtons` now duplicates a template shape when the sheet has one and builds one to match when it does not, on `CONTROL` and on `INFO` for `ApplyUnits` | `testing` |
+| FEAT-33 | **Cover and diameter stay in millimetres** | A cover of `0.05` and a bar of `0.012` is the workbook being consistent at the cost of being readable, which was the reason for metres in the first place. Those columns are pinned: their header says `(mm)`, and the converter is told to leave a pinned column alone | `testing` |
 | FEAT-4 | `template.xlsm` build script — sheets, validation, `keep_vba=True` | **Built, `testing`.** `bridge/excel/build_workbook.py` writes `CONTROL`, `INFO`, `LEVELS`, `GRIDS`, `LOG`. One manual step remains and always will: `openpyxl` preserves a VBA project and cannot create one | `testing` |
 
 ### Datum and setup
@@ -502,8 +523,8 @@ Each carries the verdict from the PRD, so the queue and the estimate cannot drif
 | FEAT-28 | **Column marks follow the stack, not the storey** | The owner's rule: a column at A1 marked `C1` is `C1` all the way up, even where its size changes. Two columns share a mark on one floor **only if size and rebar schedule are both the same**. So `Mark` is a stack label and not a key — the key is grid position plus storey — and `TypeMark` carries the size, which is free to change per lift | `testing` |
 | FEAT-29 | **`BEAM_PLACEMENT` — continuity is the layout** | A simply supported beam is one row. A continuous beam is a group of rows, one per span, sharing a mark, and **a blank row separates groups**. The sheet then reads the way a beam schedule reads, and the parser gets continuity for free instead of from a column somebody has to keep true | `testing` |
 | FEAT-30 | **`SLAB_PLACEMENT` — one slab per panel, to the inner face of the beams** | Not one slab per floor. A panel is bounded by the four grids around it and its edge is the beam's inner face, so the slab stops where the beam starts and the concrete is not counted twice. `EdgeRule` names the convention per row so a cantilever or a slab running over a beam can still be said | `testing` |
-| FEAT-23 | `footings.sync` — the bridge route to the footing placement RC Automation already does | Straightforward, and mostly already written. The pad-as-structural-floor path ships and is confirmed in a model; what is new is reading `FOOTING_PLACEMENT` and resolving a grid intersection to a point | `pending` |
-| FEAT-10 | `columns.sync` — `NewFamilyInstance` between two levels | Straightforward. Closes *RC Automation · CRIT-3*, where every run claims to place columns and places none | `pending` |
+| FEAT-23 | `footings.sync` — the bridge route to the footing placement RC Automation already does | **Built, `testing`.** Straightforward, and mostly already written. The pad-as-structural-floor path ships and is confirmed in a model; what is new is reading `FOOTING_PLACEMENT` and resolving a grid intersection to a point | `testing` |
+| FEAT-10 | `columns.sync` — `NewFamilyInstance` between two levels | **Built, `testing`.** Matched on position and storey, never on the mark. Idempotent at the planning layer: 90 created, then 90 matched, then 90 matched again. Closes *RC Automation · CRIT-3*, where every run claims to place columns and places none | `pending` |
 | FEAT-11 | `beams.sync` | Medium. Creation is easy; joins and cutbacks are fiddly | `pending` |
 | FEAT-12 | `walls.sync` | Medium | `pending` |
 | FEAT-13 | `slabs.sync` — the footing path generalised | Straightforward. `Floor.Create` from an outline already ships | `pending` |

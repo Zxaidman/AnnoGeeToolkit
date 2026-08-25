@@ -82,6 +82,40 @@ UNITS = "m"
 #: What one millimetre is, in each unit.
 UNIT_FACTOR = {"mm": 1.0, "m": 0.001}
 
+#: A cover and a bar diameter stay in millimetres whatever the workbook is in.
+#:
+#: Metres were chosen because a level at 3.3 reads better than one at 3300. By
+#: the same argument a cover of 0.05 and a bar of 0.012 read worse than 50 and
+#: 12 — so consistency here would cost the thing it was bought for. A column
+#: whose name starts with one of these keeps ``(mm)`` and the converter leaves
+#: it alone.
+PINNED_TO_MM = ("cover", "dia", "diameter", "bardia")
+
+#: How a length is shown. Millimetres are whole numbers because half a
+#: millimetre is not a thing anybody schedules; metres carry two decimals
+#: because three of them is where a level lives.
+NUMBER_FORMAT = {"mm": "#,##0", "m": "0.00"}
+
+#: The font, in order of preference. Excel stores one name per cell, so the
+#: build writes the first; ``AnonGeeBridge_ApplyFormat`` swaps in the best one
+#: actually installed on the machine opening it.
+FONT_STACK = ("Inter", "Segoe UI", "Cambria", "Calibri")
+
+#: Three sizes, one step apart each. A title should be findable, not loud.
+SIZE_TITLE = 14
+SIZE_HEADER = 11
+SIZE_BODY = 10
+
+#: Every row, on every sheet. One height, so a sheet scrolls evenly.
+ROW_HEIGHT = 20
+
+#: Column widths are computed from what is in them, between these. The floor
+#: keeps a one-letter grid column clickable; the ceiling stops one long comment
+#: from pushing everything else off the screen.
+WIDTH_MIN = 8
+WIDTH_MAX = 46
+WIDTH_PADDING = 3
+
 #: Five vertical grids, four bays of 6 m: a 24 m frontage.
 GRIDS_VERTICAL = [("A", 0), ("B", 6000), ("C", 12000), ("D", 18000),
                   ("E", 24000)]
@@ -164,6 +198,17 @@ def length(mm):
     return round(float(mm) * UNIT_FACTOR[UNITS], 6)
 
 
+def is_pinned(name):
+    """True for a column that stays in millimetres whatever the workbook is in."""
+    folded = "".join(c for c in str(name or "").lower() if c.isalnum())
+    return any(folded.startswith(prefix) for prefix in PINNED_TO_MM)
+
+
+def unit_of(name):
+    """Which unit this column is written in — the workbook's, or pinned mm."""
+    return "mm" if is_pinned(name) else UNITS
+
+
 def unit(name):
     """A length header, carrying its unit: ``Elevation PBP (m)``.
 
@@ -171,8 +216,19 @@ def unit(name):
     so it is visible in the sheet, the macro can find every length column
     without being told, and a column somebody adds is converted the moment they
     label it.
+
+    A pinned column says ``(mm)`` and means it — see :data:`PINNED_TO_MM`.
     """
-    return "{0} ({1})".format(name, UNITS)
+    return "{0} ({1})".format(name, unit_of(name))
+
+
+def measure(mm, header):
+    """A millimetre constant, in whatever unit its own column is written in."""
+    if mm is None:
+        return None
+    if is_pinned(header):
+        return float(mm)
+    return length(mm)
 
 
 # ---------------------------------------------------------------------------
@@ -211,22 +267,57 @@ def position(letter, number):
 # Sheets
 # ---------------------------------------------------------------------------
 
+#: ``(key, value, what it is)``. A key that names a unit means the number
+#: beside it is in that unit — which is how the converter finds it on a sheet
+#: that has no column headers. BUG-17.
 INFO_ROWS = [
     ("PROJECT", PROJECT, "Written onto what the bridge creates."),
     ("UNITS", UNITS,
-     "Every length column in this workbook, and every header that names a "
-     "unit. Change it here, then run AnonGeeBridge_ApplyUnits."),
-    ("SURVEY_OFFSET", length(SURVEY_OFFSET_MM),
+     "Every length column, and every header that names a unit. Change it "
+     "here, then press ApplyUnits. Cover and diameter stay in mm."),
+    ("SURVEY_OFFSET", SURVEY_OFFSET_MM,
      "What the Survey Point reads where the Project Base Point reads zero."),
     ("STANDARD", "BS 8666:2020", "The reinforcement standard, for later."),
     ("REVIT_TEMPLATE", "", "Path to the .rvt this job is built from."),
     ("BRIDGE_URL", "http://localhost:48884/anongee",
      "Where Revit is listening. Change it only if the port moved."),
     ("GRID_SPACING", "6 x 6", "Four bays by two, 24 m x 12 m."),
-    ("STOREY_HEIGHT", length(3300),
-     "S1 to S6 are the lifts between levels; each COLUMN_PLACEMENT row names "
-     "its base and top level, so the code never has to be looked up."),
+    ("STOREY_HEIGHT", 3300,
+     "S1 to S6 are the lifts between levels; every COLUMN_PLACEMENT row names "
+     "its own base and top level, so the code is never looked up."),
 ]
+
+#: Which INFO keys carry a length, and therefore a unit.
+INFO_LENGTH_KEYS = ("SURVEY_OFFSET", "STOREY_HEIGHT")
+
+INFO_HEADERS = ("Key", "Value", "What it is")
+
+
+def info_rows():
+    """INFO, with the length keys carrying their unit and their value in it."""
+    rows = []
+    for key, value, what in INFO_ROWS:
+        if key in INFO_LENGTH_KEYS:
+            rows.append(("{0} ({1})".format(key, UNITS), length(value), what))
+        else:
+            rows.append((key, value, what))
+    return rows
+
+
+#: The lines above the table on CONTROL. One each, because every row on that
+#: sheet is 20 units high and a paragraph in a cell that tall is a paragraph
+#: with its bottom half cut off.
+CONTROL_NOTES = (
+    "Save the workbook, then press a button. Revit runs the job and writes "
+    "back here.",
+    "Write? = No is a dry run: it reports and touches nothing. Yes builds.",
+    "Built? = not yet means declared and not written; pressing it says so.",
+    "Nothing happens unless Bridge Listener is on - AnonGee tab, Dev panel.",
+    "No buttons? Alt+F8 - AnonGeeBridge_AddButtons - Run.",
+)
+
+#: Which row the table's header sits on, below the notes.
+CONTROL_HEADER_ROW = 2 + len(CONTROL_NOTES)
 
 #: ``(button, command, sheet, what it does, built yet)``. The names have to
 #: match ``anongee_toolkit/bridge/registry.py``; a test holds them together.
@@ -234,19 +325,15 @@ COMMANDS = [
     ("Check the bridge", "bridge.echo", "",
      "Reads nothing, writes nothing. Run this first.", "yes"),
     ("Create / update levels", "levels.sync", "LEVELS",
-     "Match by name, then create or move each level. Never deletes one the "
-     "sheet omits, never renames, never fills an occupied elevation.", "yes"),
+     "Match by name, then create or move. Never deletes or renames.", "yes"),
     ("Create / update grids", "grids.sync", "GRIDS",
-     "Angle is 0 along +X and 90 along +Y. Position is synced, extent is not. "
-     "A grid running a different way is reported, never redrawn.", "yes"),
+     "Angle 0 along +X, 90 along +Y. Position synced, extent not.", "yes"),
     ("Create footings", "footings.sync", "FOOTING_PLACEMENT",
-     "Pad footings as structural floors, so an arbitrary outline can be "
-     "drawn.", "not yet"),
+     "Pads as structural floors, one under each intersection.", "yes"),
     ("Create columns", "columns.sync", "COLUMN_PLACEMENT",
-     "One column per storey, between the base and top levels named.",
-     "not yet"),
+     "One column per storey, between the levels the row names.", "yes"),
     ("Create beams", "beams.sync", "BEAM_PLACEMENT",
-     "Framing between the grid intersections each row names.", "not yet"),
+     "Framing between the intersections each row names.", "not yet"),
     ("Create slabs", "slabs.sync", "SLAB_PLACEMENT",
      "One slab per panel, to the inner face of its beams.", "not yet"),
 ]
@@ -313,13 +400,17 @@ SLAB_PLACEMENT_HEADERS = ("Mark", "TypeMark", "Level", "FromGridX", "ToGridX",
 LOG_HEADERS = ("When", "Job", "Command", "Status", "Counts", "Note")
 
 
-def typed_rows(rows, length_columns):
-    """A TYPES table with its length columns converted to the workbook unit."""
+def typed_rows(rows, length_columns, headers):
+    """A TYPES table with each length column converted to *its own* unit.
+
+    Its own, not the workbook's: a cover column stays in millimetres, so the
+    conversion has to be asked per column rather than applied to the row.
+    """
     converted = []
     for row in rows:
         values = list(row)
         for index in length_columns:
-            values[index] = length(values[index])
+            values[index] = measure(values[index], headers[index])
         converted.append(tuple(values))
     return converted
 
@@ -526,7 +617,8 @@ def slab_rows():
 
 def build(target=DEFAULT_TARGET):
     from openpyxl import Workbook, load_workbook
-    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.styles import Font, PatternFill
+    from openpyxl.utils import get_column_letter
     from openpyxl.worksheet.datavalidation import DataValidation
 
     keep_vba = target.lower().endswith(".xlsm")
@@ -549,10 +641,13 @@ def build(target=DEFAULT_TARGET):
         book = Workbook()
         book.active.title = "CONTROL"
 
-    head = Font(bold=True, color="FFFFFF")
+    face = FONT_STACK[0]
+    head = Font(name=face, size=SIZE_HEADER, bold=True, color="FFFFFF")
     head_fill = PatternFill("solid", fgColor="1F3864")
-    label = Font(bold=True)
-    wrap = Alignment(vertical="top", wrap_text=True)
+    label = Font(name=face, size=SIZE_BODY, bold=True)
+    body = Font(name=face, size=SIZE_BODY)
+    title = Font(name=face, size=SIZE_TITLE, bold=True)
+    note = Font(name=face, size=SIZE_BODY, italic=True)
 
     def header(sheet, names, row=1):
         for column, name in enumerate(names, start=1):
@@ -561,14 +656,57 @@ def build(target=DEFAULT_TARGET):
             cell.fill = head_fill
         sheet.freeze_panes = sheet.cell(row=row + 1, column=1)
 
-    def table(name, headers, rows, widths=()):
+    def fit(sheet, headers, rows, first=1, header_row=1):
+        """Set every column as wide as the widest thing in it.
+
+        Excel's own AutoFit needs Excel; this is the same idea done from the
+        numbers, so a workbook is correctly sized the moment it is written
+        rather than after somebody double-clicks seven column borders.
+        """
+        for offset, head in enumerate(headers):
+            widest = len(str(head))
+            for values in rows:
+                if offset >= len(values):
+                    continue
+                value = values[offset]
+                if value is None:
+                    continue
+                if isinstance(value, float):
+                    shown = "{0:,.2f}".format(value)
+                else:
+                    shown = str(value)
+                widest = max(widest, len(shown))
+            letter = get_column_letter(first + offset)
+            sheet.column_dimensions[letter].width = min(
+                WIDTH_MAX, max(WIDTH_MIN, widest + WIDTH_PADDING))
+        del header_row
+
+    def shape(sheet, headers, rows, header_row=1):
+        """Fonts, row heights and number formats, applied the same way twice."""
+        for offset, head in enumerate(headers):
+            found = "mm" if "(mm)" in str(head) else (
+                "m" if "(m)" in str(head) else None)
+            if found is None:
+                continue
+            for index in range(len(rows)):
+                cell = sheet.cell(row=header_row + 1 + index, column=1 + offset)
+                cell.number_format = NUMBER_FORMAT[found]
+        for index in range(len(rows) + 1):
+            sheet.row_dimensions[header_row + index].height = ROW_HEIGHT
+        for row in sheet.iter_rows(min_row=header_row,
+                                   max_row=header_row + len(rows)):
+            for cell in row:
+                if cell.font is None or not cell.font.b:
+                    cell.font = body
+
+    def table(name, headers, rows):
         sheet = book.create_sheet(name)
         header(sheet, headers)
         for index, values in enumerate(rows):
             for column, value in enumerate(values, start=1):
                 sheet.cell(row=2 + index, column=column, value=value)
-        for column, width in widths:
-            sheet.column_dimensions[column].width = width
+        fit(sheet, headers, rows)
+        shape(sheet, headers, rows)
         return sheet
 
     def choices(sheet, options, cells):
@@ -581,94 +719,76 @@ def build(target=DEFAULT_TARGET):
     # -- CONTROL ------------------------------------------------------------
     control = book["CONTROL"]
     control["A1"] = "AnonGee Bridge - {0}".format(PROJECT)
-    control["A1"].font = Font(bold=True, size=16)
-    control["A2"] = ("Save the workbook, then press a button. Revit runs the "
-                     "job and writes back here.")
-    control["A3"] = ("Write? = No is a dry run: it reports what it would do "
-                     "and touches nothing. Change it to Yes to build.")
-    control["A4"] = ("Built? = not yet means the command is declared and not "
-                     "written; pressing it says so rather than failing "
-                     "obscurely.")
-    control["A5"] = ("Nothing happens unless Bridge Listener is switched on in "
-                     "Revit - AnonGee tab, Dev panel.")
-    control["A6"] = ("No buttons? Alt+F8 - AnonGeeBridge_AddButtons - Run. "
-                     "Once, and again only after a rebuild changes the rows.")
+    control["A1"].font = title
+    for index, line in enumerate(CONTROL_NOTES):
+        control.cell(row=2 + index, column=1, value=line).font = note
 
-    header(control, CONTROL_HEADERS, row=8)
-    for index, (title, command, sheet_name, what, built) in enumerate(COMMANDS):
-        row = 9 + index
-        control.cell(row=row, column=1, value=title).font = label
+    header(control, CONTROL_HEADERS, row=CONTROL_HEADER_ROW)
+    written = []
+    for index, (button, command, sheet_name, what, built) in enumerate(COMMANDS):
+        row = CONTROL_HEADER_ROW + 1 + index
+        control.cell(row=row, column=1, value=button).font = label
         control.cell(row=row, column=2, value=command)
         control.cell(row=row, column=3, value=sheet_name)
-        control.cell(row=row, column=4, value=what).alignment = wrap
+        control.cell(row=row, column=4, value=what)
         control.cell(row=row, column=5, value=built)
         control.cell(row=row, column=6, value="No")
+        written.append((button, command, sheet_name, what, built, "No"))
 
-    choices(control, ("No", "Yes"), "F9:F{0}".format(8 + len(COMMANDS)))
-
-    for column, width in (("A", 24), ("B", 17), ("C", 20), ("D", 62),
-                          ("E", 10), ("F", 9), ("G", 13), ("H", 20), ("I", 44)):
-        control.column_dimensions[column].width = width
-    for index in range(len(COMMANDS)):
-        control.row_dimensions[9 + index].height = 42
+    choices(control, ("No", "Yes"), "F{0}:F{1}".format(
+        CONTROL_HEADER_ROW + 1, CONTROL_HEADER_ROW + len(COMMANDS)))
+    fit(control, CONTROL_HEADERS, written)
+    shape(control, CONTROL_HEADERS, written, header_row=CONTROL_HEADER_ROW)
+    for index in range(CONTROL_HEADER_ROW):
+        control.row_dimensions[1 + index].height = ROW_HEIGHT
 
     # -- INFO ---------------------------------------------------------------
+    #
+    # Key, value, description in rows -- not a column table, which is why the
+    # unit converter walked straight past it. The key carries the unit now, in
+    # the same brackets, in the cell beside the number. BUG-17.
     info = book.create_sheet("INFO")
-    header(info, ("Key", "Value", "What it is"))
-    for index, (key, value, what) in enumerate(INFO_ROWS):
+    rows = info_rows()
+    header(info, INFO_HEADERS)
+    for index, (key, value, what) in enumerate(rows):
         info.cell(row=2 + index, column=1, value=key).font = label
-        info.cell(row=2 + index, column=2, value=value)
+        cell = info.cell(row=2 + index, column=2, value=value)
+        found = "mm" if "(mm)" in key else ("m" if "(m)" in key else None)
+        if found:
+            cell.number_format = NUMBER_FORMAT[found]
         info.cell(row=2 + index, column=3, value=what)
-    units_row = 2 + [key for key, _v, _w in INFO_ROWS].index("UNITS")
+    units_row = 2 + [key for key, _v, _w in rows].index("UNITS")
     choices(info, ("m", "mm"), "B{0}".format(units_row))
-    for column, width in (("A", 20), ("B", 40), ("C", 66)):
-        info.column_dimensions[column].width = width
+    fit(info, INFO_HEADERS, rows)
+    shape(info, INFO_HEADERS, rows)
 
     # -- the datum ----------------------------------------------------------
-    levels = table("LEVELS", LEVEL_HEADERS, level_rows(),
-                   (("A", 26), ("B", 18), ("C", 19), ("D", 20), ("E", 14),
-                    ("F", 8), ("G", 30)))
+    levels = table("LEVELS", LEVEL_HEADERS, level_rows())
     choices(levels, ELEVATION_BASES, "D2:D{0}".format(1 + len(LEVELS)))
 
-    table("GRIDS", GRID_HEADERS, grid_rows(),
-          (("A", 8), ("B", 10), ("C", 10), ("D", 10), ("E", 10), ("F", 9),
-           ("G", 12), ("H", 13), ("I", 13), ("J", 26)))
+    table("GRIDS", GRID_HEADERS, grid_rows())
 
     # -- the structure ------------------------------------------------------
     table("FOOTING_TYPES", FOOTING_TYPE_HEADERS,
-          typed_rows(FOOTING_TYPES, FOOTING_TYPE_LENGTHS),
-          (("A", 10), ("I", 34)))
-    table("FOOTING_PLACEMENT", FOOTING_PLACEMENT_HEADERS, footing_rows(),
-          (("A", 12), ("B", 11), ("G", 26), ("J", 22), ("K", 14)))
+          typed_rows(FOOTING_TYPES, FOOTING_TYPE_LENGTHS,
+                     FOOTING_TYPE_HEADERS))
+    table("FOOTING_PLACEMENT", FOOTING_PLACEMENT_HEADERS, footing_rows())
 
     table("COLUMN_TYPES", COLUMN_TYPE_HEADERS,
-          typed_rows(COLUMN_TYPES, COLUMN_TYPE_LENGTHS),
-          (("A", 13), ("F", 40)))
-    table("COLUMN_PLACEMENT", COLUMN_PLACEMENT_HEADERS, column_rows(),
-          (("A", 8), ("G", 26), ("H", 26), ("K", 13), ("L", 15), ("N", 12)))
+          typed_rows(COLUMN_TYPES, COLUMN_TYPE_LENGTHS, COLUMN_TYPE_HEADERS))
+    table("COLUMN_PLACEMENT", COLUMN_PLACEMENT_HEADERS, column_rows())
 
     table("BEAM_TYPES", BEAM_TYPE_HEADERS,
-          typed_rows(BEAM_TYPES, BEAM_TYPE_LENGTHS),
-          (("A", 13), ("F", 38)))
-    beams = table("BEAM_PLACEMENT", BEAM_PLACEMENT_HEADERS, beam_rows(),
-                  (("A", 12), ("B", 13), ("H", 26), ("J", 26)))
+          typed_rows(BEAM_TYPES, BEAM_TYPE_LENGTHS, BEAM_TYPE_HEADERS))
+    table("BEAM_PLACEMENT", BEAM_PLACEMENT_HEADERS, beam_rows())
 
-    slabs_types = table("SLAB_TYPES", SLAB_TYPE_HEADERS,
-                        typed_rows(SLAB_TYPES, SLAB_TYPE_LENGTHS),
-                        (("A", 10), ("E", 30)))
-    slabs = table("SLAB_PLACEMENT", SLAB_PLACEMENT_HEADERS, slab_rows(),
-                  (("A", 16), ("C", 26), ("H", 22), ("J", 20)))
+    table("SLAB_TYPES", SLAB_TYPE_HEADERS,
+          typed_rows(SLAB_TYPES, SLAB_TYPE_LENGTHS, SLAB_TYPE_HEADERS))
+    slabs = table("SLAB_PLACEMENT", SLAB_PLACEMENT_HEADERS, slab_rows())
     choices(slabs, EDGE_RULES, "H2:H{0}".format(1 + len(slab_panels())))
-    del slabs_types, beams
 
-    log = book.create_sheet("LOG")
-    header(log, LOG_HEADERS)
-    for index, values in enumerate(history):
-        for column, value in enumerate(values, start=1):
-            log.cell(row=2 + index, column=column, value=value)
-    for column, width in (("A", 20), ("B", 22), ("C", 16), ("D", 12),
-                          ("E", 34), ("F", 60)):
-        log.column_dimensions[column].width = width
+    log = table("LOG", LOG_HEADERS, history)
+    del log
 
     book.save(target)
     return target

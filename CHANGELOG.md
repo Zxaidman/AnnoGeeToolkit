@@ -35,6 +35,75 @@ of view of someone using the thing rather than someone reading the diff:
 
 ---
 
+## 1.16.0
+
+**Added**
+
+- **`columns.sync` and `footings.sync` — the first two commands that place
+  something.** Both read a placement sheet, resolve a grid intersection to a
+  point, and write in one undo step.
+
+  **The match is on position, never on the mark.** The owner's marking rule
+  repeats a mark up a stack and across a floor on purpose, so a mark cannot be
+  what a second run recognises. What identifies a column is where it stands and
+  which storey it is in; a footing keys on position alone. Proved against the
+  sample: 90 columns created, then 90 matched, then 90 matched again — and 15
+  footings the same.
+
+  Everything either of them decides is decided in
+  `rc_automation/placement.py`, which has no Revit in it and carries 34 tests.
+  Four refusals, all of them a refusal to guess:
+
+  | | |
+  | --- | --- |
+  | **A grid the model does not have** | the row is left unbuildable and reported. The alternative is a column at the project origin, which looks deliberate |
+  | **Two rows in the same place** | one of them is a typo; neither is built |
+  | **No type, or no level** | reported by name, with what the model does have |
+  | **Something the sheet does not mention** | left alone and reported. Nothing is ever deleted |
+
+  A pad is a floor, which is what lets an arbitrary outline be drawn. A blank
+  `Outline` means the type's own Length and Width describe it, read from
+  `FOOTING_TYPES` — so fifteen footings share three sizes and the placement row
+  stays readable.
+
+- **`AnonGeeBridge_ApplyFormat`** — picks the first font in
+  `Inter, Segoe UI, Cambria, Calibri` that is actually installed and applies it,
+  with 20-unit rows and fitted columns. Excel stores one font name per cell and
+  has no fallback list, so the fallback has to happen once rather than at render
+  time.
+
+**Fixed**
+
+- **`ApplyUnits` walked straight past `INFO`.** It finds lengths by their column
+  header, and `INFO` is key-value-description in rows — no header above the
+  number, nothing to find. The key carries the unit now, in the same brackets,
+  in the cell beside the value: `SURVEY_OFFSET (m)`.
+
+**Changed**
+
+- **Cover and diameter stay in millimetres.** Metres were chosen so a level
+  reads as 3.30 rather than 3300; by the same argument a cover of 0.05 and a bar
+  of 0.012 read worse than 50 and 12, so consistency there would cost the thing
+  it was bought for. Those columns are pinned by what they are — a header
+  starting `Cover` or `Dia` — rather than by a list somebody keeps in step.
+
+- **Buttons are shapes, from the owner's own template.** `AddButtons`
+  duplicates a shape the sheet already has, so the rounded rectangles the owner
+  drew become the house style without their fill colour being written down in
+  code; a sheet with no template gets one built to match. It also draws
+  `ApplyUnits` on `INFO`, beside the unit it applies. This is re-runnable
+  because it has to be: `openpyxl` deletes every drawing in a workbook it
+  rewrites, so a rebuild keeps the macros and loses the buttons.
+
+- **The workbook's formatting is a build output.** Fonts, three sizes one step
+  apart, every row 20 units, every column width computed from what is in it,
+  `mm` shown whole and `m` to two decimals. Generated rather than applied by
+  hand, because a rebuild throws away anything applied by hand.
+
+- The test suite is 816 tests, from 781.
+
+---
+
 ## 1.15.0
 
 **Fixed**

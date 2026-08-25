@@ -89,6 +89,32 @@ Public Const UNITS_DEFAULT As String = "mm"
 ' block above the table, shallow enough to be instant.
 Public Const HEADER_SEARCH_ROWS As Long = 30
 
+' Columns that stay in millimetres whatever the workbook is set to.
+'
+' Metres were chosen so a level reads as 3.30 rather than 3300. By the same
+' argument a cover of 0.05 and a bar of 0.012 read worse than 50 and 12, so
+' consistency here would cost the thing it was bought for.
+Public Const PINNED_TO_MM As String = "cover,dia,diameter,bardia"
+
+' How a length is shown once converted. Millimetres whole, metres to two.
+Public Const FORMAT_MM As String = "#,##0"
+Public Const FORMAT_M As String = "0.00"
+
+' The font, in order of preference. The first one installed wins.
+Public Const FONT_STACK As String = "Inter,Segoe UI,Cambria,Calibri"
+Public Const SIZE_TITLE As Long = 14
+Public Const SIZE_HEADER As Long = 11
+Public Const SIZE_BODY As Long = 10
+Public Const ROW_HEIGHT As Long = 20
+
+' What a button is: a rounded rectangle the same shape as the ones already on
+' CONTROL. Anything named with this prefix belongs to us and is replaced on a
+' rebuild; anything else on the sheet is somebody's and is left alone.
+Public Const BUTTON_PREFIX As String = "AnonGeeRun_"
+Public Const BUTTON_TEMPLATE As String = "AnonGeeButton_Template"
+Public Const BUTTON_WIDTH As Long = 120
+Public Const BUTTON_INSET As Long = 2
+
 ' ---------------------------------------------------------------------------
 ' EVERY module-level declaration lives above this line, and it has to.
 '
@@ -875,13 +901,15 @@ End Function
 ' ---------------------------------------------------------------------------
 
 Public Sub AnonGeeBridge_AddButtons()
-    ' Draw a Form Control button on every CONTROL row and assign its macro.
+    ' Draw a button on every CONTROL row, and one on INFO for ApplyUnits.
     '
-    ' The build script cannot do this. openpyxl writes sheets, values and
-    ' validation; a Form Control is a drawing object with a macro reference,
-    ' and no Python library writes one into an .xlsm. So it is one Alt+F8,
-    ' like the .bas import, and re-running it is safe -- ours are deleted
-    ' first, so the buttons never stack up on a rebuild.
+    ' Shapes, not Form Controls. The project owner replaced the form controls
+    ' with rounded rectangles, and they are right: a shape takes the workbook
+    ' font and the theme colours, and a form control takes neither.
+    '
+    ' This has to be re-runnable rather than done once, because openpyxl
+    ' deletes every drawing in a workbook it rewrites. A rebuild keeps the
+    ' macros and loses the buttons, so the buttons have to be redrawable.
     On Error GoTo Failed
 
     Dim sheet As Worksheet
@@ -900,7 +928,13 @@ Public Sub AnonGeeBridge_AddButtons()
     commandColumn = ControlColumn(sheet, header, COLUMN_COMMAND)
     If commandColumn = 0 Then Exit Sub
 
+    ' Copy the template before deleting anything, because the template is
+    ' usually one of the buttons about to be deleted.
+    Dim template As Shape
+    Set template = FindTemplate(sheet)
+
     RemoveOurButtons sheet
+    RemoveOurButtons ThisWorkbook.Worksheets(INFO_SHEET)
 
     Dim made As Long
     Dim row As Long
@@ -908,13 +942,27 @@ Public Sub AnonGeeBridge_AddButtons()
     For row = header + 1 To header + 60
         command = Trim$(CStr(sheet.Cells(row, commandColumn).Value))
         If command <> "" Then
-            If AddOneButton(sheet, row, command) Then made = made + 1
+            If MacroFor(command) <> "" Then
+                DrawButton sheet, sheet.Cells(row, commandColumn), template, _
+                           BUTTON_PREFIX & Replace(command, ".", "_"), _
+                           Prettify(command), MacroFor(command)
+                made = made + 1
+            End If
         End If
     Next row
 
-    MsgBox made & " button(s) drawn on " & CONTROL_SHEET & "." & vbCrLf & _
-           vbCrLf & "Save the workbook. Run this again after any rebuild " & _
-           "that changes the rows.", vbInformation, "AnonGee Bridge"
+    ' ApplyUnits belongs beside the unit it applies, not on CONTROL.
+    Dim info As Worksheet
+    Set info = ThisWorkbook.Worksheets(INFO_SHEET)
+    DrawButton info, info.Cells(UnitsRow(info), 4), template, _
+               BUTTON_PREFIX & "ApplyUnits", "ApplyUnits", _
+               "AnonGeeBridge_ApplyUnits"
+    made = made + 1
+
+    MsgBox made & " button(s) drawn." & vbCrLf & vbCrLf & _
+           "Save the workbook. Run this again after any rebuild -- a rebuild " & _
+           "keeps the macros and loses the drawings.", _
+           vbInformation, "AnonGee Bridge"
     Exit Sub
 
 Failed:
@@ -923,41 +971,135 @@ Failed:
 End Sub
 
 
+Private Function FindTemplate(ByVal sheet As Worksheet) As Shape
+    ' The shape a new button is copied from, or Nothing to build one.
+    '
+    ' A shape named AnonGeeButton_Template wins, so the look can be changed by
+    ' drawing one and naming it. Failing that, any button already on the sheet
+    ' -- which is how the owner's own rounded rectangles become the house
+    ' style without anybody writing their fill colour down in code.
+    On Error Resume Next
+    Dim candidate As Shape
+
+    For Each candidate In sheet.Shapes
+        If candidate.Name = BUTTON_TEMPLATE Then
+            Set FindTemplate = candidate
+            Exit Function
+        End If
+    Next candidate
+
+    For Each candidate In sheet.Shapes
+        If candidate.Type = msoAutoShape Then
+            If Left$(candidate.Name, Len(BUTTON_PREFIX)) = BUTTON_PREFIX _
+               Or candidate.OnAction <> "" Then
+                Set FindTemplate = candidate
+                Exit Function
+            End If
+        End If
+    Next candidate
+End Function
+
+
+Private Sub DrawButton(ByVal sheet As Worksheet, ByVal cell As Range, _
+                       ByVal template As Shape, ByVal name As String, _
+                       ByVal caption As String, ByVal macro As String)
+    ' One button over one cell, copied from the template when there is one.
+    On Error Resume Next
+
+    ' Duplicate when the template is on this sheet, build one when it is not.
+    '
+    ' Not Copy and Paste: pasting a shape needs its target sheet to be the
+    ' active one, so a cross-sheet paste either fails or starts flicking the
+    ' user between sheets while it works. Duplicate stays on one sheet, and
+    ' INFO gets a built one that matches.
+    Dim button As Shape
+    Dim usable As Boolean
+    usable = False
+    If Not template Is Nothing Then
+        usable = (template.Parent.Name = sheet.Name)
+    End If
+
+    If usable Then
+        Set button = template.Duplicate
+    Else
+        Set button = sheet.Shapes.AddShape(msoShapeRoundedRectangle, _
+                                           cell.Left + BUTTON_INSET, _
+                                           cell.Top + BUTTON_INSET, _
+                                           cell.Width - 2 * BUTTON_INSET, _
+                                           cell.Height - 2 * BUTTON_INSET)
+        StyleButton button
+    End If
+
+    button.Left = cell.Left + BUTTON_INSET
+    button.Top = cell.Top + BUTTON_INSET
+    button.Width = cell.Width - 2 * BUTTON_INSET
+    button.Height = cell.Height - 2 * BUTTON_INSET
+
+    button.Name = name
+    button.TextFrame2.TextRange.Text = caption
+    button.OnAction = macro
+End Sub
+
+
+Private Sub StyleButton(ByVal button As Shape)
+    ' Only reached when there is no template to copy: a rounded rectangle in
+    ' the theme's own colours, so it belongs to whatever theme it lands in.
+    On Error Resume Next
+    button.Fill.ForeColor.ObjectThemeColor = msoThemeColorText2
+    button.Fill.ForeColor.Brightness = 0.6
+    button.Line.ForeColor.ObjectThemeColor = msoThemeColorText2
+    With button.TextFrame2.TextRange.Font
+        .Name = InstalledFont()
+        .Size = SIZE_HEADER
+        .Bold = msoTrue
+        .Fill.ForeColor.RGB = RGB(0, 0, 0)
+    End With
+    button.TextFrame2.TextRange.ParagraphFormat.Alignment = msoAlignCenter
+    button.TextFrame2.VerticalAnchor = msoAnchorMiddle
+End Sub
+
+
 Private Sub RemoveOurButtons(ByVal sheet As Worksheet)
-    ' Only ours, and only by name. Deleting every shape on the sheet would
-    ' take a logo or a note somebody put there.
+    ' Only ours, and only by name -- deleting every shape would take a logo or
+    ' a note somebody put there. Form controls from the previous release go
+    ' too, so a workbook does not end up wearing both.
     On Error Resume Next
     Dim index As Long
     For index = sheet.Shapes.Count To 1 Step -1
-        If Left$(sheet.Shapes(index).Name, 11) = "AnonGeeRun_" Then
+        If Left$(sheet.Shapes(index).Name, Len(BUTTON_PREFIX)) = BUTTON_PREFIX Then
             sheet.Shapes(index).Delete
+        End If
+    Next index
+    For index = sheet.Buttons.Count To 1 Step -1
+        If Left$(sheet.Buttons(index).Name, Len(BUTTON_PREFIX)) = BUTTON_PREFIX Then
+            sheet.Buttons(index).Delete
         End If
     Next index
     On Error GoTo 0
 End Sub
 
 
-Private Function AddOneButton(ByVal sheet As Worksheet, ByVal row As Long, _
-                              ByVal command As String) As Boolean
-    ' One button, sized to the first cell of the row, running the macro for
-    ' this command. A command with no macro gets no button rather than a
-    ' button that cannot work.
-    AddOneButton = False
+Public Function Prettify(ByVal command As String) As String
+    ' "levels.sync" -> "Levels.sync". The caption is derived from the command
+    ' rather than kept beside it, so the two can never drift apart.
+    If command = "" Then
+        Prettify = ""
+    Else
+        Prettify = UCase$(Left$(command, 1)) & Mid$(command, 2)
+    End If
+End Function
 
-    Dim macro As String
-    macro = MacroFor(command)
-    If macro = "" Then Exit Function
 
-    Dim cell As Range
-    Set cell = sheet.Cells(row, 1)
-
-    Dim button As Object
-    Set button = sheet.Buttons.Add(cell.Left + 2, cell.Top + 2, _
-                                   cell.Width - 4, cell.Height - 4)
-    button.Name = "AnonGeeRun_" & Replace(command, ".", "_")
-    button.OnAction = macro
-    button.Caption = CStr(cell.Value)
-    AddOneButton = True
+Public Function UnitsRow(ByVal info As Worksheet) As Long
+    ' The row on INFO whose key is UNITS, or 1.
+    UnitsRow = 1
+    Dim row As Long
+    For row = 1 To HEADER_SEARCH_ROWS
+        If Fold(StripUnit(CStr(info.Cells(row, 1).Value))) = Fold(INFO_UNITS_KEY) Then
+            UnitsRow = row
+            Exit Function
+        End If
+    Next row
 End Function
 
 
@@ -980,12 +1122,16 @@ End Function
 Public Sub AnonGeeBridge_ApplyUnits()
     ' Convert every length in the workbook to the unit chosen on INFO.
     '
-    ' Which columns are lengths is not a list kept somewhere -- it is written
-    ' in the header. A column headed "Elevation (m)" is a length in metres,
-    ' and this scales its values and rewrites the header. So the unit is
-    ' visible in the sheet rather than remembered, a column somebody adds is
-    ' converted the moment they label it, and running this twice does nothing
-    ' the second time.
+    ' Which cells are lengths is not a list kept somewhere -- it is written in
+    ' the header. A column headed "Elevation (m)" is a length in metres, and
+    ' this scales its values, its number format and its header. So the unit is
+    ' visible where the number is, a column somebody adds is converted the
+    ' moment they label it, and running this twice does nothing the second
+    ' time.
+    '
+    ' Two shapes of sheet, because INFO is not a column table: it is key,
+    ' value, description in rows. Its keys carry the unit instead, and it used
+    ' to be walked straight past. BUG-17.
     On Error GoTo Failed
 
     Dim wanted As String
@@ -994,12 +1140,18 @@ Public Sub AnonGeeBridge_ApplyUnits()
     Dim converted As Long
     Dim sheet As Worksheet
     For Each sheet In ThisWorkbook.Worksheets
-        converted = converted + ConvertSheetUnits(sheet, wanted)
+        If sheet.Name = INFO_SHEET Then
+            converted = converted + ConvertKeyedRows(sheet, wanted)
+        Else
+            converted = converted + ConvertSheetUnits(sheet, wanted)
+        End If
     Next sheet
 
-    MsgBox converted & " column(s) are now in " & wanted & "." & vbCrLf & _
-           vbCrLf & "A column is converted when its header says its unit, " & _
-           "like Elevation (mm). Headers without one are left alone.", _
+    MsgBox converted & " column(s) and value(s) are now in " & wanted & _
+           "." & vbCrLf & vbCrLf & _
+           "A cell is converted when its header, or its key on INFO, names " & _
+           "its unit -- like Elevation (mm). Cover and diameter stay in mm " & _
+           "whatever this is set to, because 0.05 does not read.", _
            vbInformation, "AnonGee Bridge"
     Exit Sub
 
@@ -1024,18 +1176,54 @@ Private Function ConvertSheetUnits(ByVal sheet As Worksheet, _
     Dim column As Long
     Dim head As String
     Dim found As String
+    Dim target As String
     For row = 1 To Application.Min(HEADER_SEARCH_ROWS, lastRow)
         For column = 1 To lastColumn
             head = CStr(sheet.Cells(row, column).Value)
             found = UnitInHeader(head)
-            If found <> "" And found <> wanted Then
-                ScaleColumn sheet, row, column, lastRow, _
-                            UnitFactor(found, wanted)
-                sheet.Cells(row, column).Value = _
-                    Replace(head, "(" & found & ")", "(" & wanted & ")")
-                ConvertSheetUnits = ConvertSheetUnits + 1
+            If found <> "" Then
+                target = UnitFor(head, wanted)
+                If found <> target Then
+                    ScaleColumn sheet, row, column, lastRow, _
+                                UnitFactor(found, target), target
+                    sheet.Cells(row, column).Value = _
+                        Replace(head, "(" & found & ")", "(" & target & ")")
+                    ConvertSheetUnits = ConvertSheetUnits + 1
+                End If
             End If
         Next column
+    Next row
+End Function
+
+
+Private Function ConvertKeyedRows(ByVal sheet As Worksheet, _
+                                  ByVal wanted As String) As Long
+    ' INFO: the key in column A names the unit of the value in column B.
+    ConvertKeyedRows = 0
+
+    Dim lastRow As Long
+    lastRow = sheet.UsedRange.row + sheet.UsedRange.Rows.Count - 1
+
+    Dim row As Long
+    Dim key As String
+    Dim found As String
+    Dim target As String
+    For row = 1 To lastRow
+        key = CStr(sheet.Cells(row, 1).Value)
+        found = UnitInHeader(key)
+        If found <> "" Then
+            target = UnitFor(key, wanted)
+            If found <> target Then
+                If IsNumeric(sheet.Cells(row, 2).Value) Then
+                    sheet.Cells(row, 2).Value = _
+                        sheet.Cells(row, 2).Value * UnitFactor(found, target)
+                    sheet.Cells(row, 2).NumberFormat = FormatFor(target)
+                End If
+                sheet.Cells(row, 1).Value = _
+                    Replace(key, "(" & found & ")", "(" & target & ")")
+                ConvertKeyedRows = ConvertKeyedRows + 1
+            End If
+        End If
     Next row
 End Function
 
@@ -1054,6 +1242,57 @@ Public Function UnitInHeader(ByVal head As String) As String
 End Function
 
 
+Public Function StripUnit(ByVal head As String) As String
+    ' A header without its unit: "Elevation PBP (m)" -> "Elevation PBP".
+    Dim at As Long
+    at = InStr(head, "(")
+    If at > 1 Then
+        StripUnit = Trim$(Left$(head, at - 1))
+    Else
+        StripUnit = Trim$(head)
+    End If
+End Function
+
+
+Public Function IsPinned(ByVal head As String) As String
+    ' "mm" for a column that stays in millimetres, "" for one that converts.
+    IsPinned = ""
+    Dim name As String
+    name = Fold(StripUnit(head))
+
+    Dim prefixes() As String
+    prefixes = Split(PINNED_TO_MM, ",")
+
+    Dim index As Long
+    For index = LBound(prefixes) To UBound(prefixes)
+        If Left$(name, Len(prefixes(index))) = prefixes(index) Then
+            IsPinned = "mm"
+            Exit Function
+        End If
+    Next index
+End Function
+
+
+Public Function UnitFor(ByVal head As String, ByVal wanted As String) As String
+    ' What unit this particular column should end up in.
+    If IsPinned(head) <> "" Then
+        UnitFor = "mm"
+    Else
+        UnitFor = wanted
+    End If
+End Function
+
+
+Public Function FormatFor(ByVal units As String) As String
+    ' Millimetres whole, metres to two decimals.
+    If units = "mm" Then
+        FormatFor = FORMAT_MM
+    Else
+        FormatFor = FORMAT_M
+    End If
+End Function
+
+
 Public Function UnitFactor(ByVal from As String, ByVal wanted As String) As Double
     ' What to multiply a number in `from` by to get one in `wanted`.
     UnitFactor = 1
@@ -1065,18 +1304,89 @@ End Function
 
 Private Sub ScaleColumn(ByVal sheet As Worksheet, ByVal header As Long, _
                         ByVal column As Long, ByVal lastRow As Long, _
-                        ByVal factor As Double)
+                        ByVal factor As Double, ByVal units As String)
     ' Numbers only. A blank stays blank and a word stays a word -- a cell
     ' reading "as drawn" is an instruction, not a length, and multiplying it
     ' by a thousand would lose it.
-    If factor = 1 Then Exit Sub
     Dim row As Long
     For row = header + 1 To lastRow
         If IsNumeric(sheet.Cells(row, column).Value) Then
             If Trim$(CStr(sheet.Cells(row, column).Value)) <> "" Then
-                sheet.Cells(row, column).Value = _
-                    sheet.Cells(row, column).Value * factor
+                If factor <> 1 Then
+                    sheet.Cells(row, column).Value = _
+                        sheet.Cells(row, column).Value * factor
+                End If
+                sheet.Cells(row, column).NumberFormat = FormatFor(units)
             End If
         End If
     Next row
 End Sub
+
+
+Public Sub AnonGeeBridge_ApplyFormat()
+    ' The font, the row heights and the column widths, on every sheet.
+    '
+    ' The build writes Inter, and a machine without Inter shows whatever Excel
+    ' substitutes. This picks the first font in the stack that is actually
+    ' installed here, which is the nearest thing a spreadsheet has to the
+    ' font fallback a stylesheet would give you.
+    On Error GoTo Failed
+
+    Dim face As String
+    face = InstalledFont()
+
+    Dim sheet As Worksheet
+    For Each sheet In ThisWorkbook.Worksheets
+        sheet.Cells.Font.Name = face
+        sheet.Rows.RowHeight = ROW_HEIGHT
+        sheet.UsedRange.Columns.AutoFit
+    Next sheet
+
+    MsgBox "Set in " & face & ", every row " & ROW_HEIGHT & " units, every " & _
+           "column fitted to what is in it.", vbInformation, "AnonGee Bridge"
+    Exit Sub
+
+Failed:
+    MsgBox "Could not format: " & Err.Description, vbExclamation, _
+           "AnonGee Bridge"
+End Sub
+
+
+Public Function InstalledFont() As String
+    ' The first font in FONT_STACK this machine actually has.
+    '
+    ' Excel stores one font name per cell and has no fallback list, so the
+    ' fallback has to happen once, here, rather than at render time.
+    Dim names() As String
+    names = Split(FONT_STACK, ",")
+    InstalledFont = Trim$(names(UBound(names)))
+
+    Dim index As Long
+    For index = LBound(names) To UBound(names)
+        If FontExists(Trim$(names(index))) Then
+            InstalledFont = Trim$(names(index))
+            Exit Function
+        End If
+    Next index
+End Function
+
+
+Private Function FontExists(ByVal name As String) As Boolean
+    ' Ask Excel for the font list. Wrapped, because the control this reads
+    ' from is not present in every host and a missing font list should mean
+    ' "use the last name in the stack", not a broken macro.
+    FontExists = False
+    On Error Resume Next
+    Dim listed As Variant
+    listed = Application.CommandBars("Formatting").Controls("Font").List
+    On Error GoTo 0
+    If IsEmpty(listed) Then Exit Function
+
+    Dim index As Long
+    For index = LBound(listed) To UBound(listed)
+        If StrComp(CStr(listed(index)), name, vbTextCompare) = 0 Then
+            FontExists = True
+            Exit Function
+        End If
+    Next index
+End Function
