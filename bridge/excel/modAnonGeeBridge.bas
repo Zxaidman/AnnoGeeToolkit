@@ -1053,8 +1053,16 @@ End Sub
 
 
 Private Sub StyleButton(ByVal button As Shape)
-    ' Only reached when there is no template to copy: a rounded rectangle in
-    ' the theme's own colours, so it belongs to whatever theme it lands in.
+    ' Only reached when there is no template to copy, which is what a rebuild
+    ' leaves behind: openpyxl deletes every drawing in a workbook it rewrites,
+    ' so the last button on the sheet goes with them and there is nothing to
+    ' duplicate from.
+    '
+    ' These numbers are read off the buttons the project owner drew, so a
+    ' rebuilt sheet looks like the one they styled rather than like a default:
+    ' rounded rectangle, theme text-2 at 60% lightness, a one-point border of
+    ' the same colour, and 10pt bold black centred text. Theme colours rather
+    ' than fixed ones, so the buttons follow the workbook's theme if it changes.
     On Error Resume Next
     button.Fill.ForeColor.ObjectThemeColor = msoThemeColorText2
     button.Fill.ForeColor.Brightness = 0.6
@@ -1062,8 +1070,8 @@ Private Sub StyleButton(ByVal button As Shape)
     button.Line.Weight = BUTTON_BORDER
     With button.TextFrame2.TextRange.Font
         .Name = InstalledFont()
-        .Size = SIZE_HEADER
-        .Bold = msoFalse
+        .Size = SIZE_BODY
+        .Bold = msoTrue
         .Fill.ForeColor.RGB = RGB(0, 0, 0)
     End With
     button.TextFrame2.TextRange.ParagraphFormat.Alignment = msoAlignCenter
