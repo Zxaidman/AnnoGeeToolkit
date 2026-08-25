@@ -35,6 +35,73 @@ of view of someone using the thing rather than someone reading the diff:
 
 ---
 
+## 1.17.0
+
+**Fixed**
+
+- **A missing type stopped the run instead of being made.** The first real
+  attempt at columns and footings reported `created=90` and `created=15` with
+  `written=0`: every row said *no type called `C-300x600`* and stopped. Both
+  halves were right — the model genuinely did not have those types, and the run
+  genuinely refused to guess — and the result was still nothing built.
+
+  A type the model does not have is now **duplicated from a loaded family and
+  sized from the TYPES sheet**. `C-300x600` becomes a copy of the rectangular
+  concrete column family with `b` and `h` set to 300 and 600 and its Type Mark
+  written; `F1` becomes a copy of the model's foundation type at 600 thick.
+
+  **Creating a type is not authoring a family**, and that boundary is what makes
+  it safe: the new type inherits the template's materials, subcategories and
+  behaviour because it is a copy of something the template set up. A model with
+  no family to copy is reported, by name, with the standard family to load. A
+  family whose dimensions are not called anything recognisable gets a correctly
+  named type at the wrong size — **and says so**, because a 300 × 600 column
+  that is silently 400 × 400 is worse than none.
+
+**Added**
+
+- **Extract Template** — a pyRevit button that writes everything the model
+  contains to one Markdown file. Every category with what is in it, every family
+  and every type inside it, and **every parameter with its scope** — shared,
+  project, global, family, instance, type — plus levels, grids, view templates
+  and sheets.
+
+  A `.rvt` is a compound binary that only Revit opens, so a template cannot be
+  reviewed, diffed or discussed anywhere else, by anybody. This is the model
+  describing itself instead. The report is sorted, carries no timestamp, and
+  contains nothing that changes between two runs over an unchanged model — so it
+  can be committed, and *what changed in the template* becomes a question with an
+  answer. Read-only: no transaction, nothing written, safe to point at the real
+  template.
+
+  Parameter scope is the section that matters. A value written to a **shared**
+  parameter survives a family reload and can be scheduled and tagged; a
+  **project** one lives in this file only; a **family** one cannot be reached
+  from outside its family. A workbook writing to the wrong kind produces a value
+  that quietly disappears, and the run reports success.
+
+- **The template and the workbook, coordinated** —
+  `docs/specs/2026-08-25-template-and-workbook.md`. Each fact has exactly one
+  owner: the template says what is *possible*, the workbook says what is
+  *wanted*. Families, shared parameter definitions and view templates are the
+  template's; sizes, values and which types this job uses are the workbook's.
+  Written as a proposal to argue with rather than a description of anything,
+  because the first extraction has not happened yet.
+
+**Changed**
+
+- **Cover and diameter stay in millimetres** — already true — and now the
+  **buttons sit on the gridlines**: no inset, a one-unit border, and set to move
+  and size with the cell under them, so widening a column or dragging a row
+  taller takes the button with it.
+
+- **`Segoe UI Semibold` leads the font stack**, ahead of Inter, for the whole
+  workbook and for the buttons.
+
+- The test suite is 844 tests, from 816.
+
+---
+
 ## 1.16.0
 
 **Added**

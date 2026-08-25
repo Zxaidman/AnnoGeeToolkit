@@ -101,7 +101,7 @@ Public Const FORMAT_MM As String = "#,##0"
 Public Const FORMAT_M As String = "0.00"
 
 ' The font, in order of preference. The first one installed wins.
-Public Const FONT_STACK As String = "Inter,Segoe UI,Cambria,Calibri"
+Public Const FONT_STACK As String = "Segoe UI Semibold,Inter,Segoe UI,Cambria,Calibri"
 Public Const SIZE_TITLE As Long = 14
 Public Const SIZE_HEADER As Long = 11
 Public Const SIZE_BODY As Long = 10
@@ -112,8 +112,13 @@ Public Const ROW_HEIGHT As Long = 20
 ' rebuild; anything else on the sheet is somebody's and is left alone.
 Public Const BUTTON_PREFIX As String = "AnonGeeRun_"
 Public Const BUTTON_TEMPLATE As String = "AnonGeeButton_Template"
-Public Const BUTTON_WIDTH As Long = 120
-Public Const BUTTON_INSET As Long = 2
+
+' A button sits exactly on its cell -- no inset -- and is set to move and size
+' with it. So widening a column or dragging a row taller takes the button with
+' it, and the sheet stays laid out on the gridlines rather than on a set of
+' coordinates that were right when they were written.
+Public Const BUTTON_INSET As Long = 0
+Public Const BUTTON_BORDER As Long = 1
 
 ' ---------------------------------------------------------------------------
 ' EVERY module-level declaration lives above this line, and it has to.
@@ -1038,6 +1043,12 @@ Private Sub DrawButton(ByVal sheet As Worksheet, ByVal cell As Range, _
     button.Name = name
     button.TextFrame2.TextRange.Text = caption
     button.OnAction = macro
+    button.Line.Weight = BUTTON_BORDER
+
+    ' Move and size with the cell underneath. Without this a button keeps the
+    ' position it was drawn at, and the first person to widen a column has a
+    ' sheet with its buttons in the wrong place.
+    button.Placement = xlMoveAndSize
 End Sub
 
 
@@ -1048,10 +1059,11 @@ Private Sub StyleButton(ByVal button As Shape)
     button.Fill.ForeColor.ObjectThemeColor = msoThemeColorText2
     button.Fill.ForeColor.Brightness = 0.6
     button.Line.ForeColor.ObjectThemeColor = msoThemeColorText2
+    button.Line.Weight = BUTTON_BORDER
     With button.TextFrame2.TextRange.Font
         .Name = InstalledFont()
         .Size = SIZE_HEADER
-        .Bold = msoTrue
+        .Bold = msoFalse
         .Fill.ForeColor.RGB = RGB(0, 0, 0)
     End With
     button.TextFrame2.TextRange.ParagraphFormat.Alignment = msoAlignCenter

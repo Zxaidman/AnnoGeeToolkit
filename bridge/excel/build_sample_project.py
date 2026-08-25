@@ -99,7 +99,8 @@ NUMBER_FORMAT = {"mm": "#,##0", "m": "0.00"}
 #: The font, in order of preference. Excel stores one name per cell, so the
 #: build writes the first; ``AnonGeeBridge_ApplyFormat`` swaps in the best one
 #: actually installed on the machine opening it.
-FONT_STACK = ("Inter", "Segoe UI", "Cambria", "Calibri")
+FONT_STACK = ("Segoe UI Semibold", "Inter", "Segoe UI", "Cambria",
+              "Calibri")
 
 #: Three sizes, one step apart each. A title should be findable, not loud.
 SIZE_TITLE = 14

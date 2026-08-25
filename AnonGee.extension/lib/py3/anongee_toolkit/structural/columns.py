@@ -73,6 +73,118 @@ def find_symbol(doc, wanted, cache=None):
         wanted, ", ".join(label for label, _n, _t, _i in loaded[:8])))
 
 
+#: What a rectangular column's two dimensions are called, across the families
+#: a real project has loaded. Tried in order, and the first that exists and is
+#: writable wins.
+WIDTH_NAMES = ("b", "Width", "width", "w", "B", "W")
+DEPTH_NAMES = ("h", "Depth", "depth", "d", "H", "D")
+
+#: Which loaded family a new type is duplicated from, preferred in this order.
+#: A rectangular concrete column is what an RCC schedule means; the standard
+#: family is ``M_Concrete-Rectangular-Column`` in a metric template and
+#: ``Concrete-Rectangular-Column`` in an imperial one, and both fold to the
+#: same thing here.
+FAMILY_HINTS = ("concreterectangularcolumn", "rectangularcolumn",
+                "concretesquarecolumn", "rectangular", "concrete")
+
+
+def ensure_symbol(doc, wanted, width_mm=None, depth_mm=None, cache=None):
+    """``(FamilySymbol, note)`` — found, or duplicated and sized to order.
+
+    **Creating a type is not authoring a family.** The family has to be loaded
+    already; what this makes is a named, sized type of one that is. A model with
+    no rectangular column family in it is reported rather than guessed at,
+    because inventing a section is the kind of help nobody wants.
+
+    Requires a transaction when it has to duplicate — the caller has one open.
+    """
+    if cache is None:
+        cache = {}
+    symbol, note = find_symbol(doc, wanted, cache)
+    if symbol is not None:
+        return symbol, note
+
+    if not width_mm or not depth_mm:
+        return None, ("{0} — and the TYPES sheet does not give it a Width and "
+                      "a Depth, so one cannot be made".format(note))
+
+    base, base_note = _base_symbol(doc)
+    if base is None:
+        return None, base_note
+
+    try:
+        duplicated = base.Duplicate(wanted)
+    except Exception as error:
+        return None, "could not create a type called {0!r}: {1}".format(
+            wanted, error)
+
+    set_width = _set_dimension(duplicated, WIDTH_NAMES, width_mm)
+    set_depth = _set_dimension(duplicated, DEPTH_NAMES, depth_mm)
+    _set_type_mark(duplicated, wanted)
+    _activate_symbol(doc, duplicated)
+    cache[_fold(wanted)] = duplicated
+
+    if not (set_width and set_depth):
+        return duplicated, (
+            "created {0!r} from {1}, but could not set its {2} — the family "
+            "does not use a parameter this recognises, so the type is the "
+            "size the family came at".format(
+                wanted, _name(base.Family) if base.Family else "the base type",
+                "size" if not (set_width or set_depth)
+                else ("width" if not set_width else "depth")))
+    return duplicated, "created {0!r} at {1:g} x {2:g}".format(
+        wanted, width_mm, depth_mm)
+
+
+def _base_symbol(doc):
+    """The loaded type a new one is duplicated from. ``(symbol, note)``."""
+    loaded = symbols(doc)
+    if not loaded:
+        return None, ("this model has no structural column family loaded. "
+                      "Load one — Concrete-Rectangular-Column is the standard "
+                      "— and run this again")
+
+    for hint in FAMILY_HINTS:
+        for label, _name_, _mark, symbol_id in loaded:
+            if hint in _fold(label):
+                return doc.GetElement(symbol_id), ""
+    return doc.GetElement(loaded[0][3]), ""
+
+
+def _set_dimension(symbol, names, value_mm):
+    """Set the first of these parameters that exists and will take a number."""
+    from anongee_toolkit.revit.units import mm_to_ft
+    for name in names:
+        try:
+            parameter = symbol.LookupParameter(name)
+            if parameter is None or parameter.IsReadOnly:
+                continue
+            if parameter.Set(mm_to_ft(value_mm)):
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _set_type_mark(symbol, mark):
+    from Autodesk.Revit.DB import BuiltInParameter
+    try:
+        parameter = symbol.get_Parameter(BuiltInParameter.ALL_MODEL_TYPE_MARK)
+        if parameter is not None and not parameter.IsReadOnly:
+            parameter.Set(mark)
+    except Exception:
+        pass
+
+
+def _activate_symbol(doc, symbol):
+    try:
+        if not symbol.IsActive:
+            symbol.Activate()
+            doc.Regenerate()
+    except Exception:
+        pass
+
+
 def create(doc, point_mm, symbol, base_level, top_level=None,
            base_offset_mm=0.0, top_offset_mm=0.0):
     """Place one column. **Requires a transaction the caller opened.**

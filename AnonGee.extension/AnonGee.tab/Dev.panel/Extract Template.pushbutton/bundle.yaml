@@ -1,0 +1,26 @@
+title: Extract Template
+author: AnonGee
+tooltip: |
+  Write everything this model contains to a Markdown file, so it can be read,
+  diffed and argued with outside Revit.
+
+  A .rvt cannot be read by anything but Revit. So instead of handing the file
+  over, the model describes itself: every category, every family and type
+  inside it, and every parameter with its scope — shared, project, global,
+  family, instance, type — as one tree.
+
+  What it writes:
+
+    Categories      what the model actually uses, with how many of each
+    Families        loaded families, their types, and each type's dimensions
+    Parameters      every parameter, grouped by where it comes from and
+                    whether it is set per instance or per type
+    Datum           levels and grids, with their elevations and positions
+    Views & sheets  view templates, sheets, and the title blocks on them
+
+  Read-only. No transaction, nothing written to the model, no undo step.
+
+  The file lands beside the model, or in the bridge folder when the model has
+  not been saved. Its path is shown when it finishes.
+
+  Version: 0.1.0

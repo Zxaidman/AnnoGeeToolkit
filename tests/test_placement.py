@@ -394,5 +394,93 @@ class CommandContractTests(unittest.TestCase):
         self.assertEqual(body.count("grid_module.grids(doc)"), 1)
 
 
+class TypeCreationTests(unittest.TestCase):
+    """A missing type is made, not refused — and the boundary of that.
+
+    The first real run placed nothing: fifteen footings and ninety columns each
+    reported *no type called `F1`* and stopped. Correct, and useless. So a type
+    the model does not have is now duplicated from a loaded family and sized
+    from the TYPES sheet.
+
+    **Creating a type is not authoring a family**, and the distinction is the
+    whole reason this is safe. Duplicating a loaded family's type gives a
+    section with the right materials, the right subcategories and the right
+    behaviour; generating a family from a spreadsheet would give none of those
+    and is not on the table. A model with nothing to duplicate is reported.
+    """
+
+    def source(self, package, name):
+        path = os.path.join(_ROOT, "AnonGee.extension", "lib", "py3",
+                            "anongee_toolkit", package, name)
+        with open(path, encoding="utf-8") as handle:
+            return handle.read()
+
+    def test_a_column_type_is_duplicated_from_a_loaded_family(self):
+        body = self.source("structural", "columns.py")
+        self.assertIn("def ensure_symbol(", body)
+        self.assertIn("base.Duplicate(wanted)", body)
+
+    def test_a_footing_type_is_duplicated_too(self):
+        body = self.source("structural", "footings.py")
+        self.assertIn("def ensure_named_type(", body)
+        self.assertIn("base.Duplicate(wanted)", body)
+
+    def test_neither_tries_to_author_a_family(self):
+        # NewFamilyDocument would be the line that turned this from "make a
+        # type" into "invent a section", which is the boundary being kept.
+        for package, name in (("structural", "columns.py"),
+                              ("structural", "footings.py")):
+            body = self.source(package, name)
+            self.assertNotIn("NewFamilyDocument", body, name)
+            self.assertNotIn("LoadFamily", body, name)
+
+    def test_a_model_with_nothing_to_duplicate_is_reported(self):
+        body = self.source("structural", "columns.py")
+        self.assertIn("no structural column family loaded", body)
+        self.assertIn("Concrete-Rectangular-Column", body)
+
+    def test_the_new_type_takes_its_size_from_the_types_sheet(self):
+        for package, name, sheet in (("commands", "columns.py",
+                                      "COLUMN_TYPES"),
+                                     ("commands", "footings.py",
+                                      "FOOTING_TYPES")):
+            body = self.source(package, name)
+            self.assertIn('TYPES_SHEET = "{0}"'.format(sheet), body, name)
+            self.assertIn("def _sizes(context", body, name)
+
+    def test_a_type_that_cannot_be_sized_says_so_rather_than_lying(self):
+        # A family whose dimensions are not called b/h gets a type of the
+        # right name and the wrong size. That has to be reported, because a
+        # 300x600 column that is silently 400x400 is worse than none.
+        body = self.source("structural", "columns.py")
+        self.assertIn("could not set its", body)
+
+    def test_the_sample_gives_every_type_a_size_to_be_made_from(self):
+        sample = _sample()
+        sizes, _issues = placement.parse_types(
+            _grid(sample.COLUMN_TYPE_HEADERS,
+                  sample.typed_rows(sample.COLUMN_TYPES,
+                                    sample.COLUMN_TYPE_LENGTHS,
+                                    sample.COLUMN_TYPE_HEADERS)), units="mm")
+        placed, _issues = placement.parse_columns(
+            _grid(sample.COLUMN_PLACEMENT_HEADERS, sample.column_rows()),
+            units="mm")
+        for row in placed:
+            key = "".join(c for c in row.type_mark.lower() if c.isalnum())
+            self.assertIn(key, sizes, row.type_mark)
+            self.assertTrue(sizes[key]["width_mm"], row.type_mark)
+            self.assertTrue(sizes[key]["depth_mm"], row.type_mark)
+
+    def test_depth_and_thickness_are_not_the_same_column(self):
+        # A column is Width x Depth; a pad is Length x Width x Thickness. A
+        # reader that folded them together would size a column off a slab.
+        sizes, _issues = placement.parse_types(
+            [["TypeMark", "Width (mm)", "Depth (mm)", "Thickness (mm)"],
+             ["X1", 300, 600, 150]], units="mm")
+        self.assertEqual(sizes["x1"]["width_mm"], 300.0)
+        self.assertEqual(sizes["x1"]["depth_mm"], 600.0)
+        self.assertEqual(sizes["x1"]["thickness_mm"], 150.0)
+
+
 if __name__ == "__main__":
     unittest.main()

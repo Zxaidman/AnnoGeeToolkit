@@ -17,6 +17,9 @@ do.
 
 __version__ = "0.1.0"
 
+#: Where a column's section comes from when the model does not have the type.
+TYPES_SHEET = "COLUMN_TYPES"
+
 
 def run(uiapp, envelope):
     """``(summary, findings, note)``. Never raises."""
@@ -49,15 +52,18 @@ def _apply(doc, plans, findings, finding, context):
     from anongee_toolkit.rc_automation import placement
     from anongee_toolkit.structural import columns
 
-    del context
     levels = _levels(doc)
+    sizes = _sizes(context, findings, finding)
     cache = {}
     written = 0
 
     for plan in plans:
         row = plan.row
         try:
-            symbol, note = columns.find_symbol(doc, row.type_mark, cache)
+            size = sizes.get(_fold(row.type_mark)) or {}
+            symbol, note = columns.ensure_symbol(
+                doc, row.type_mark, size.get("width_mm"),
+                size.get("depth_mm"), cache)
             if symbol is None:
                 findings.append(finding("Error", row.row, note))
                 continue
@@ -106,6 +112,36 @@ def _apply(doc, plans, findings, finding, context):
             findings.append(finding(
                 "Error", row.row, "{0!r}: {1}".format(row.mark, error)))
     return written
+
+
+def _sizes(context, findings, finding):
+    """``{folded type mark: {width_mm, depth_mm}}`` from COLUMN_TYPES.
+
+    A placement row names a type; the type sheet says how big it is. That is
+    what lets a missing type be *made* rather than refused — without a size
+    there is nothing to make.
+    """
+    from anongee_toolkit.rc_automation import placement
+    from anongee_toolkit.bridge import envelope as envelope_module
+
+    sheets = (context or {}).get("sheets") or {}
+    grid = None
+    for name, values in sheets.items():
+        if _fold(name) == _fold(TYPES_SHEET):
+            grid = values
+            break
+    if grid is None:
+        findings.append(finding(
+            "Warning", "",
+            "this workbook has no {0} sheet, so a type the model does not "
+            "have cannot be created".format(TYPES_SHEET)))
+        return {}
+
+    found, issues = placement.parse_types(
+        grid, TYPES_SHEET, (context or {}).get("units", "mm"))
+    for item in envelope_module.findings_from_issues(issues):
+        findings.append(item)
+    return found
 
 
 def _levels(doc):

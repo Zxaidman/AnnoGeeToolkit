@@ -242,10 +242,18 @@ def parse_footings(grid, sheet=SHEET_FOOTINGS, units=datum.UNITS_MM):
 
 _LENGTH = ("length", "l")
 _WIDTH = ("width", "w", "breadth", "b")
-_THICKNESS = ("thickness", "depth", "d", "t")
+_DEPTH = ("depth", "d")
+_THICKNESS = ("thickness", "t")
 
+#: Depth and thickness are kept apart because they are different things. A
+#: column is Width x Depth, a pad is Length x Width x Thickness, and a reader
+#: that folded them together would size a column off a slab's number.
 _TYPE_FIELDS = (("type_mark", _TYPE_MARK), ("thickness_mm", _THICKNESS),
-                ("length_mm", _LENGTH), ("width_mm", _WIDTH))
+                ("depth_mm", _DEPTH), ("length_mm", _LENGTH),
+                ("width_mm", _WIDTH))
+
+#: What a type row can say about its size.
+TYPE_SIZES = ("length_mm", "width_mm", "depth_mm", "thickness_mm")
 
 
 def parse_types(grid, sheet="", units=datum.UNITS_MM):
@@ -289,7 +297,7 @@ def parse_types(grid, sheet="", units=datum.UNITS_MM):
         if not mark:
             continue
         sizes = {}
-        for field in ("length_mm", "width_mm", "thickness_mm"):
+        for field in TYPE_SIZES:
             sizes[field] = datum.to_mm(datum._number(values.get(field)),
                                        column_units.get(field, units))
         types[datum._fold(mark)] = sizes

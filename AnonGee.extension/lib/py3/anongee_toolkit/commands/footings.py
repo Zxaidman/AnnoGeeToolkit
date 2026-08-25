@@ -71,8 +71,8 @@ def _apply(doc, plans, findings, finding, context):
     from anongee_toolkit.structural import footings
 
     levels = _levels(doc)
-    types = _types(doc)
     sizes = _sizes(context, findings, finding)
+    cache = {}
     written = 0
 
     for plan in plans:
@@ -96,8 +96,10 @@ def _apply(doc, plans, findings, finding, context):
                     "no level called {0!r} in this model".format(row.level)))
                 continue
 
-            type_id, note = _find_type(types, row.type_mark)
-            if type_id is None:
+            size = sizes.get(_fold(row.type_mark)) or {}
+            floor_type, note = footings.ensure_named_type(
+                doc, row.type_mark, size.get("thickness_mm"), cache)
+            if floor_type is None:
                 findings.append(finding("Error", row.row, note))
                 continue
             if note:
@@ -108,7 +110,7 @@ def _apply(doc, plans, findings, finding, context):
                 continue
 
             _floor, skipped = footings.create(
-                doc, points, type_id, level.Id, origin_mm=row.point_mm,
+                doc, points, floor_type.Id, level.Id, origin_mm=row.point_mm,
                 rotation_deg=row.rotation_deg or 0.0,
                 offset_mm=row.top_offset_mm or 0.0, mark=row.mark)
             if skipped:
@@ -204,28 +206,6 @@ def _sizes(context, findings, finding):
         if sizes.get("length_mm") and sizes.get("width_mm"):
             usable[mark] = sizes
     return usable
-
-
-def _find_type(types, wanted):
-    """``(ElementId, note)`` for a foundation type, or ``(None, why not)``."""
-    key = _fold(wanted)
-    for name, type_id in types:
-        if _fold(name) == key:
-            return type_id, ""
-    for name, type_id in types:
-        if key and key in _fold(name):
-            return type_id, "matched {0!r} to {1!r}".format(wanted, name)
-    if not types:
-        return None, ("this model has no structural foundation type, so there "
-                      "is nothing to place")
-    return None, "no foundation type called {0!r}. This model has: {1}".format(
-        wanted, ", ".join(name for name, _id in types[:8]))
-
-
-def _types(doc):
-    from anongee_toolkit.structural import footings
-    return [(name, type_id)
-            for name, type_id, _is_foundation in footings.foundation_types(doc)]
 
 
 def _levels(doc):
