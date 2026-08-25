@@ -41,7 +41,9 @@ def register_all():
             ("levels.sync", "levels", "run"),
             ("grids.sync", "grids", "run"),
             ("footings.sync", "footings", "run"),
-            ("columns.sync", "columns", "run"),):
+            ("columns.sync", "columns", "run"),
+            ("beams.sync", "beams", "run"),
+            ("slabs.sync", "slabs", "run"),):
         try:
             module = __import__(
                 "anongee_toolkit.commands." + module_name,

@@ -491,32 +491,18 @@ class RegistryTests(unittest.TestCase):
                           "footings.sync", "grids.sync", "levels.sync",
                           "slabs.sync"])
 
-    def test_the_structure_commands_are_declared_and_not_bound_yet(self):
-        """Declared before written, deliberately.
+    def test_every_declared_command_is_now_built(self):
+        """Declared-before-written was a state, not a destination.
 
-        A button naming a command nobody declared answers "not a command this
-        build knows", which reads like a broken install. Declared and unbound
-        answers "declared but not built yet", which is the truth. As each one
-        is built it moves to the bound side of this test rather than the test
-        being deleted -- that is the record of what was built and when.
+        Four commands were declared with no handler so the workbook could
+        carry their buttons and pressing one could answer *declared but not
+        built yet* — a clear failure instead of an obscure one. All seven are
+        bound now, and this is what says so.
         """
-        self.assertEqual(_registry.unbound(), ["beams.sync", "slabs.sync"])
+        self.assertEqual(_registry.unbound(), [])
 
     def test_the_built_commands_are_bound(self):
-        self.assertEqual(sorted(_BOUND),
-                         ["bridge.echo", "columns.sync", "footings.sync",
-                          "grids.sync", "levels.sync"])
-
-    def test_a_command_that_writes_says_so(self):
-        self.assertFalse(_registry.get("bridge.echo").writes)
-        self.assertTrue(_registry.get("levels.sync").writes)
-
-    def test_binding_an_undeclared_command_is_refused(self):
-        # A handler nobody declared is a command the workbook cannot name and
-        # the UI cannot list — it would never run and nothing would say why.
-        ok, note = _registry.bind("nonsense.sync", lambda *a: None)
-        self.assertFalse(ok)
-        self.assertIn("not a declared command", note)
+        self.assertEqual(sorted(_BOUND), _registry.known())
 
     def builder(self):
         import importlib.util

@@ -20,8 +20,6 @@ __version__ = "0.1.0"
 #: Where a column's section comes from when the model does not have the type.
 TYPES_SHEET = "COLUMN_TYPES"
 
-#: The INFO key naming the parameter that carries the repeating schedule label.
-LABEL_KEY = "SCHEDULE_MARK_PARAM"
 
 
 def run(uiapp, envelope):
@@ -52,12 +50,13 @@ def _apply(doc, plans, findings, finding, context):
     Called inside the transaction :mod:`_placement` owns, so it opens none of
     its own — one undo step is the promise and two transactions would break it.
     """
+    from anongee_toolkit.commands import _marks
     from anongee_toolkit.rc_automation import placement
     from anongee_toolkit.structural import columns
 
     levels = _levels(doc)
     sizes = _sizes(context, findings, finding)
-    label_parameters = _label_parameter(context)
+    label_parameters = _marks.candidates(context)
     reported = set()
     cache = {}
     written = 0
@@ -110,9 +109,8 @@ def _apply(doc, plans, findings, finding, context):
             instance = columns.create(
                 doc, row.point_mm, symbol, base, top,
                 row.base_offset_mm, row.top_offset_mm)
-            _mark(instance, row.unique_mark)
-            _schedule_mark(instance, row.mark, label_parameters, reported,
-                           findings, finding, row)
+            _marks.write(instance, row, label_parameters, reported,
+                         findings, finding)
             _rotate(doc, instance, row)
             written += 1
         except Exception as error:
@@ -161,119 +159,6 @@ def _levels(doc):
         except Exception:
             continue
     return found
-
-
-def _mark(instance, mark):
-    """Revit's own ``Mark``, which gets the key rather than the label.
-
-    ``Mark`` is expected to be unique per instance and Revit warns when it is
-    not — so the repeating schedule label never goes here. See
-    ``PlacementRow.unique_mark``.
-    """
-    from Autodesk.Revit.DB import BuiltInParameter
-    try:
-        parameter = instance.get_Parameter(BuiltInParameter.ALL_MODEL_MARK)
-        if parameter is not None and not parameter.IsReadOnly:
-            parameter.Set(mark or "")
-    except Exception:
-        pass
-
-
-def _label_parameter(context):
-    """Which parameters may carry the schedule label, in order, from INFO.
-
-    Named in the workbook rather than chosen here, because it is a property of
-    the *template* — a parameter has to be bound to Structural Columns before
-    anything can write to it, and binding one is a decision somebody makes on
-    purpose.
-    """
-    sheets = (context or {}).get("sheets") or {}
-    for name, values in sheets.items():
-        if _fold(name) != "info":
-            continue
-        for row in values or []:
-            if not row:
-                continue
-            key = _fold(str(row[0]).split("(")[0])
-            if key == _fold(LABEL_KEY) and len(row) > 1:
-                return _candidates(row[1])
-    return []
-
-
-def _candidates(cell):
-    """``"S_ScheduleMark, ID, Comments"`` -> the three, in order.
-
-    A list rather than one name because the three are not equivalent and the
-    order is the point: the proper home first, then what will do, then where
-    things end up.
-    """
-    found = []
-    for part in str(cell or "").replace(";", ",").split(","):
-        part = part.strip()
-        if part and part not in found:
-            found.append(part)
-    return found
-
-
-def _schedule_mark(instance, label, candidates, reported, findings, finding,
-                   row):
-    """Write the repeating schedule label — ``C1`` — into the first parameter
-    the model actually has.
-
-    *candidates* is the `SCHEDULE_MARK_PARAM` cell, split on commas: the owner
-    asked for ``S_ScheduleMark`` with ``ID`` and ``Comments`` behind it. A
-    fallback chain is right here because the three are not equivalent and the
-    order says so — a shared parameter is the proper home, ``ID`` is an
-    existing shared one that will at least schedule, and ``Comments`` is where
-    anything ends up when nothing better exists.
-
-    **Which one was used is reported, once.** Falling back silently would mean
-    a schedule reading from `S_ScheduleMark` finding it empty, with the values
-    sitting in `Comments` where nobody looked.
-    """
-    if not label:
-        return
-
-    if not candidates:
-        if "unset" not in reported:
-            reported.add("unset")
-            findings.append(finding(
-                "Info", row.row,
-                "the schedule mark ({0!r}) was not written: INFO has no {1} "
-                "saying which parameter carries it. Revit's own Mark holds "
-                "the unique key instead, because a repeating Mark is what "
-                "Revit warns about.".format(label, LABEL_KEY)))
-        return
-
-    for index, name in enumerate(candidates):
-        try:
-            parameter = instance.LookupParameter(name)
-        except Exception:
-            parameter = None
-        if parameter is None:
-            continue
-        try:
-            if parameter.IsReadOnly:
-                continue
-            parameter.Set(label)
-        except Exception:
-            continue
-        if index and "fell-back" not in reported:
-            reported.add("fell-back")
-            findings.append(finding(
-                "Warning", row.row,
-                "the schedule mark went into {0!r}, not {1!r} — this model "
-                "has no {1!r} on a structural column. A schedule reading "
-                "{1!r} will be empty.".format(name, candidates[0])))
-        return
-
-    if "none" not in reported:
-        reported.add("none")
-        findings.append(finding(
-            "Warning", row.row,
-            "none of {0} exists on a structural column in this model, so the "
-            "schedule mark was not written. Bind one as an instance text "
-            "parameter.".format(", ".join(repr(name) for name in candidates))))
 
 
 def _rotate(doc, instance, row):

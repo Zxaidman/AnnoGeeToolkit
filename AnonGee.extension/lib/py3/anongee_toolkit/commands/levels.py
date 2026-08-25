@@ -19,7 +19,12 @@ elevation, and never matches names loosely. Each is a refusal to guess about
 something that would be expensive to undo.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
+
+#: The INFO keys this reads. The second is a switch, and it is off by default
+#: because moving a survey point re-coordinates a whole project.
+SURVEY_KEY = "SURVEY_OFFSET"
+APPLY_SURVEY_KEY = "APPLY_SURVEY_OFFSET"
 
 
 def run(uiapp, envelope):
@@ -62,6 +67,10 @@ def run(uiapp, envelope):
     # row that gives both elevations gets them checked against it. Asked once,
     # here, so the pure half never has to guess at it.
     offset_mm, offset_note = _survey_offset(doc)
+    wanted_offset = _wanted_offset(grids)
+    if (wanted_offset is not None and not dry_run_of(envelope, envelope_module)
+            and _apply_offset(grids)):
+        offset_mm, offset_note = _move_survey(doc, wanted_offset, findings)
     findings.extend(envelope_module.findings_from_issues(
         datum.resolve_elevations(rows, offset_mm, sheet=sheet_name)))
 
@@ -95,6 +104,80 @@ def _sheet(grids, wanted):
         if "".join(c for c in name.lower() if c.isalnum()) == folded:
             return grid
     return None
+
+
+def dry_run_of(envelope, envelope_module):
+    return envelope_module.option(envelope, "dryRun", True)
+
+
+def _info(grids, key):
+    """One INFO value, by key, ignoring any unit in brackets."""
+    for name, values in (grids or {}).items():
+        if _fold(name) != "info":
+            continue
+        for row in values or []:
+            if row and _fold(str(row[0]).split("(")[0]) == _fold(key):
+                return row[1] if len(row) > 1 else None
+    return None
+
+
+def _wanted_offset(grids):
+    """What INFO says the survey offset should be, in millimetres."""
+    from anongee_toolkit.rc_automation import datum
+    value = _info(grids, SURVEY_KEY)
+    if value is None:
+        return None
+    units = datum.normalise_unit(_info(grids, "UNITS"), datum.UNITS_MM)
+    for name, values in (grids or {}).items():
+        if _fold(name) != "info":
+            continue
+        for row in values or []:
+            if row and _fold(str(row[0]).split("(")[0]) == _fold(SURVEY_KEY):
+                found = datum.unit_in_header(str(row[0]))
+                if found:
+                    units = found
+    return datum.to_mm(datum._number(value), units)
+
+
+def _apply_offset(grids):
+    """Whether the workbook asked for the survey point to be **moved**.
+
+    Off unless it says so, and it has to say so in as many words. Moving a
+    survey point re-coordinates a whole project — every shared coordinate,
+    every linked model's alignment — and that is not something a spreadsheet
+    import should decide it is helping with.
+    """
+    value = _info(grids, APPLY_SURVEY_KEY)
+    return _fold(value) in ("yes", "y", "true", "1")
+
+
+def _move_survey(doc, wanted_mm, findings):
+    """``(offset_mm, note)`` after moving the survey point to match."""
+    from Autodesk.Revit.DB import Transaction
+    from anongee_toolkit.structural import coordinates
+
+    transaction = Transaction(doc, "AnonGee - survey point")
+    transaction.Start()
+    try:
+        moved, note = coordinates.set_survey_offset_mm(doc, wanted_mm)
+        transaction.Commit()
+    except Exception as error:
+        if transaction.HasStarted() and not transaction.HasEnded():
+            transaction.RollBack()
+        findings.append(_finding("Warning", "INFO", "",
+                                 "the survey point would not move: {0}".format(
+                                     error)))
+        return coordinates.survey_offset_mm(doc)
+
+    findings.append(_finding(
+        "Info" if moved else "Warning", "INFO", "",
+        "{0} was Yes, so {1}".format(APPLY_SURVEY_KEY, note)))
+    return coordinates.survey_offset_mm(doc)
+
+
+def _fold(text):
+    return "".join(character for character in str(text or "").lower()
+                   if character.isalnum())
 
 
 def _survey_offset(doc):

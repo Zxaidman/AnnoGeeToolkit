@@ -35,6 +35,66 @@ of view of someone using the thing rather than someone reading the diff:
 
 ---
 
+## 1.22.0
+
+**Added**
+
+- **`beams.sync` and `slabs.sync` — the last two structural commands.** All
+  seven are bound now; nothing is left declared-but-unwritten.
+
+  **Continuity is the layout, and the parser is the only thing that reads it.**
+  A blank row says where one beam ends and the next begins, so `parse_beams`
+  returns *groups* rather than rows — the one parser in the toolkit that must
+  not skip a blank line, where every other one must. 62 beams over 132 spans in
+  the sample; one Revit member per span, which is not a simplification but how
+  Revit models a continuous beam. What the grouping buys is the schedule mark.
+
+  **A slab's inset is read, not assumed.** `EdgeRule = Inner face of beam`
+  means each edge comes in by half the width of the beam **actually on that
+  edge** — looked up in `BEAM_PLACEMENT`, whose section is looked up in
+  `BEAM_TYPES`. A panel with a 300 floor beam one side and a 230 plinth beam
+  another is inset differently on those two sides, and averaging them would put
+  the edge wrong on both. An edge with no beam is left on the grid line and
+  that is said once, not forty times.
+
+  Both idempotent off Revit: 132 beams and 40 slabs created, then matched.
+
+- **The survey point can be set from the workbook** — `APPLY_SURVEY_OFFSET`,
+  and it is **No** by default. The owner fixed a mismatch by hand with *Specify
+  Coordinates at Point* and asked whether it could be automated; it can, because
+  `levels.sync` already reads the model's offset to check the sheet against it.
+  Making it *set* the offset is the same knowledge pointed the other way.
+
+  Off by default because moving a survey point re-coordinates a whole project —
+  every shared coordinate, every linked model's alignment. That is a decision,
+  not a convenience. The point is unpinned, moved and pinned again exactly as it
+  was found, because setting a pinned element's parameter fails silently.
+
+**Fixed**
+
+- **Footings never wrote the schedule mark.** The chain was in `columns.py` and
+  nowhere else, so footings wrote Revit's `Mark` and stopped — and the owner
+  found it in a model.
+
+  Underneath it, a second thing: the two sheets did not mean the same by
+  `Mark`. A column row said `C1`, a repeating label; a footing row said `F-A1`,
+  a unique key. Even shared, the two would have written different kinds of value
+  into one parameter. **`Mark` is the repeating schedule label on every
+  placement sheet now** — footings are `F1`, `F2`, `F3` — and Revit's own `Mark`
+  gets the key. One rule, one home, four sheets, and a test that fails if any of
+  the four stops using it.
+
+**Changed**
+
+- A mark no longer repeats its level: `B01-1-1-A1B1`, not
+  `B01-1-1-A1B1-01`. Unique either way; only one of them is readable. All 277
+  marks across the four sheets are unique — checked together, because Revit's
+  `Mark` is one namespace for the whole model.
+
+- The test suite is 899 tests, from 882.
+
+---
+
 ## 1.21.0
 
 **Fixed**

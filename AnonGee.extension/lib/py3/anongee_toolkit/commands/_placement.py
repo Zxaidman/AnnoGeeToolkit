@@ -18,7 +18,7 @@ __version__ = "0.1.0"
 
 
 def run(uiapp, envelope, sheet_default, parse, span, existing, apply, what,
-        option):
+        option, locate=None, plan=None):
     """``(summary, findings, note)``. Never raises."""
     from anongee_toolkit.rc_automation import datum
     from anongee_toolkit.rc_automation import excel_engine
@@ -54,12 +54,19 @@ def run(uiapp, envelope, sheet_default, parse, span, existing, apply, what,
     rows, parse_issues = parse(grid, sheet_name, units)
     findings.extend(envelope_module.findings_from_issues(parse_issues))
 
+    # A column stands at one intersection; a beam runs between two. Same two
+    # steps either way, so the caller says which pair to use rather than this
+    # growing a branch per element.
     intersection, grid_note = _intersection(doc)
+    locate_with = locate or placement.locate
     findings.extend(envelope_module.findings_from_issues(
-        placement.locate(rows, intersection, sheet=sheet_name)))
+        locate_with(rows, intersection, sheet=sheet_name)))
 
-    plans, plan_issues = placement.plan(rows, existing(doc), sheet=sheet_name,
-                                        span=span)
+    if plan is None:
+        plans, plan_issues = placement.plan(rows, existing(doc),
+                                            sheet=sheet_name, span=span)
+    else:
+        plans, plan_issues = plan(rows, existing(doc), sheet=sheet_name)
     findings.extend(envelope_module.findings_from_issues(plan_issues))
     summary.update(placement.summarise(plans))
 

@@ -530,29 +530,222 @@ class UniqueMarkTests(unittest.TestCase):
         row = self.row(grid_x="B", grid_y="2", storey="S4")
         self.assertTrue(row.unique_mark.startswith("C1"))
 
-    def test_the_command_writes_the_key_and_not_the_label(self):
+    def marks(self):
         path = os.path.join(_ROOT, "AnonGee.extension", "lib", "py3",
-                            "anongee_toolkit", "commands", "columns.py")
+                            "anongee_toolkit", "commands", "_marks.py")
         with open(path, encoding="utf-8") as handle:
-            body = handle.read()
-        self.assertIn("_mark(instance, row.unique_mark)", body)
-        self.assertNotIn("_mark(instance, row.mark)", body)
+            return handle.read()
+
+    def test_the_key_goes_in_revits_mark_and_the_label_does_not(self):
+        body = self.marks()
+        self.assertIn("_set_builtin_mark(instance, row.unique_mark)", body)
+        self.assertNotIn("_set_builtin_mark(instance, row.mark)", body)
 
     def test_the_label_goes_where_the_workbook_says(self):
-        path = os.path.join(_ROOT, "AnonGee.extension", "lib", "py3",
-                            "anongee_toolkit", "commands", "columns.py")
-        with open(path, encoding="utf-8") as handle:
-            body = handle.read()
+        body = self.marks()
         self.assertIn('LABEL_KEY = "SCHEDULE_MARK_PARAM"', body)
-        self.assertIn("def _label_parameter(context)", body)
+        self.assertIn("def candidates(context)", body)
 
     def test_a_missing_label_parameter_is_reported_once_not_ninety_times(self):
-        path = os.path.join(_ROOT, "AnonGee.extension", "lib", "py3",
-                            "anongee_toolkit", "commands", "columns.py")
-        with open(path, encoding="utf-8") as handle:
-            body = handle.read()
-        self.assertIn("reported", body)
+        body = self.marks()
         self.assertIn('reported.add("unset")', body)
+        self.assertIn('reported.add("fell-back")', body)
+
+    def test_every_command_that_places_something_writes_both_marks(self):
+        """One rule, four sheets.
+
+        This lived in ``columns.py`` for one release, which meant footings
+        wrote Revit's ``Mark`` and nothing else — and the owner found it, in a
+        model, after a run. A rule with one home cannot be half-applied.
+        """
+        for name in ("columns.py", "footings.py", "beams.py", "slabs.py"):
+            path = os.path.join(_ROOT, "AnonGee.extension", "lib", "py3",
+                                "anongee_toolkit", "commands", name)
+            with open(path, encoding="utf-8") as handle:
+                body = handle.read()
+            self.assertIn("_marks.write(", body, name)
+            self.assertIn("_marks.candidates(context)", body, name)
+
+
+class BeamGroupParsingTests(unittest.TestCase):
+    """Continuity is the layout, and the parser is the only thing that reads it.
+
+    A blank row is what says where one beam ends and the next begins. Every
+    other parser here skips blank rows because they mean somebody pressed
+    Enter; this one must not, because here they carry the whole meaning.
+    """
+
+    def setUp(self):
+        self.sample = _sample()
+        self.groups, self.issues = placement.parse_beams(
+            _grid(self.sample.BEAM_PLACEMENT_HEADERS,
+                  self.sample.beam_rows()), units="mm")
+
+    def test_the_groups_come_back_as_groups(self):
+        self.assertEqual(len(self.groups), len(self.sample.beam_groups()))
+        self.assertEqual(sum(len(group) for group in self.groups), 132)
+        self.assertEqual(_errors(self.issues), [])
+
+    def test_a_group_is_one_beam_and_shares_one_mark(self):
+        for group in self.groups:
+            marks = set(row.mark for row in group)
+            self.assertEqual(len(marks), 1, sorted(marks))
+
+    def test_both_kinds_survive_the_round_trip(self):
+        sizes = set(len(group) for group in self.groups)
+        self.assertIn(1, sizes)
+        self.assertTrue(any(size > 1 for size in sizes))
+
+    def test_a_row_knows_both_its_ends(self):
+        row = self.groups[0][0]
+        self.assertTrue(row.from_grid_x)
+        self.assertTrue(row.to_grid_x)
+        self.assertTrue(row.level)
+        self.assertTrue(row.type_mark)
+
+    def test_a_doubled_blank_row_does_not_make_an_empty_beam(self):
+        headers = list(self.sample.BEAM_PLACEMENT_HEADERS)
+        blank = [""] * len(headers)
+        row = list(self.sample.beam_rows()[0])
+        groups, _issues = placement.parse_beams(
+            [headers, row, blank, blank, row], units="mm")
+        self.assertEqual([len(group) for group in groups], [1, 1])
+
+    def test_a_trailing_blank_row_does_not_make_one_either(self):
+        headers = list(self.sample.BEAM_PLACEMENT_HEADERS)
+        row = list(self.sample.beam_rows()[0])
+        groups, _issues = placement.parse_beams(
+            [headers, row, [""] * len(headers)], units="mm")
+        self.assertEqual([len(group) for group in groups], [1])
+
+
+class SpanPlanningTests(unittest.TestCase):
+    """A beam and a slab panel are both identified by two grid intersections."""
+
+    def setUp(self):
+        self.sample = _sample()
+
+    def beams(self):
+        groups, _issues = placement.parse_beams(
+            _grid(self.sample.BEAM_PLACEMENT_HEADERS,
+                  self.sample.beam_rows()), units="mm")
+        rows = [row for group in groups for row in group]
+        placement.locate_span(rows, _cross)
+        return rows
+
+    def slabs(self):
+        rows, _issues = placement.parse_slabs(
+            _grid(self.sample.SLAB_PLACEMENT_HEADERS,
+                  self.sample.slab_rows()), units="mm")
+        placement.locate_span(rows, _cross)
+        return rows
+
+    def test_every_beam_finds_both_ends(self):
+        rows = self.beams()
+        for row in rows:
+            self.assertIsNotNone(row.start_mm, row.mark)
+            self.assertIsNotNone(row.end_mm, row.mark)
+
+    def test_the_midpoint_is_what_gets_matched(self):
+        rows = self.beams()
+        row = rows[0]
+        self.assertAlmostEqual(row.point_mm[0],
+                               (row.start_mm[0] + row.end_mm[0]) / 2.0)
+
+    def test_an_unknown_grid_leaves_the_beam_unplaceable(self):
+        row = placement.PlacementRow(row=2, mark="B1", type_mark="B-300x600",
+                                     level="01", from_grid_x="Z",
+                                     from_grid_y="9", to_grid_x="A",
+                                     to_grid_y="1")
+        issues = placement.locate_span([row], _cross)
+        self.assertEqual(len(_errors(issues)), 1)
+        self.assertIsNone(row.start_mm)
+        plans, _issues = placement.plan_spans([row], [])
+        self.assertEqual(plans[0].action, placement.INVALID)
+
+    def test_132_beams_once_then_matched(self):
+        rows = self.beams()
+        first, issues = placement.plan_spans(rows, [])
+        self.assertEqual(placement.summarise(first)["created"], 132)
+        self.assertEqual(_errors(issues), [])
+        model = [(index, plan.row.point_mm, plan.row.level, plan.row.type_mark)
+                 for index, plan in enumerate(first)]
+        second, issues = placement.plan_spans(rows, model)
+        counts = placement.summarise(second)
+        self.assertEqual(counts["matched"], 132)
+        self.assertEqual(counts["created"], 0)
+        self.assertEqual(_errors(issues), [])
+
+    def test_40_slabs_once_then_matched(self):
+        rows = self.slabs()
+        first, _issues = placement.plan_spans(rows, [])
+        self.assertEqual(placement.summarise(first)["created"], 40)
+        model = [(index, plan.row.point_mm, plan.row.level, plan.row.type_mark)
+                 for index, plan in enumerate(first)]
+        second, _issues = placement.plan_spans(rows, model)
+        self.assertEqual(placement.summarise(second)["matched"], 40)
+
+    def test_two_rows_spanning_the_same_bay_is_a_typo(self):
+        rows = self.beams()
+        plans, issues = placement.plan_spans(rows + [rows[0]], [])
+        self.assertEqual(plans[-1].action, placement.INVALID)
+        self.assertEqual(len(_errors(issues)), 1)
+
+    def test_every_mark_is_unique_across_all_four_sheets(self):
+        """Revit's ``Mark`` is one namespace for the whole model.
+
+        A beam and a column sharing one would warn exactly as ninety columns
+        sharing ``C1`` did, and it would be found the same way — in a dialog,
+        after a run.
+        """
+        sample = self.sample
+        marks = [row.unique_mark for row in self.beams()]
+        marks += [row.unique_mark for row in self.slabs()]
+        columns, _issues = placement.parse_columns(
+            _grid(sample.COLUMN_PLACEMENT_HEADERS, sample.column_rows()),
+            units="mm")
+        marks += [row.unique_mark for row in columns]
+        footings, _issues = placement.parse_footings(
+            _grid(sample.FOOTING_PLACEMENT_HEADERS, sample.footing_rows()),
+            units="mm")
+        marks += [row.unique_mark for row in footings]
+        self.assertEqual(len(marks), 132 + 40 + 90 + 15)
+        self.assertEqual(len(marks), len(set(marks)))
+
+    def test_the_level_is_not_repeated_in_a_mark_that_has_it(self):
+        # B01-1-1-A1B1, not B01-1-1-A1B1-01. Unique either way; only one of
+        # them is readable.
+        rows = self.beams()
+        self.assertNotIn("-01-01", rows[0].unique_mark)
+
+
+class PanelTests(unittest.TestCase):
+    """A slab stops at the inner face of its beams, per edge."""
+
+    def test_a_panel_with_no_inset_is_the_bay(self):
+        self.assertEqual(placement.rectangle((0.0, 0.0), (6000.0, 6000.0)),
+                         [(0.0, 0.0), (6000.0, 0.0), (6000.0, 6000.0),
+                          (0.0, 6000.0)])
+
+    def test_each_edge_is_inset_on_its_own(self):
+        # A 300 beam one side and a 230 plinth beam another are inset
+        # differently, and averaging them puts the edge wrong on both.
+        corners = placement.rectangle((0.0, 0.0), (6000.0, 6000.0),
+                                      (150.0, 150.0, 115.0, 115.0))
+        self.assertEqual(corners[0], (150.0, 115.0))
+        self.assertEqual(corners[2], (5850.0, 5885.0))
+
+    def test_a_panel_smaller_than_its_beams_is_refused(self):
+        self.assertIsNone(placement.rectangle((0.0, 0.0), (200.0, 200.0),
+                                              (150.0, 150.0, 150.0, 150.0)))
+
+    def test_the_corners_come_back_in_order(self):
+        # Anticlockwise from the low corner. A CurveLoop built from points in
+        # a crossed order is a bow tie, and Revit takes it.
+        corners = placement.rectangle((6000.0, 6000.0), (0.0, 0.0))
+        self.assertEqual(corners,
+                         [(0.0, 0.0), (6000.0, 0.0), (6000.0, 6000.0),
+                          (0.0, 6000.0)])
 
 
 if __name__ == "__main__":
