@@ -61,13 +61,14 @@ ID is where the detail lives. Four words, meaning exactly four things:
 | **Levels** | `levels.sync` | yes | **built in Revit 2026-08-25** | **yes** | 0 | FEAT-5 |
 | **Grids** | `grids.sync` | yes | **built in Revit 2026-08-25** | **yes** | 0 | FEAT-6 |
 | Sample project workbook — Foundation + G + 4 | — | 1.16.0, third format | reviewed twice; ten changes asked for and made | no | 0 | FEAT-22, 24–33 |
-| **Footings** | `footings.sync` | 1.19.0 | **built in Revit 2026-08-25**: 15 written, then 15 matched | **yes** | **1** | FEAT-23, 27, 34 |
-| Columns | `columns.sync` | 1.19.0, `redo` | **75 of 90 built.** The 15 missing all name a level that was never created; and `Mark` collided | no | **2** | FEAT-10, 28, 34, BUG-22, 23 |
-| Levels | `levels.sync` | 1.19.0, `redo` | built 6 of 7; the seventh was **blocked** by the template's own `Level 0` | no | **1** | FEAT-5, BUG-23 |
+| **Footings** | `footings.sync` | 1.22.0 | **built in Revit**: 15 written, then 15 matched | **yes** | **1** | FEAT-23, 27, 34 |
+| **Columns** | `columns.sync` | 1.22.0 | **built in Revit 2026-08-25**: all 90, no duplicate-Mark warning | **yes** | **2** | FEAT-10, 28, 34, BUG-22, 23 |
+| **Levels** | `levels.sync` | 1.22.0 | **built in Revit**: `Level 0` renamed to `01 GROUND LVL.`, then *every level already agrees with the sheet* | **yes** | **1** | FEAT-5, BUG-23 |
+| **Grids** | `grids.sync` | 1.22.0 | **built in Revit** | **yes** | 0 | FEAT-6 |
+| Beams | `beams.sync` | 1.22.0 | not yet | no | 0 | FEAT-11, 29 |
+| Slabs | `slabs.sync` | 1.22.0 | not yet | no | 0 | FEAT-13, 30 |
 | **Extract Template** | — | 1.20.0 | **ran twice, and the second report is right**: `ID` shared, six project, real data types | **yes** | **2** | FEAT-35, BUG-18, 21 |
 | Buttons | — | 1.19.0 | **style, position and scaling all confirmed** | **yes** | **1** | FEAT-32, BUG-19 |
-| Beams | `beams.sync` | declared, not written | — | no | 0 | FEAT-11, 29 |
-| Slabs | `slabs.sync` | declared, not written | — | no | 0 | FEAT-13, 30 |
 
 **The first two things this ever built** were levels and grids, on 2026-08-25, the run after BUG-16
 was fixed. Both had been reported as *created* twice before that while writing nothing — which is
@@ -408,6 +409,23 @@ as mojibake.
 keeps the full text and names UTF-8. That split is the one real cost of writing
 the answer twice, and it is still cheaper than a JSON parser in VBA.
 
+### BUG-28 — footings never wrote the schedule mark · `testing`
+
+**How it was found.** The project owner, after `S_ScheduleMark` started working for columns: *"footing
+mark is not using `S_ScheduleMark`, only using `Mark`."*
+
+**Cause.** The schedule-mark chain was written into `commands/columns.py` and nowhere else. Footings
+were placed through `structural.footings.set_mark`, which writes Revit's own `Mark` and stops.
+
+**And a second thing underneath it.** The two sheets do not mean the same thing by `Mark`. A column
+row says `C1` — a **repeating schedule label**. A footing row says `F-A1` — a **unique key**. So even
+with the chain shared, the two would write different kinds of value into the same parameter and a
+schedule reading it would be incoherent.
+
+**Fix.** `Mark` on every placement sheet is the repeating schedule label: footings become `F1`, `F2`,
+`F3`, matching their types. Revit's `Mark` gets the key — `F1-A1` — as it already does for columns,
+and `S_ScheduleMark` gets the label. One rule, four sheets.
+
 ### BUG-27 — `BRIDGE_URL` on `INFO` was decoration · `testing`
 
 **How it was found.** pyRevit moved from port 48884 to **48885**. The project owner changed
@@ -663,6 +681,7 @@ Each carries the verdict from the PRD, so the queue and the estimate cannot drif
 | FEAT-34 | **A missing type is created, not refused** | The first real run placed nothing: fifteen footings and ninety columns each reported *no type called `F1`* and stopped, which was correct and useless. A named type is now duplicated from a standard family and sized from the TYPES sheet. **Creating a type is not authoring a family** — the family has to be loaded; what is generated is a sized, named type of it | `testing` |
 | FEAT-35 | **Extract Template** — a pyRevit button that writes the model's contents to Markdown | A `.rvt` cannot be read outside Revit: it is a compound binary only Revit opens. So the model describes itself instead — every category, family, type, and every parameter with its scope (shared, project, global, family, instance, type) — as a tree in one `.md`, which is reviewable in a diff and readable by anybody | `testing` |
 | FEAT-36 | **The template and the workbook, coordinated** | **Proposal written**, `docs/specs/2026-08-25-template-and-workbook.md`: each fact has one owner, the template says what is possible and the workbook says what is wanted. It is a starting position to argue with, not a description of anything — The question is which of the two is the authority for each thing — a family is the template's, a size is the workbook's, and the list of which is which is the deliverable | `pending` |
+| FEAT-37 | **The survey point, set from the workbook** | The owner fixed a survey mismatch by hand with *Specify Coordinates at Point* and asked whether it could be automated. It can: `levels.sync` already reads the model's offset to check the sheet against it, so making it *set* the offset is the same knowledge pointed the other way. **Off by default** — moving a survey point re-coordinates a whole project, and that is a decision, not a convenience | `testing` |
 | FEAT-31 | **The workbook's formatting**, as a build output rather than something re-applied by hand | Fonts `Inter, Segoe UI, Cambria, Calibri`; three sizes a step apart, not a jump; every row 20 units; every column width computed from what is in it; `mm` shown as a whole number and `m` to two decimals. All of it generated, because a rebuild throws away anything done by hand | `testing` |
 | FEAT-32 | **Shape buttons, from the owner's own template** | The owner replaced the Form Controls with rounded rectangles — and `openpyxl` deletes every drawing on a rebuild, so the buttons have to be redrawable rather than drawn. `AnonGeeBridge_AddButtons` now duplicates a template shape when the sheet has one and builds one to match when it does not, on `CONTROL` and on `INFO` for `ApplyUnits` | `testing` |
 | FEAT-33 | **Cover and diameter stay in millimetres** | A cover of `0.05` and a bar of `0.012` is the workbook being consistent at the cost of being readable, which was the reason for metres in the first place. Those columns are pinned: their header says `(mm)`, and the converter is told to leave a pinned column alone | `testing` |
@@ -688,9 +707,9 @@ Each carries the verdict from the PRD, so the queue and the estimate cannot drif
 | FEAT-30 | **`SLAB_PLACEMENT` — one slab per panel, to the inner face of the beams** | Not one slab per floor. A panel is bounded by the four grids around it and its edge is the beam's inner face, so the slab stops where the beam starts and the concrete is not counted twice. `EdgeRule` names the convention per row so a cantilever or a slab running over a beam can still be said | `testing` |
 | FEAT-23 | `footings.sync` — the bridge route to the footing placement RC Automation already does | **Built, `testing`.** Straightforward, and mostly already written. The pad-as-structural-floor path ships and is confirmed in a model; what is new is reading `FOOTING_PLACEMENT` and resolving a grid intersection to a point | `testing` |
 | FEAT-10 | `columns.sync` — `NewFamilyInstance` between two levels | **Built, `testing`.** Matched on position and storey, never on the mark. Idempotent at the planning layer: 90 created, then 90 matched, then 90 matched again. Closes *RC Automation · CRIT-3*, where every run claims to place columns and places none | `pending` |
-| FEAT-11 | `beams.sync` | Medium. Creation is easy; joins and cutbacks are fiddly | `pending` |
+| FEAT-11 | `beams.sync` | **Built, `testing`.** One instance per span; a group of rows sharing a mark is one continuous beam, which is how Revit models it anyway. Joins and cutbacks are still ahead | `testing` |
 | FEAT-12 | `walls.sync` | Medium | `pending` |
-| FEAT-13 | `slabs.sync` — the footing path generalised | Straightforward. `Floor.Create` from an outline already ships | `pending` |
+| FEAT-13 | `slabs.sync` — the footing path generalised | **Built, `testing`.** One slab per panel, inset from the four grids by half the width of the beam actually on each edge — read from `BEAM_PLACEMENT`, not assumed | `testing` |
 
 ### Numbers
 

@@ -278,6 +278,10 @@ INFO_ROWS = [
      "here, then press ApplyUnits. Cover and diameter stay in mm."),
     ("SURVEY_OFFSET", SURVEY_OFFSET_MM,
      "What the Survey Point reads where the Project Base Point reads zero."),
+    ("APPLY_SURVEY_OFFSET", "No",
+     "Yes makes levels.sync MOVE the survey point to match the number above. "
+     "Off by default: moving it re-coordinates the whole project, every "
+     "shared coordinate and every linked model with it."),
     ("SCHEDULE_MARK_PARAM", "S_ScheduleMark, ID, Comments",
      "Which parameter carries the repeating schedule mark - C1, C2 - tried in "
      "order, first one the model has wins. Revit's own Mark holds the unique "
@@ -342,9 +346,11 @@ COMMANDS = [
     ("Create columns", "columns.sync", "COLUMN_PLACEMENT",
      "One column per storey, between the levels the row names.", "yes"),
     ("Create beams", "beams.sync", "BEAM_PLACEMENT",
-     "Framing between the intersections each row names.", "not yet"),
+     "One member per span. A group of rows sharing a mark is one "
+     "continuous beam; a blank row separates groups.", "yes"),
     ("Create slabs", "slabs.sync", "SLAB_PLACEMENT",
-     "One slab per panel, to the inner face of its beams.", "not yet"),
+     "One slab per panel, inset from the grids by half the width of the "
+     "beam actually on each edge.", "yes"),
 ]
 
 CONTROL_HEADERS = ("Run", "Command", "Sheet", "What it does", "Built?",
@@ -494,7 +500,10 @@ def footing_rows():
     rows = []
     for letter, number in intersections():
         where = position(letter, number)
-        rows.append(("F-{0}{1}".format(letter, number),
+        # Mark is the **repeating schedule label**, the same rule as columns:
+        # three footing types, three marks, fifteen rows. Revit's own Mark gets
+        # the key -- F1-A1 -- which is unique by construction. BUG-28.
+        rows.append((FOOTING_BY_POSITION[where],
                      FOOTING_BY_POSITION[where], letter, number, None, None,
                      LEVELS[0][0], 0, 0, "", where.capitalize()))
     return rows
@@ -785,6 +794,8 @@ def build(target=DEFAULT_TARGET):
         info.cell(row=2 + index, column=3, value=what)
     units_row = 2 + [key for key, _v, _w in rows].index("UNITS")
     choices(info, ("m", "mm"), "B{0}".format(units_row))
+    apply_row = 2 + [key for key, _v, _w in rows].index("APPLY_SURVEY_OFFSET")
+    choices(info, ("No", "Yes"), "B{0}".format(apply_row))
     fit(info, INFO_HEADERS, rows)
     shape(info, INFO_HEADERS, rows)
 

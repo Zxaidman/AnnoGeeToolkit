@@ -57,6 +57,73 @@ def survey_offset_mm(doc):
         offset)
 
 
+def set_survey_offset_mm(doc, wanted_mm):
+    """Move the survey point so it reads *wanted_mm* where the project base
+    point reads zero. ``(moved, note)``. **Requires a transaction.**
+
+    The one thing in this module that writes, and it is off unless the workbook
+    asks — because moving a survey point re-coordinates a whole project. Every
+    shared coordinate, every linked model's alignment, every site drawing. That
+    is a decision somebody makes on purpose, not a convenience a spreadsheet
+    import helps itself to.
+
+    The survey point is **pinned** in a fresh model, and setting a pinned
+    element's parameter fails silently rather than loudly. So it is unpinned,
+    moved, and pinned again exactly as it was found.
+    """
+    try:
+        from Autodesk.Revit.DB import BasePoint, BuiltInParameter
+        from anongee_toolkit.revit.units import ft_to_mm, mm_to_ft
+    except Exception as error:                          # pragma: no cover
+        return False, "the Revit API would not load: {0}".format(error)
+
+    current, note = survey_offset_mm(doc)
+    if current is not None and abs(current - wanted_mm) < 0.5:
+        return False, "the survey point is already {0:g} mm".format(wanted_mm)
+
+    try:
+        project = BasePoint.GetProjectBasePoint(doc)
+        survey = BasePoint.GetSurveyPoint(doc)
+    except Exception as error:
+        return False, "this model has no base points: {0}".format(error)
+    if project is None or survey is None:
+        return False, "this model has no project base point or survey point"
+
+    was_pinned = False
+    try:
+        was_pinned = bool(survey.Pinned)
+        if was_pinned:
+            survey.Pinned = False
+    except Exception:
+        pass
+
+    try:
+        # The offset is project-base minus survey, both measured from the
+        # internal origin — so moving the survey point down by the difference
+        # is what makes the offset come out right.
+        wanted_z = ft_to_mm(project.Position.Z) - wanted_mm
+        parameter = survey.get_Parameter(
+            BuiltInParameter.BASEPOINT_ELEVATION_PARAM)
+        if parameter is None or parameter.IsReadOnly:
+            return False, "the survey point's elevation cannot be written here"
+        parameter.Set(mm_to_ft(wanted_z))
+        moved = True
+        message = "the survey point now reads {0:g} mm where the project " \
+                  "base point reads zero".format(wanted_mm)
+    except Exception as error:
+        moved = False
+        message = "the survey point would not move: {0}".format(error)
+    finally:
+        try:
+            if was_pinned:
+                survey.Pinned = True
+        except Exception:
+            pass
+
+    del note
+    return moved, message
+
+
 def _elevation_mm(point, ft_to_mm):
     """One base point's elevation above the internal origin, in millimetres."""
     try:

@@ -67,11 +67,14 @@ def _existing(doc):
 
 def _apply(doc, plans, findings, finding, context):
     """Create pads. ``written``. Inside the caller's transaction."""
+    from anongee_toolkit.commands import _marks
     from anongee_toolkit.rc_automation import placement
     from anongee_toolkit.structural import footings
 
     levels = _levels(doc)
     sizes = _sizes(context, findings, finding)
+    label_parameters = _marks.candidates(context)
+    reported = set()
     cache = {}
     written = 0
 
@@ -109,10 +112,12 @@ def _apply(doc, plans, findings, finding, context):
             if points is None:
                 continue
 
-            _floor, skipped = footings.create(
+            floor, skipped = footings.create(
                 doc, points, floor_type.Id, level.Id, origin_mm=row.point_mm,
                 rotation_deg=row.rotation_deg or 0.0,
-                offset_mm=row.top_offset_mm or 0.0, mark=row.mark)
+                offset_mm=row.top_offset_mm or 0.0, mark=row.unique_mark)
+            _marks.write(floor, row, label_parameters, reported, findings,
+                         finding)
             if skipped:
                 findings.append(finding(
                     "Warning", row.row,

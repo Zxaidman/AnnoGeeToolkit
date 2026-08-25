@@ -87,6 +87,38 @@ _FOOTING_FIELDS = (
 )
 
 
+SHEET_BEAMS = "BEAM_PLACEMENT"
+SHEET_SLABS = "SLAB_PLACEMENT"
+
+_FROM_GRID_X = ("fromgridx", "startgridx", "gridxfrom")
+_FROM_GRID_Y = ("fromgridy", "startgridy", "gridyfrom")
+_TO_GRID_X = ("togridx", "endgridx", "gridxto")
+_TO_GRID_Y = ("togridy", "endgridy", "gridyto")
+_SPAN = ("span", "bay", "segment")
+_EDGE_RULE = ("edgerule", "edge", "rule")
+_OFFSET = ("offset", "z", "drop")
+
+#: ``From`` and ``To`` are asked before ``GridX``, which they both start with
+#: once folded — ``fromgridx`` does not start with ``gridx``, but ``gridxfrom``
+#: does, and a sheet written the other way round would otherwise land both ends
+#: in the same field.
+_BEAM_FIELDS = (
+    ("type_mark", _TYPE_MARK), ("span", _SPAN),
+    ("from_grid_x", _FROM_GRID_X), ("from_grid_y", _FROM_GRID_Y),
+    ("to_grid_x", _TO_GRID_X), ("to_grid_y", _TO_GRID_Y),
+    ("level", _LEVEL), ("offset_mm", _OFFSET),
+    ("mark", _MARK), ("comments", _COMMENTS),
+)
+
+_SLAB_FIELDS = (
+    ("type_mark", _TYPE_MARK), ("edge_rule", _EDGE_RULE),
+    ("from_grid_x", _FROM_GRID_X), ("from_grid_y", _FROM_GRID_Y),
+    ("to_grid_x", _TO_GRID_X), ("to_grid_y", _TO_GRID_Y),
+    ("level", _LEVEL), ("offset_mm", _OFFSET),
+    ("mark", _MARK), ("comments", _COMMENTS),
+)
+
+
 class PlacementRow(object):
     """One row of a placement sheet, coerced and remembering where it came from.
 
@@ -98,7 +130,9 @@ class PlacementRow(object):
     __slots__ = ("mark", "type_mark", "grid_x", "grid_y", "offset_x_mm",
                  "offset_y_mm", "storey", "base_level", "top_level",
                  "base_offset_mm", "top_offset_mm", "level", "rotation_deg",
-                 "rebar", "outline", "comments", "row", "point_mm")
+                 "rebar", "outline", "comments", "row", "point_mm",
+                 "from_grid_x", "from_grid_y", "to_grid_x", "to_grid_y",
+                 "span", "edge_rule", "offset_mm", "start_mm", "end_mm")
 
     def __init__(self, row=None, **fields):
         for name in self.__slots__:
@@ -106,6 +140,9 @@ class PlacementRow(object):
         self.row = row
         #: Filled in by :func:`locate`, once the grids are known.
         self.point_mm = None
+        #: The two ends of a beam, or the two opposite corners of a panel.
+        self.start_mm = None
+        self.end_mm = None
 
     @property
     def key(self):
@@ -118,6 +155,16 @@ class PlacementRow(object):
         return (self.grid_x, self.grid_y, self.storey or "",
                 round(self.offset_x_mm or 0.0, 1),
                 round(self.offset_y_mm or 0.0, 1))
+
+    @property
+    def span_key(self):
+        """What identifies a beam or a panel: the two grid pairs and the level.
+
+        Not the mark — a continuous beam's spans all share one, which is the
+        whole point of the grouping.
+        """
+        return (self.level or "", self.from_grid_x, self.from_grid_y,
+                self.to_grid_x, self.to_grid_y)
 
     @property
     def unique_mark(self):
@@ -134,10 +181,20 @@ class PlacementRow(object):
         """
         parts = [self.mark or "?"]
         where = "{0}{1}".format(self.grid_x or "", self.grid_y or "")
+        if not where and self.from_grid_x:
+            where = "{0}{1}{2}{3}".format(
+                self.from_grid_x or "", self.from_grid_y or "",
+                self.to_grid_x or "", self.to_grid_y or "")
         if where:
             parts.append(where)
-        if self.storey:
-            parts.append(self.storey)
+
+        # The level or storey, unless the mark already carries it. A beam
+        # schedule names its level in the mark — B01-1 is grid 1 on level 01 —
+        # and repeating it gives B01-1-A1B1-01, which is unique and unreadable.
+        suffix = self.storey or (str(self.level).split()[0]
+                                 if self.level else "")
+        if suffix and suffix not in (self.mark or ""):
+            parts.append(suffix)
         return "-".join(parts)
 
     def __repr__(self):
@@ -261,6 +318,59 @@ def parse_footings(grid, sheet=SHEET_FOOTINGS, units=datum.UNITS_MM):
     return parse(grid, _FOOTING_FIELDS, ("mark", "grid_x"), sheet, units)
 
 
+def parse_beams(grid, sheet=SHEET_BEAMS, units=datum.UNITS_MM):
+    """``([[PlacementRow]], [Issue])`` — **groups**, not rows.
+
+    A blank row separates one beam from the next, which is the owner's format
+    and a good one: a simply supported beam is one row, a continuous beam is a
+    group of rows sharing a mark, and the sheet reads the way a beam schedule
+    reads. Continuity comes from the shape of the sheet rather than from a
+    column somebody has to keep true.
+
+    So the blank rows are load-bearing, and this is the one parser that must
+    **not** skip them.
+    """
+    issues = []
+    rows = list(grid or [])
+
+    header_at = None
+    for index, row in enumerate(rows):
+        found = _header_map(row, _BEAM_FIELDS)
+        if "mark" in found.values() and "from_grid_x" in found.values():
+            header_at = index
+            break
+
+    if header_at is None:
+        issues.append(models.Issue(
+            models.SEVERITY_ERROR,
+            "No header row with a Mark and a FromGridX column.", sheet=sheet))
+        return [], issues
+
+    groups = [[]]
+    for offset, raw in enumerate(rows[header_at + 1:]):
+        if not any(_text(value) for value in raw):
+            if groups[-1]:
+                groups.append([])
+            continue
+        parsed, row_issues = parse([rows[header_at], raw], _BEAM_FIELDS,
+                                   ("mark", "from_grid_x"), sheet, units)
+        issues.extend(row_issues)
+        for item in parsed:
+            item.row = header_at + offset + 2
+            groups[-1].append(item)
+
+    groups = [group for group in groups if group]
+    if not groups:
+        issues.append(models.Issue(
+            models.SEVERITY_WARNING, "The sheet places nothing.", sheet=sheet))
+    return groups, issues
+
+
+def parse_slabs(grid, sheet=SHEET_SLABS, units=datum.UNITS_MM):
+    """``([PlacementRow], [Issue])`` from SLAB_PLACEMENT."""
+    return parse(grid, _SLAB_FIELDS, ("mark", "from_grid_x"), sheet, units)
+
+
 _LENGTH = ("length", "l")
 _WIDTH = ("width", "w", "breadth", "b")
 _DEPTH = ("depth", "d")
@@ -374,6 +484,136 @@ def locate(rows, intersection, sheet=SHEET_COLUMNS):
             "coordinates.".format(row.mark or "this row"),
             sheet=sheet, row=row.row, column="OffsetX"))
     return issues
+
+
+def locate_span(rows, intersection, sheet=SHEET_BEAMS):
+    """Fill in ``start_mm`` and ``end_mm`` on rows that span two intersections.
+
+    A beam runs between them; a panel is the rectangle they are opposite
+    corners of. Same two lookups, so the same function — and the same refusal:
+    a grid the model does not have leaves the row unplaceable and says so,
+    rather than putting a beam through the origin.
+    """
+    issues = []
+    for row in rows:
+        ends = []
+        for name_x, name_y, which in (
+                (row.from_grid_x, row.from_grid_y, "From"),
+                (row.to_grid_x, row.to_grid_y, "To")):
+            if not name_x or not name_y:
+                issues.append(models.Issue(
+                    models.SEVERITY_ERROR,
+                    "{0!r} has no {1} grid reference.".format(
+                        row.mark or "this row", which),
+                    sheet=sheet, row=row.row, column=which + "GridX"))
+                ends = []
+                break
+            point, note = intersection(name_x, name_y)
+            if point is None:
+                issues.append(models.Issue(
+                    models.SEVERITY_ERROR,
+                    "{0!r}: {1}".format(row.mark or "this row", note),
+                    sheet=sheet, row=row.row, column=which + "GridX"))
+                ends = []
+                break
+            ends.append(point)
+
+        if len(ends) == 2:
+            row.start_mm, row.end_mm = ends[0], ends[1]
+            row.point_mm = ((ends[0][0] + ends[1][0]) / 2.0,
+                            (ends[0][1] + ends[1][1]) / 2.0)
+    return issues
+
+
+def plan_spans(rows, existing, sheet=SHEET_BEAMS,
+               tolerance_mm=POSITION_TOLERANCE_MM):
+    """``([PlacementPlan], [Issue])`` for anything identified by its two ends.
+
+    Matched on the **midpoint and the level** rather than the mark, for the same
+    reason columns are: a continuous beam's spans all share one mark, which is
+    the whole point of the grouping.
+    """
+    issues = []
+    plans = []
+    seen = {}
+    claimed = set()
+
+    for row in rows:
+        if not row.mark:
+            plans.append(PlacementPlan(row, INVALID, "no mark"))
+            continue
+        if row.point_mm is None:
+            plans.append(PlacementPlan(row, INVALID, "nowhere to put it"))
+            continue
+        if not row.type_mark:
+            plans.append(PlacementPlan(row, INVALID, "no type"))
+            issues.append(models.Issue(
+                models.SEVERITY_ERROR,
+                "{0!r} names no type.".format(row.mark),
+                sheet=sheet, row=row.row, column="TypeMark"))
+            continue
+        if not row.level:
+            plans.append(PlacementPlan(row, INVALID, "no level"))
+            issues.append(models.Issue(
+                models.SEVERITY_ERROR,
+                "{0!r} names no level.".format(row.mark),
+                sheet=sheet, row=row.row, column="Level"))
+            continue
+
+        if row.span_key in seen:
+            plans.append(PlacementPlan(
+                row, INVALID,
+                "row {0} already spans this".format(seen[row.span_key])))
+            issues.append(models.Issue(
+                models.SEVERITY_ERROR,
+                "Two rows span the same bay on the same level: {0!r} and the "
+                "one on row {1}.".format(row.mark, seen[row.span_key]),
+                sheet=sheet, row=row.row, column="FromGridX"))
+            continue
+        seen[row.span_key] = row.row
+
+        match = _find(existing, row, row.level, tolerance_mm, claimed)
+        if match is None:
+            plans.append(PlacementPlan(row, CREATE))
+            continue
+        key, _point, _level, type_name = match
+        claimed.add(key)
+        if type_name and not _same_type(type_name, row.type_mark):
+            plans.append(PlacementPlan(
+                row, MODIFY,
+                "is {0} in the model, {1} in the sheet".format(
+                    type_name, row.type_mark), key))
+        else:
+            plans.append(PlacementPlan(row, MATCH, "", key))
+
+    for key, point, level, _type_name in existing or ():
+        if key not in claimed:
+            issues.append(models.Issue(
+                models.SEVERITY_INFO,
+                "the model has something at {0} on {1} that the sheet does "
+                "not mention. Nothing is ever deleted, so it has been left "
+                "alone.".format(_where(point), level),
+                sheet=sheet))
+    return plans, issues
+
+
+def rectangle(start_mm, end_mm, inset=(0.0, 0.0, 0.0, 0.0)):
+    """The four corners of a panel, each edge pulled in by its own inset.
+
+    ``inset`` is ``(left, right, bottom, top)`` in millimetres — per edge,
+    because a panel's four beams are not always the same width and pretending
+    they are puts the slab edge in the wrong place on two sides out of four.
+    """
+    low_x, high_x = sorted((start_mm[0], end_mm[0]))
+    low_y, high_y = sorted((start_mm[1], end_mm[1]))
+    low_x += inset[0]
+    high_x -= inset[1]
+    low_y += inset[2]
+    high_y -= inset[3]
+    if high_x <= low_x or high_y <= low_y:
+        return None
+    return [(low_x, low_y), (high_x, low_y), (high_x, high_y),
+            (low_x, high_y)]
 
 
 def near(first, second, tolerance_mm=POSITION_TOLERANCE_MM):
