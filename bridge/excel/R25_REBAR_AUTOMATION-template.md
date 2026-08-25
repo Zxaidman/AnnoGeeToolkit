@@ -39,7 +39,7 @@ What the model is made of. **Types** is what a template carries; **instances** i
 | Conduit Standards | 6 | 0 |
 | Conduits | 2 | 0 |
 | Constructions | 1 | 0 |
-| Cover Type | 7 | 0 |
+| Cover Type | 4 | 0 |
 | Curtain Panels | 4 | 0 |
 | Curtain Systems | 1 | 0 |
 | Curtain Wall Mullions | 8 | 0 |
@@ -75,7 +75,7 @@ What the model is made of. **Types** is what a template carries; **instances** i
 | Internal Origin | 0 | 1 |
 | Keynote Tags | 3 | 0 |
 | Landings | 2 | 0 |
-| Legend Components | 0 | 123 |
+| Legend Components | 0 | 126 |
 | Level Heads | 4 | 0 |
 | Levels | 1 | 1 |
 | Location Data | 2 | 0 |
@@ -140,8 +140,8 @@ What the model is made of. **Types** is what a template carries; **instances** i
 | Structural Beam System Tags | 1 | 0 |
 | Structural Beam Systems | 1 | 0 |
 | Structural Column Tags | 1 | 0 |
-| Structural Columns | 95 | 0 |
-| Structural Foundations | 7 | 0 |
+| Structural Columns | 97 | 0 |
+| Structural Foundations | 10 | 0 |
 | Structural Framing | 65 | 0 |
 | Structural Framing Tags | 2 | 0 |
 | Structural Load Cases | 0 | 8 |
@@ -418,10 +418,7 @@ Every family in the model and every type inside it. A **type mark** in bold is w
 
 - **Rebar Cover Settings** _(system)_
   - `FOOTING ALL SIDE` — Length 50 mm
-  - `FOOTING ALL SIDE` — Length 50 mm
   - `FOOTING BOTTOM` — Length 75 mm
-  - `FOOTING BOTTOM` — Length 75 mm
-  - `FOOTING TOP` — Length 50 mm
   - `FOOTING TOP` — Length 50 mm
   - `Rebar Cover 1` — Length 25 mm
 
@@ -1264,6 +1261,8 @@ Every family in the model and every type inside it. A **type mark** in bold is w
   - `300 X 600` — b 300.000, h 600.000
   - `300 X 900` — b 300.000, h 900.000
   - `400 X 900` — b 400.000, h 900.000
+  - `C-300x450` — **C-300x450** — b 300.000, h 450.000
+  - `C-300x600` — **C-300x600** — b 300.000, h 600.000
 - **Concrete Round** _(loadable)_
   - `300D` — b 300.000
   - `600D` — b 600.000
@@ -1282,6 +1281,9 @@ Every family in the model and every type inside it. A **type mark** in bold is w
   - `1800 x 1200 x 450mm` — Width 1200.000, Length 1800.000
   - `2400 x 1800 x 450mm` — Width 1800.000, Length 2400.000
 - **Foundation Slab** _(system)_
+  - `F1` — Default Thickness 600.000
+  - `F2` — Default Thickness 500.000
+  - `F3` — Default Thickness 450.000
   - `RCC FOOTING 1000mm thk` — Default Thickness 1000.000
   - `RCC FOOTING 750mm thk` — Default Thickness 750.000
   - `RCC FOOTING 900mm thk` — Default Thickness 900.000
@@ -1626,21 +1628,28 @@ Every family in the model and every type inside it. A **type mark** in bold is w
 
 **The section the workbook needs most.** Where a parameter comes from decides whether a value written into it survives: a shared parameter can be scheduled and tagged and lives through a family reload; a family parameter cannot leave its family; a project parameter exists only in this file. A workbook that writes to the wrong kind produces a value that quietly disappears.
 
+### Shared
+
+Scheduleable, taggable, and survives a family reload. **This is what a workbook should write to.**
+
+| Name | Type | Per | Categories |
+| --- | --- | --- | --- |
+| `ID` | spec.string | instance | <Path of Travel Lines>, Abutment Foundations, Abutment Piles, Abutment Walls, Abutments, Air Systems, Air Terminals, Alignments, Analytical Links, Analytical Members, Analytical Nodes, Analytical Openings, Analytical Panels, Analytical Pipe Connections, Analytical Spaces, Analytical Surfaces, Anchors, Approach Slabs, Arches, Area Loads, Areas, Assemblies, Audio Visual Devices, Bearings, Bolts, Bridge Cables, Bridge Decks, Bridge Framing, Building Type Settings, Cable Tray Fittings, Cable Tray Runs, Cable Trays, Casework, Ceilings, Columns, Communication Devices, Conduit Fittings, Conduit Runs, Conduits, Cross Bracing, Curtain Panels, Curtain Systems, Curtain Wall Mullions, Data Devices, Data Exchanges, Detail Items, Diaphragms, Doors, Duct Accessories, Duct Fittings, Duct Insulations, Duct Linings, Duct Placeholders, Duct Systems, Ducts, Electrical Analytical Bus, Electrical Analytical Load Set, Electrical Analytical Loads, Electrical Analytical Power Source, Electrical Analytical Transfer Switch, Electrical Analytical Transformer, Electrical Circuits, Electrical Equipment, Electrical Fixtures, Electrical Load Areas, Entourage, Expansion Joints, Fabric Wire, Fascias, Fire Alarm Devices, Fire Protection, Flex Ducts, Flex Pipes, Floors, Food Service Equipment, Furniture, Furniture Systems, Generic Models, Grids, Gutters, HVAC Zones, Handrails, Hardscape, Holes, Insulation, Insulation, Internal Area Loads, Internal Line Loads, Internal Point Loads, Landings, Levels, Lighting Devices, Lighting Fixtures, Line Loads, Lining, MEP Ancillary Framing, MEP Fabrication Containment, MEP Fabrication Ductwork, MEP Fabrication Ductwork Stiffeners, MEP Fabrication Hangers, MEP Fabrication Pipework, Mass, Mass Exterior Wall, Mass Floor, Mass Glazing, Mass Interior Wall, Mass Opening, Mass Roof, Mass Skylight, Mass Zone, Materials, Mechanical Control Devices, Mechanical Equipment, Mechanical Equipment Sets, Medical Equipment, Model Groups, Modifiers, Multi-segmented Grid, Nurse Call Devices, Others, Pads, Parking, Parts, Pier Caps, Pier Columns, Pier Foundations, Pier Piles, Pier Towers, Pier Walls, Piers, Pipe Accessories, Pipe Fittings, Pipe Insulations, Pipe Placeholders, Pipes, Piping Systems, Planting, Plates, Plumbing Equipment, Plumbing Fixtures, Point Loads, Primarys, Profiles, Project Information, Property Line Segments, Property Lines, RVT Links, Railings, Ramps, Rebar Shape, Revision Clouds, Roads, Roof Soffits, Roofs, Rooms, Runs, Schedules, Security Devices, Shaft Openings, Shear Studs, Sheets, Signage, Site, Slab Edges, Space Type Settings, Spaces, Specialty Equipment, Sprinklers, Stairs, Structural Area Reinforcement, Structural Beam Systems, Structural Columns, Structural Connections, Structural Fabric Areas, Structural Fabric Reinforcement, Structural Foundations, Structural Framing, Structural Path Reinforcement, Structural Rebar, Structural Rebar Couplers, Structural Stiffeners, Structural Tendons, Structural Trusses, Supports, Supports, Switch System, System-Zones, Telephone Devices, Temporary Structures, Terminations, Top Rails, Topography, Topography Links, Toposolid, Toposolid Links, Trusses, Vertical Circulation, Vibration Dampers, Vibration Isolators, Vibration Management, Views, Wall Sweeps, Walls, Water Loops, Welds, Windows, Wires, Zone Equipment |
+
 ### Project
 
 Bound in this file only. A value written here does not travel to another model.
 
 | Name | Type | Per | Categories |
 | --- | --- | --- | --- |
-| `CHECK` | Autodesk.Revit.DB.ForgeTypeId | instance | Analytical Links, Analytical Members, Analytical Nodes, Analytical Openings, Analytical Panels, Analytical Spaces, Analytical Surfaces, Areas, Assemblies, Audio Visual Devices, Casework, Ceilings, Columns, Curtain Panels, Curtain Systems, Curtain Wall Mullions, Data Exchanges, Detail Items, Doors, Electrical Equipment, Electrical Fixtures, Entourage, Fire Protection, Floors, Food Service Equipment, Furniture, Furniture Systems, Generic Models, Grids, Hardscape, Levels, Lighting Fixtures, Mass, Materials, Mechanical Control Devices, Mechanical Equipment, Medical Equipment, Model Groups, Parking, Parts, Planting, Plumbing Equipment, Plumbing Fixtures, Project Information, RVT Links, Railings, Ramps, Rebar Shape, Revision Clouds, Roads, Roofs, Rooms, Schedules, Shaft Openings, Sheets, Signage, Site, Specialty Equipment, Stairs, Structural Area Reinforcement, Structural Beam Systems, Structural Columns, Structural Connections, Structural Fabric Areas, Structural Fabric Reinforcement, Structural Foundations, Structural Framing, Structural Path Reinforcement, Structural Rebar, Structural Rebar Couplers, Structural Stiffeners, Structural Trusses, Temporary Structures, Topography, Toposolid, Vertical Circulation, Views, Walls, Windows |
-| `ID` | Autodesk.Revit.DB.ForgeTypeId | instance | <Path of Travel Lines>, Abutment Foundations, Abutment Piles, Abutment Walls, Abutments, Air Systems, Air Terminals, Alignments, Analytical Links, Analytical Members, Analytical Nodes, Analytical Openings, Analytical Panels, Analytical Pipe Connections, Analytical Spaces, Analytical Surfaces, Anchors, Approach Slabs, Arches, Area Loads, Areas, Assemblies, Audio Visual Devices, Bearings, Bolts, Bridge Cables, Bridge Decks, Bridge Framing, Building Type Settings, Cable Tray Fittings, Cable Tray Runs, Cable Trays, Casework, Ceilings, Columns, Communication Devices, Conduit Fittings, Conduit Runs, Conduits, Cross Bracing, Curtain Panels, Curtain Systems, Curtain Wall Mullions, Data Devices, Data Exchanges, Detail Items, Diaphragms, Doors, Duct Accessories, Duct Fittings, Duct Insulations, Duct Linings, Duct Placeholders, Duct Systems, Ducts, Electrical Analytical Bus, Electrical Analytical Load Set, Electrical Analytical Loads, Electrical Analytical Power Source, Electrical Analytical Transfer Switch, Electrical Analytical Transformer, Electrical Circuits, Electrical Equipment, Electrical Fixtures, Electrical Load Areas, Entourage, Expansion Joints, Fabric Wire, Fascias, Fire Alarm Devices, Fire Protection, Flex Ducts, Flex Pipes, Floors, Food Service Equipment, Furniture, Furniture Systems, Generic Models, Grids, Gutters, HVAC Zones, Handrails, Hardscape, Holes, Insulation, Insulation, Internal Area Loads, Internal Line Loads, Internal Point Loads, Landings, Levels, Lighting Devices, Lighting Fixtures, Line Loads, Lining, MEP Ancillary Framing, MEP Fabrication Containment, MEP Fabrication Ductwork, MEP Fabrication Ductwork Stiffeners, MEP Fabrication Hangers, MEP Fabrication Pipework, Mass, Mass Exterior Wall, Mass Floor, Mass Glazing, Mass Interior Wall, Mass Opening, Mass Roof, Mass Skylight, Mass Zone, Materials, Mechanical Control Devices, Mechanical Equipment, Mechanical Equipment Sets, Medical Equipment, Model Groups, Modifiers, Multi-segmented Grid, Nurse Call Devices, Others, Pads, Parking, Parts, Pier Caps, Pier Columns, Pier Foundations, Pier Piles, Pier Towers, Pier Walls, Piers, Pipe Accessories, Pipe Fittings, Pipe Insulations, Pipe Placeholders, Pipes, Piping Systems, Planting, Plates, Plumbing Equipment, Plumbing Fixtures, Point Loads, Primarys, Profiles, Project Information, Property Line Segments, Property Lines, RVT Links, Railings, Ramps, Rebar Shape, Revision Clouds, Roads, Roof Soffits, Roofs, Rooms, Runs, Schedules, Security Devices, Shaft Openings, Shear Studs, Sheets, Signage, Site, Slab Edges, Space Type Settings, Spaces, Specialty Equipment, Sprinklers, Stairs, Structural Area Reinforcement, Structural Beam Systems, Structural Columns, Structural Connections, Structural Fabric Areas, Structural Fabric Reinforcement, Structural Foundations, Structural Framing, Structural Path Reinforcement, Structural Rebar, Structural Rebar Couplers, Structural Stiffeners, Structural Tendons, Structural Trusses, Supports, Supports, Switch System, System-Zones, Telephone Devices, Temporary Structures, Terminations, Top Rails, Topography, Topography Links, Toposolid, Toposolid Links, Trusses, Vertical Circulation, Vibration Dampers, Vibration Isolators, Vibration Management, Views, Wall Sweeps, Walls, Water Loops, Welds, Windows, Wires, Zone Equipment |
-| `ID_LIC` | Autodesk.Revit.DB.ForgeTypeId | instance | Air Systems, Air Terminals, Analytical Beams, Analytical Braces, Analytical Columns, Analytical Floors, Analytical Foundation Slabs, Analytical Isolated Foundations, Analytical Links, Analytical Nodes, Analytical Pipe Connections, Analytical Spaces, Analytical Surfaces, Analytical Wall Foundations, Analytical Walls, Areas, Assemblies, Cable Tray Fittings, Cable Tray Runs, Cable Trays, Casework, Ceilings, Columns, Communication Devices, Conduit Fittings, Conduit Runs, Conduits, Curtain Panels, Curtain Systems, Curtain Wall Mullions, Data Devices, Detail Items, Doors, Duct Accessories, Duct Fittings, Duct Insulations, Duct Linings, Duct Placeholders, Duct Systems, Ducts, Electrical Circuits, Electrical Equipment, Electrical Fixtures, Entourage, Fire Alarm Devices, Flex Ducts, Flex Pipes, Floors, Furniture, Furniture Systems, Generic Models, Grids, HVAC Zones, Levels, Lighting Devices, Lighting Fixtures, MEP Fabrication Containment, MEP Fabrication Ductwork, MEP Fabrication Hangers, MEP Fabrication Pipework, Mass, Materials, Mechanical Equipment, Mechanical Equipment Sets, Model Groups, Nurse Call Devices, Parking, Parts, Pipe Accessories, Pipe Fittings, Pipe Insulations, Pipe Placeholders, Pipes, Piping Systems, Planting, Plumbing Fixtures, Project Information, RVT Links, Railings, Ramps, Rebar Shape, Roads, Roofs, Rooms, Schedules, Security Devices, Shaft Openings, Sheets, Site, Spaces, Specialty Equipment, Sprinklers, Stairs, Structural Area Reinforcement, Structural Beam Systems, Structural Columns, Structural Connections, Structural Fabric Areas, Structural Fabric Reinforcement, Structural Foundations, Structural Framing, Structural Path Reinforcement, Structural Rebar, Structural Rebar Couplers, Structural Stiffeners, Structural Trusses, Switch System, System-Zones, Telephone Devices, Topography, Views, Walls, Water Loops, Windows, Wires, Zone Equipment |
-| `ID_V` | Autodesk.Revit.DB.ForgeTypeId | instance | Air Systems, Air Terminals, Analytical Beams, Analytical Braces, Analytical Columns, Analytical Floors, Analytical Foundation Slabs, Analytical Isolated Foundations, Analytical Links, Analytical Nodes, Analytical Pipe Connections, Analytical Spaces, Analytical Surfaces, Analytical Wall Foundations, Analytical Walls, Areas, Assemblies, Cable Tray Fittings, Cable Tray Runs, Cable Trays, Casework, Ceilings, Columns, Communication Devices, Conduit Fittings, Conduit Runs, Conduits, Curtain Panels, Curtain Systems, Curtain Wall Mullions, Data Devices, Detail Items, Doors, Duct Accessories, Duct Fittings, Duct Insulations, Duct Linings, Duct Placeholders, Duct Systems, Ducts, Electrical Circuits, Electrical Equipment, Electrical Fixtures, Entourage, Fire Alarm Devices, Flex Ducts, Flex Pipes, Floors, Furniture, Furniture Systems, Generic Models, Grids, HVAC Zones, Levels, Lighting Devices, Lighting Fixtures, MEP Fabrication Containment, MEP Fabrication Ductwork, MEP Fabrication Hangers, MEP Fabrication Pipework, Mass, Materials, Mechanical Equipment, Mechanical Equipment Sets, Model Groups, Nurse Call Devices, Parking, Parts, Pipe Accessories, Pipe Fittings, Pipe Insulations, Pipe Placeholders, Pipes, Piping Systems, Planting, Plumbing Fixtures, Project Information, RVT Links, Railings, Ramps, Rebar Shape, Roads, Roofs, Rooms, Schedules, Security Devices, Shaft Openings, Sheets, Site, Spaces, Specialty Equipment, Sprinklers, Stairs, Structural Area Reinforcement, Structural Beam Systems, Structural Columns, Structural Connections, Structural Fabric Areas, Structural Fabric Reinforcement, Structural Foundations, Structural Framing, Structural Path Reinforcement, Structural Rebar, Structural Rebar Couplers, Structural Stiffeners, Structural Trusses, Switch System, System-Zones, Telephone Devices, Topography, Views, Walls, Water Loops, Windows, Wires, Zone Equipment |
-| `ITEM` | Autodesk.Revit.DB.ForgeTypeId | instance | Air Systems, Air Terminals, Analytical Beams, Analytical Braces, Analytical Columns, Analytical Floors, Analytical Foundation Slabs, Analytical Isolated Foundations, Analytical Links, Analytical Nodes, Analytical Pipe Connections, Analytical Spaces, Analytical Surfaces, Analytical Wall Foundations, Analytical Walls, Areas, Assemblies, Cable Tray Fittings, Cable Tray Runs, Cable Trays, Casework, Ceilings, Columns, Communication Devices, Conduit Fittings, Conduit Runs, Conduits, Curtain Panels, Curtain Systems, Curtain Wall Mullions, Data Devices, Detail Items, Doors, Duct Accessories, Duct Fittings, Duct Insulations, Duct Linings, Duct Placeholders, Duct Systems, Ducts, Electrical Circuits, Electrical Equipment, Electrical Fixtures, Entourage, Fire Alarm Devices, Flex Ducts, Flex Pipes, Floors, Furniture, Furniture Systems, Generic Models, Grids, HVAC Zones, Levels, Lighting Devices, Lighting Fixtures, MEP Fabrication Containment, MEP Fabrication Ductwork, MEP Fabrication Hangers, MEP Fabrication Pipework, Mass, Materials, Mechanical Equipment, Mechanical Equipment Sets, Model Groups, Nurse Call Devices, Parking, Parts, Pipe Accessories, Pipe Fittings, Pipe Insulations, Pipe Placeholders, Pipes, Piping Systems, Planting, Plumbing Fixtures, Project Information, RVT Links, Railings, Ramps, Rebar Shape, Roads, Roofs, Rooms, Schedules, Security Devices, Shaft Openings, Sheets, Site, Spaces, Specialty Equipment, Sprinklers, Stairs, Structural Area Reinforcement, Structural Beam Systems, Structural Columns, Structural Connections, Structural Fabric Areas, Structural Fabric Reinforcement, Structural Foundations, Structural Framing, Structural Path Reinforcement, Structural Rebar, Structural Rebar Couplers, Structural Stiffeners, Structural Trusses, Switch System, System-Zones, Telephone Devices, Topography, Views, Walls, Water Loops, Windows, Wires, Zone Equipment |
-| `LEVEL_V` | Autodesk.Revit.DB.ForgeTypeId | instance | Air Systems, Air Terminals, Analytical Beams, Analytical Braces, Analytical Columns, Analytical Floors, Analytical Foundation Slabs, Analytical Isolated Foundations, Analytical Links, Analytical Nodes, Analytical Pipe Connections, Analytical Spaces, Analytical Surfaces, Analytical Wall Foundations, Analytical Walls, Areas, Assemblies, Cable Tray Fittings, Cable Tray Runs, Cable Trays, Casework, Ceilings, Columns, Communication Devices, Conduit Fittings, Conduit Runs, Conduits, Curtain Panels, Curtain Systems, Curtain Wall Mullions, Data Devices, Detail Items, Doors, Duct Accessories, Duct Fittings, Duct Insulations, Duct Linings, Duct Placeholders, Duct Systems, Ducts, Electrical Circuits, Electrical Equipment, Electrical Fixtures, Entourage, Fire Alarm Devices, Flex Ducts, Flex Pipes, Floors, Furniture, Furniture Systems, Generic Models, Grids, HVAC Zones, Levels, Lighting Devices, Lighting Fixtures, MEP Fabrication Containment, MEP Fabrication Ductwork, MEP Fabrication Hangers, MEP Fabrication Pipework, Mass, Materials, Mechanical Equipment, Mechanical Equipment Sets, Model Groups, Nurse Call Devices, Parking, Parts, Pipe Accessories, Pipe Fittings, Pipe Insulations, Pipe Placeholders, Pipes, Piping Systems, Planting, Plumbing Fixtures, Project Information, RVT Links, Railings, Ramps, Rebar Shape, Roads, Roofs, Rooms, Schedules, Security Devices, Shaft Openings, Sheets, Site, Slab Edges, Spaces, Specialty Equipment, Sprinklers, Stairs, Structural Area Reinforcement, Structural Beam Systems, Structural Columns, Structural Connections, Structural Fabric Areas, Structural Fabric Reinforcement, Structural Foundations, Structural Framing, Structural Path Reinforcement, Structural Rebar, Structural Rebar Couplers, Structural Stiffeners, Structural Trusses, Switch System, System-Zones, Telephone Devices, Topography, Views, Walls, Water Loops, Windows, Wires, Zone Equipment |
-| `Occupant` | Autodesk.Revit.DB.ForgeTypeId | instance | Rooms |
-| `Weight Per Unit Meter` | Autodesk.Revit.DB.ForgeTypeId | type | Structural Rebar, Structural Rebar Couplers |
-| `WING` | Autodesk.Revit.DB.ForgeTypeId | instance | Abutments, Air Systems, Air Terminals, Alignments, Analytical Beams, Analytical Braces, Analytical Columns, Analytical Floors, Analytical Foundation Slabs, Analytical Isolated Foundations, Analytical Links, Analytical Nodes, Analytical Pipe Connections, Analytical Spaces, Analytical Surfaces, Analytical Wall Foundations, Analytical Walls, Areas, Assemblies, Bearings, Bridge Cables, Bridge Decks, Bridge Framing, Cable Tray Fittings, Cable Tray Runs, Cable Trays, Casework, Ceilings, Columns, Communication Devices, Conduit Fittings, Conduit Runs, Conduits, Curtain Panels, Curtain Systems, Curtain Wall Mullions, Data Devices, Detail Items, Doors, Duct Accessories, Duct Fittings, Duct Insulations, Duct Linings, Duct Placeholders, Duct Systems, Ducts, Electrical Circuits, Electrical Equipment, Electrical Fixtures, Entourage, Expansion Joints, Fire Alarm Devices, Flex Ducts, Flex Pipes, Floors, Furniture, Furniture Systems, Generic Models, Grids, HVAC Zones, Levels, Lighting Devices, Lighting Fixtures, MEP Fabrication Containment, MEP Fabrication Ductwork, MEP Fabrication Hangers, MEP Fabrication Pipework, Mass, Materials, Mechanical Equipment, Mechanical Equipment Sets, Model Groups, Nurse Call Devices, Parking, Parts, Piers, Pipe Accessories, Pipe Fittings, Pipe Insulations, Pipe Placeholders, Pipes, Piping Systems, Planting, Plumbing Fixtures, Project Information, RVT Links, Railings, Ramps, Rebar Shape, Roads, Roofs, Rooms, Schedules, Security Devices, Shaft Openings, Sheets, Site, Spaces, Specialty Equipment, Sprinklers, Stairs, Structural Area Reinforcement, Structural Beam Systems, Structural Columns, Structural Connections, Structural Fabric Areas, Structural Fabric Reinforcement, Structural Foundations, Structural Framing, Structural Path Reinforcement, Structural Rebar, Structural Rebar Couplers, Structural Stiffeners, Structural Tendons, Structural Trusses, Switch System, System-Zones, Telephone Devices, Topography, Vibration Management, Views, Walls, Water Loops, Windows, Wires, Zone Equipment |
+| `CHECK` | spec.bool | instance | Analytical Links, Analytical Members, Analytical Nodes, Analytical Openings, Analytical Panels, Analytical Spaces, Analytical Surfaces, Areas, Assemblies, Audio Visual Devices, Casework, Ceilings, Columns, Curtain Panels, Curtain Systems, Curtain Wall Mullions, Data Exchanges, Detail Items, Doors, Electrical Equipment, Electrical Fixtures, Entourage, Fire Protection, Floors, Food Service Equipment, Furniture, Furniture Systems, Generic Models, Grids, Hardscape, Levels, Lighting Fixtures, Mass, Materials, Mechanical Control Devices, Mechanical Equipment, Medical Equipment, Model Groups, Parking, Parts, Planting, Plumbing Equipment, Plumbing Fixtures, Project Information, RVT Links, Railings, Ramps, Rebar Shape, Revision Clouds, Roads, Roofs, Rooms, Schedules, Shaft Openings, Sheets, Signage, Site, Specialty Equipment, Stairs, Structural Area Reinforcement, Structural Beam Systems, Structural Columns, Structural Connections, Structural Fabric Areas, Structural Fabric Reinforcement, Structural Foundations, Structural Framing, Structural Path Reinforcement, Structural Rebar, Structural Rebar Couplers, Structural Stiffeners, Structural Trusses, Temporary Structures, Topography, Toposolid, Vertical Circulation, Views, Walls, Windows |
+| `ID_LIC` | spec.string | instance | Air Systems, Air Terminals, Analytical Beams, Analytical Braces, Analytical Columns, Analytical Floors, Analytical Foundation Slabs, Analytical Isolated Foundations, Analytical Links, Analytical Nodes, Analytical Pipe Connections, Analytical Spaces, Analytical Surfaces, Analytical Wall Foundations, Analytical Walls, Areas, Assemblies, Cable Tray Fittings, Cable Tray Runs, Cable Trays, Casework, Ceilings, Columns, Communication Devices, Conduit Fittings, Conduit Runs, Conduits, Curtain Panels, Curtain Systems, Curtain Wall Mullions, Data Devices, Detail Items, Doors, Duct Accessories, Duct Fittings, Duct Insulations, Duct Linings, Duct Placeholders, Duct Systems, Ducts, Electrical Circuits, Electrical Equipment, Electrical Fixtures, Entourage, Fire Alarm Devices, Flex Ducts, Flex Pipes, Floors, Furniture, Furniture Systems, Generic Models, Grids, HVAC Zones, Levels, Lighting Devices, Lighting Fixtures, MEP Fabrication Containment, MEP Fabrication Ductwork, MEP Fabrication Hangers, MEP Fabrication Pipework, Mass, Materials, Mechanical Equipment, Mechanical Equipment Sets, Model Groups, Nurse Call Devices, Parking, Parts, Pipe Accessories, Pipe Fittings, Pipe Insulations, Pipe Placeholders, Pipes, Piping Systems, Planting, Plumbing Fixtures, Project Information, RVT Links, Railings, Ramps, Rebar Shape, Roads, Roofs, Rooms, Schedules, Security Devices, Shaft Openings, Sheets, Site, Spaces, Specialty Equipment, Sprinklers, Stairs, Structural Area Reinforcement, Structural Beam Systems, Structural Columns, Structural Connections, Structural Fabric Areas, Structural Fabric Reinforcement, Structural Foundations, Structural Framing, Structural Path Reinforcement, Structural Rebar, Structural Rebar Couplers, Structural Stiffeners, Structural Trusses, Switch System, System-Zones, Telephone Devices, Topography, Views, Walls, Water Loops, Windows, Wires, Zone Equipment |
+| `ID_V` | spec.string | instance | Air Systems, Air Terminals, Analytical Beams, Analytical Braces, Analytical Columns, Analytical Floors, Analytical Foundation Slabs, Analytical Isolated Foundations, Analytical Links, Analytical Nodes, Analytical Pipe Connections, Analytical Spaces, Analytical Surfaces, Analytical Wall Foundations, Analytical Walls, Areas, Assemblies, Cable Tray Fittings, Cable Tray Runs, Cable Trays, Casework, Ceilings, Columns, Communication Devices, Conduit Fittings, Conduit Runs, Conduits, Curtain Panels, Curtain Systems, Curtain Wall Mullions, Data Devices, Detail Items, Doors, Duct Accessories, Duct Fittings, Duct Insulations, Duct Linings, Duct Placeholders, Duct Systems, Ducts, Electrical Circuits, Electrical Equipment, Electrical Fixtures, Entourage, Fire Alarm Devices, Flex Ducts, Flex Pipes, Floors, Furniture, Furniture Systems, Generic Models, Grids, HVAC Zones, Levels, Lighting Devices, Lighting Fixtures, MEP Fabrication Containment, MEP Fabrication Ductwork, MEP Fabrication Hangers, MEP Fabrication Pipework, Mass, Materials, Mechanical Equipment, Mechanical Equipment Sets, Model Groups, Nurse Call Devices, Parking, Parts, Pipe Accessories, Pipe Fittings, Pipe Insulations, Pipe Placeholders, Pipes, Piping Systems, Planting, Plumbing Fixtures, Project Information, RVT Links, Railings, Ramps, Rebar Shape, Roads, Roofs, Rooms, Schedules, Security Devices, Shaft Openings, Sheets, Site, Spaces, Specialty Equipment, Sprinklers, Stairs, Structural Area Reinforcement, Structural Beam Systems, Structural Columns, Structural Connections, Structural Fabric Areas, Structural Fabric Reinforcement, Structural Foundations, Structural Framing, Structural Path Reinforcement, Structural Rebar, Structural Rebar Couplers, Structural Stiffeners, Structural Trusses, Switch System, System-Zones, Telephone Devices, Topography, Views, Walls, Water Loops, Windows, Wires, Zone Equipment |
+| `ITEM` | spec.string | instance | Air Systems, Air Terminals, Analytical Beams, Analytical Braces, Analytical Columns, Analytical Floors, Analytical Foundation Slabs, Analytical Isolated Foundations, Analytical Links, Analytical Nodes, Analytical Pipe Connections, Analytical Spaces, Analytical Surfaces, Analytical Wall Foundations, Analytical Walls, Areas, Assemblies, Cable Tray Fittings, Cable Tray Runs, Cable Trays, Casework, Ceilings, Columns, Communication Devices, Conduit Fittings, Conduit Runs, Conduits, Curtain Panels, Curtain Systems, Curtain Wall Mullions, Data Devices, Detail Items, Doors, Duct Accessories, Duct Fittings, Duct Insulations, Duct Linings, Duct Placeholders, Duct Systems, Ducts, Electrical Circuits, Electrical Equipment, Electrical Fixtures, Entourage, Fire Alarm Devices, Flex Ducts, Flex Pipes, Floors, Furniture, Furniture Systems, Generic Models, Grids, HVAC Zones, Levels, Lighting Devices, Lighting Fixtures, MEP Fabrication Containment, MEP Fabrication Ductwork, MEP Fabrication Hangers, MEP Fabrication Pipework, Mass, Materials, Mechanical Equipment, Mechanical Equipment Sets, Model Groups, Nurse Call Devices, Parking, Parts, Pipe Accessories, Pipe Fittings, Pipe Insulations, Pipe Placeholders, Pipes, Piping Systems, Planting, Plumbing Fixtures, Project Information, RVT Links, Railings, Ramps, Rebar Shape, Roads, Roofs, Rooms, Schedules, Security Devices, Shaft Openings, Sheets, Site, Spaces, Specialty Equipment, Sprinklers, Stairs, Structural Area Reinforcement, Structural Beam Systems, Structural Columns, Structural Connections, Structural Fabric Areas, Structural Fabric Reinforcement, Structural Foundations, Structural Framing, Structural Path Reinforcement, Structural Rebar, Structural Rebar Couplers, Structural Stiffeners, Structural Trusses, Switch System, System-Zones, Telephone Devices, Topography, Views, Walls, Water Loops, Windows, Wires, Zone Equipment |
+| `LEVEL_V` | spec.string | instance | Air Systems, Air Terminals, Analytical Beams, Analytical Braces, Analytical Columns, Analytical Floors, Analytical Foundation Slabs, Analytical Isolated Foundations, Analytical Links, Analytical Nodes, Analytical Pipe Connections, Analytical Spaces, Analytical Surfaces, Analytical Wall Foundations, Analytical Walls, Areas, Assemblies, Cable Tray Fittings, Cable Tray Runs, Cable Trays, Casework, Ceilings, Columns, Communication Devices, Conduit Fittings, Conduit Runs, Conduits, Curtain Panels, Curtain Systems, Curtain Wall Mullions, Data Devices, Detail Items, Doors, Duct Accessories, Duct Fittings, Duct Insulations, Duct Linings, Duct Placeholders, Duct Systems, Ducts, Electrical Circuits, Electrical Equipment, Electrical Fixtures, Entourage, Fire Alarm Devices, Flex Ducts, Flex Pipes, Floors, Furniture, Furniture Systems, Generic Models, Grids, HVAC Zones, Levels, Lighting Devices, Lighting Fixtures, MEP Fabrication Containment, MEP Fabrication Ductwork, MEP Fabrication Hangers, MEP Fabrication Pipework, Mass, Materials, Mechanical Equipment, Mechanical Equipment Sets, Model Groups, Nurse Call Devices, Parking, Parts, Pipe Accessories, Pipe Fittings, Pipe Insulations, Pipe Placeholders, Pipes, Piping Systems, Planting, Plumbing Fixtures, Project Information, RVT Links, Railings, Ramps, Rebar Shape, Roads, Roofs, Rooms, Schedules, Security Devices, Shaft Openings, Sheets, Site, Slab Edges, Spaces, Specialty Equipment, Sprinklers, Stairs, Structural Area Reinforcement, Structural Beam Systems, Structural Columns, Structural Connections, Structural Fabric Areas, Structural Fabric Reinforcement, Structural Foundations, Structural Framing, Structural Path Reinforcement, Structural Rebar, Structural Rebar Couplers, Structural Stiffeners, Structural Trusses, Switch System, System-Zones, Telephone Devices, Topography, Views, Walls, Water Loops, Windows, Wires, Zone Equipment |
+| `Occupant` | spec.string | instance | Rooms |
+| `Weight Per Unit Meter` | massPerUnitLength | type | Structural Rebar, Structural Rebar Couplers |
+| `WING` | spec.string | instance | Abutments, Air Systems, Air Terminals, Alignments, Analytical Beams, Analytical Braces, Analytical Columns, Analytical Floors, Analytical Foundation Slabs, Analytical Isolated Foundations, Analytical Links, Analytical Nodes, Analytical Pipe Connections, Analytical Spaces, Analytical Surfaces, Analytical Wall Foundations, Analytical Walls, Areas, Assemblies, Bearings, Bridge Cables, Bridge Decks, Bridge Framing, Cable Tray Fittings, Cable Tray Runs, Cable Trays, Casework, Ceilings, Columns, Communication Devices, Conduit Fittings, Conduit Runs, Conduits, Curtain Panels, Curtain Systems, Curtain Wall Mullions, Data Devices, Detail Items, Doors, Duct Accessories, Duct Fittings, Duct Insulations, Duct Linings, Duct Placeholders, Duct Systems, Ducts, Electrical Circuits, Electrical Equipment, Electrical Fixtures, Entourage, Expansion Joints, Fire Alarm Devices, Flex Ducts, Flex Pipes, Floors, Furniture, Furniture Systems, Generic Models, Grids, HVAC Zones, Levels, Lighting Devices, Lighting Fixtures, MEP Fabrication Containment, MEP Fabrication Ductwork, MEP Fabrication Hangers, MEP Fabrication Pipework, Mass, Materials, Mechanical Equipment, Mechanical Equipment Sets, Model Groups, Nurse Call Devices, Parking, Parts, Piers, Pipe Accessories, Pipe Fittings, Pipe Insulations, Pipe Placeholders, Pipes, Piping Systems, Planting, Plumbing Fixtures, Project Information, RVT Links, Railings, Ramps, Rebar Shape, Roads, Roofs, Rooms, Schedules, Security Devices, Shaft Openings, Sheets, Site, Spaces, Specialty Equipment, Sprinklers, Stairs, Structural Area Reinforcement, Structural Beam Systems, Structural Columns, Structural Connections, Structural Fabric Areas, Structural Fabric Reinforcement, Structural Foundations, Structural Framing, Structural Path Reinforcement, Structural Rebar, Structural Rebar Couplers, Structural Stiffeners, Structural Tendons, Structural Trusses, Switch System, System-Zones, Telephone Devices, Topography, Vibration Management, Views, Walls, Water Loops, Windows, Wires, Zone Equipment |
 
 ### Family
 
@@ -1650,28 +1659,28 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
 
 </details>
 
@@ -1679,28 +1688,28 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
 
 </details>
 
@@ -1708,28 +1717,28 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
 
 </details>
 
@@ -1737,28 +1746,28 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
 
 </details>
 
@@ -1766,28 +1775,28 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
 
 </details>
 
@@ -1795,28 +1804,28 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
 
 </details>
 
@@ -1824,28 +1833,28 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
 
 </details>
 
@@ -1853,28 +1862,28 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
 
 </details>
 
@@ -1882,28 +1891,28 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
 
 </details>
 
@@ -1911,28 +1920,28 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
 
 </details>
 
@@ -1940,28 +1949,28 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
 
 </details>
 
@@ -1969,28 +1978,28 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
 
 </details>
 
@@ -1998,28 +2007,28 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
 
 </details>
 
@@ -2027,11 +2036,11 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Design Option` | — | no | no |
+| `Family Name` | spec.string | no | no |
+| `Type Name` | spec.string | no | no |
 
 </details>
 
@@ -2039,14 +2048,14 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Elevation` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Name` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Radius` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Design Option` | — | no | no |
+| `Elevation` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Name` | spec.string | no | yes |
+| `Radius` | length | no | yes |
+| `Type Name` | spec.string | no | no |
 
 </details>
 
@@ -2054,12 +2063,12 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Leader Arrowhead` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Design Option` | — | no | no |
+| `Family Name` | spec.string | no | no |
+| `Leader Arrowhead` | — | no | yes |
+| `Type Name` | spec.string | no | no |
 
 </details>
 
@@ -2067,12 +2076,12 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Leader Arrowhead` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Design Option` | — | no | no |
+| `Family Name` | spec.string | no | no |
+| `Leader Arrowhead` | — | no | yes |
+| `Type Name` | spec.string | no | no |
 
 </details>
 
@@ -2080,11 +2089,11 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Design Option` | — | no | no |
+| `Family Name` | spec.string | no | no |
+| `Type Name` | spec.string | no | no |
 
 </details>
 
@@ -2092,34 +2101,34 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Height/Length` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Joint Thickness` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Name Key` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Shape` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Width/Length` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Height/Length` | length | no | yes |
+| `Joint Thickness` | length | no | yes |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Section Name Key` | spec.string | no | no |
+| `Section Shape` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
+| `Width/Length` | length | no | yes |
 
 </details>
 
@@ -2127,34 +2136,34 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Fire Rating` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `H` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Name Key` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Shape` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `W` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Fire Rating` | spec.string | no | yes |
+| `H` | length | yes | yes |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Section Name Key` | spec.string | no | no |
+| `Section Shape` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
+| `W` | length | yes | yes |
 
 </details>
 
@@ -2162,14 +2171,14 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Elevation` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Name` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Radius` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Design Option` | — | no | no |
+| `Elevation` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Name` | spec.string | no | yes |
+| `Radius` | length | no | yes |
+| `Type Name` | spec.string | no | no |
 
 </details>
 
@@ -2177,35 +2186,35 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Fire Rating` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `H` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `H1` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Name Key` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Shape` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `W` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Fire Rating` | spec.string | no | yes |
+| `H` | length | yes | yes |
+| `H1` | length | yes | yes |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Section Name Key` | spec.string | no | no |
+| `Section Shape` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
+| `W` | length | yes | yes |
 
 </details>
 
@@ -2213,35 +2222,35 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Fire Rating` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `H` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `H1` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Name Key` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Shape` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `W` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Fire Rating` | spec.string | no | yes |
+| `H` | length | yes | yes |
+| `H1` | length | yes | yes |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Section Name Key` | spec.string | no | no |
+| `Section Shape` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
+| `W` | length | yes | yes |
 
 </details>
 
@@ -2249,35 +2258,35 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Fire Rating` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `H` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `H1` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Name Key` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Shape` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `W` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Fire Rating` | spec.string | no | yes |
+| `H` | length | yes | yes |
+| `H1` | length | yes | yes |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Section Name Key` | spec.string | no | no |
+| `Section Shape` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
+| `W` | length | yes | yes |
 
 </details>
 
@@ -2285,35 +2294,35 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Fire Rating` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `H` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `H1` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Name Key` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Shape` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `W` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Fire Rating` | spec.string | no | yes |
+| `H` | length | yes | yes |
+| `H1` | length | yes | yes |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Section Name Key` | spec.string | no | no |
+| `Section Shape` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
+| `W` | length | yes | yes |
 
 </details>
 
@@ -2321,33 +2330,33 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `L` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Name Key` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Shape` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `W` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Keynote` | spec.string | no | yes |
+| `L` | length | yes | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Section Name Key` | spec.string | no | no |
+| `Section Shape` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
+| `W` | length | yes | yes |
 
 </details>
 
@@ -2355,36 +2364,36 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Angle` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Corner Mullion` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Material` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Offset` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Position` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Profile` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Radius` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Angle` | angle | no | no |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Corner Mullion` | spec.bool | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Material` | material | no | yes |
+| `Model` | spec.string | no | yes |
+| `Offset` | length | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Position` | — | no | yes |
+| `Profile` | — | no | yes |
+| `Radius` | length | no | yes |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
 
 </details>
 
@@ -2392,34 +2401,34 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `b` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Fire Rating` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `h` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Name Key` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Shape` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `b` | length | yes | yes |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Fire Rating` | spec.string | no | yes |
+| `h` | length | yes | yes |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Section Name Key` | spec.string | no | no |
+| `Section Shape` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
 
 </details>
 
@@ -2427,33 +2436,33 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `b` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `h` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Name Key` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Shape` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `b` | length | yes | yes |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `h` | length | yes | yes |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Section Name Key` | spec.string | no | no |
+| `Section Shape` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
 
 </details>
 
@@ -2461,32 +2470,32 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `b` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Name Key` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Shape` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `b` | length | yes | yes |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Section Name Key` | spec.string | no | no |
+| `Section Shape` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
 
 </details>
 
@@ -2494,40 +2503,40 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Analytic Construction` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Construction Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Define Thermal Properties by` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Finish` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Heat Transfer Coefficient (U)` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Material` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Offset` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Solar Heat Gain Coefficient` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Thermal Resistance (R)` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Thickness` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Visual Light Transmittance` | Autodesk.Revit.DB.ForgeTypeId | no | no |
+| `Analytic Construction` | — | no | no |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Construction Type` | spec.string | no | yes |
+| `Cost` | currency | no | yes |
+| `Define Thermal Properties by` | — | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Finish` | spec.string | no | yes |
+| `Heat Transfer Coefficient (U)` | heatTransferCoefficient | no | no |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Material` | material | no | yes |
+| `Model` | spec.string | no | yes |
+| `Offset` | length | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Solar Heat Gain Coefficient` | number | no | no |
+| `Thermal Resistance (R)` | thermalResistance | no | no |
+| `Thickness` | length | no | yes |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
+| `Visual Light Transmittance` | number | no | no |
 
 </details>
 
@@ -2535,34 +2544,34 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `L` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Name Key` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Shape` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `W` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `W1` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Keynote` | spec.string | no | yes |
+| `L` | length | yes | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Section Name Key` | spec.string | no | no |
+| `Section Shape` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
+| `W` | length | yes | yes |
+| `W1` | length | yes | yes |
 
 </details>
 
@@ -2570,32 +2579,32 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Foundation Thickness` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Length` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Width` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Foundation Thickness` | length | no | yes |
+| `Keynote` | spec.string | no | yes |
+| `Length` | length | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
+| `Width` | length | no | yes |
 
 </details>
 
@@ -2603,35 +2612,35 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Corner Mullion` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Leg 1` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Leg 2` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Material` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Offset` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Thickness` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Corner Mullion` | spec.bool | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Keynote` | spec.string | no | yes |
+| `Leg 1` | length | no | yes |
+| `Leg 2` | length | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Material` | material | no | yes |
+| `Model` | spec.string | no | yes |
+| `Offset` | length | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Thickness` | length | no | yes |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
 
 </details>
 
@@ -2639,31 +2648,31 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Notch Depth` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Notch Width` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `Notch Depth` | length | no | yes |
+| `Notch Width` | length | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
 
 </details>
 
@@ -2671,12 +2680,12 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Leader Arrowhead` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Design Option` | — | no | no |
+| `Family Name` | spec.string | no | no |
+| `Leader Arrowhead` | — | no | yes |
+| `Type Name` | spec.string | no | no |
 
 </details>
 
@@ -2684,32 +2693,32 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Baluster Material` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Diameter` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Post` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Baluster Material` | material | no | yes |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Diameter` | length | no | yes |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Post` | spec.bool | no | yes |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
 
 </details>
 
@@ -2717,32 +2726,32 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Baluster Material` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Post` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Width` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Baluster Material` | material | no | yes |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Post` | spec.bool | no | yes |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
+| `Width` | length | no | yes |
 
 </details>
 
@@ -2750,33 +2759,33 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Baluster Material` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Post` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Steel Flat Thickness` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Steel Flat Width` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Baluster Material` | material | no | yes |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Post` | spec.bool | no | yes |
+| `Steel Flat Thickness` | length | no | yes |
+| `Steel Flat Width` | length | no | yes |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
 
 </details>
 
@@ -2784,62 +2793,62 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Bolt Diameter` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Bolt Spacing` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Centroid Horizontal` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Centroid Vertical` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Clear Web Height` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `disp1` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `disp2` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Elastic Modulus strong axis` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Elastic Modulus weak axis` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Flange Fillet` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Flange Thickness` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Flange Thickness Location` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Height` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Moment of Inertia strong axis` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Moment of Inertia weak axis` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Nominal Weight` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Perimeter` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Plastic Modulus strong axis` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Plastic Modulus weak axis` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Principal Axes Angle` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Section Area` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Section Name Key` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Shape` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Shear Area strong axis` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Shear Area weak axis` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Sloped Flange Angle` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Torsional Modulus` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Torsional Moment of Inertia` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Warping Constant` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Web Fillet` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Web Thickness` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Web Toe of Fillet` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Width` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Bolt Diameter` | sectionDimension | no | yes |
+| `Bolt Spacing` | sectionDimension | no | yes |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Centroid Horizontal` | sectionProperty | no | yes |
+| `Centroid Vertical` | sectionProperty | no | yes |
+| `Clear Web Height` | sectionDimension | no | yes |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `disp1` | length | no | no |
+| `disp2` | length | no | no |
+| `Elastic Modulus strong axis` | sectionModulus | no | yes |
+| `Elastic Modulus weak axis` | sectionModulus | no | yes |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Flange Fillet` | sectionProperty | no | yes |
+| `Flange Thickness` | sectionProperty | no | yes |
+| `Flange Thickness Location` | sectionProperty | no | yes |
+| `Height` | sectionProperty | no | yes |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `Moment of Inertia strong axis` | momentOfInertia | no | yes |
+| `Moment of Inertia weak axis` | momentOfInertia | no | yes |
+| `Nominal Weight` | weightPerUnitLength | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Perimeter` | surfaceAreaPerUnitLength | no | yes |
+| `Plastic Modulus strong axis` | sectionModulus | no | yes |
+| `Plastic Modulus weak axis` | sectionModulus | no | yes |
+| `Principal Axes Angle` | angle | no | yes |
+| `Section Area` | sectionArea | no | yes |
+| `Section Name Key` | spec.string | no | no |
+| `Section Shape` | spec.string | no | no |
+| `Shear Area strong axis` | sectionArea | no | yes |
+| `Shear Area weak axis` | sectionArea | no | yes |
+| `Sloped Flange Angle` | angle | no | yes |
+| `Torsional Modulus` | sectionModulus | no | yes |
+| `Torsional Moment of Inertia` | momentOfInertia | no | yes |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
+| `Warping Constant` | warpingConstant | no | yes |
+| `Web Fillet` | sectionProperty | no | yes |
+| `Web Thickness` | sectionProperty | no | yes |
+| `Web Toe of Fillet` | sectionDimension | no | yes |
+| `Width` | sectionProperty | no | yes |
 
 </details>
 
@@ -2847,11 +2856,11 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Design Option` | — | no | no |
+| `Family Name` | spec.string | no | no |
+| `Type Name` | spec.string | no | no |
 
 </details>
 
@@ -2859,12 +2868,12 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Leader Arrowhead` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Design Option` | — | no | no |
+| `Family Name` | spec.string | no | no |
+| `Leader Arrowhead` | — | no | yes |
+| `Type Name` | spec.string | no | no |
 
 </details>
 
@@ -2872,32 +2881,32 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Diameter` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Name Key` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Shape` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Diameter` | length | no | yes |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Section Name Key` | spec.string | no | no |
+| `Section Shape` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
 
 </details>
 
@@ -2905,37 +2914,37 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Body Material` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Default Elevation` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Depth` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Handle/Leg Material` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Height` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Leg Height` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Top Material` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Width` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Body Material` | material | no | yes |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Default Elevation` | length | no | yes |
+| `Depth` | length | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Handle/Leg Material` | material | no | yes |
+| `Height` | length | no | yes |
+| `Keynote` | spec.string | no | yes |
+| `Leg Height` | length | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Top Material` | material | no | yes |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
+| `Width` | length | no | yes |
 
 </details>
 
@@ -2943,12 +2952,12 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Leader Arrowhead` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Design Option` | — | no | no |
+| `Family Name` | spec.string | no | no |
+| `Leader Arrowhead` | — | no | yes |
+| `Type Name` | spec.string | no | no |
 
 </details>
 
@@ -2956,12 +2965,12 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Arrow Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
+| `Arrow Type` | elevationMarks | no | yes |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Design Option` | — | no | no |
+| `Family Name` | spec.string | no | no |
+| `Type Name` | spec.string | no | no |
 
 </details>
 
@@ -2969,12 +2978,12 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Arrow Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
+| `Arrow Type` | elevationMarks | no | yes |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Design Option` | — | no | no |
+| `Family Name` | spec.string | no | no |
+| `Type Name` | spec.string | no | no |
 
 </details>
 
@@ -2982,12 +2991,12 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Arrow Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
+| `Arrow Type` | elevationMarks | no | yes |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Design Option` | — | no | no |
+| `Family Name` | spec.string | no | no |
+| `Type Name` | spec.string | no | no |
 
 </details>
 
@@ -2995,14 +3004,14 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Filled` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Ref` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `View Name` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Design Option` | — | no | no |
+| `Family Name` | spec.string | no | no |
+| `Filled` | spec.bool | no | yes |
+| `Ref` | spec.bool | no | yes |
+| `Type Name` | spec.string | no | no |
+| `View Name` | spec.bool | no | yes |
 
 </details>
 
@@ -3010,14 +3019,14 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Filled` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Ref` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `View Name` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Design Option` | — | no | no |
+| `Family Name` | spec.string | no | no |
+| `Filled` | spec.bool | no | yes |
+| `Ref` | spec.bool | no | yes |
+| `Type Name` | spec.string | no | no |
+| `View Name` | spec.bool | no | yes |
 
 </details>
 
@@ -3025,14 +3034,14 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Filled` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Ref` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `View Name` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Design Option` | — | no | no |
+| `Family Name` | spec.string | no | no |
+| `Filled` | spec.bool | no | yes |
+| `Ref` | spec.bool | no | yes |
+| `Type Name` | spec.string | no | no |
+| `View Name` | spec.bool | no | yes |
 
 </details>
 
@@ -3040,16 +3049,16 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Detail Number Inside` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Detail Number Outside` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Filled` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Ref` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `View Name` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Design Option` | — | no | no |
+| `Detail Number Inside` | spec.bool | no | yes |
+| `Detail Number Outside` | spec.bool | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Filled` | spec.bool | no | yes |
+| `Ref` | spec.bool | no | yes |
+| `Type Name` | spec.string | no | no |
+| `View Name` | spec.bool | no | yes |
 
 </details>
 
@@ -3057,33 +3066,33 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `D` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Name Key` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Shape` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `W` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `D` | length | yes | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Section Name Key` | spec.string | no | no |
+| `Section Shape` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
+| `W` | length | yes | yes |
 
 </details>
 
@@ -3091,33 +3100,33 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Height` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Name Key` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Shape` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Thickness` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Height` | length | no | yes |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Section Name Key` | spec.string | no | no |
+| `Section Shape` | spec.string | no | no |
+| `Thickness` | length | no | yes |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
 
 </details>
 
@@ -3125,49 +3134,49 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Analytic Construction` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Construction Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Construction Type Id` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Default Sill Height` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Define Thermal Properties by` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Frame Exterior Material` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Frame Interior Material` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Glass Pane Material` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Heat Transfer Coefficient (U)` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Height` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Operation` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Rough Height` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Rough Width` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Sash` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Solar Heat Gain Coefficient` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Thermal Resistance (R)` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Visual Light Transmittance` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Wall Closure` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Width` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Window Inset` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Analytic Construction` | — | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Construction Type` | spec.string | no | yes |
+| `Construction Type Id` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Default Sill Height` | length | no | yes |
+| `Define Thermal Properties by` | — | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Frame Exterior Material` | material | no | yes |
+| `Frame Interior Material` | material | no | yes |
+| `Glass Pane Material` | material | no | yes |
+| `Heat Transfer Coefficient (U)` | heatTransferCoefficient | no | no |
+| `Height` | length | no | yes |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Operation` | spec.string | no | yes |
+| `Rough Height` | length | no | yes |
+| `Rough Width` | length | no | yes |
+| `Sash` | material | no | yes |
+| `Solar Heat Gain Coefficient` | number | no | no |
+| `Thermal Resistance (R)` | thermalResistance | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
+| `Visual Light Transmittance` | number | no | no |
+| `Wall Closure` | — | no | yes |
+| `Width` | length | no | yes |
+| `Window Inset` | length | no | yes |
 
 </details>
 
@@ -3175,36 +3184,36 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `hr` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `rr` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Section Name Key` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Shape` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Sr` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Thickness` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `wr` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `hr` | length | no | yes |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `rr` | length | no | yes |
+| `Section Name Key` | spec.string | no | no |
+| `Section Shape` | spec.string | no | no |
+| `Sr` | length | no | yes |
+| `Thickness` | length | no | yes |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
+| `wr` | length | no | yes |
 
 </details>
 
@@ -3212,13 +3221,13 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Name` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Radius` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Design Option` | — | no | no |
+| `Family Name` | spec.string | no | no |
+| `Name` | spec.string | no | yes |
+| `Radius` | length | no | yes |
+| `Type Name` | spec.string | no | no |
 
 </details>
 
@@ -3226,13 +3235,13 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Name` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Radius` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Design Option` | — | no | no |
+| `Family Name` | spec.string | no | no |
+| `Name` | spec.string | no | yes |
+| `Radius` | length | no | yes |
+| `Type Name` | spec.string | no | no |
 
 </details>
 
@@ -3240,33 +3249,33 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Depth` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Height` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Name Key` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Shape` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Depth` | length | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Height` | length | no | yes |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Section Name Key` | spec.string | no | no |
+| `Section Shape` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
 
 </details>
 
@@ -3274,15 +3283,15 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Boxed` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Keynote Number` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Keynote Text` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Leader Arrowhead` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
+| `Boxed` | spec.bool | no | yes |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Design Option` | — | no | no |
+| `Family Name` | spec.string | no | no |
+| `Keynote Number` | spec.bool | no | yes |
+| `Keynote Text` | spec.bool | no | yes |
+| `Leader Arrowhead` | — | no | yes |
+| `Type Name` | spec.string | no | no |
 
 </details>
 
@@ -3290,14 +3299,14 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Elevation` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Name` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Radius` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Design Option` | — | no | no |
+| `Elevation` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Name` | spec.string | no | yes |
+| `Radius` | length | no | yes |
+| `Type Name` | spec.string | no | no |
 
 </details>
 
@@ -3305,14 +3314,14 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Elevation` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Name` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Radius` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Design Option` | — | no | no |
+| `Elevation` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Name` | spec.string | no | yes |
+| `Radius` | length | no | yes |
+| `Type Name` | spec.string | no | no |
 
 </details>
 
@@ -3320,12 +3329,12 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Leader Arrowhead` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Design Option` | — | no | no |
+| `Family Name` | spec.string | no | no |
+| `Leader Arrowhead` | — | no | yes |
+| `Type Name` | spec.string | no | no |
 
 </details>
 
@@ -3333,32 +3342,32 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Default Elevation` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Distance` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Thickness` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Default Elevation` | length | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Distance` | length | no | yes |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Thickness` | length | no | yes |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
 
 </details>
 
@@ -3366,12 +3375,12 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Leader Arrowhead` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Design Option` | — | no | no |
+| `Family Name` | spec.string | no | no |
+| `Leader Arrowhead` | — | no | yes |
+| `Type Name` | spec.string | no | no |
 
 </details>
 
@@ -3379,31 +3388,31 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Notch Depth` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Notch Width` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `Notch Depth` | length | no | yes |
+| `Notch Width` | length | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
 
 </details>
 
@@ -3411,33 +3420,33 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Glazed Thickness` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Length` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Material` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Post` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Glazed Thickness` | length | no | yes |
+| `Keynote` | spec.string | no | yes |
+| `Length` | length | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Material` | material | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Post` | spec.bool | no | yes |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
 
 </details>
 
@@ -3445,34 +3454,34 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Angle` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Parking Length` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Parking Width` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `pl` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `pw` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Angle` | angle | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Parking Length` | length | no | yes |
+| `Parking Width` | length | no | yes |
+| `pl` | length | no | yes |
+| `pw` | length | no | yes |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
 
 </details>
 
@@ -3480,33 +3489,33 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Default Elevation` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Height` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Render Appearance` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Render Appearance Properties` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Default Elevation` | length | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Height` | length | no | yes |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Render Appearance` | — | no | yes |
+| `Render Appearance Properties` | — | no | yes |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
 
 </details>
 
@@ -3514,36 +3523,36 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Coarse Scale Fill Color` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Coarse Scale Fill Pattern` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Depth` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Material` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Offset Base` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Offset Top` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Width` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Coarse Scale Fill Color` | — | no | yes |
+| `Coarse Scale Fill Pattern` | — | no | yes |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Depth` | length | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Material` | material | no | yes |
+| `Model` | spec.string | no | yes |
+| `Offset Base` | length | no | yes |
+| `Offset Top` | length | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
+| `Width` | length | no | yes |
 
 </details>
 
@@ -3551,33 +3560,33 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Height` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Name Key` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Shape` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Width` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Height` | length | no | yes |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Section Name Key` | spec.string | no | no |
+| `Section Shape` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
+| `Width` | length | no | yes |
 
 </details>
 
@@ -3585,38 +3594,38 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Brick Depth` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Brick Height` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Brick Length` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Height` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Horizontal` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Inset Into Wall` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Number of Bricks` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Name Key` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Shape` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Brick Depth` | length | no | yes |
+| `Brick Height` | length | no | yes |
+| `Brick Length` | length | no | yes |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Height` | length | no | no |
+| `Horizontal` | spec.bool | no | yes |
+| `Inset Into Wall` | length | no | yes |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `Number of Bricks` | number | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Section Name Key` | spec.string | no | no |
+| `Section Shape` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
 
 </details>
 
@@ -3624,14 +3633,14 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Date` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Revision Number` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Date` | spec.string | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Family Name` | spec.string | no | no |
+| `Revision Number` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
 
 </details>
 
@@ -3639,15 +3648,15 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Leader Arrowhead` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Show Area` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Show Room Number` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Show Volume` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Design Option` | — | no | no |
+| `Family Name` | spec.string | no | no |
+| `Leader Arrowhead` | — | no | yes |
+| `Show Area` | spec.bool | no | yes |
+| `Show Room Number` | spec.bool | no | yes |
+| `Show Volume` | spec.bool | no | yes |
+| `Type Name` | spec.string | no | no |
 
 </details>
 
@@ -3655,11 +3664,11 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Design Option` | — | no | no |
+| `Family Name` | spec.string | no | no |
+| `Type Name` | spec.string | no | no |
 
 </details>
 
@@ -3667,11 +3676,11 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Design Option` | — | no | no |
+| `Family Name` | spec.string | no | no |
+| `Type Name` | spec.string | no | no |
 
 </details>
 
@@ -3679,11 +3688,11 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Design Option` | — | no | no |
+| `Family Name` | spec.string | no | no |
+| `Type Name` | spec.string | no | no |
 
 </details>
 
@@ -3691,13 +3700,13 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Height` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Width` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Design Option` | — | no | no |
+| `Family Name` | spec.string | no | no |
+| `Height` | length | no | yes |
+| `Type Name` | spec.string | no | no |
+| `Width` | length | no | yes |
 
 </details>
 
@@ -3705,13 +3714,13 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Height` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Width` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Design Option` | — | no | no |
+| `Family Name` | spec.string | no | no |
+| `Height` | length | no | yes |
+| `Type Name` | spec.string | no | no |
+| `Width` | length | no | yes |
 
 </details>
 
@@ -3719,51 +3728,51 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Analytic Construction` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Construction Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Construction Type Id` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Define Thermal Properties by` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Door Material` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Fire Rating` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Frame Material` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Function` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Heat Transfer Coefficient (U)` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Height` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Operation` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Rough Height` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Rough Width` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Solar Heat Gain Coefficient` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Thermal Resistance (R)` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Thickness` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Trim Projection Ext` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Trim Projection Int` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Trim Width` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Visual Light Transmittance` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Wall Closure` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Width` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Analytic Construction` | — | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Construction Type` | spec.string | no | yes |
+| `Construction Type Id` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Define Thermal Properties by` | — | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Door Material` | material | no | yes |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Fire Rating` | spec.string | no | yes |
+| `Frame Material` | material | no | yes |
+| `Function` | — | no | yes |
+| `Heat Transfer Coefficient (U)` | heatTransferCoefficient | no | no |
+| `Height` | length | no | yes |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Operation` | spec.string | no | yes |
+| `Rough Height` | length | no | yes |
+| `Rough Width` | length | no | yes |
+| `Solar Heat Gain Coefficient` | number | no | no |
+| `Thermal Resistance (R)` | thermalResistance | no | no |
+| `Thickness` | length | no | yes |
+| `Trim Projection Ext` | length | no | yes |
+| `Trim Projection Int` | length | no | yes |
+| `Trim Width` | length | no | yes |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
+| `Visual Light Transmittance` | number | no | no |
+| `Wall Closure` | — | no | yes |
+| `Width` | length | no | yes |
 
 </details>
 
@@ -3771,33 +3780,33 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Name Key` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Shape` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Thickness` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Width` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Section Name Key` | spec.string | no | no |
+| `Section Shape` | spec.string | no | no |
+| `Thickness` | length | no | yes |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
+| `Width` | length | no | yes |
 
 </details>
 
@@ -3805,14 +3814,14 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Leader Arrowhead` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `One Way Graphics` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Two Way Graphics` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Design Option` | — | no | no |
+| `Family Name` | spec.string | no | no |
+| `Leader Arrowhead` | — | no | yes |
+| `One Way Graphics` | spec.bool | no | yes |
+| `Two Way Graphics` | spec.bool | no | no |
+| `Type Name` | spec.string | no | no |
 
 </details>
 
@@ -3820,11 +3829,11 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Design Option` | — | no | no |
+| `Family Name` | spec.string | no | no |
+| `Type Name` | spec.string | no | no |
 
 </details>
 
@@ -3832,11 +3841,11 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Design Option` | — | no | no |
+| `Family Name` | spec.string | no | no |
+| `Type Name` | spec.string | no | no |
 
 </details>
 
@@ -3844,11 +3853,11 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Design Option` | — | no | no |
+| `Family Name` | spec.string | no | no |
+| `Type Name` | spec.string | no | no |
 
 </details>
 
@@ -3856,33 +3865,33 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Height` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Name Key` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Shape` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Width` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Height` | length | no | yes |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Section Name Key` | spec.string | no | no |
+| `Section Shape` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
+| `Width` | length | no | yes |
 
 </details>
 
@@ -3890,12 +3899,12 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Leader Arrowhead` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Design Option` | — | no | no |
+| `Family Name` | spec.string | no | no |
+| `Leader Arrowhead` | — | no | yes |
+| `Type Name` | spec.string | no | no |
 
 </details>
 
@@ -3903,32 +3912,32 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Name Key` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Shape` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Thickness` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Section Name Key` | spec.string | no | no |
+| `Section Shape` | spec.string | no | no |
+| `Thickness` | length | no | yes |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
 
 </details>
 
@@ -3936,14 +3945,14 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Leader Arrowhead` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Standard` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Design Option` | — | no | no |
+| `Family Name` | spec.string | no | no |
+| `Leader Arrowhead` | — | no | yes |
+| `Standard` | spec.bool | no | yes |
+| `Type Mark` | spec.bool | no | yes |
+| `Type Name` | spec.string | no | no |
 
 </details>
 
@@ -3951,12 +3960,12 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Leader Arrowhead` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Design Option` | — | no | no |
+| `Family Name` | spec.string | no | no |
+| `Leader Arrowhead` | — | no | yes |
+| `Type Name` | spec.string | no | no |
 
 </details>
 
@@ -3964,14 +3973,14 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Leader Arrowhead` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Standard` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Design Option` | — | no | no |
+| `Family Name` | spec.string | no | no |
+| `Leader Arrowhead` | — | no | yes |
+| `Standard` | spec.bool | no | yes |
+| `Type Mark` | spec.bool | no | yes |
+| `Type Name` | spec.string | no | no |
 
 </details>
 
@@ -3979,33 +3988,33 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Depth` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Name Key` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Shape` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Thickness` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Depth` | length | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Section Name Key` | spec.string | no | no |
+| `Section Shape` | spec.string | no | no |
+| `Thickness` | length | no | yes |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
 
 </details>
 
@@ -4013,11 +4022,11 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Design Option` | — | no | no |
+| `Family Name` | spec.string | no | no |
+| `Type Name` | spec.string | no | no |
 
 </details>
 
@@ -4025,13 +4034,13 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Box Visibility` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Leader Arrowhead` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
+| `Box Visibility` | spec.bool | no | yes |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Design Option` | — | no | no |
+| `Family Name` | spec.string | no | no |
+| `Leader Arrowhead` | — | no | yes |
+| `Type Name` | spec.string | no | no |
 
 </details>
 
@@ -4039,35 +4048,35 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Bend Radius` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Height` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Radius 1` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Radius 2` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Support Material` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `T1` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Bend Radius` | length | no | yes |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Height` | length | no | yes |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Radius 1` | length | no | yes |
+| `Radius 2` | length | no | yes |
+| `Support Material` | material | no | yes |
+| `T1` | length | no | yes |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
 
 </details>
 
@@ -4075,32 +4084,32 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Notch Depth` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Notch Width` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Taper Width` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `Notch Depth` | length | no | yes |
+| `Notch Width` | length | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Taper Width` | length | no | yes |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
 
 </details>
 
@@ -4108,33 +4117,33 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Extension Length` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `T1` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Termination Material` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Width` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Extension Length` | length | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `T1` | length | no | yes |
+| `Termination Material` | material | no | yes |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
+| `Width` | length | no | yes |
 
 </details>
 
@@ -4142,12 +4151,12 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Leader Arrowhead` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Design Option` | — | no | no |
+| `Family Name` | spec.string | no | no |
+| `Leader Arrowhead` | — | no | yes |
+| `Type Name` | spec.string | no | no |
 
 </details>
 
@@ -4155,36 +4164,36 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Default Elevation` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Picture Frame` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Sill` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Sill Thickness` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Trim Thickness_Picture Frame` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Trim Thickness_with Sill` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Trim Width` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Default Elevation` | length | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Picture Frame` | spec.bool | no | yes |
+| `Sill` | spec.bool | no | yes |
+| `Sill Thickness` | length | no | yes |
+| `Trim Thickness_Picture Frame` | length | no | yes |
+| `Trim Thickness_with Sill` | length | no | yes |
+| `Trim Width` | length | no | yes |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
 
 </details>
 
@@ -4192,36 +4201,36 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Default Elevation` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Picture Frame` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Sill` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Sill Thickness` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Trim Thickness_Picture Frame` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Trim Thickness_with Sill` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Trim Width` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Default Elevation` | length | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Picture Frame` | spec.bool | no | yes |
+| `Sill` | spec.bool | no | yes |
+| `Sill Thickness` | length | no | yes |
+| `Trim Thickness_Picture Frame` | length | no | yes |
+| `Trim Thickness_with Sill` | length | no | yes |
+| `Trim Width` | length | no | yes |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
 
 </details>
 
@@ -4229,11 +4238,11 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Design Option` | — | no | no |
+| `Family Name` | spec.string | no | no |
+| `Type Name` | spec.string | no | no |
 
 </details>
 
@@ -4241,11 +4250,11 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Design Option` | — | no | no |
+| `Family Name` | spec.string | no | no |
+| `Type Name` | spec.string | no | no |
 
 </details>
 
@@ -4253,13 +4262,13 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Leader Arrowhead` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `w` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Design Option` | — | no | no |
+| `Family Name` | spec.string | no | no |
+| `Leader Arrowhead` | — | no | yes |
+| `Type Name` | spec.string | no | no |
+| `w` | length | yes | yes |
 
 </details>
 
@@ -4267,12 +4276,12 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Leader Arrowhead` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Design Option` | — | no | no |
+| `Family Name` | spec.string | no | no |
+| `Leader Arrowhead` | — | no | yes |
+| `Type Name` | spec.string | no | no |
 
 </details>
 
@@ -4280,54 +4289,54 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Analytic Construction` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Construction Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Default Sill Height` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Define Thermal Properties by` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Exterior Frame Material` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Exterior Trim` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Exterior Trim Material` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Fire Rating` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Glass Panel Material` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Half Width` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Heat Transfer Coefficient (U)` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Height` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Interior Frame Material` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Interior Trim` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Interior Trim Material` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Muntin Pattern` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Muntin Visibility` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Operation` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Rough Height` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Rough Width` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Solar Heat Gain Coefficient` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Thermal Resistance (R)` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Visual Light Transmittance` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Wall Closure` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Width` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Analytic Construction` | — | no | no |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Construction Type` | spec.string | no | yes |
+| `Cost` | currency | no | yes |
+| `Default Sill Height` | length | no | yes |
+| `Define Thermal Properties by` | — | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Exterior Frame Material` | material | no | yes |
+| `Exterior Trim` | genericModel | no | yes |
+| `Exterior Trim Material` | material | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Fire Rating` | spec.string | no | yes |
+| `Glass Panel Material` | material | no | yes |
+| `Half Width` | length | no | yes |
+| `Heat Transfer Coefficient (U)` | heatTransferCoefficient | no | no |
+| `Height` | length | no | yes |
+| `Interior Frame Material` | material | no | yes |
+| `Interior Trim` | genericModel | no | yes |
+| `Interior Trim Material` | material | no | yes |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `Muntin Pattern` | genericModel | no | yes |
+| `Muntin Visibility` | spec.bool | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Operation` | spec.string | no | yes |
+| `Rough Height` | length | no | yes |
+| `Rough Width` | length | no | yes |
+| `Solar Heat Gain Coefficient` | number | no | no |
+| `Thermal Resistance (R)` | thermalResistance | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
+| `Visual Light Transmittance` | number | no | no |
+| `Wall Closure` | — | no | yes |
+| `Width` | length | no | yes |
 
 </details>
 
@@ -4335,56 +4344,56 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Analytic Construction` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Bottom Muntin Visibility` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Construction Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Construction Type Id` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Define Thermal Properties by` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Exterior Frame Material` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Exterior Trim` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Exterior Trim Material` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Fire Rating` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Glass Panel Material` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Heat Transfer Coefficient (U)` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Height` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Interior Frame Material` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Interior Trim` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Interior Trim Material` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Muntin Height` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Muntin Pattern` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Muntin Width` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Operation` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Rough Height` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Rough Width` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Solar Heat Gain Coefficient` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Thermal Resistance (R)` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Top Muntin Visibility` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Visual Light Transmittance` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Wall Closure` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Width` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Analytic Construction` | — | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Bottom Muntin Visibility` | spec.bool | no | yes |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Construction Type` | spec.string | no | yes |
+| `Construction Type Id` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Define Thermal Properties by` | — | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Exterior Frame Material` | material | no | yes |
+| `Exterior Trim` | genericModel | no | yes |
+| `Exterior Trim Material` | material | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Fire Rating` | spec.string | no | yes |
+| `Glass Panel Material` | material | no | yes |
+| `Heat Transfer Coefficient (U)` | heatTransferCoefficient | no | no |
+| `Height` | length | no | yes |
+| `Interior Frame Material` | material | no | yes |
+| `Interior Trim` | genericModel | no | yes |
+| `Interior Trim Material` | material | no | yes |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `Muntin Height` | length | no | yes |
+| `Muntin Pattern` | genericModel | no | yes |
+| `Muntin Width` | length | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Operation` | spec.string | no | yes |
+| `Rough Height` | length | no | yes |
+| `Rough Width` | length | no | yes |
+| `Solar Heat Gain Coefficient` | number | no | no |
+| `Thermal Resistance (R)` | thermalResistance | no | no |
+| `Top Muntin Visibility` | spec.bool | no | yes |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
+| `Visual Light Transmittance` | number | no | no |
+| `Wall Closure` | — | no | yes |
+| `Width` | length | no | yes |
 
 </details>
 
@@ -4392,34 +4401,34 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Corner Mullion` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Depth 1` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Depth 2` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Material` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Offset` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Corner Mullion` | spec.bool | no | no |
+| `Cost` | currency | no | yes |
+| `Depth 1` | length | no | yes |
+| `Depth 2` | length | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Material` | material | no | yes |
+| `Model` | spec.string | no | yes |
+| `Offset` | length | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
 
 </details>
 
@@ -4427,32 +4436,32 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `L` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Name Key` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Shape` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Keynote` | spec.string | no | yes |
+| `L` | length | yes | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Section Name Key` | spec.string | no | no |
+| `Section Shape` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
 
 </details>
 
@@ -4460,38 +4469,38 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Angle` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Corner Mullion` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Material` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Offset` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Position` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Profile` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Thickness` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Width on side 1` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Width on side 2` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Angle` | angle | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Corner Mullion` | spec.bool | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Material` | material | no | yes |
+| `Model` | spec.string | no | yes |
+| `Offset` | length | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Position` | — | no | yes |
+| `Profile` | — | no | yes |
+| `Thickness` | length | no | yes |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
+| `Width on side 1` | length | no | yes |
+| `Width on side 2` | length | no | yes |
 
 </details>
 
@@ -4499,30 +4508,30 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Default Elevation` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Default Elevation` | length | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
 
 </details>
 
@@ -4530,30 +4539,30 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Default Elevation` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Default Elevation` | length | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
 
 </details>
 
@@ -4561,41 +4570,41 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Analytic Construction` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Construction Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Construction Type Id` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Define Thermal Properties by` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Finish` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Heat Transfer Coefficient (U)` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Material` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Offset` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Solar Heat Gain Coefficient` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Thermal Resistance (R)` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Thickness` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Visual Light Transmittance` | Autodesk.Revit.DB.ForgeTypeId | no | no |
+| `Analytic Construction` | — | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Construction Type` | spec.string | no | yes |
+| `Construction Type Id` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Define Thermal Properties by` | — | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Finish` | spec.string | no | yes |
+| `Heat Transfer Coefficient (U)` | heatTransferCoefficient | no | no |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Material` | material | no | yes |
+| `Model` | spec.string | no | yes |
+| `Offset` | length | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Solar Heat Gain Coefficient` | number | no | no |
+| `Thermal Resistance (R)` | thermalResistance | no | no |
+| `Thickness` | length | no | yes |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
+| `Visual Light Transmittance` | number | no | no |
 
 </details>
 
@@ -4603,34 +4612,34 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Center Width` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Corner Mullion` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Depth` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Material` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Offset` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Center Width` | length | no | yes |
+| `Code Name` | spec.string | no | no |
+| `Corner Mullion` | spec.bool | no | no |
+| `Cost` | currency | no | yes |
+| `Depth` | length | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Material` | material | no | yes |
+| `Model` | spec.string | no | yes |
+| `Offset` | length | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
 
 </details>
 
@@ -4638,58 +4647,58 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Bolt Diameter` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Bolt Spacing` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Centroid Horizontal` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Centroid Vertical` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Clear Web Height` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Elastic Modulus strong axis` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Elastic Modulus weak axis` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Flange Thickness` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Flange Toe of Fillet` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Height` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Moment of Inertia strong axis` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Moment of Inertia weak axis` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Nominal Weight` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Perimeter` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Plastic Modulus strong axis` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Plastic Modulus weak axis` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Principal Axes Angle` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Section Area` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Section Name Key` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Section Shape` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Shear Area strong axis` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Shear Area weak axis` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Torsional Modulus` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Torsional Moment of Inertia` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Warping Constant` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Web Fillet` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Web Thickness` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Web Toe of Fillet` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Width` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Bolt Diameter` | sectionDimension | no | yes |
+| `Bolt Spacing` | sectionDimension | no | yes |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Centroid Horizontal` | sectionProperty | no | yes |
+| `Centroid Vertical` | sectionProperty | no | yes |
+| `Clear Web Height` | sectionDimension | no | yes |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Elastic Modulus strong axis` | sectionModulus | no | yes |
+| `Elastic Modulus weak axis` | sectionModulus | no | yes |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Flange Thickness` | sectionProperty | no | yes |
+| `Flange Toe of Fillet` | sectionDimension | no | yes |
+| `Height` | sectionProperty | no | yes |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `Moment of Inertia strong axis` | momentOfInertia | no | yes |
+| `Moment of Inertia weak axis` | momentOfInertia | no | yes |
+| `Nominal Weight` | weightPerUnitLength | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Perimeter` | surfaceAreaPerUnitLength | no | yes |
+| `Plastic Modulus strong axis` | sectionModulus | no | yes |
+| `Plastic Modulus weak axis` | sectionModulus | no | yes |
+| `Principal Axes Angle` | angle | no | yes |
+| `Section Area` | sectionArea | no | yes |
+| `Section Name Key` | spec.string | no | no |
+| `Section Shape` | spec.string | no | no |
+| `Shear Area strong axis` | sectionArea | no | yes |
+| `Shear Area weak axis` | sectionArea | no | yes |
+| `Torsional Modulus` | sectionModulus | no | yes |
+| `Torsional Moment of Inertia` | momentOfInertia | no | yes |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
+| `Warping Constant` | warpingConstant | no | yes |
+| `Web Fillet` | sectionProperty | no | yes |
+| `Web Thickness` | sectionProperty | no | yes |
+| `Web Toe of Fillet` | sectionDimension | no | yes |
+| `Width` | sectionProperty | no | yes |
 
 </details>
 
@@ -4697,35 +4706,35 @@ Belongs to the family and cannot be reached from outside it.
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
-| `Assembly Code` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Assembly Description` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Category` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Code Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Corner Mullion` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Cost` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Description` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Design Option` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Export Type to IFC` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Export Type to IFC As` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Family Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Keynote` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Leg 1` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Leg 2` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Manufacturer` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Material` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Model` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Offset` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `OmniClass Number` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `OmniClass Title` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Thickness` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Comments` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IFC Predefined Type` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type IfcGUID` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Image` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `Type Mark` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
-| `Type Name` | Autodesk.Revit.DB.ForgeTypeId | no | no |
-| `URL` | Autodesk.Revit.DB.ForgeTypeId | no | yes |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Corner Mullion` | spec.bool | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Keynote` | spec.string | no | yes |
+| `Leg 1` | length | no | yes |
+| `Leg 2` | length | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Material` | material | no | yes |
+| `Model` | spec.string | no | yes |
+| `Offset` | length | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Thickness` | length | no | yes |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
 
 </details>
 
