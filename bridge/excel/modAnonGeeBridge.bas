@@ -64,6 +64,31 @@ Public Const BRIDGE_TIMEOUT_SECONDS As Long = 15
 Public Const POLL_EVERY_MS As Long = 500
 Public Const GIVE_UP_AFTER_SECONDS As Long = 300
 
+' The CONTROL sheet's columns are found by these names, never by number.
+'
+' They were numbers once. Adding a Built? column to the workbook moved Write?
+' from 5 to 6, the macro went on reading 5, and every run was a dry run that
+' could not be switched off -- while the status it wrote landed in the Write?
+' cell and made the switch say "done". BUG-16. A name cannot be moved by
+' inserting a column beside it, so names it is.
+Public Const CONTROL_SHEET As String = "CONTROL"
+Public Const COLUMN_COMMAND As String = "Command"
+Public Const COLUMN_WRITE As String = "Write?"
+Public Const COLUMN_STATUS As String = "Last status"
+Public Const COLUMN_WHEN As String = "When"
+Public Const COLUMN_NOTE As String = "Note"
+
+' Where the unit for the whole workbook is kept. Revit works in internal feet
+' whatever a project's display units say, so the number in a cell means nothing
+' until something says which unit it is in.
+Public Const INFO_SHEET As String = "INFO"
+Public Const INFO_UNITS_KEY As String = "UNITS"
+Public Const UNITS_DEFAULT As String = "mm"
+
+' How far down a sheet a header row is looked for. Deep enough for a title
+' block above the table, shallow enough to be instant.
+Public Const HEADER_SEARCH_ROWS As Long = 30
+
 ' ---------------------------------------------------------------------------
 ' EVERY module-level declaration lives above this line, and it has to.
 '
@@ -354,6 +379,30 @@ Public Sub Run_Grids()
 End Sub
 
 
+' The four below are declared in Revit and not written yet. They exist so the
+' button exists: pressing one answers "declared but not built yet", which says
+' where the work is. A button with no macro assigned answers with Excel's own
+' "cannot find the macro", which says nothing.
+Public Sub Run_Footings()
+    RunCommand "footings.sync", "FOOTING_PLACEMENT"
+End Sub
+
+
+Public Sub Run_Columns()
+    RunCommand "columns.sync", "COLUMN_PLACEMENT"
+End Sub
+
+
+Public Sub Run_Beams()
+    RunCommand "beams.sync", "BEAM_PLACEMENT"
+End Sub
+
+
+Public Sub Run_Slabs()
+    RunCommand "slabs.sync", "SLAB_PLACEMENT"
+End Sub
+
+
 Public Sub RunCommand(ByVal command As String, ByVal sheetName As String)
     ' The workbook on disk is what Revit reads, so it has to be the workbook
     ' you are looking at. Saving first is not a courtesy, it is the contract.
@@ -361,11 +410,22 @@ Public Sub RunCommand(ByVal command As String, ByVal sheetName As String)
     ThisWorkbook.Save
     On Error GoTo 0
 
+    Dim unreadable As String
+    unreadable = ControlIsReadable(command)
+    If unreadable <> "" Then
+        MsgBox unreadable & vbCrLf & vbCrLf & _
+               "Nothing was sent. A run that cannot read its own Write? " & _
+               "switch would be a dry run that looks like Revit ignoring " & _
+               "you, and that is worth refusing.", vbExclamation, "AnonGee Bridge"
+        Exit Sub
+    End If
+
     Dim dryRun As Boolean
     dryRun = ReadDryRun(command)
 
     Dim reply As String
-    reply = HttpPost(BridgeUrl("jobs"), JobJson(command, sheetName, dryRun))
+    reply = HttpPost(BridgeUrl("jobs"), _
+                     JobJson(command, sheetName, dryRun, ReadUnits()))
 
     Dim jobId As String
     jobId = JsonValue(reply, "jobId")
@@ -411,15 +471,59 @@ End Sub
 
 
 Private Function JobJson(ByVal command As String, ByVal sheetName As String, _
-                         ByVal dryRun As Boolean) As String
-    ' Built by hand because it is four fields. Anything larger belongs in a
+                         ByVal dryRun As Boolean, ByVal units As String) As String
+    ' Built by hand because it is five fields. Anything larger belongs in a
     ' sheet Revit reads for itself -- the envelope carries which sheet, never
     ' the data.
+    '
+    ' The unit travels with the job because a number in a cell means nothing
+    ' without one. Revit is internal feet whatever the project units say, so
+    ' something has to state what 3.3 was meant to be.
     JobJson = "{""envelope"": ""1.0""" & _
               ", ""command"": """ & command & """" & _
               ", ""workbook"": """ & JsonEscape(ThisWorkbook.FullName) & """" & _
               ", ""sheet"": """ & sheetName & """" & _
-              ", ""options"": {""dryRun"": " & LCase$(CStr(dryRun)) & "}}"
+              ", ""options"": {""dryRun"": " & LCase$(CStr(dryRun)) & _
+              ", ""units"": """ & units & """}}"
+End Function
+
+
+Public Function ReadUnits() As String
+    ' The unit for the whole workbook, from INFO. "mm" when the sheet does not
+    ' say -- every workbook before this one was millimetres, and a default that
+    ' silently rescales an old sheet by a thousand is not a default.
+    ReadUnits = UNITS_DEFAULT
+    On Error Resume Next
+    Dim sheet As Worksheet
+    Set sheet = ThisWorkbook.Worksheets(INFO_SHEET)
+    On Error GoTo 0
+    If sheet Is Nothing Then Exit Function
+
+    Dim row As Long
+    For row = 1 To HEADER_SEARCH_ROWS
+        If Fold(CStr(sheet.Cells(row, 1).Value)) = Fold(INFO_UNITS_KEY) Then
+            ReadUnits = NormaliseUnit(CStr(sheet.Cells(row, 2).Value))
+            Exit Function
+        End If
+    Next row
+End Function
+
+
+Public Function NormaliseUnit(ByVal text As String) As String
+    ' "m" or "mm", from whatever was typed or picked.
+    Dim folded As String
+    folded = Fold(text)
+    If folded = "" Then
+        NormaliseUnit = UNITS_DEFAULT
+    ElseIf Left$(folded, 2) = "mm" Then
+        NormaliseUnit = "mm"
+    ElseIf Left$(folded, 6) = "millim" Then
+        NormaliseUnit = "mm"
+    ElseIf Left$(folded, 1) = "m" Then
+        NormaliseUnit = "m"
+    Else
+        NormaliseUnit = UNITS_DEFAULT
+    End If
 End Function
 
 
@@ -606,37 +710,373 @@ Private Sub WriteControlStatus(ByVal command As String, ByVal status As String, 
                                ByVal note As String)
     ' The CONTROL sheet carries one row per command; find it by name and put
     ' the outcome beside the button that caused it.
+    '
+    ' Every column is found by its header. Writing to a fixed column number is
+    ' how the status once landed in the Write? cell and turned the switch into
+    ' the word "done" -- see BUG-16 and CONTROL_SHEET above.
     On Error Resume Next
     Dim sheet As Worksheet
-    Set sheet = ThisWorkbook.Worksheets("CONTROL")
+    Set sheet = ThisWorkbook.Worksheets(CONTROL_SHEET)
     On Error GoTo 0
     If sheet Is Nothing Then Exit Sub
 
     Dim row As Long
-    For row = 1 To 60
-        If sheet.Cells(row, 2).Value = command Then
-            sheet.Cells(row, 6).Value = status
-            sheet.Cells(row, 7).Value = Now
-            sheet.Cells(row, 8).Value = note
-            Exit For
-        End If
-    Next row
+    row = ControlRowFor(sheet, command)
+    If row = 0 Then Exit Sub
+
+    Dim header As Long
+    header = ControlHeaderRow(sheet)
+    If header = 0 Then Exit Sub
+
+    PutCell sheet, row, ControlColumn(sheet, header, COLUMN_STATUS), status
+    PutCell sheet, row, ControlColumn(sheet, header, COLUMN_WHEN), Now
+    PutCell sheet, row, ControlColumn(sheet, header, COLUMN_NOTE), note
 End Sub
 
 
-Private Function ReadDryRun(ByVal command As String) As Boolean
-    ReadDryRun = True                       ' nothing is written unless asked
-    On Error Resume Next
-    Dim sheet As Worksheet
-    Set sheet = ThisWorkbook.Worksheets("CONTROL")
-    On Error GoTo 0
-    If sheet Is Nothing Then Exit Function
+Private Sub PutCell(ByVal sheet As Worksheet, ByVal row As Long, _
+                    ByVal column As Long, ByVal value As Variant)
+    ' A missing column is skipped rather than written to column zero. The
+    ' report says which one was missing; guessing a position is what caused
+    ' the bug this is here to prevent.
+    If column = 0 Then Exit Sub
+    sheet.Cells(row, column).Value = value
+End Sub
+
+
+Public Function ControlHeaderRow(ByVal sheet As Worksheet) As Long
+    ' The row carrying the word Command. Found, not assumed: the CONTROL sheet
+    ' has five lines of instructions above its table today and will grow more.
+    ControlHeaderRow = 0
+    Dim row As Long
+    Dim column As Long
+    For row = 1 To HEADER_SEARCH_ROWS
+        For column = 1 To 30
+            If Trim$(CStr(sheet.Cells(row, column).Value)) = COLUMN_COMMAND Then
+                ControlHeaderRow = row
+                Exit Function
+            End If
+        Next column
+    Next row
+End Function
+
+
+Public Function ControlColumn(ByVal sheet As Worksheet, ByVal header As Long, _
+                              ByVal name As String) As Long
+    ' The column under this header, or 0. Compared folded, so "Write?" still
+    ' matches after somebody types a space after it.
+    ControlColumn = 0
+    Dim column As Long
+    For column = 1 To 30
+        If Fold(CStr(sheet.Cells(header, column).Value)) = Fold(name) Then
+            ControlColumn = column
+            Exit Function
+        End If
+    Next column
+End Function
+
+
+Public Function ControlRowFor(ByVal sheet As Worksheet, _
+                              ByVal command As String) As Long
+    ' The row whose Command cell is this command, or 0.
+    ControlRowFor = 0
+    Dim header As Long
+    header = ControlHeaderRow(sheet)
+    If header = 0 Then Exit Function
+
+    Dim commandColumn As Long
+    commandColumn = ControlColumn(sheet, header, COLUMN_COMMAND)
+    If commandColumn = 0 Then Exit Function
 
     Dim row As Long
-    For row = 1 To 60
-        If sheet.Cells(row, 2).Value = command Then
-            ReadDryRun = (UCase$(Trim$(CStr(sheet.Cells(row, 5).Value))) <> "NO")
+    For row = header + 1 To header + 60
+        If Trim$(CStr(sheet.Cells(row, commandColumn).Value)) = command Then
+            ControlRowFor = row
             Exit Function
         End If
     Next row
 End Function
+
+
+Public Function Fold(ByVal text As String) As String
+    ' Lower case, no spaces. Enough to survive a typed heading.
+    Fold = LCase$(Replace(Trim$(text), " ", ""))
+End Function
+
+
+Private Function ReadDryRun(ByVal command As String) As Boolean
+    ' True unless the Write? cell for this command says Yes.
+    '
+    ' The default is a dry run and stays that way through every failure below:
+    ' no sheet, no header, no column, no row. The one thing this must never do
+    ' is read some other column and let it decide -- that is BUG-16, where
+    ' Built? said "yes", which is not "No", and so nothing could ever be built.
+    ReadDryRun = True
+    On Error Resume Next
+    Dim sheet As Worksheet
+    Set sheet = ThisWorkbook.Worksheets(CONTROL_SHEET)
+    On Error GoTo 0
+    If sheet Is Nothing Then Exit Function
+
+    Dim header As Long
+    header = ControlHeaderRow(sheet)
+    If header = 0 Then Exit Function
+
+    Dim writeColumn As Long
+    writeColumn = ControlColumn(sheet, header, COLUMN_WRITE)
+    If writeColumn = 0 Then Exit Function
+
+    Dim row As Long
+    row = ControlRowFor(sheet, command)
+    If row = 0 Then Exit Function
+
+    ReadDryRun = (Fold(CStr(sheet.Cells(row, writeColumn).Value)) <> "yes")
+End Function
+
+
+Public Function ControlIsReadable(ByVal command As String) As String
+    ' "" when the CONTROL sheet can be read, or a sentence saying what is
+    ' missing. RunCommand refuses rather than falling back to a dry run,
+    ' because a silent dry run is indistinguishable from Revit ignoring you --
+    ' which is exactly how BUG-16 cost a test round.
+    ControlIsReadable = ""
+    Dim sheet As Worksheet
+    On Error Resume Next
+    Set sheet = ThisWorkbook.Worksheets(CONTROL_SHEET)
+    On Error GoTo 0
+    If sheet Is Nothing Then
+        ControlIsReadable = "This workbook has no CONTROL sheet."
+        Exit Function
+    End If
+
+    Dim header As Long
+    header = ControlHeaderRow(sheet)
+    If header = 0 Then
+        ControlIsReadable = "The CONTROL sheet has no row headed " & _
+                            COLUMN_COMMAND & "."
+        Exit Function
+    End If
+
+    If ControlColumn(sheet, header, COLUMN_WRITE) = 0 Then
+        ControlIsReadable = "The CONTROL sheet has no " & COLUMN_WRITE & _
+                            " column, so there is no way to say whether to " & _
+                            "write. Rebuild it with build_sample_project.py."
+        Exit Function
+    End If
+
+    If ControlRowFor(sheet, command) = 0 Then
+        ControlIsReadable = "The CONTROL sheet has no row for " & command & "."
+    End If
+End Function
+
+
+' ---------------------------------------------------------------------------
+' Setup: the two things openpyxl cannot put in the file
+' ---------------------------------------------------------------------------
+
+Public Sub AnonGeeBridge_AddButtons()
+    ' Draw a Form Control button on every CONTROL row and assign its macro.
+    '
+    ' The build script cannot do this. openpyxl writes sheets, values and
+    ' validation; a Form Control is a drawing object with a macro reference,
+    ' and no Python library writes one into an .xlsm. So it is one Alt+F8,
+    ' like the .bas import, and re-running it is safe -- ours are deleted
+    ' first, so the buttons never stack up on a rebuild.
+    On Error GoTo Failed
+
+    Dim sheet As Worksheet
+    Set sheet = ThisWorkbook.Worksheets(CONTROL_SHEET)
+
+    Dim header As Long
+    header = ControlHeaderRow(sheet)
+    If header = 0 Then
+        MsgBox "The CONTROL sheet has no row headed " & COLUMN_COMMAND & _
+               ", so there is nothing to put buttons beside.", _
+               vbExclamation, "AnonGee Bridge"
+        Exit Sub
+    End If
+
+    Dim commandColumn As Long
+    commandColumn = ControlColumn(sheet, header, COLUMN_COMMAND)
+    If commandColumn = 0 Then Exit Sub
+
+    RemoveOurButtons sheet
+
+    Dim made As Long
+    Dim row As Long
+    Dim command As String
+    For row = header + 1 To header + 60
+        command = Trim$(CStr(sheet.Cells(row, commandColumn).Value))
+        If command <> "" Then
+            If AddOneButton(sheet, row, command) Then made = made + 1
+        End If
+    Next row
+
+    MsgBox made & " button(s) drawn on " & CONTROL_SHEET & "." & vbCrLf & _
+           vbCrLf & "Save the workbook. Run this again after any rebuild " & _
+           "that changes the rows.", vbInformation, "AnonGee Bridge"
+    Exit Sub
+
+Failed:
+    MsgBox "Could not draw the buttons: " & Err.Description, _
+           vbExclamation, "AnonGee Bridge"
+End Sub
+
+
+Private Sub RemoveOurButtons(ByVal sheet As Worksheet)
+    ' Only ours, and only by name. Deleting every shape on the sheet would
+    ' take a logo or a note somebody put there.
+    On Error Resume Next
+    Dim index As Long
+    For index = sheet.Shapes.Count To 1 Step -1
+        If Left$(sheet.Shapes(index).Name, 11) = "AnonGeeRun_" Then
+            sheet.Shapes(index).Delete
+        End If
+    Next index
+    On Error GoTo 0
+End Sub
+
+
+Private Function AddOneButton(ByVal sheet As Worksheet, ByVal row As Long, _
+                              ByVal command As String) As Boolean
+    ' One button, sized to the first cell of the row, running the macro for
+    ' this command. A command with no macro gets no button rather than a
+    ' button that cannot work.
+    AddOneButton = False
+
+    Dim macro As String
+    macro = MacroFor(command)
+    If macro = "" Then Exit Function
+
+    Dim cell As Range
+    Set cell = sheet.Cells(row, 1)
+
+    Dim button As Object
+    Set button = sheet.Buttons.Add(cell.Left + 2, cell.Top + 2, _
+                                   cell.Width - 4, cell.Height - 4)
+    button.Name = "AnonGeeRun_" & Replace(command, ".", "_")
+    button.OnAction = macro
+    button.Caption = CStr(cell.Value)
+    AddOneButton = True
+End Function
+
+
+Public Function MacroFor(ByVal command As String) As String
+    ' The macro that runs a command. One place, so a button and a test can
+    ' both ask rather than each keeping its own copy of the mapping.
+    Select Case LCase$(Trim$(command))
+        Case "bridge.echo":    MacroFor = "Run_Echo"
+        Case "levels.sync":    MacroFor = "Run_Levels"
+        Case "grids.sync":     MacroFor = "Run_Grids"
+        Case "footings.sync":  MacroFor = "Run_Footings"
+        Case "columns.sync":   MacroFor = "Run_Columns"
+        Case "beams.sync":     MacroFor = "Run_Beams"
+        Case "slabs.sync":     MacroFor = "Run_Slabs"
+        Case Else:             MacroFor = ""
+    End Select
+End Function
+
+
+Public Sub AnonGeeBridge_ApplyUnits()
+    ' Convert every length in the workbook to the unit chosen on INFO.
+    '
+    ' Which columns are lengths is not a list kept somewhere -- it is written
+    ' in the header. A column headed "Elevation (m)" is a length in metres,
+    ' and this scales its values and rewrites the header. So the unit is
+    ' visible in the sheet rather than remembered, a column somebody adds is
+    ' converted the moment they label it, and running this twice does nothing
+    ' the second time.
+    On Error GoTo Failed
+
+    Dim wanted As String
+    wanted = ReadUnits()
+
+    Dim converted As Long
+    Dim sheet As Worksheet
+    For Each sheet In ThisWorkbook.Worksheets
+        converted = converted + ConvertSheetUnits(sheet, wanted)
+    Next sheet
+
+    MsgBox converted & " column(s) are now in " & wanted & "." & vbCrLf & _
+           vbCrLf & "A column is converted when its header says its unit, " & _
+           "like Elevation (mm). Headers without one are left alone.", _
+           vbInformation, "AnonGee Bridge"
+    Exit Sub
+
+Failed:
+    MsgBox "Could not convert: " & Err.Description, vbExclamation, _
+           "AnonGee Bridge"
+End Sub
+
+
+Private Function ConvertSheetUnits(ByVal sheet As Worksheet, _
+                                   ByVal wanted As String) As Long
+    ' Every header on this sheet carrying a unit, scaled to the wanted one.
+    ConvertSheetUnits = 0
+
+    Dim lastRow As Long
+    Dim lastColumn As Long
+    lastRow = sheet.UsedRange.row + sheet.UsedRange.Rows.Count - 1
+    lastColumn = sheet.UsedRange.column + sheet.UsedRange.Columns.Count - 1
+    If lastRow < 2 Then Exit Function
+
+    Dim row As Long
+    Dim column As Long
+    Dim head As String
+    Dim found As String
+    For row = 1 To Application.Min(HEADER_SEARCH_ROWS, lastRow)
+        For column = 1 To lastColumn
+            head = CStr(sheet.Cells(row, column).Value)
+            found = UnitInHeader(head)
+            If found <> "" And found <> wanted Then
+                ScaleColumn sheet, row, column, lastRow, _
+                            UnitFactor(found, wanted)
+                sheet.Cells(row, column).Value = _
+                    Replace(head, "(" & found & ")", "(" & wanted & ")")
+                ConvertSheetUnits = ConvertSheetUnits + 1
+            End If
+        Next column
+    Next row
+End Function
+
+
+Public Function UnitInHeader(ByVal head As String) As String
+    ' "mm", "m", or "" -- the unit a header declares in brackets.
+    Dim folded As String
+    folded = Fold(head)
+    If InStr(folded, "(mm)") > 0 Then
+        UnitInHeader = "mm"
+    ElseIf InStr(folded, "(m)") > 0 Then
+        UnitInHeader = "m"
+    Else
+        UnitInHeader = ""
+    End If
+End Function
+
+
+Public Function UnitFactor(ByVal from As String, ByVal wanted As String) As Double
+    ' What to multiply a number in `from` by to get one in `wanted`.
+    UnitFactor = 1
+    If from = wanted Then Exit Function
+    If from = "mm" And wanted = "m" Then UnitFactor = 0.001
+    If from = "m" And wanted = "mm" Then UnitFactor = 1000
+End Function
+
+
+Private Sub ScaleColumn(ByVal sheet As Worksheet, ByVal header As Long, _
+                        ByVal column As Long, ByVal lastRow As Long, _
+                        ByVal factor As Double)
+    ' Numbers only. A blank stays blank and a word stays a word -- a cell
+    ' reading "as drawn" is an instruction, not a length, and multiplying it
+    ' by a thousand would lose it.
+    If factor = 1 Then Exit Sub
+    Dim row As Long
+    For row = header + 1 To lastRow
+        If IsNumeric(sheet.Cells(row, column).Value) Then
+            If Trim$(CStr(sheet.Cells(row, column).Value)) <> "" Then
+                sheet.Cells(row, column).Value = _
+                    sheet.Cells(row, column).Value * factor
+            End If
+        End If
+    Next row
+End Sub

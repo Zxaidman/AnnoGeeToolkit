@@ -53,8 +53,17 @@ def run(uiapp, envelope):
                 sheet_name, ", ".join(sorted(grids)) or "nothing")))
         return summary, findings, "nothing to read"
 
-    rows, parse_issues = datum.parse_levels(grid, sheet_name)
+    units = datum.normalise_unit(
+        envelope_module.option(envelope, "units", datum.UNITS_MM))
+    rows, parse_issues = datum.parse_levels(grid, sheet_name, units=units)
     findings.extend(envelope_module.findings_from_issues(parse_issues))
+
+    # A row measured from the survey point needs the model's own offset, and a
+    # row that gives both elevations gets them checked against it. Asked once,
+    # here, so the pure half never has to guess at it.
+    offset_mm, offset_note = _survey_offset(doc)
+    findings.extend(envelope_module.findings_from_issues(
+        datum.resolve_elevations(rows, offset_mm, sheet=sheet_name)))
 
     existing = _existing(doc)
     plans, plan_issues = datum.plan_levels(rows, existing, sheet=sheet_name)
@@ -63,10 +72,12 @@ def run(uiapp, envelope):
 
     dry_run = envelope_module.option(envelope, "dryRun", True)
     doing = [plan for plan in plans if plan.will_write]
+    reading = "read as {0}; {1}".format(units, offset_note)
     if dry_run:
         return summary, findings, (
             "dry run: {0} level(s) would be created or changed, and nothing "
-            "was written. Set Write? to Yes to build.".format(len(doing)))
+            "was written. Set Write? to Yes to build. ({1})".format(
+                len(doing), reading))
     if not doing:
         return summary, findings, "every level already agrees with the sheet"
 
@@ -74,7 +85,7 @@ def run(uiapp, envelope):
     summary["written"] = written
     findings.extend(write_findings)
     return summary, findings, (
-        "{0} level(s) written, as one undo step".format(written))
+        "{0} level(s) written, as one undo step ({1})".format(written, reading))
 
 
 def _sheet(grids, wanted):
@@ -84,6 +95,15 @@ def _sheet(grids, wanted):
         if "".join(c for c in name.lower() if c.isalnum()) == folded:
             return grid
     return None
+
+
+def _survey_offset(doc):
+    """``(offset_mm or None, one sentence about it)``."""
+    try:
+        from anongee_toolkit.structural import coordinates
+        return coordinates.survey_offset_mm(doc)
+    except Exception as error:
+        return None, "the survey offset could not be read: {0}".format(error)
 
 
 def _existing(doc):

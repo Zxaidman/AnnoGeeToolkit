@@ -108,18 +108,30 @@ Two conventions are what there is to disagree with:
 
 | | |
 | --- | --- |
-| **Grid reference first, coordinates as the fallback** | every placement row names an intersection — `GridX` `A`, `GridY` `1` — and leaves X and Y empty. The coordinates are there for what a grid cannot describe, and for a model that has no grids in it yet. |
+| **One unit, named in every header** | `INFO` carries it, metres by default, and every length column says which unit it is in — `Elevation PBP (m)`. The unit sits beside the number instead of in somebody's memory, and `AnonGeeBridge_ApplyUnits` finds exactly the columns it must rescale. A header beats the job: a column headed `(m)` is metres whatever the job says. |
+| **Grid reference first, offsets as the fallback** | every placement row names an intersection — `GridX` `A`, `GridY` `1` — and leaves the offsets empty. `OffsetX`/`OffsetY` are measured **from that intersection**, so a column 150 off the grid says so in one cell and survives somebody moving the grid. |
 | **One row per element that will exist** | a column rising six storeys is six rows, not one. In a reinforced concrete frame those are six pours with a joint between each, and a column that reduces at the fourth floor has to be able to say so. Verbose, and honest. |
+| **A mark is a label; the key is position** | a column at A1 marked `C1` is `C1` all the way up, even where it reduces. Two columns share a mark on one floor only if their size **and** rebar schedule agree. So marks repeat by design, and what has to be unique is grid position plus storey. |
 
 | Sheet | |
 | --- | --- |
-| `FOOTING_TYPES` `FOOTING_PLACEMENT` | F1 internal, F2 edge, F3 corner. One footing per intersection, `Outline` empty because the type is rectangular. |
-| `COLUMN_TYPES` `COLUMN_PLACEMENT` | C1 300x600 up to the second floor, C2 300x450 above it. One row per column per storey, marked `C-A1-S1`. |
-| `BEAM_TYPES` `BEAM_PLACEMENT` | B1 300x600 on every framed level, PB1 230x450 as plinth beams at ground. Each row names the two intersections it spans. |
-| `SLAB_TYPES` `SLAB_PLACEMENT` | One 150 slab per framed level, the footprint given as an `Outline`. |
+| `LEVELS` | Both elevations — Project Base Point and Survey Point — and `ElevationBase` saying which one drives. The survey offset comes from the model's own base points; a disagreement between the two columns is reported, never resolved. |
+| `FOOTING_TYPES` `FOOTING_PLACEMENT` | F1 internal, F2 edge, F3 corner. One footing per intersection. `Outline` is for a pad the type cannot describe — combined, stepped, cut round a pit — and is blank for anything rectangular. |
+| `COLUMN_TYPES` `COLUMN_PLACEMENT` | `C-300x600` up to the second floor, `C-300x450` above. One row per column per storey; three marks, by cage rather than by size. |
+| `BEAM_TYPES` `BEAM_PLACEMENT` | 62 beams over 132 spans. A simply supported beam is one row, a continuous beam is a group of rows sharing a mark, and **a blank row separates groups** — so continuity is read from the shape of the sheet. The plinth beams are simply supported; the floor beams are continuous. |
+| `SLAB_TYPES` `SLAB_PLACEMENT` | 40 panels: one slab per bay, bounded by its four grids and stopping at the **inner face of its beams**, so the beam is not counted twice. `EdgeRule` names the convention per row. |
+| `LOG` | What happened. The one sheet a rebuild does not regenerate. |
 
 The `Built?` column on `CONTROL` says which buttons do anything yet. It is not
 maintained by hand — a test compares it with the registry.
+
+**No buttons on `CONTROL`?** `Alt+F8` → `AnonGeeBridge_AddButtons` → Run, once.
+`openpyxl` writes sheets, values and validation and cannot write a Form Control,
+so this is the second and last thing the workbook needs done by hand.
+
+**Changing the unit:** pick it on `INFO`, then `Alt+F8` →
+`AnonGeeBridge_ApplyUnits`. It scales every column whose header names a unit and
+rewrites the header, so running it twice does nothing the second time.
 
 ---
 

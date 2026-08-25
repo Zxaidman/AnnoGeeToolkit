@@ -24,7 +24,7 @@ Excel becomes a transaction in Revit.
 | Phase | Meaning |
 | --- | --- |
 | `pending` | Not started. |
-| `building` | Being written now. |
+| `testing` | Being written now. |
 | `testing` | Built and in a build the project owner can test; waiting for in Revit result. |
 | `superseded` | It worked, and something else replaced it. Recorded rather than deleted — what it cost to build is part of the record. |
 | `failed` | Tested in Revit and wrong. It stays here, carrying what was seen, and does not reach `done-list.md`. |
@@ -57,13 +57,19 @@ ID is where the detail lives. Four words, meaning exactly four things:
 | Thing | Command | Built | Tested in Revit | Done | Failed → redone | ID |
 | --- | --- | --- | --- | --- | --- | --- |
 | The wire — Excel posts, Revit runs, Excel reads the answer | — | 1.10.0 | yes, five jobs round-tripped | **yes** | 0 — but 4 rounds lost to bugs *in the diagnostic*, not the bridge | DONE-1..4 |
-| Sample project workbook — Foundation + G + 4 | — | 1.14.0 | **not yet — the format is the thing being reviewed** | no | 0 | FEAT-22 |
-| Levels | `levels.sync` | yes | dry run only: `created=2 matched=1 modified=1 written=0` | no — the write path has never run | 0 | FEAT-5 |
-| Grids | `grids.sync` | yes | **never run** | no | 0 | FEAT-6 |
-| Footings | `footings.sync` | declared, not written | — | no | 0 | FEAT-23 |
-| Columns | `columns.sync` | declared, not written | — | no | 0 | FEAT-10 |
-| Beams | `beams.sync` | declared, not written | — | no | 0 | FEAT-11 |
-| Slabs | `slabs.sync` | declared, not written | — | no | 0 | FEAT-13 |
+| The `Write?` switch | — | 1.15.0 | **failed 2026-08-25**, rebuilt | no | **1** — read from the wrong column, so no run could ever write | BUG-16 |
+| Sample project workbook — Foundation + G + 4 | — | 1.15.0, second format | reviewed once; six changes asked for and made | no | 0 | FEAT-22, 24–30 |
+| Levels | `levels.sync` | yes | dry run twice: `created=6 matched=1 written=0`. **The write has still never run** — BUG-16 was in the way both times | no | 0 | FEAT-5 |
+| Grids | `grids.sync` | yes | dry run: `created=8 written=0`. Same blocker | no | 0 | FEAT-6 |
+| Footings | `footings.sync` | declared, not written | — | no | 0 | FEAT-23, 27 |
+| Columns | `columns.sync` | declared, not written | — | no | 0 | FEAT-10, 28 |
+| Beams | `beams.sync` | declared, not written | — | no | 0 | FEAT-11, 29 |
+| Slabs | `slabs.sync` | declared, not written | — | no | 0 | FEAT-13, 30 |
+
+**Two dry runs are not two tests of the same thing.** Both said `created=6` and both wrote nothing,
+and the second one was not a repeat — it was the round that made BUG-16 findable, because a *workbook*
+came back rather than a screenshot, and the wrong column was visible in it. The `Failed → redone`
+column counts one failure, not two runs.
 
 **Declared, not written** is a deliberate third state and not a synonym for missing. The name and
 the sheet are in `registry.py`, so the workbook can carry the button and the button answers *declared
@@ -395,6 +401,36 @@ as mojibake.
 keeps the full text and names UTF-8. That split is the one real cost of writing
 the answer twice, and it is still cheaper than a JSON parser in VBA.
 
+### BUG-16 — `Write? = Yes` did nothing, and the switch overwrote itself · `testing`
+
+**How it was found.** The project owner ran `levels.sync` and `grids.sync` against a model with
+`Write?` set, and reported *created=6* and *created=8* with nothing in Revit. **Reproduced from the
+workbook they pushed**, without needing Revit: the `LOG` sheet says `written=0` and the note says
+*"dry run"*, and the `CONTROL` row shows the outcome written one column to the left of where it
+belongs.
+
+**Cause, and it is one number.** The sample workbook added a `Built?` column at position 5, so
+`Write?` moved to 6 and `Last status` to 7. The macro has those positions hard-coded from the datum
+workbook's layout:
+
+```vba
+ReadDryRun = (UCase$(Trim$(CStr(sheet.Cells(row, 5).Value))) <> "NO")   ' reads Built?
+sheet.Cells(row, 6).Value = status                                      ' writes over Write?
+```
+
+So the switch was read from `Built?`, which says `yes` or `not yet` and never says `No` — and
+`ReadDryRun` defaults to a dry run for anything that is not `No`. **`Write? = Yes` could not work,
+whatever the owner typed.** Then the status was written into the `Write?` cell, so after the first
+run the switch said `done`, and the workbook could never be made to write again.
+
+The tool was right about itself the whole time — the note said *dry run*, and `written=0` was true.
+Which is worth noting: the report was the thing that made this findable from a workbook alone.
+
+**The fix is not a corrected number.** Any column added to `CONTROL` breaks a hard-coded index
+again, silently, and the failure looks like Revit not working. The macro finds its columns **by
+header name**, once per run, and says so if a header is missing. A test fails on any `Cells(row, n)`
+against `CONTROL` in the `.bas`.
+
 ### BUG-15 — the macro's dialogs showed mojibake · `testing`
 
 **Found in the owner's screenshots of the first successful job**: every dialog
@@ -443,6 +479,9 @@ Each carries the verdict from the PRD, so the queue and the estimate cannot drif
 | FEAT-2 | VBA: post a job, wait for the result, write the `LOG` row | **Built, `testing`.** No JSON parser was needed after all — Revit writes the result twice, `.json` for machines and `.tsv` for Excel, and the macro reads lines. Colouring the source rows is still to do | `testing` |
 | FEAT-3 | **Build Template** pyRevit tool, and the written `.rvt` specification | Medium. The specification is the harder half | `pending` |
 | FEAT-22 | **Sample project workbook** — a whole Foundation + G + 4 frame, generated from constants by `bridge/excel/build_sample_project.py` | **Built, `testing`.** 24 m x 12 m, grids A–E and 1–3 at 6 m, seven levels, six storeys: 7 levels, 8 grids, 15 footings, 90 columns, 132 beams, 6 slabs. Its point is the **format** — every placement sheet names a grid intersection and leaves the coordinates as the fallback, and a column that rises six storeys is six rows. Waiting on the owner's keep / add / remove | `testing` |
+| FEAT-24 | **Buttons on `CONTROL`** — real Form Control buttons, one per command | `openpyxl` cannot draw a form control, so the workbook cannot ship with them. A macro can: `AnonGeeBridge_AddButtons` draws one per row and assigns its macro, and re-running it replaces rather than stacks them. One `Alt+F8`, like the `.bas` import, and never again | `testing` |
+| FEAT-25 | **A unit for the whole workbook** — `mm` or `m`, chosen on `INFO`, **`m` by default** | Every length header carries its unit — `Elevation (m)` — so the unit is visible in the sheet rather than remembered, and a converter can find exactly the columns it must scale. The job carries the unit to Revit, which is always internal feet whatever the project units say | `testing` |
+| FEAT-26 | **Two elevations on `LEVELS`** — Project Base Point and Survey Point | Both columns, one authority. `ElevationBase` says which one drives, PBP by default; the other is checked against the model's survey offset and a disagreement is reported rather than resolved | `testing` |
 | FEAT-4 | `template.xlsm` build script — sheets, validation, `keep_vba=True` | **Built, `testing`.** `bridge/excel/build_workbook.py` writes `CONTROL`, `INFO`, `LEVELS`, `GRIDS`, `LOG`. One manual step remains and always will: `openpyxl` preserves a VBA project and cannot create one | `testing` |
 
 ### Datum and setup
@@ -459,6 +498,10 @@ Each carries the verdict from the PRD, so the queue and the estimate cannot drif
 
 | ID | What | Verdict | Phase |
 | --- | --- | --- | --- |
+| FEAT-27 | **`FOOTING_PLACEMENT` — say what `X`/`Y` and `Outline` are** | `X`/`Y` become `OffsetX`/`OffsetY`: an offset from the named intersection, blank meaning dead on it, and the absolute position only when no grid is named. `Outline` is for a pad the type cannot describe — combined, stepped, cut round a pit — and is blank for every rectangular footing | `testing` |
+| FEAT-28 | **Column marks follow the stack, not the storey** | The owner's rule: a column at A1 marked `C1` is `C1` all the way up, even where its size changes. Two columns share a mark on one floor **only if size and rebar schedule are both the same**. So `Mark` is a stack label and not a key — the key is grid position plus storey — and `TypeMark` carries the size, which is free to change per lift | `testing` |
+| FEAT-29 | **`BEAM_PLACEMENT` — continuity is the layout** | A simply supported beam is one row. A continuous beam is a group of rows, one per span, sharing a mark, and **a blank row separates groups**. The sheet then reads the way a beam schedule reads, and the parser gets continuity for free instead of from a column somebody has to keep true | `testing` |
+| FEAT-30 | **`SLAB_PLACEMENT` — one slab per panel, to the inner face of the beams** | Not one slab per floor. A panel is bounded by the four grids around it and its edge is the beam's inner face, so the slab stops where the beam starts and the concrete is not counted twice. `EdgeRule` names the convention per row so a cantilever or a slab running over a beam can still be said | `testing` |
 | FEAT-23 | `footings.sync` — the bridge route to the footing placement RC Automation already does | Straightforward, and mostly already written. The pad-as-structural-floor path ships and is confirmed in a model; what is new is reading `FOOTING_PLACEMENT` and resolving a grid intersection to a point | `pending` |
 | FEAT-10 | `columns.sync` — `NewFamilyInstance` between two levels | Straightforward. Closes *RC Automation · CRIT-3*, where every run claims to place columns and places none | `pending` |
 | FEAT-11 | `beams.sync` | Medium. Creation is easy; joins and cutbacks are fiddly | `pending` |

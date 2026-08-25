@@ -663,17 +663,262 @@ class SampleProjectTests(unittest.TestCase):
             column = headers.index("TypeMark")
             self.assertTrue(rows)
             for row in rows:
+                if not any(str(value).strip() for value in row):
+                    continue                  # a group separator, on purpose
                 self.assertIn(row[column], declared)
 
-    def test_every_mark_is_unique_within_its_sheet(self):
-        # Mark is the key the round trip matches on. Two rows sharing one is
-        # two elements the tool cannot tell apart on the second run, which is
-        # where idempotence stops being true.
+    def test_the_key_is_unique_even_where_the_mark_is_not(self):
+        """Mark is a schedule label; the key is what the round trip matches on.
+
+        Columns share marks deliberately — that is the owner's rule — so the
+        thing that has to be unique is grid position plus storey. If *that*
+        repeated, the second run could not tell two columns apart and
+        idempotence would stop being true.
+        """
         sample = self.builder()
-        for rows in (sample.footing_rows(), sample.column_rows(),
-                     sample.beam_rows(), sample.slab_rows()):
-            marks = [row[0] for row in rows]
-            self.assertEqual(len(marks), len(set(marks)))
+        cases = (
+            (sample.footing_rows(), sample.FOOTING_PLACEMENT_HEADERS,
+             ("GridX", "GridY")),
+            (sample.column_rows(), sample.COLUMN_PLACEMENT_HEADERS,
+             ("GridX", "GridY", "Storey")),
+            (sample.slab_rows(), sample.SLAB_PLACEMENT_HEADERS,
+             ("Level", "FromGridX", "ToGridX", "FromGridY", "ToGridY")),
+        )
+        for rows, headers, fields in cases:
+            columns = [headers.index(name) for name in fields]
+            keys = [tuple(row[index] for index in columns) for row in rows]
+            self.assertEqual(len(keys), len(set(keys)), fields)
+
+
+class ColumnMarkTests(unittest.TestCase):
+    """The owner's rule, which is not the obvious one.
+
+    A column at A1 marked ``C1`` is ``C1`` all the way up, **even where its
+    size changes**. And two columns share a mark on one floor only if their
+    size *and* rebar schedule are both the same. Which means a mark is a
+    schedule label rather than a key, and both halves of that need holding
+    down: a mark that changed up the stack would be wrong, and a mark shared by
+    two columns with different cages would be wrong in the other direction.
+    """
+
+    def builder(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("build_sample_project",
+                                                      _SAMPLE)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def rows(self, sample):
+        headers = sample.COLUMN_PLACEMENT_HEADERS
+        index = dict((name, headers.index(name)) for name in headers)
+        return [dict((name, row[index[name]]) for name in headers)
+                for row in sample.column_rows()]
+
+    def test_a_mark_never_changes_going_up(self):
+        stacks = {}
+        for row in self.rows(self.builder()):
+            stacks.setdefault((row["GridX"], row["GridY"]), set()).add(
+                row["Mark"])
+        self.assertTrue(stacks)
+        for where, marks in stacks.items():
+            self.assertEqual(len(marks), 1, "{0} changes mark: {1}".format(
+                where, sorted(marks)))
+
+    def test_a_mark_does_change_type_going_up(self):
+        # The point of the rule. If nothing in the sample ever reduced, the
+        # test above would pass for the wrong reason.
+        types = {}
+        for row in self.rows(self.builder()):
+            types.setdefault(row["Mark"], set()).add(row["TypeMark"])
+        self.assertTrue(any(len(seen) > 1 for seen in types.values()),
+                        "no mark carries two sizes, so the rule is untested")
+
+    def test_two_columns_share_a_mark_only_if_size_and_rebar_agree(self):
+        by_floor = {}
+        for row in self.rows(self.builder()):
+            key = (row["Storey"], row["Mark"])
+            by_floor.setdefault(key, set()).add(
+                (row["TypeMark"], row["RebarSchedule"]))
+        for (storey, mark), kinds in by_floor.items():
+            self.assertEqual(len(kinds), 1,
+                             "{0} on {1} is {2}".format(mark, storey,
+                                                        sorted(kinds)))
+
+    def test_different_cages_of_the_same_size_are_different_marks(self):
+        # The half that is easy to get wrong: grouping on size alone would
+        # give one mark to a corner and an internal column on the same floor.
+        sample = self.builder()
+        base = sample.STOREYS[0][0]
+        seen = {}
+        for row in self.rows(sample):
+            if row["Storey"] != base:
+                continue
+            seen.setdefault(row["Mark"], set()).add(row["RebarSchedule"])
+        self.assertGreater(len(seen), 1)
+        for mark, cages in seen.items():
+            self.assertEqual(len(cages), 1, mark)
+
+
+class BeamGroupingTests(unittest.TestCase):
+    """Continuity is the layout: a group of rows is one continuous beam, a
+    single row is a simply supported one, and a blank row separates groups.
+
+    So the blank rows are load-bearing. A missing one silently joins two beams
+    into one; a doubled one makes an empty beam. Both are the kind of thing
+    that reads fine and builds wrong.
+    """
+
+    def builder(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("build_sample_project",
+                                                      _SAMPLE)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def blank(self, row):
+        return not any(str(value).strip() for value in row)
+
+    def test_every_group_is_separated_by_exactly_one_blank_row(self):
+        sample = self.builder()
+        rows = sample.beam_rows()
+        self.assertFalse(self.blank(rows[0]))
+        self.assertFalse(self.blank(rows[-1]))
+        for first, second in zip(rows, rows[1:]):
+            self.assertFalse(self.blank(first) and self.blank(second))
+
+    def test_the_blank_rows_reproduce_the_groups(self):
+        # Reading the sheet back the way a parser will must give the same
+        # groups the builder started from.
+        sample = self.builder()
+        rebuilt = [[]]
+        for row in sample.beam_rows():
+            if self.blank(row):
+                rebuilt.append([])
+            else:
+                rebuilt[-1].append(row)
+        self.assertEqual([len(group) for group in rebuilt],
+                         [len(group) for group in sample.beam_groups()])
+
+    def test_a_group_shares_one_mark_and_numbers_its_spans(self):
+        for group in self.builder().beam_groups():
+            marks = set(row[0] for row in group)
+            self.assertEqual(len(marks), 1, sorted(marks))
+            self.assertEqual([row[2] for row in group],
+                             list(range(1, len(group) + 1)))
+
+    def test_the_sample_shows_both_kinds(self):
+        # A sample where everything is continuous teaches half the format.
+        sizes = set(len(group) for group in self.builder().beam_groups())
+        self.assertIn(1, sizes)
+        self.assertTrue(any(size > 1 for size in sizes))
+
+
+class SlabPanelTests(unittest.TestCase):
+    """A slab is a panel between beams, not a floor.
+
+    One slab over a whole floor swallows every beam under it in the
+    quantities, which is wrong in the schedule long before it is wrong in the
+    model.
+    """
+
+    def builder(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("build_sample_project",
+                                                      _SAMPLE)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_one_panel_per_bay_per_framed_level(self):
+        sample = self.builder()
+        bays = ((len(sample.GRIDS_VERTICAL) - 1)
+                * (len(sample.GRIDS_HORIZONTAL) - 1))
+        self.assertEqual(len(sample.slab_rows()),
+                         bays * len(sample.SLAB_LEVELS))
+
+    def test_no_slab_sits_on_the_foundation(self):
+        sample = self.builder()
+        foundation = sample.LEVELS[0][0]
+        level = sample.SLAB_PLACEMENT_HEADERS.index("Level")
+        for row in sample.slab_rows():
+            self.assertNotEqual(row[level], foundation)
+
+    def test_every_panel_stops_at_the_beams_by_default(self):
+        sample = self.builder()
+        rule = sample.SLAB_PLACEMENT_HEADERS.index("EdgeRule")
+        for row in sample.slab_rows():
+            self.assertEqual(row[rule], sample.EDGE_RULES[0])
+        self.assertEqual(sample.EDGE_RULES[0], "Inner face of beam")
+
+
+class WorkbookUnitTests(unittest.TestCase):
+    """One unit for the whole workbook, named in every length header.
+
+    The failure this prevents is quiet: a LEVELS sheet in metres read as
+    millimetres puts the terrace at 16.5 mm, every level lands inside the slab
+    below it, and the run reports success. So the header says the unit, the
+    reader believes the header, and both sides are tested against each other.
+    """
+
+    def builder(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("build_sample_project",
+                                                      _SAMPLE)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_the_workbook_is_in_metres(self):
+        self.assertEqual(self.builder().UNITS, "m")
+
+    def test_every_length_header_names_its_unit(self):
+        from anongee_toolkit.rc_automation import datum
+        sample = self.builder()
+        headers = (sample.LEVEL_HEADERS + sample.GRID_HEADERS
+                   + sample.FOOTING_TYPE_HEADERS
+                   + sample.FOOTING_PLACEMENT_HEADERS
+                   + sample.COLUMN_TYPE_HEADERS
+                   + sample.COLUMN_PLACEMENT_HEADERS
+                   + sample.BEAM_TYPE_HEADERS
+                   + sample.BEAM_PLACEMENT_HEADERS
+                   + sample.SLAB_TYPE_HEADERS
+                   + sample.SLAB_PLACEMENT_HEADERS)
+        named = [head for head in headers if datum.unit_in_header(head)]
+        self.assertTrue(named)
+        for head in named:
+            self.assertEqual(datum.unit_in_header(head), sample.UNITS, head)
+
+    def test_the_reader_gets_the_elevations_the_builder_wrote(self):
+        # The round trip that matters: metres out of the builder, millimetres
+        # into the plan, and the same building at the end of it.
+        from anongee_toolkit.rc_automation import datum
+        sample = self.builder()
+        grid = [list(sample.LEVEL_HEADERS)] + [list(row)
+                                               for row in sample.level_rows()]
+        rows, issues = datum.parse_levels(grid, units="mm")
+        self.assertFalse([issue for issue in issues
+                          if issue.severity == "Error"], issues)
+        self.assertEqual(len(rows), len(sample.LEVELS))
+        for row, (name, elevation, _story) in zip(rows, sample.LEVELS):
+            self.assertEqual(row.name, name)
+            self.assertAlmostEqual(row.elevation_mm, elevation, places=3)
+
+    def test_a_metre_sheet_read_as_millimetres_is_still_metres(self):
+        # units="mm" above is deliberate: the header says (m) and the header
+        # wins, because it is the thing sitting beside the number.
+        from anongee_toolkit.rc_automation import datum
+        self.assertEqual(datum.unit_in_header("Elevation PBP (m)"), "m")
+        self.assertEqual(datum.to_mm(3.3, "m"), 3300.0)
+
+    def test_both_elevations_are_written_and_agree(self):
+        sample = self.builder()
+        pbp = sample.LEVEL_HEADERS.index(sample.unit("Elevation PBP"))
+        survey = sample.LEVEL_HEADERS.index(sample.unit("Elevation Survey"))
+        offset = sample.length(sample.SURVEY_OFFSET_MM)
+        for row in sample.level_rows():
+            self.assertAlmostEqual(row[survey] - row[pbp], offset, places=6)
 
     def test_a_placement_row_is_as_wide_as_its_header(self):
         sample = self.builder()
@@ -1168,7 +1413,8 @@ class MacroSurvivalTests(unittest.TestCase):
     code.
     """
 
-    WORKBOOK = os.path.join(_ROOT, "bridge", "excel", "AnonGee_Bridge.xlsm")
+    WORKBOOK = os.path.join(_ROOT, "bridge", "excel",
+                            "AnonGee_Sample_Project.xlsm")
 
     def setUp(self):
         if not os.path.exists(self.WORKBOOK):
@@ -1180,7 +1426,8 @@ class MacroSurvivalTests(unittest.TestCase):
 
     def builder(self):
         import importlib.util
-        spec = importlib.util.spec_from_file_location("build_workbook", _BUILDER)
+        spec = importlib.util.spec_from_file_location("build_sample_project",
+                                                      _SAMPLE)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         return module
@@ -1195,7 +1442,7 @@ class MacroSurvivalTests(unittest.TestCase):
         import zipfile
         folder = tempfile.mkdtemp()
         try:
-            copy = os.path.join(folder, "AnonGee_Bridge.xlsm")
+            copy = os.path.join(folder, "AnonGee_Sample_Project.xlsm")
             shutil.copy(self.WORKBOOK, copy)
             self.builder().build(copy)
             with zipfile.ZipFile(copy) as archive:
@@ -1208,11 +1455,142 @@ class MacroSurvivalTests(unittest.TestCase):
         from openpyxl import load_workbook
         folder = tempfile.mkdtemp()
         try:
-            copy = os.path.join(folder, "AnonGee_Bridge.xlsm")
+            copy = os.path.join(folder, "AnonGee_Sample_Project.xlsm")
             shutil.copy(self.WORKBOOK, copy)
             self.builder().build(copy)
-            self.assertEqual(load_workbook(copy).sheetnames,
-                             ["CONTROL", "INFO", "LEVELS", "GRIDS", "LOG"])
+            self.assertEqual(
+                load_workbook(copy).sheetnames,
+                ["CONTROL", "INFO", "LEVELS", "GRIDS", "FOOTING_TYPES",
+                 "FOOTING_PLACEMENT", "COLUMN_TYPES", "COLUMN_PLACEMENT",
+                 "BEAM_TYPES", "BEAM_PLACEMENT", "SLAB_TYPES",
+                 "SLAB_PLACEMENT", "LOG"])
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
+
+
+class ControlColumnTests(unittest.TestCase):
+    """BUG-16, held down.
+
+    The macro read the ``Write?`` switch from column 5. Adding a ``Built?``
+    column to the workbook moved ``Write?`` to 6, so the switch was read from a
+    cell that says ``yes`` or ``not yet`` — never ``No`` — and every run was a
+    dry run that could not be turned off. Then the status was written into the
+    ``Write?`` cell, so the switch said ``done`` and stayed that way.
+
+    Nothing about that was visible from Revit. What these tests hold is the
+    fix: the columns are found by their headers, and a column that cannot be
+    found stops the run instead of quietly defaulting.
+    """
+
+    def setUp(self):
+        self.vba = _read(_VBA)
+
+    def bodies(self):
+        """``{name: body}`` for every Sub and Function in the module."""
+        found = {}
+        name = None
+        lines = []
+        for line in self.vba.splitlines():
+            stripped = line.strip()
+            head = stripped.replace("Public ", "").replace("Private ", "")
+            if head.startswith(("Sub ", "Function ")):
+                name = head.split("(")[0].split()[-1]
+                lines = []
+            elif stripped in ("End Sub", "End Function") and name:
+                found[name] = "\n".join(lines)
+                name = None
+            elif name:
+                lines.append(line)
+        return found
+
+    def test_the_control_columns_are_never_addressed_by_number(self):
+        import re
+        bodies = self.bodies()
+        for name in ("ReadDryRun", "WriteControlStatus", "ControlRowFor"):
+            self.assertIn(name, bodies)
+            found = re.findall(r"Cells\(\s*\w+\s*,\s*\d+\s*\)",
+                               bodies[name])
+            self.assertEqual(found, [], "{0} addresses {1} by number".format(
+                name, found))
+
+    def test_the_switch_is_read_from_the_write_column(self):
+        self.assertIn('COLUMN_WRITE As String = "Write?"', self.vba)
+        self.assertIn("ControlColumn(sheet, header, COLUMN_WRITE)",
+                      self.bodies()["ReadDryRun"])
+
+    def test_a_dry_run_is_what_every_failure_falls_back_to(self):
+        body = self.bodies()["ReadDryRun"]
+        self.assertIn("ReadDryRun = True", body)
+        # Every early exit happens after that line, so no path can leave the
+        # function having decided to write because something was missing.
+        first = body.index("ReadDryRun = True")
+        for exit_at in [m for m in range(len(body))
+                        if body.startswith("Exit Function", m)]:
+            self.assertGreater(exit_at, first)
+
+    def test_a_control_sheet_it_cannot_read_stops_the_run(self):
+        # The alternative is a silent dry run, which is indistinguishable from
+        # Revit ignoring you. That indistinguishability is what cost the round.
+        self.assertIn("ControlIsReadable", self.bodies()["RunCommand"])
+        self.assertIn("Exit Sub", self.bodies()["RunCommand"])
+
+    def test_every_declared_command_has_a_macro_and_a_button(self):
+        body = self.bodies()["MacroFor"]
+        for command in _registry.known():
+            self.assertIn('"{0}"'.format(command), body, command)
+
+    def test_every_macro_the_mapping_names_exists(self):
+        import re
+        names = re.findall(r'MacroFor = "(\w+)"', self.bodies()["MacroFor"])
+        self.assertTrue(names)
+        for name in names:
+            self.assertIn("Public Sub {0}()".format(name), self.vba, name)
+
+    def test_the_job_carries_the_unit(self):
+        self.assertIn('""units""', self.bodies()["JobJson"])
+        self.assertIn("ReadUnits", self.vba)
+
+    def test_the_unit_default_never_rescales_an_old_workbook(self):
+        # Every workbook before the unit existed was millimetres. A default of
+        # metres would multiply one of those by a thousand on first read.
+        self.assertIn('UNITS_DEFAULT As String = "mm"', self.vba)
+
+
+class LogHistoryTests(unittest.TestCase):
+    """A rebuild regenerates every sheet, and the LOG is not a generated one.
+
+    It is what happened — which job ran, when, and what came back. Losing it on
+    a rebuild would throw away the only evidence a test round leaves behind.
+    """
+
+    def builder(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("build_sample_project",
+                                                      _SAMPLE)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_rebuilding_keeps_the_log_rows(self):
+        try:
+            from openpyxl import load_workbook
+        except ImportError:
+            self.skipTest("openpyxl is not installed here")
+        sample = self.builder()
+        folder = tempfile.mkdtemp()
+        try:
+            target = os.path.join(folder, "sample.xlsx")
+            sample.build(target)
+            book = load_workbook(target)
+            book["LOG"].append(["2026-08-25 11:12", "job-1", "levels.sync",
+                                "done", "created=6", "a dry run"])
+            book.save(target)
+
+            sample.build(target)
+            rows = list(load_workbook(target)["LOG"].iter_rows(
+                min_row=2, values_only=True))
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0][2], "levels.sync")
         finally:
             shutil.rmtree(folder, ignore_errors=True)
 

@@ -461,5 +461,131 @@ class GridCommandContractTests(unittest.TestCase):
         self.assertIn("Perpendicular only", body)
 
 
+class UnitTests(unittest.TestCase):
+    """Millimetres inside, whatever the sheet is in.
+
+    The failure being prevented is silent and total: a LEVELS sheet in metres
+    read as millimetres puts a terrace at 16.5 mm. Every level in the building
+    lands inside the slab thickness of the one below, every plan view is
+    meaningless, and the run reports success with the right number of levels
+    created. Nothing about that looks like a bug until somebody opens a
+    section.
+    """
+
+    def test_a_header_that_names_its_unit_is_believed(self):
+        self.assertEqual(datum.unit_in_header("Elevation PBP (m)"), "m")
+        self.assertEqual(datum.unit_in_header("Elevation (mm)"), "mm")
+        self.assertEqual(datum.unit_in_header("RL (MM)"), "mm")
+
+    def test_a_header_that_does_not_is_not_guessed_at(self):
+        for head in ("Elevation", "Angle", "Mark", "Name", "Comments", ""):
+            self.assertIsNone(datum.unit_in_header(head), head)
+
+    def test_a_word_ending_in_m_is_not_a_unit(self):
+        # "Datum" and "Beam" end in m. Only a bracketed suffix counts, which is
+        # why the check is for "(m)" and not for the letter.
+        for head in ("Datum", "Beam", "Diagram", "Room"):
+            self.assertIsNone(datum.unit_in_header(head), head)
+
+    def test_the_header_wins_over_the_job(self):
+        grid = [["Name", "Elevation (m)"], ["01 GROUND LVL.", 0],
+                ["02 FIRST FLOOR LVL.", 3.3]]
+        rows, issues = datum.parse_levels(grid, units="mm")
+        self.assertFalse([issue for issue in issues
+                          if issue.severity == models.SEVERITY_ERROR])
+        self.assertAlmostEqual(rows[1].elevation_mm, 3300.0)
+
+    def test_the_job_decides_when_the_header_is_silent(self):
+        grid = [["Name", "Elevation"], ["02 FIRST FLOOR LVL.", 3.3]]
+        rows, _issues = datum.parse_levels(grid, units="m")
+        self.assertAlmostEqual(rows[0].elevation_mm, 3300.0)
+
+    def test_millimetres_are_the_fallback_and_stay_untouched(self):
+        # Every workbook written before the unit existed is in millimetres. A
+        # default of metres would multiply all of them by a thousand.
+        grid = [["Name", "Elevation"], ["02 FIRST FLOOR LVL.", 3300]]
+        rows, _issues = datum.parse_levels(grid)
+        self.assertAlmostEqual(rows[0].elevation_mm, 3300.0)
+        self.assertEqual(datum.normalise_unit(""), "mm")
+
+    def test_an_angle_is_never_scaled(self):
+        grid = [["Name", "X1 (m)", "Y1 (m)", "Angle"], ["A", 0, 0, 90]]
+        rows, _issues = datum.parse_grids(grid, units="m")
+        self.assertEqual(rows[0].angle_deg, 90)
+        self.assertAlmostEqual(rows[0].x1, 0.0)
+
+    def test_grid_coordinates_are_scaled(self):
+        grid = [["Name", "X1 (m)", "Y1 (m)", "X2 (m)", "Y2 (m)"],
+                ["A", 0, -2, 0, 14]]
+        rows, _issues = datum.parse_grids(grid, units="m")
+        self.assertAlmostEqual(rows[0].y1, -2000.0)
+        self.assertAlmostEqual(rows[0].y2, 14000.0)
+
+
+class SurveyElevationTests(unittest.TestCase):
+    """Two elevations, one authority, and no quiet arithmetic.
+
+    A structural drawing says a level is at 3.3 and the site drawing says the
+    same level is at 103.3. Both are right; the difference is where the survey
+    point was put, which is a property of the model. So the sheet carries both
+    and says which one it means, and anything this cannot settle is reported
+    rather than approximated.
+    """
+
+    def rows(self, base="", pbp=3300.0, survey=None):
+        return [datum.LevelRow("02 FIRST FLOOR LVL.", pbp, row=2,
+                               elevation_survey_mm=survey,
+                               elevation_base=base)]
+
+    def test_a_project_base_row_is_left_alone(self):
+        rows = self.rows()
+        issues = datum.resolve_elevations(rows, 100000.0)
+        self.assertEqual(issues, [])
+        self.assertEqual(rows[0].elevation_mm, 3300.0)
+
+    def test_a_survey_row_is_converted_with_the_models_offset(self):
+        rows = self.rows(datum.BASE_SURVEY, pbp=None, survey=103300.0)
+        issues = datum.resolve_elevations(rows, 100000.0)
+        self.assertEqual(issues, [])
+        self.assertAlmostEqual(rows[0].elevation_mm, 3300.0)
+
+    def test_a_survey_row_without_a_model_offset_is_refused(self):
+        # The alternative is building it at 103.3, which is a hundred metres
+        # out and looks deliberate.
+        rows = self.rows(datum.BASE_SURVEY, pbp=None, survey=103300.0)
+        issues = datum.resolve_elevations(rows, None)
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].severity, models.SEVERITY_ERROR)
+        self.assertIsNone(rows[0].elevation_mm)
+
+    def test_a_survey_row_with_no_survey_elevation_is_refused(self):
+        rows = self.rows(datum.BASE_SURVEY, pbp=3300.0, survey=None)
+        issues = datum.resolve_elevations(rows, 100000.0)
+        self.assertEqual(len(issues), 1)
+        self.assertIsNone(rows[0].elevation_mm)
+
+    def test_two_elevations_that_disagree_are_reported_not_fixed(self):
+        rows = self.rows(pbp=3300.0, survey=104000.0)
+        issues = datum.resolve_elevations(rows, 100000.0)
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].severity, models.SEVERITY_WARNING)
+        self.assertEqual(rows[0].elevation_mm, 3300.0)
+        self.assertIn("one of the two is wrong", issues[0].message)
+
+    def test_two_elevations_that_agree_say_nothing(self):
+        rows = self.rows(pbp=3300.0, survey=103300.0)
+        self.assertEqual(datum.resolve_elevations(rows, 100000.0), [])
+
+    def test_a_row_that_is_unresolved_never_gets_built(self):
+        # The join between the two halves: an unresolved elevation is None, and
+        # plan_levels already refuses None. Worth a test because it is the only
+        # thing standing between a bad survey row and Level.Create.
+        rows = self.rows(datum.BASE_SURVEY, pbp=None, survey=103300.0)
+        datum.resolve_elevations(rows, None)
+        plans, _issues = datum.plan_levels(rows, [])
+        self.assertEqual(plans[0].action, datum.INVALID)
+        self.assertFalse(plans[0].will_write)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -57,7 +57,10 @@ def run(uiapp, envelope):
                 sheet_name, ", ".join(sorted(grids)) or "nothing")))
         return summary, findings, "nothing to read"
 
-    rows, parse_issues = datum.parse_grids(grid, sheet_name)
+    rows, parse_issues = datum.parse_grids(
+        grid, sheet_name,
+        units=datum.normalise_unit(
+            envelope_module.option(envelope, "units", datum.UNITS_MM)))
     findings.extend(envelope_module.findings_from_issues(parse_issues))
 
     existing = _existing(doc)

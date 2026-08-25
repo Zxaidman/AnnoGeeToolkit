@@ -56,6 +56,21 @@ INVALID = "Invalid"
 #: worth spending a comment on.
 _NAME = ("name", "levelname", "level")
 _ELEVATION = ("elevation", "height", "rl", "value")
+
+#: A level has two elevations and one authority. The Project Base Point is what
+#: Revit calls a level's elevation; the Survey Point is what the site drawing
+#: says, and the two differ by wherever the survey point was put. Both are
+#: written, ``ElevationBase`` says which one drives, and a disagreement between
+#: them is reported rather than resolved — because resolving it means deciding
+#: whose drawing is wrong.
+_ELEVATION_SURVEY = ("elevationsurvey", "surveyelevation", "survey")
+_ELEVATION_BASE = ("elevationbase", "basepoint", "datum")
+
+#: What ``ElevationBase`` may say. The first is the default and the one Revit
+#: writes when nothing says otherwise.
+BASE_PROJECT = "Project Base Point"
+BASE_SURVEY = "Survey Point"
+
 _TYPE = ("leveltype", "type")
 _STORY = ("story", "storey", "buildingstory", "isstory")
 _COMMENTS = ("comment", "note")
@@ -65,12 +80,20 @@ class LevelRow(object):
     """One row of the LEVELS sheet, coerced and remembering where it came from."""
 
     __slots__ = ("name", "elevation_mm", "level_type", "story", "comments",
-                 "row")
+                 "row", "elevation_survey_mm", "elevation_base")
 
     def __init__(self, name, elevation_mm=None, level_type="", story=None,
-                 comments="", row=None):
+                 comments="", row=None, elevation_survey_mm=None,
+                 elevation_base=""):
         self.name = name
+        #: The Project Base Point elevation, in millimetres. This is what gets
+        #: written, whichever column the sheet said was authoritative — see
+        #: :func:`resolve_elevations`, which is what makes that true.
         self.elevation_mm = elevation_mm
+        #: What the survey drawing reads at this level, if the sheet said.
+        self.elevation_survey_mm = elevation_survey_mm
+        #: Which of the two the sheet means. Blank is the project base point.
+        self.elevation_base = elevation_base
         self.level_type = level_type
         #: ``True``/``False``/``None``. ``None`` means the sheet did not say,
         #: and a thing the sheet did not say is a thing this does not change.
@@ -116,6 +139,62 @@ def _fold(text):
                    if character.isalnum())
 
 
+#: Every length this reads is millimetres inside. The workbook says what its
+#: numbers are, and they are converted once, on the way in.
+#:
+#: This is not a nicety. A LEVELS sheet in metres read as millimetres puts the
+#: terrace at 16.5 mm, and every level in the building lands inside the slab
+#: thickness of the one below. It would build, and it would look like nothing
+#: happened.
+UNITS_MM = "mm"
+UNITS_M = "m"
+UNIT_SCALE_TO_MM = {UNITS_MM: 1.0, UNITS_M: 1000.0}
+
+
+def normalise_unit(text, fallback=UNITS_MM):
+    """``"mm"`` or ``"m"`` from whatever was written, or the fallback.
+
+    The fallback is millimetres because every workbook before the unit existed
+    was in millimetres, and a default that silently rescales one of those by a
+    thousand is not a default.
+    """
+    folded = _fold(text)
+    if not folded:
+        return fallback
+    if folded.startswith("mm") or folded.startswith("millim"):
+        return UNITS_MM
+    if folded.startswith("m"):
+        return UNITS_M
+    return fallback
+
+
+def unit_in_header(text):
+    """The unit a header declares in brackets — ``Elevation PBP (m)`` — or None.
+
+    A column that names its own unit is a column that cannot be misread after
+    somebody rescales half a sheet by hand, so the header wins over whatever
+    the job says the workbook is in.
+    """
+    folded = _fold(text)
+    for suffix, value in (("mm", UNITS_MM), ("m", UNITS_M)):
+        if folded.endswith(suffix) and _bracketed(text, suffix):
+            return value
+    return None
+
+
+def _bracketed(text, suffix):
+    """True when ``text`` ends with ``(<suffix>)``, spacing and case aside."""
+    stripped = str(text or "").strip().lower().rstrip()
+    return stripped.endswith("({0})".format(suffix))
+
+
+def to_mm(value, units=UNITS_MM):
+    """A number in ``units``, in millimetres."""
+    if value is None:
+        return None
+    return float(value) * UNIT_SCALE_TO_MM.get(units, 1.0)
+
+
 def _header_map(header):
     """``{index: field}`` for the columns this understands."""
     found = {}
@@ -123,7 +202,14 @@ def _header_map(header):
         folded = _fold(cell)
         if not folded:
             continue
-        for field, names in (("level_type", _TYPE), ("name", _NAME),
+        # Order matters, and it is not alphabetical. "Elevation Survey" and
+        # "ElevationBase" both start with the word Elevation, so the specific
+        # ones are asked first — otherwise the survey column would be taken
+        # for the elevation and the level would be built 100 m in the air.
+        for field, names in (("level_type", _TYPE),
+                             ("elevation_base", _ELEVATION_BASE),
+                             ("elevation_survey_mm", _ELEVATION_SURVEY),
+                             ("name", _NAME),
                              ("elevation_mm", _ELEVATION), ("story", _STORY),
                              ("comments", _COMMENTS)):
             if field in found.values():
@@ -163,7 +249,18 @@ def _yes_no(value):
     return _fold(value) in ("yes", "y", "true", "1")
 
 
-def parse_levels(grid, sheet=SHEET_LEVELS):
+def _header_units(header, columns):
+    """``{index: unit}`` for the columns whose header names one."""
+    units = {}
+    for index in columns:
+        if index < len(header):
+            found = unit_in_header(header[index])
+            if found:
+                units[index] = found
+    return units
+
+
+def parse_levels(grid, sheet=SHEET_LEVELS, units=UNITS_MM):
     """``([LevelRow], [Issue])`` from a sheet's rows.
 
     The header is found rather than assumed: a real workbook grows a title block
@@ -187,6 +284,13 @@ def parse_levels(grid, sheet=SHEET_LEVELS):
             "No header row with a Name and an Elevation column.", sheet=sheet))
         return [], issues
 
+    # A column that names its own unit wins over the job's. The header is
+    # beside the number; the job's option is somewhere else entirely.
+    column_units = _header_units(rows[header_at], columns)
+    by_field = {}
+    for index, field in columns.items():
+        by_field[field] = column_units.get(index, units)
+
     found = []
     for offset, raw in enumerate(rows[header_at + 1:]):
         values = {}
@@ -196,13 +300,18 @@ def parse_levels(grid, sheet=SHEET_LEVELS):
         if not name:
             continue                              # a blank row is not an error
 
-        number = _number(values.get("elevation_mm"))
+        number = to_mm(_number(values.get("elevation_mm")),
+                       by_field.get("elevation_mm", units))
+        survey = to_mm(_number(values.get("elevation_survey_mm")),
+                       by_field.get("elevation_survey_mm", units))
         level_row = LevelRow(
             name, number, str(values.get("level_type") or "").strip(),
             _yes_no(values.get("story")),
             str(values.get("comments") or "").strip(),
-            header_at + offset + 2)
-        if number is None:
+            header_at + offset + 2,
+            elevation_survey_mm=survey,
+            elevation_base=str(values.get("elevation_base") or "").strip())
+        if number is None and survey is None:
             issues.append(models.Issue(
                 models.SEVERITY_ERROR,
                 "{0!r} has no elevation this can read.".format(name),
@@ -218,6 +327,66 @@ def parse_levels(grid, sheet=SHEET_LEVELS):
 # ---------------------------------------------------------------------------
 # Planning against a model
 # ---------------------------------------------------------------------------
+
+def resolve_elevations(rows, survey_offset_mm=None, sheet=SHEET_LEVELS):
+    """Settle which of a row's two elevations is the one to build. ``[Issue]``.
+
+    ``survey_offset_mm`` is what the Survey Point reads where the Project Base
+    Point reads zero — the model's own number, read from the model, never
+    assumed. Three things happen here and each is a refusal to guess:
+
+    A row measured from the **survey point** is converted to a project-base
+    elevation, because that is the only thing Revit can be told. Without the
+    model's offset it cannot be converted, so it is left unbuildable and says
+    why rather than being placed a hundred metres out.
+
+    A row that gives **both** and disagrees with the offset is reported and
+    **not corrected**. One of the two numbers is wrong, this cannot know which,
+    and quietly picking one is how a level ends up somewhere nobody chose.
+
+    A row that gives only the project base elevation is left exactly alone,
+    which is the common case and stays cheap.
+    """
+    issues = []
+    for row in rows:
+        base = _fold(row.elevation_base)
+        wants_survey = base.startswith(_fold(BASE_SURVEY))
+
+        if wants_survey:
+            if row.elevation_survey_mm is None:
+                issues.append(models.Issue(
+                    models.SEVERITY_ERROR,
+                    "{0!r} is measured from the survey point and has no "
+                    "survey elevation.".format(row.name),
+                    sheet=sheet, row=row.row, column="Elevation Survey"))
+                row.elevation_mm = None
+            elif survey_offset_mm is None:
+                issues.append(models.Issue(
+                    models.SEVERITY_ERROR,
+                    "{0!r} is measured from the survey point, and this model "
+                    "would not say where its survey point is.".format(row.name),
+                    sheet=sheet, row=row.row, column="ElevationBase"))
+                row.elevation_mm = None
+            else:
+                row.elevation_mm = row.elevation_survey_mm - survey_offset_mm
+            continue
+
+        if (row.elevation_survey_mm is not None
+                and row.elevation_mm is not None
+                and survey_offset_mm is not None):
+            expected = row.elevation_mm + survey_offset_mm
+            if abs(expected - row.elevation_survey_mm) > ELEVATION_TOLERANCE_MM:
+                issues.append(models.Issue(
+                    models.SEVERITY_WARNING,
+                    "{0!r}: the survey elevation says {1:g} and the project "
+                    "elevation says {2:g}, which with this model's survey "
+                    "offset of {3:g} should be {4:g}. Building the project "
+                    "elevation; one of the two is wrong.".format(
+                        row.name, row.elevation_survey_mm, row.elevation_mm,
+                        survey_offset_mm, expected),
+                    sheet=sheet, row=row.row, column="Elevation Survey"))
+    return issues
+
 
 def plan_levels(rows, existing, tolerance_mm=ELEVATION_TOLERANCE_MM,
                 sheet=SHEET_LEVELS):
@@ -424,8 +593,12 @@ class GridPlan(object):
         return "<GridPlan {0} {1!r}>".format(self.action, self.row.name)
 
 
-def parse_grids(grid, sheet=SHEET_GRIDS):
-    """``([GridRow], [Issue])``. Same header rules as the levels sheet."""
+def parse_grids(grid, sheet=SHEET_GRIDS, units=UNITS_MM):
+    """``([GridRow], [Issue])``. Same header rules as the levels sheet.
+
+    Same unit rules too: a column that names its unit is believed over the
+    job's, and everything is millimetres by the time it leaves here.
+    """
     issues = []
     rows = list(grid or [])
 
@@ -443,6 +616,16 @@ def parse_grids(grid, sheet=SHEET_GRIDS):
             "No header row with a Name and an X1 column.", sheet=sheet))
         return [], issues
 
+    column_units = _header_units(rows[header_at], columns)
+    by_field = {}
+    for index, field in columns.items():
+        by_field[field] = column_units.get(index, units)
+
+    def measure(values, field):
+        # Angle is not a length and is never scaled. Turning 90 degrees into
+        # 90000 would be a very quiet way to ruin a grid.
+        return to_mm(_number(values.get(field)), by_field.get(field, units))
+
     found = []
     for offset, raw in enumerate(rows[header_at + 1:]):
         values = {}
@@ -453,9 +636,9 @@ def parse_grids(grid, sheet=SHEET_GRIDS):
             continue
         found.append(GridRow(
             name,
-            _number(values.get("x1")), _number(values.get("y1")),
-            _number(values.get("x2")), _number(values.get("y2")),
-            _number(values.get("angle_deg")), _number(values.get("length_mm")),
+            measure(values, "x1"), measure(values, "y1"),
+            measure(values, "x2"), measure(values, "y2"),
+            _number(values.get("angle_deg")), measure(values, "length_mm"),
             _yes_no(values.get("bubble_start")),
             _yes_no(values.get("bubble_end")),
             str(values.get("comments") or "").strip(),

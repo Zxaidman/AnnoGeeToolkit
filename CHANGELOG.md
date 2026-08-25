@@ -35,6 +35,77 @@ of view of someone using the thing rather than someone reading the diff:
 
 ---
 
+## 1.15.0
+
+**Fixed**
+
+- **`Write? = Yes` did nothing, and the switch overwrote itself.** The macro
+  read the dry-run switch from CONTROL column 5 and wrote the outcome to column
+  6. The sample workbook added a `Built?` column at 5, so `Write?` moved to 6 —
+  and from then on the switch was read from a cell that says `yes` or `not yet`
+  and never says `No`. **No run could be made to write, whatever was typed.**
+  Then the status landed in the `Write?` cell, so the switch said `done` and
+  stayed that way.
+
+  Two dry runs were reported against a live model as *created=6* and *created=8*
+  with nothing built. Both were true; the note said *dry run* and `written=0`
+  both times. The tool was right about itself the whole way through, which is
+  the only reason this was findable from a pushed workbook without opening
+  Revit.
+
+  **The fix is not a corrected number.** Every CONTROL column is now found by
+  its header, once per run, and a sheet whose `Write?` column cannot be found
+  stops the run and says so rather than falling back to a dry run — a silent dry
+  run is indistinguishable from Revit ignoring you, and that is what cost the
+  round. A test fails on any `Cells(row, <number>)` in the three procedures that
+  touch CONTROL.
+
+**Added**
+
+- **One unit for the whole workbook, named in every header.** `INFO` carries it
+  and **metres is the default**. Every length column says which unit it is in —
+  `Elevation PBP (m)` — so the unit sits beside the number rather than in
+  somebody's memory, `AnonGeeBridge_ApplyUnits` can find exactly the columns it
+  must rescale, and a job tells Revit what the number meant. Revit is internal
+  feet whatever a project's display units say.
+
+  The header beats the job. A column headed `(m)` is metres even if the job says
+  the workbook is millimetres, because the header is the thing sitting next to
+  the number. Millimetres stays the fallback: every workbook written before this
+  was in millimetres, and a default that rescales one of those by a thousand is
+  not a default.
+
+- **Two elevations on `LEVELS`** — Project Base Point and Survey Point, with
+  `ElevationBase` saying which one drives. The survey offset is read from the
+  model's own base points, never assumed. A row measured from the survey point
+  in a model that will not say where its survey point is stays unbuilt and says
+  why; a row giving both elevations that disagree is **reported and not
+  corrected**, because one of the two numbers is wrong and picking one is not
+  something a spreadsheet import should do.
+
+- **Buttons, from a macro.** `AnonGeeBridge_AddButtons` draws a Form Control
+  button on every CONTROL row and assigns its macro. `openpyxl` writes sheets,
+  values and validation, and cannot write a form control — so this is one
+  `Alt+F8`, like the `.bas` import, and re-running it replaces the buttons
+  rather than stacking them.
+
+**Changed**
+
+- **The sample workbook's format, on six counts, all from the owner's review:**
+
+  | | |
+  | --- | --- |
+  | `X`/`Y` say what they are | now `OffsetX`/`OffsetY`, measured **from** the named intersection. Blank means dead on the grid. `Outline` is for a pad the type cannot describe — combined, stepped, cut round a pit — and is blank for anything rectangular |
+  | **A column mark follows the stack** | a column at A1 marked `C1` is `C1` all the way up, even where it reduces. Two columns share a mark on one floor only if size **and** rebar schedule agree. So the mark is a schedule label, not a key — the key is grid position plus storey — and the sample now shows three marks by cage where it used to show two by size |
+  | `S1`–`S6` are storeys, and the sheet says so | every row names its own base and top level, so the code never has to be looked up |
+  | **Beam continuity is the layout** | a simply supported beam is one row, a continuous beam is a group of rows sharing a mark, and a blank row separates groups. 62 beams over 132 spans, and the plinth beams are simply supported so the sample shows both |
+  | **A slab is a panel, not a floor** | one slab per bay, bounded by its four grids, stopping at the **inner face of the beams** — so the beam is not counted twice. 40 panels, and `EdgeRule` names the convention per row so a slab that runs over its beams can still be said |
+  | The `LOG` survives a rebuild | it is the only sheet that is not generated. It is what happened |
+
+- The test suite is 781 tests, from 741.
+
+---
+
 ## 1.14.0
 
 **Added**
