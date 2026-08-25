@@ -15,7 +15,46 @@ question with an answer.
 import os
 import sys
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
+
+LOCAL_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def bootstrap_lib_path():
+    """Put the engine's ``lib`` subfolder on ``sys.path``.
+
+    **pyRevit adds ``<extension>/lib`` and nothing below it.** The toolkit lives
+    in ``lib/py3``, so a script that does not do this cannot import it — which
+    is not a shebang problem, however much it looks like one. The first release
+    of this tool skipped the call and then blamed the engine in its own error
+    message, which would have cost a round if the project owner had believed it.
+
+    Primary: the extension's own ``path_resolver``, which pyRevit makes
+    importable. Fallback: climb for ``lib/py3`` directly, so the tool still
+    loads when the button is run from an unusual working directory.
+    """
+    try:
+        import path_resolver
+        path_resolver.update_paths()
+        return
+    except ImportError:
+        pass
+
+    sub = "py3" if sys.version_info[0] == 3 else "py2"
+    cursor = LOCAL_DIR
+    for _ in range(8):
+        candidate = os.path.join(cursor, "lib", sub)
+        if os.path.isdir(candidate):
+            if candidate not in sys.path:
+                sys.path.insert(0, candidate)
+            return
+        parent = os.path.dirname(cursor)
+        if parent == cursor:
+            return
+        cursor = parent
+
+
+bootstrap_lib_path()
 
 #: Where the report lands when the model has never been saved.
 FALLBACK_PARTS = ("AnonGee", "bridge")
@@ -35,9 +74,12 @@ def main():
         from anongee_toolkit.rc_automation import template_report
     except Exception as error:
         report("The toolkit would not import: {0}\n\n"
-               "This script needs the CPython 3 engine — check that the "
-               "'#! python3' line is the very first line of this file."
-               .format(error))
+               "The toolkit lives in lib/py3, and pyRevit puts lib on the "
+               "path but nothing below it — so a script has to add it. This "
+               "one calls path_resolver at import; if that is failing, "
+               "reload pyRevit and try again.\n\n"
+               "Looked in:\n{1}"
+               .format(error, "\n".join(sys.path[:6])))
         return
 
     print("Reading {0} ...".format(title(doc)))

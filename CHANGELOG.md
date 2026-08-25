@@ -35,6 +35,50 @@ of view of someone using the thing rather than someone reading the diff:
 
 ---
 
+## 1.18.0
+
+**Fixed**
+
+- **Extract Template could not import the toolkit — and blamed the wrong
+  thing.** First press: *No module named 'anongee_toolkit'*, followed by my own
+  message telling the owner to check the `#! python3` line, which was there, on
+  line one, and was not the problem.
+
+  pyRevit puts `<extension>/lib` on `sys.path` and **nothing below it**. The
+  toolkit lives in `lib/py3`, so every tool that uses it calls
+  `path_resolver.update_paths()` first. This one did not. The two failures are
+  indistinguishable from inside Revit — same `ImportError`, same wording — which
+  is why a confident wrong message is worse than no message: it sends somebody
+  to look at a line that is already correct.
+
+  **A repo-wide test now holds it**, and the test had to be fixed twice before
+  it was worth having. It first flagged a tool whose only mention of the toolkit
+  is in a comment — the fourth time a test here has matched prose rather than
+  code — so it reads the AST. Then a mutation showed it passed a script that
+  *defined* a bootstrap and never called it, so it now walks module-level code
+  only and requires the call.
+
+- **The buttons did not move or size with their cells.** Not diagnosed —
+  instrumented. `Placement` was set inside a blanket `On Error Resume Next` and
+  never checked, leaving three indistinguishable possibilities: the line did not
+  run, it ran and failed, or Excel overwrote it. The workbook's own XML says
+  `twoCellAnchor` with no `editAs`, which *is* move-and-size, so the file
+  contradicts the symptom and another round of guessing would have been the
+  fourth.
+
+  It now **sets it, reads it back and reports the count** — *"7 button(s) drawn,
+  7 of them set to move and size with their cells"* — with two attempts, because
+  the `Shape` property and the `ShapeRange` form fail differently.
+  `AnonGeeBridge_AnchorButtons` runs the anchoring on its own, so if a button
+  still will not follow its cell after that reports success, the cause is Excel
+  and not the macro. One press turns it from a guess into a fact.
+
+**Changed**
+
+- The test suite is 849 tests, from 844.
+
+---
+
 ## 1.17.0
 
 **Fixed**

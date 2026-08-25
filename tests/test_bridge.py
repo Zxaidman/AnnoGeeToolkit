@@ -1577,6 +1577,31 @@ class ControlColumnTests(unittest.TestCase):
         self.assertIn('""units""', self.bodies()["JobJson"])
         self.assertIn("ReadUnits", self.vba)
 
+    def test_the_button_anchoring_is_verified_and_not_just_set(self):
+        """A property worth setting is a property worth reading back.
+
+        The buttons were set to move and size with their cells inside a blanket
+        ``On Error Resume Next`` and never checked. When they did not follow
+        their cells there was no way to tell whether the line had run, failed,
+        or been overwritten — so the next round would have been another guess.
+        """
+        body = self.bodies()["AnchorToCell"]
+        self.assertIn("button.Placement = xlMoveAndSize", body)
+        self.assertIn("If button.Placement = xlMoveAndSize", body)
+        self.assertIn("AnchorToCell = (button.Placement = xlMoveAndSize)", body)
+
+    def test_every_button_drawn_is_anchored(self):
+        self.assertIn("AnchorToCell button", self.bodies()["DrawButton"])
+
+    def test_the_count_of_anchored_buttons_is_reported(self):
+        # So one press answers both questions: how many were drawn, and how
+        # many actually took the anchoring.
+        self.assertIn("CountAnchored", self.bodies()["AnonGeeBridge_AddButtons"])
+        self.assertIn("move ", self.bodies()["AnonGeeBridge_AddButtons"])
+
+    def test_anchoring_can_be_run_on_its_own(self):
+        self.assertIn("Public Sub AnonGeeBridge_AnchorButtons()", self.vba)
+
     def test_the_unit_default_never_rescales_an_old_workbook(self):
         # Every workbook before the unit existed was millimetres. A default of
         # metres would multiply one of those by a thousand on first read.

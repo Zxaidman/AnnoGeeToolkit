@@ -215,6 +215,97 @@ class InterfaceSubclassTests(unittest.TestCase):
         self.assertGreaterEqual(len(list(self.cases())), 6)
 
 
+def _imports_toolkit(source):
+    """True when the source really imports the toolkit, comments aside."""
+    import ast
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return False
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            if (node.module or "").split(".")[0] == "anongee_toolkit":
+                return True
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name.split(".")[0] == "anongee_toolkit":
+                    return True
+    return False
+
+
+def _adds_to_path(source):
+    """True when the source **runs** something that puts lib on ``sys.path``.
+
+    Runs, not contains. The first version of this looked for a ``sys.path``
+    insert anywhere in the file, which meant a script keeping the bootstrap in
+    a function it never called still passed — and a mutation test proved it: the
+    call was deleted and nothing went red. So this walks the module body only,
+    and a helper counts only when something at module level calls it.
+    """
+    import ast
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return False
+
+    helpers = set()
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and _body_touches_path(node):
+            helpers.add(node.name)
+
+    for node in _module_level(tree):
+        if isinstance(node, ast.Call) and _call_touches_path(node, helpers):
+            return True
+    return False
+
+
+def _module_level(tree):
+    """Every node that actually runs at import, function bodies excluded.
+
+    Not ``tree.body`` alone: a bootstrap wrapped in ``try: ... except
+    ImportError: pass`` at module level runs, and two tools in this repository
+    write it that way. Not ``ast.walk`` either, or a bootstrap defined and never
+    called would count. The distinction is exactly *does this line execute when
+    the file is imported*.
+    """
+    import ast
+    stack = list(tree.body)
+    while stack:
+        node = stack.pop()
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef,
+                             ast.ClassDef)):
+            continue
+        yield node
+        for child in ast.iter_child_nodes(node):
+            stack.append(child)
+
+
+def _body_touches_path(node):
+    """True when a function's body inserts into ``sys.path`` or resolves it."""
+    import ast
+    for inner in ast.walk(node):
+        if isinstance(inner, ast.Call) and _call_touches_path(inner, set()):
+            return True
+    return False
+
+
+def _call_touches_path(call, helpers):
+    import ast
+    function = call.func
+    if isinstance(function, ast.Name):
+        return function.id in helpers
+    if not isinstance(function, ast.Attribute):
+        return False
+    if function.attr == "update_paths":
+        return True
+    if function.attr in ("insert", "append"):
+        target = function.value
+        return (isinstance(target, ast.Attribute) and target.attr == "path"
+                and isinstance(target.value, ast.Name)
+                and target.value.id == "sys")
+    return False
+
+
 class EngineTests(unittest.TestCase):
 
     def test_every_script_that_uses_the_toolkit_selects_the_engine(self):
@@ -241,6 +332,92 @@ class EngineTests(unittest.TestCase):
             if "#! python3" in "\n".join(lines[:5]):
                 self.assertEqual(lines[0].strip(), "#! python3",
                                  os.path.relpath(path, _ROOT))
+
+    def test_every_script_that_uses_the_toolkit_puts_lib_on_the_path(self):
+        """The shebang is half of it. This is the other half.
+
+        **pyRevit adds ``<extension>/lib`` to ``sys.path`` and nothing below
+        it.** The toolkit lives in ``lib/py3``, so selecting the CPython engine
+        gets a script as far as an ``ImportError`` and no further.
+
+        The two failures look identical from inside Revit — *No module named
+        anongee_toolkit* either way — which is exactly why the first release of
+        Extract Template shipped with the shebang, without the bootstrap, and
+        with an error message confidently blaming the engine. A test is cheaper
+        than that message being believed.
+        """
+        missing = []
+        for path in scripts():
+            if not _imports_toolkit(_read(path)):
+                continue
+            if _adds_to_path(_read(path)):
+                continue
+            missing.append(os.path.relpath(path, _ROOT))
+        self.assertEqual(missing, [],
+                         "these import the toolkit without putting lib/py3 on "
+                         "sys.path: " + "; ".join(missing))
+
+    def test_a_bootstrap_that_is_never_called_does_not_count(self):
+        """The mutation this test exists because of.
+
+        A script can define ``bootstrap_lib_path`` perfectly and forget the one
+        line that calls it, and every import below still fails. Looking for the
+        code rather than the call missed exactly that.
+        """
+        defined = ("import sys\n"
+                   "def bootstrap():\n"
+                   "    sys.path.insert(0, 'lib/py3')\n")
+        self.assertFalse(_adds_to_path(defined))
+        self.assertTrue(_adds_to_path(defined + "bootstrap()\n"))
+
+    def test_a_bootstrap_wrapped_in_try_still_counts(self):
+        # Two tools in this repository write it this way, and they are right to
+        # — a missing path_resolver should not stop the button loading.
+        self.assertTrue(_adds_to_path(
+            "try:\n"
+            "    import path_resolver\n"
+            "    path_resolver.update_paths()\n"
+            "except Exception:\n"
+            "    pass\n"))
+
+    def test_the_rule_reads_imports_and_not_prose(self):
+        """A mention in a comment is not an import.
+
+        Three tests in this repository have matched the sentence explaining a
+        bug rather than the code causing it, and this one did too on its first
+        run — it flagged a tool whose only mention of the toolkit is inside a
+        comment. So it reads the AST, and this holds that it still does.
+        """
+        self.assertFalse(_imports_toolkit(
+            "# anongee_toolkit/cad2bim/builders/txn_failures.py\nimport os\n"))
+        self.assertTrue(_imports_toolkit(
+            "from anongee_toolkit.structural import columns\n"))
+        self.assertTrue(_imports_toolkit("import anongee_toolkit.bridge\n"))
+
+    def test_the_bootstrap_runs_before_the_toolkit_is_imported(self):
+        """Order matters and is invisible: a bootstrap below the import runs
+        second, and the import has already failed by then."""
+        import ast
+        for path in scripts():
+            source = _read(path)
+            if not _imports_toolkit(source) or "path_resolver" not in source:
+                continue
+            tree = ast.parse(source)
+            bootstrap_at = None
+            import_at = None
+            for node in ast.walk(tree):
+                if (isinstance(node, ast.Call)
+                        and isinstance(node.func, ast.Attribute)
+                        and node.func.attr == "update_paths"
+                        and bootstrap_at is None):
+                    bootstrap_at = node.lineno
+                if (isinstance(node, ast.ImportFrom)
+                        and (node.module or "").startswith("anongee_toolkit")
+                        and import_at is None):
+                    import_at = node.lineno
+            if bootstrap_at is not None and import_at is not None:
+                self.assertLess(bootstrap_at, import_at,
+                                os.path.relpath(path, _ROOT))
 
     def test_the_startup_script_does_not_select_an_engine(self):
         """It must stay valid on pyRevit's core engine, which is IronPython.

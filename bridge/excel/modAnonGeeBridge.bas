@@ -964,7 +964,11 @@ Public Sub AnonGeeBridge_AddButtons()
                "AnonGeeBridge_ApplyUnits"
     made = made + 1
 
-    MsgBox made & " button(s) drawn." & vbCrLf & vbCrLf & _
+    Dim anchored As Long
+    anchored = CountAnchored()
+
+    MsgBox made & " button(s) drawn, " & anchored & " of them set to move " & _
+           "and size with their cells." & vbCrLf & vbCrLf & _
            "Save the workbook. Run this again after any rebuild -- a rebuild " & _
            "keeps the macros and loses the drawings.", _
            vbInformation, "AnonGee Bridge"
@@ -974,6 +978,23 @@ Failed:
     MsgBox "Could not draw the buttons: " & Err.Description, _
            vbExclamation, "AnonGee Bridge"
 End Sub
+
+
+Private Function CountAnchored() As Long
+    ' How many of our buttons actually took the anchoring, workbook-wide.
+    On Error Resume Next
+    Dim sheet As Worksheet
+    Dim shape As Shape
+    For Each sheet In ThisWorkbook.Worksheets
+        For Each shape In sheet.Shapes
+            If Left$(shape.Name, Len(BUTTON_PREFIX)) = BUTTON_PREFIX Then
+                If shape.Placement = xlMoveAndSize Then
+                    CountAnchored = CountAnchored + 1
+                End If
+            End If
+        Next shape
+    Next sheet
+End Function
 
 
 Private Function FindTemplate(ByVal sheet As Worksheet) As Shape
@@ -1044,11 +1065,78 @@ Private Sub DrawButton(ByVal sheet As Worksheet, ByVal cell As Range, _
     button.TextFrame2.TextRange.Text = caption
     button.OnAction = macro
     button.Line.Weight = BUTTON_BORDER
+    AnchorToCell button
+End Sub
 
-    ' Move and size with the cell underneath. Without this a button keeps the
-    ' position it was drawn at, and the first person to widen a column has a
-    ' sheet with its buttons in the wrong place.
+
+Public Function AnchorToCell(ByVal button As Shape) As Boolean
+    ' Move and size with the cell underneath. ``True`` when it took.
+    '
+    ' Set, then read back, then say so. The previous version set it inside a
+    ' blanket On Error Resume Next and never checked -- so when the buttons did
+    ' not follow their cells there was no way to tell whether the line had run,
+    ' failed, or been overwritten, and the next round would have been another
+    ' guess. A property worth setting is a property worth verifying.
+    '
+    ' Two attempts, because they fail differently: the Shape property is the
+    ' documented one, and the ShapeRange form goes through a different code
+    ' path in Excel that has been known to work where the first does not.
+    AnchorToCell = False
+    On Error Resume Next
+
     button.Placement = xlMoveAndSize
+    If button.Placement = xlMoveAndSize Then
+        AnchorToCell = True
+        Exit Function
+    End If
+
+    button.Parent.Shapes.Range(button.Name).Placement = xlMoveAndSize
+    AnchorToCell = (button.Placement = xlMoveAndSize)
+End Function
+
+
+Public Sub AnonGeeBridge_AnchorButtons()
+    ' Re-anchor every AnonGee button on every sheet, and report the count.
+    '
+    ' Separate from AddButtons so the anchoring can be tested on its own. If a
+    ' button still will not follow its cell after this says it did, the cause
+    ' is in Excel rather than in the macro, and that is worth being able to
+    ' establish in one press.
+    On Error GoTo Failed
+
+    Dim anchored As Long
+    Dim refused As Long
+    Dim sheet As Worksheet
+    Dim shape As Shape
+
+    For Each sheet In ThisWorkbook.Worksheets
+        For Each shape In sheet.Shapes
+            If Left$(shape.Name, Len(BUTTON_PREFIX)) = BUTTON_PREFIX Then
+                If AnchorToCell(shape) Then
+                    anchored = anchored + 1
+                Else
+                    refused = refused + 1
+                End If
+            End If
+        Next shape
+    Next sheet
+
+    Dim message As String
+    message = anchored & " button(s) now move and size with their cells."
+    If refused > 0 Then
+        message = message & vbCrLf & vbCrLf & refused & " would not take it. " & _
+                  "That is Excel refusing, not the macro skipping -- the " & _
+                  "property was set and read back, and it did not stick."
+    End If
+    If anchored = 0 And refused = 0 Then
+        message = "No AnonGee buttons found. Run AnonGeeBridge_AddButtons first."
+    End If
+    MsgBox message, vbInformation, "AnonGee Bridge"
+    Exit Sub
+
+Failed:
+    MsgBox "Could not re-anchor: " & Err.Description, vbExclamation, _
+           "AnonGee Bridge"
 End Sub
 
 

@@ -63,7 +63,8 @@ ID is where the detail lives. Four words, meaning exactly four things:
 | Sample project workbook — Foundation + G + 4 | — | 1.16.0, third format | reviewed twice; ten changes asked for and made | no | 0 | FEAT-22, 24–33 |
 | Columns | `columns.sync` | 1.17.0, `redo` | **failed 2026-08-25**: `created=90 written=0`. Every row reported *no column type called `C-300x600`* and stopped. Correct, and useless | no | **1** | FEAT-10, 28, 34 |
 | Footings | `footings.sync` | 1.17.0, `redo` | **failed 2026-08-25**: `created=15 written=0`, same cause | no | **1** | FEAT-23, 27, 34 |
-| Extract Template | — | 1.17.0 | not yet | no | 0 | FEAT-35 |
+| Extract Template | — | 1.18.0, `redo` | **failed 2026-08-25**: could not import the toolkit — and said the wrong reason | no | **1** | FEAT-35, BUG-18 |
+| Buttons | — | 1.18.0 | style matched exactly; **they do not move or size with their cells** | no | **1** | FEAT-32, BUG-19 |
 | Beams | `beams.sync` | declared, not written | — | no | 0 | FEAT-11, 29 |
 | Slabs | `slabs.sync` | declared, not written | — | no | 0 | FEAT-13, 30 |
 
@@ -405,6 +406,47 @@ as mojibake.
 **Fixed, unconfirmed.** The TSV is ASCII with anything else replaced; the JSON
 keeps the full text and names UTF-8. That split is the one real cost of writing
 the answer twice, and it is still cheaper than a JSON parser in VBA.
+
+### BUG-18 — Extract Template could not import the toolkit, and blamed the wrong thing · `testing`
+
+**How it was found.** First press: *No module named 'anongee_toolkit'*, followed by my own error message
+telling the project owner to check the `#! python3` line — **which was there, on line one, and was not
+the problem.**
+
+**Cause.** pyRevit puts `<extension>/lib` on `sys.path` and **nothing below it**. The toolkit lives in
+`lib/py3`, so every tool that uses it calls `path_resolver.update_paths()` first. This one did not.
+
+The two failures are indistinguishable from inside Revit — the same `ImportError`, the same wording —
+which is exactly why a confident wrong message is worse than none. It would have sent the owner to
+look at a line that was already correct.
+
+**Fix, and a repo-wide test.** Any script that imports the toolkit must **run** something that puts
+`lib` on the path — and *run* is the word: the first version of the test looked for a `sys.path`
+insert anywhere in the file, so a script keeping the bootstrap in a function it never called still
+passed. A mutation proved it: the call was deleted and nothing went red. It now walks module-level
+code only, and a helper counts only when something at module level calls it.
+
+The same test caught its own false positive on the way: it first flagged a tool whose only mention of
+the toolkit is inside a comment. **Fourth time a test in this repository has matched prose rather than
+code**; it reads the AST now, and there is a test holding it to that.
+
+### BUG-19 — the buttons did not move or size with their cells · `testing`
+
+**How it was found.** The project owner ran `AddButtons`, confirmed the style matched theirs exactly,
+and reported that resizing a row or column left the buttons where they were.
+
+**Not diagnosed — instrumented.** `Placement` was being set inside a blanket `On Error Resume Next`
+and never checked, so there were three indistinguishable possibilities: the line did not run, it ran
+and failed, or it ran and Excel overwrote it. The workbook's own XML says `twoCellAnchor` with no
+`editAs`, which *is* move-and-size — so the file contradicts the symptom, and another round of
+guessing would have been the fourth.
+
+So the macro now **sets it, reads it back, and reports the count**: *"7 button(s) drawn, 7 of them set
+to move and size with their cells."* Two attempts, because they fail differently — the `Shape`
+property and the `ShapeRange` form go through different code paths. And
+`AnonGeeBridge_AnchorButtons` runs the anchoring alone, so if a button still will not follow its cell
+after that says it did, the cause is Excel and not the macro. **One press turns this from a guess into
+a fact.**
 
 ### BUG-17 — `ApplyUnits` skipped the `INFO` sheet · `testing`
 
