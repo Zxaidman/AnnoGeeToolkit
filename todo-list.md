@@ -552,6 +552,26 @@ the sheet — has not been asked.
 Reserved for what the project owner sends next, and everything after. Nothing is written here by
 anybody else.
 
+### OWN-1 — the shape of every handover from here · `done`
+
+Standing instruction, given 2026-08-25 and in force from the workbook review onwards. **Every
+delivery says the same five things, in this order**, so a build can be read without reconstructing
+what changed from the diff:
+
+| # | Section | What goes in it, and what does not |
+| --- | --- | --- |
+| 1 | **New — built** | What did not exist before this build. Named, with where it lives. |
+| 2 | **Changed** | What existed and now behaves differently. Says the old behaviour as well as the new one, because that is the half that is hard to recover later. |
+| 3 | **Untouched** | What was deliberately left alone. The point of this section is that *silence is not evidence* — a thing not mentioned might be finished, or forgotten, and this is where the difference gets stated. |
+| 4 | **Test procedure** | Numbered steps, in the order they are done, each one saying what to expect. Not "test it in Revit" — the actual clicks, and the number that says it passed. Idempotence is a step, never an assumption. |
+| 5 | **Next phase** | A roadmap table: what comes next, what it depends on, and what state it is in. |
+
+Sections 1–3 are a partition — everything in the build lands in exactly one of them, and *untouched*
+is the one that must not be skipped when it is empty. Say "nothing" and mean it.
+
+This is a reporting rule, not a queue rule. The [build record](#the-build-record) stays the record of
+state; this governs how each delivery is written.
+
 > **Settled.** Check `CRIT-1` first, then build the `.xlsm` control sheet and the templates.
 > Both templates minimal and datum-only. The owner has an existing project `.rvt` and will describe
 > it, with what needs adding — so `CRIT-2`'s template specification waits for that rather than being
