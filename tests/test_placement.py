@@ -418,7 +418,24 @@ class TypeCreationTests(unittest.TestCase):
     def test_a_column_type_is_duplicated_from_a_loaded_family(self):
         body = self.source("structural", "columns.py")
         self.assertIn("def ensure_symbol(", body)
-        self.assertIn("base.Duplicate(wanted)", body)
+        self.assertIn("base.Duplicate(name or wanted)", body)
+
+    def test_a_new_type_is_named_by_the_house_pattern(self):
+        """The workbook's TypeMark is what a row *asks for*; the NAMING sheet
+        decides what a type is *called* when one has to be made.
+
+        Otherwise a model fills up with names in the workbook's dialect —
+        ``C-300x600`` beside the template's own ``300 X 600``, describing the
+        same section twice.
+        """
+        for name, key in (("columns.py", "column"), ("beams.py", "beam")):
+            path = os.path.join(_ROOT, "AnonGee.extension", "lib", "py3",
+                                "anongee_toolkit", "commands", name)
+            with open(path, encoding="utf-8") as handle:
+                body = handle.read()
+            self.assertIn('_sheets.type_name(patterns, "{0}"'.format(key),
+                          body, name)
+            self.assertIn("_sheets.naming(context", body, name)
 
     def test_a_footing_type_is_duplicated_too(self):
         body = self.source("structural", "footings.py")
@@ -746,6 +763,194 @@ class PanelTests(unittest.TestCase):
         self.assertEqual(corners,
                          [(0.0, 0.0), (6000.0, 0.0), (6000.0, 6000.0),
                           (0.0, 6000.0)])
+
+
+class BeamEndTests(unittest.TestCase):
+    """A grid intersection is where a **column** stands, not where a beam ends.
+
+    A beam drawn between two of them runs through both columns: the concrete is
+    counted twice at every junction and the shop drawing shows a beam that does
+    not exist. Revit's automatic join then extends it further.
+    """
+
+    def framing(self):
+        import importlib.util
+        path = os.path.join(_ROOT, "AnonGee.extension", "lib", "py3",
+                            "anongee_toolkit", "structural", "framing.py")
+        spec = importlib.util.spec_from_file_location("framing", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_a_beam_along_x_is_pulled_in_along_x(self):
+        trimmed = self.framing()._trim((0.0, 0.0), (6000.0, 0.0),
+                                       (150.0, 150.0))
+        self.assertEqual(trimmed, ((150.0, 0.0), (5850.0, 0.0)))
+
+    def test_a_beam_along_y_is_pulled_in_along_y(self):
+        trimmed = self.framing()._trim((0.0, 0.0), (0.0, 6000.0),
+                                       (300.0, 300.0))
+        self.assertEqual(trimmed, ((0.0, 300.0), (0.0, 5700.0)))
+
+    def test_the_two_ends_are_cut_back_separately(self):
+        # A beam between a 300 column and a 600 one is not symmetrical.
+        trimmed = self.framing()._trim((0.0, 0.0), (6000.0, 0.0),
+                                       (150.0, 300.0))
+        self.assertEqual(trimmed, ((150.0, 0.0), (5700.0, 0.0)))
+
+    def test_a_diagonal_beam_is_cut_along_its_own_direction(self):
+        trimmed = self.framing()._trim((0.0, 0.0), (3000.0, 4000.0),
+                                       (500.0, 0.0))
+        self.assertAlmostEqual(trimmed[0][0], 300.0)
+        self.assertAlmostEqual(trimmed[0][1], 400.0)
+
+    def test_a_cutback_longer_than_the_beam_is_refused(self):
+        # Better a beam on the grid than a beam inside out.
+        start, end = (0.0, 0.0), (200.0, 0.0)
+        self.assertEqual(self.framing()._trim(start, end, (150.0, 150.0)),
+                         (start, end))
+
+    def test_the_joins_are_disallowed_at_both_ends(self):
+        body = _read_source("structural", "framing.py")
+        self.assertIn("DisallowJoinAtEnd(instance, end_index)", body)
+        self.assertIn("for end_index in (0, 1)", body)
+
+    def test_the_justification_is_stated_rather_than_inherited(self):
+        """A real run arrived with ``z Offset Value`` of −1500.
+
+        Nothing set it. ``NewFamilyInstance`` gives a beam whatever the family
+        and the **last placement** left behind, and −1500 is the foundation
+        level — a number from somewhere else entirely, carried into ninety
+        beams because nothing said otherwise.
+        """
+        body = _read_source("structural", "framing.py")
+        for parameter in ("YZ_JUSTIFICATION", "Y_JUSTIFICATION",
+                          "Y_OFFSET_VALUE", "Z_JUSTIFICATION",
+                          "Z_OFFSET_VALUE"):
+            self.assertIn("BuiltInParameter." + parameter, body, parameter)
+
+    def test_the_sheets_offset_drops_the_beam_not_its_section(self):
+        # Two different things called offset. The level offsets move the beam;
+        # the z offset moves it within its own section.
+        body = _read_source("structural", "framing.py")
+        self.assertIn("STRUCTURAL_BEAM_END0_ELEVATION", body)
+        self.assertIn("mm_to_ft(offset_mm or 0.0)", body)
+
+    def test_the_column_lookup_is_keyed_on_the_level_the_beam_sits_on(self):
+        # A column's *top* reaches the level its beam sits on. Keying on the
+        # base level would find the column a storey below.
+        body = _read_source("commands", "beams.py")
+        self.assertIn("_fold(row.top_level)", body)
+
+    def test_a_row_can_ask_to_run_to_the_grid_instead(self):
+        body = _read_source("commands", "beams.py")
+        self.assertIn('GRID_LINE = "grid line"', body)
+        self.assertIn("row.edge_rule", body)
+
+    def test_the_sample_sheet_says_column_face(self):
+        sample = _sample()
+        groups, _issues = placement.parse_beams(
+            _grid(sample.BEAM_PLACEMENT_HEADERS, sample.beam_rows()),
+            units="mm")
+        for group in groups:
+            for row in group:
+                self.assertEqual(row.edge_rule, "Column face")
+
+
+class NamingSheetTests(unittest.TestCase):
+    """Type names as patterns, in the workbook, the way cad2bim does it."""
+
+    def naming(self):
+        from anongee_toolkit.rc_automation import naming_sheet
+        return naming_sheet
+
+    def test_the_defaults_are_the_templates_own_convention(self):
+        # `300 X 600`, capital X, spaces — so a workbook that ships agreeing
+        # with the model it will meet creates nothing on the first run.
+        naming = self.naming()
+        self.assertEqual(naming.render(naming.defaults(), "column",
+                                       b=300, h=600), "300 X 600")
+
+    def test_a_pattern_from_the_sheet_wins(self):
+        naming = self.naming()
+        patterns, issues = naming.parse(
+            [["Element", "Pattern"], ["column", "S_Col_{b}x{h}"]])
+        self.assertEqual(issues, [])
+        self.assertEqual(naming.render(patterns, "column", b=300, h=600),
+                         "S_Col_300x600")
+
+    def test_a_pattern_that_will_not_render_is_reported_not_obeyed(self):
+        """A naming preference must never stop a run.
+
+        Ninety columns refused because somebody typed ``{width}`` for ``{b}``
+        would be the tool confusing a preference with a requirement.
+        """
+        naming = self.naming()
+        patterns, issues = naming.parse(
+            [["Element", "Pattern"], ["column", "{width} x {h}"]])
+        self.assertEqual(len(issues), 1)
+        self.assertIn("should not stop a run", issues[0].message)
+        self.assertEqual(naming.render(patterns, "column", b=300, h=600),
+                         "300 X 600")
+
+    def test_a_key_with_an_underscore_matches_itself(self):
+        """``_fold`` drops underscores, and comparing a folded cell against the
+        raw keys rejected three of the seven — in the sheet this repository
+        writes itself. Caught by the round-trip test below, which is what a
+        round-trip test is for.
+        """
+        naming = self.naming()
+        patterns, issues = naming.parse(
+            [["Element", "Pattern"], ["column_mark", "COL-{n}"]])
+        self.assertEqual(issues, [])
+        self.assertEqual(naming.render(patterns, "column_mark", n=4), "COL-4")
+
+    def test_an_unknown_element_says_what_it_does_know(self):
+        naming = self.naming()
+        _patterns, issues = naming.parse(
+            [["Element", "Pattern"], ["girder", "{b} x {h}"]])
+        self.assertEqual(len(issues), 1)
+        self.assertIn("column", issues[0].message)
+
+    def test_a_missing_sheet_is_not_an_error(self):
+        naming = self.naming()
+        patterns, issues = naming.parse(None)
+        self.assertEqual(issues, [])
+        self.assertEqual(patterns, naming.defaults())
+
+    def test_a_whole_number_reads_as_one(self):
+        # 600.0 in a type name is 600, not "600.0".
+        naming = self.naming()
+        self.assertEqual(naming.render(naming.defaults(), "column",
+                                       b=300.0, h=600.0), "300 X 600")
+
+    def test_the_example_is_generated_from_the_pattern(self):
+        # Typed beside it, it would drift. Generated, it cannot.
+        naming = self.naming()
+        patterns = {"column": "S_Col_{b}x{h}"}
+        self.assertEqual(naming.example(patterns, "column"), "S_Col_300x600")
+
+    def test_a_mark_example_is_a_mark_and_not_a_size(self):
+        # The first version sampled by position and gave `C300`.
+        naming = self.naming()
+        self.assertEqual(naming.example(naming.defaults(), "column_mark"),
+                         "C1")
+
+    def test_the_sheet_the_builder_writes_is_the_sheet_the_reader_reads(self):
+        sample = _sample()
+        naming = self.naming()
+        rows = sample.naming_rows()
+        patterns, issues = naming.parse(
+            [list(sample.NAMING_HEADERS)] + [list(row) for row in rows])
+        self.assertEqual(issues, [])
+        self.assertEqual(patterns, naming.defaults())
+
+
+def _read_source(package, name):
+    path = os.path.join(_ROOT, "AnonGee.extension", "lib", "py3",
+                        "anongee_toolkit", package, name)
+    with open(path, encoding="utf-8") as handle:
+        return handle.read()
 
 
 if __name__ == "__main__":

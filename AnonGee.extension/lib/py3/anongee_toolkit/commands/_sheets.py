@@ -34,6 +34,35 @@ def sizes(context, sheet_name, findings, finding):
     return found
 
 
+def naming(context, findings, finding):
+    """The type-name patterns from the workbook's NAMING sheet.
+
+    Optional: a workbook without one gets the defaults and nothing is said,
+    because it is a preference rather than a requirement.
+    """
+    from anongee_toolkit.bridge import envelope as envelope_module
+    from anongee_toolkit.rc_automation import naming_sheet
+
+    patterns, issues = naming_sheet.parse(sheet(context, naming_sheet.SHEET))
+    for item in envelope_module.findings_from_issues(issues):
+        findings.append(item)
+    return patterns
+
+
+def type_name(patterns, key, wanted, **values):
+    """What to call a type that has to be created.
+
+    The workbook's ``TypeMark`` is what a placement row *asks for*, and it is
+    matched against the model first. This is only reached when nothing matched
+    and a type is being made — and then the **house pattern** decides what it is
+    called, so a model does not fill up with names in the workbook's dialect.
+    """
+    from anongee_toolkit.rc_automation import naming_sheet
+    if not values or any(value is None for value in values.values()):
+        return wanted
+    return naming_sheet.render(patterns, key, **values) or wanted
+
+
 def sheet(context, wanted):
     """One sheet out of the workbook the job named, matched the way a person
     would spell it. ``None`` when it is not there."""

@@ -124,7 +124,8 @@ FAMILY_HINTS = ("concreterectangularcolumn", "rectangularcolumn",
                 "concretesquarecolumn", "rectangular", "concrete")
 
 
-def ensure_symbol(doc, wanted, width_mm=None, depth_mm=None, cache=None):
+def ensure_symbol(doc, wanted, width_mm=None, depth_mm=None, cache=None,
+                  name=None):
     """``(FamilySymbol, note)`` — found, or duplicated and sized to order.
 
     **Creating a type is not authoring a family.** The family has to be loaded
@@ -149,10 +150,10 @@ def ensure_symbol(doc, wanted, width_mm=None, depth_mm=None, cache=None):
         return None, base_note
 
     try:
-        duplicated = base.Duplicate(wanted)
+        duplicated = base.Duplicate(name or wanted)
     except Exception as error:
         return None, "could not create a type called {0!r}: {1}".format(
-            wanted, error)
+            name or wanted, error)
 
     set_width = _set_dimension(duplicated, WIDTH_NAMES, width_mm)
     set_depth = _set_dimension(duplicated, DEPTH_NAMES, depth_mm)

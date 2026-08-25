@@ -95,7 +95,10 @@ _FROM_GRID_Y = ("fromgridy", "startgridy", "gridyfrom")
 _TO_GRID_X = ("togridx", "endgridx", "gridxto")
 _TO_GRID_Y = ("togridy", "endgridy", "gridyto")
 _SPAN = ("span", "bay", "segment")
-_EDGE_RULE = ("edgerule", "edge", "rule")
+#: What an element does where it meets another one. A slab says it about its
+#: four edges; a beam says it about its two ends. Same idea, two words for it,
+#: because "EdgeRule" on a beam sheet reads like a mistake.
+_EDGE_RULE = ("edgerule", "endprep", "edge", "rule", "end")
 _OFFSET = ("offset", "z", "drop")
 
 #: ``From`` and ``To`` are asked before ``GridX``, which they both start with
@@ -103,7 +106,7 @@ _OFFSET = ("offset", "z", "drop")
 #: does, and a sheet written the other way round would otherwise land both ends
 #: in the same field.
 _BEAM_FIELDS = (
-    ("type_mark", _TYPE_MARK), ("span", _SPAN),
+    ("type_mark", _TYPE_MARK), ("span", _SPAN), ("edge_rule", _EDGE_RULE),
     ("from_grid_x", _FROM_GRID_X), ("from_grid_y", _FROM_GRID_Y),
     ("to_grid_x", _TO_GRID_X), ("to_grid_y", _TO_GRID_Y),
     ("level", _LEVEL), ("offset_mm", _OFFSET),

@@ -52,7 +52,8 @@ def symbols(doc):
     return sorted(found, key=lambda item: item[0])
 
 
-def ensure_symbol(doc, wanted, width_mm=None, depth_mm=None, cache=None):
+def ensure_symbol(doc, wanted, width_mm=None, depth_mm=None, cache=None,
+                  name=None):
     """``(FamilySymbol, note)`` — found, or duplicated and sized to order.
 
     Four passes, narrowest first — Type Mark, exact name, name containing, and
@@ -101,10 +102,10 @@ def ensure_symbol(doc, wanted, width_mm=None, depth_mm=None, cache=None):
 
     base = _base_symbol(doc, loaded)
     try:
-        duplicated = base.Duplicate(wanted)
+        duplicated = base.Duplicate(name or wanted)
     except Exception as error:
         return None, "could not create a type called {0!r}: {1}".format(
-            wanted, error)
+            name or wanted, error)
 
     set_width = _set_dimension(duplicated, WIDTH_NAMES, width_mm)
     set_depth = _set_dimension(duplicated, DEPTH_NAMES, depth_mm)
@@ -121,32 +122,97 @@ def ensure_symbol(doc, wanted, width_mm=None, depth_mm=None, cache=None):
         wanted, width_mm, depth_mm)
 
 
-def create(doc, start_mm, end_mm, symbol, level, offset_mm=0.0):
+def create(doc, start_mm, end_mm, symbol, level, offset_mm=0.0,
+           cutback_mm=(0.0, 0.0), disallow_joins=True):
     """Place one beam between two points. **Requires a transaction.**
 
-    The line is drawn at the level's own elevation and the offset is applied
-    afterwards through the parameter, rather than by drawing the line higher.
-    Revit treats the two differently: a beam drawn high is a beam whose
-    reference level is wrong, and every schedule that groups by level says so.
+    The line is drawn at the level's own elevation and the offset applied
+    through the parameter, not by drawing the line higher: a beam drawn high is
+    a beam whose reference level is wrong, and every schedule that groups by
+    level says so.
+
+    *cutback_mm* is ``(start, end)`` — how far to pull each end back from the
+    point given, so the beam stops at the **column face** rather than running
+    through the column's centre. A grid intersection is where a column stands,
+    not where a beam ends.
+
+    *disallow_joins* is on by default. Revit's automatic join extends a beam
+    into whatever it meets, so a beam already cut back to the face would be
+    quietly pushed through the column again.
     """
-    from Autodesk.Revit.DB import BuiltInParameter, Line, XYZ
+    from Autodesk.Revit.DB import Line, XYZ
+    from Autodesk.Revit.DB.Structure import StructuralFramingUtils
     from Autodesk.Revit.DB.Structure import StructuralType
     from anongee_toolkit.revit.units import mm_to_ft
 
+    trimmed_start, trimmed_end = _trim(start_mm, end_mm, cutback_mm)
     elevation = level.Elevation
-    start = XYZ(mm_to_ft(start_mm[0]), mm_to_ft(start_mm[1]), elevation)
-    end = XYZ(mm_to_ft(end_mm[0]), mm_to_ft(end_mm[1]), elevation)
+    start = XYZ(mm_to_ft(trimmed_start[0]), mm_to_ft(trimmed_start[1]),
+                elevation)
+    end = XYZ(mm_to_ft(trimmed_end[0]), mm_to_ft(trimmed_end[1]), elevation)
     if start.DistanceTo(end) < mm_to_ft(MINIMUM_SPAN_MM):
-        raise ValueError("the two ends are the same point")
+        raise ValueError("nothing is left of this beam once it is cut back to "
+                         "the column faces")
 
     instance = doc.Create.NewFamilyInstance(
         Line.CreateBound(start, end), symbol, level, StructuralType.Beam)
 
-    if offset_mm:
-        for built_in in (BuiltInParameter.STRUCTURAL_BEAM_END0_ELEVATION,
-                         BuiltInParameter.STRUCTURAL_BEAM_END1_ELEVATION):
-            _set(instance, built_in, mm_to_ft(offset_mm))
+    _state_the_justification(instance, offset_mm)
+
+    if disallow_joins:
+        for end_index in (0, 1):
+            try:
+                StructuralFramingUtils.DisallowJoinAtEnd(instance, end_index)
+            except Exception:
+                pass
     return instance
+
+
+def _trim(start_mm, end_mm, cutback_mm):
+    """Pull each end in along the beam's own direction. ``(start, end)``."""
+    dx = end_mm[0] - start_mm[0]
+    dy = end_mm[1] - start_mm[1]
+    length = (dx * dx + dy * dy) ** 0.5
+    if length <= 0:
+        return start_mm, end_mm
+
+    unit = (dx / length, dy / length)
+    at_start, at_end = cutback_mm[0] or 0.0, cutback_mm[1] or 0.0
+    if at_start + at_end >= length:
+        return start_mm, end_mm
+
+    return ((start_mm[0] + unit[0] * at_start,
+             start_mm[1] + unit[1] * at_start),
+            (end_mm[0] - unit[0] * at_end,
+             end_mm[1] - unit[1] * at_end))
+
+
+def _state_the_justification(instance, offset_mm):
+    """Say where the beam sits in its own section, rather than inheriting it.
+
+    ``NewFamilyInstance`` gives a beam whatever the family and the **last
+    placement** left behind. A real run arrived with ``z Offset Value`` of
+    −1500 — the foundation level, from somewhere else entirely in the model,
+    carried into ninety beams because nothing said otherwise.
+
+    So every one of these is stated. Anything a run does not set is a value
+    somebody else chose, and on a family instance that is most of them.
+    """
+    from Autodesk.Revit.DB import BuiltInParameter
+    from anongee_toolkit.revit.units import mm_to_ft
+
+    _set(instance, BuiltInParameter.YZ_JUSTIFICATION, 0)        # Uniform
+    _set(instance, BuiltInParameter.Y_JUSTIFICATION, 2)         # Origin
+    _set(instance, BuiltInParameter.Y_OFFSET_VALUE, 0.0)
+    _set(instance, BuiltInParameter.Z_JUSTIFICATION, 0)         # Top
+    _set(instance, BuiltInParameter.Z_OFFSET_VALUE, 0.0)
+
+    # The sheet's Offset drops the whole beam, which is what the level offsets
+    # are for. The z offset above moves it within its own section, which is a
+    # different thing and is not what a schedule means by "offset".
+    for built_in in (BuiltInParameter.STRUCTURAL_BEAM_END0_ELEVATION,
+                     BuiltInParameter.STRUCTURAL_BEAM_END1_ELEVATION):
+        _set(instance, built_in, mm_to_ft(offset_mm or 0.0))
 
 
 def placed(doc):

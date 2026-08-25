@@ -35,6 +35,65 @@ of view of someone using the thing rather than someone reading the diff:
 
 ---
 
+## 1.23.0
+
+**Fixed**
+
+- **Every beam arrived with a z offset of −1500.** Nothing set it.
+  `NewFamilyInstance` gives a beam whatever the family and the **last
+  placement** left behind, and −1500 is the foundation level — a number from
+  somewhere else entirely in the model, carried into ninety beams because
+  nothing said otherwise.
+
+  Justification and offset are **stated now, not inherited**: `yz` uniform, `y`
+  origin at zero, `z` top at zero, and the sheet's `Offset` written to the level
+  offsets, where it belongs. Anything a run does not set is a value somebody
+  else chose, and on a family instance that is most of them.
+
+- **Beams ran column centre to column centre, and joined.** A grid intersection
+  is where a **column** stands, not where a beam ends — so a beam drawn between
+  two of them runs through both columns, the concrete is counted twice at every
+  junction, and Revit's automatic join then extends it further.
+
+  Each end is now **cut back to the column face**: half the column's dimension
+  *along the beam's own direction*, which is its Width for a beam running along
+  X and its Depth for one along Y, swapped when the column is turned. The column
+  is looked up in `COLUMN_PLACEMENT` by the same intersection the beam names,
+  keyed on the level its **top** reaches — because that is the level the beam
+  sits on. Joins are disallowed at both ends. An end with no column under it is
+  left on the grid and that is said once.
+
+  `EndPrep` on the sheet says which convention a row uses, so a beam that really
+  does run to the grid can still say so.
+
+**Added**
+
+- **A `NAMING` sheet** — type names as patterns, `{b} X {h}`, the way `cad2bim`
+  already does it. The house convention lives where a person can change it, and
+  the **example beside each pattern is generated from it** rather than typed, so
+  it cannot drift.
+
+  A pattern that will not render is reported and the default used. Ninety
+  columns refused because somebody typed `{width}` for `{b}` would be the tool
+  confusing a preference with a requirement.
+
+  The workbook's `TypeMark` is still what a row *asks for* and is matched against
+  the model first; the pattern decides what a type is *called* when one has to
+  be made — so a model does not fill up with names in the workbook's dialect
+  beside the template's own.
+
+- **A proposal for schedules and footing rebar**,
+  `docs/specs/2026-08-26-schedules-and-footing-rebar.md`, for review before
+  either is built. The estimates are the point: schedules are a morning, footing
+  rebar is **weeks, not days**, and the seven versions RC Automation has already
+  spent on it are the evidence rather than a pessimistic guess.
+
+**Changed**
+
+- The test suite is 921 tests, from 899.
+
+---
+
 ## 1.22.0
 
 **Added**

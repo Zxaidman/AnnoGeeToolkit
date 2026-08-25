@@ -1473,7 +1473,7 @@ class MacroSurvivalTests(unittest.TestCase):
             self.builder().build(copy)
             self.assertEqual(
                 load_workbook(copy).sheetnames,
-                ["CONTROL", "INFO", "LEVELS", "GRIDS", "FOOTING_TYPES",
+                ["CONTROL", "INFO", "NAMING", "LEVELS", "GRIDS", "FOOTING_TYPES",
                  "FOOTING_PLACEMENT", "COLUMN_TYPES", "COLUMN_PLACEMENT",
                  "BEAM_TYPES", "BEAM_PLACEMENT", "SLAB_TYPES",
                  "SLAB_PLACEMENT", "LOG"])

@@ -65,8 +65,8 @@ ID is where the detail lives. Four words, meaning exactly four things:
 | **Columns** | `columns.sync` | 1.22.0 | **built in Revit 2026-08-25**: all 90, no duplicate-Mark warning | **yes** | **2** | FEAT-10, 28, 34, BUG-22, 23 |
 | **Levels** | `levels.sync` | 1.22.0 | **built in Revit**: `Level 0` renamed to `01 GROUND LVL.`, then *every level already agrees with the sheet* | **yes** | **1** | FEAT-5, BUG-23 |
 | **Grids** | `grids.sync` | 1.22.0 | **built in Revit** | **yes** | 0 | FEAT-6 |
-| Beams | `beams.sync` | 1.22.0 | not yet | no | 0 | FEAT-11, 29 |
-| Slabs | `slabs.sync` | 1.22.0 | not yet | no | 0 | FEAT-13, 30 |
+| **Slabs** | `slabs.sync` | 1.22.0 | **built in Revit 2026-08-25** | **yes** | 0 | FEAT-13, 30 |
+| Beams | `beams.sync` | 1.23.0, `redo` | **built, and wrong twice**: a −1500 z offset nobody set, and running centre to centre with joins on | no | **2** | FEAT-11, 29, BUG-29, 30 |
 | **Extract Template** | — | 1.20.0 | **ran twice, and the second report is right**: `ID` shared, six project, real data types | **yes** | **2** | FEAT-35, BUG-18, 21 |
 | Buttons | — | 1.19.0 | **style, position and scaling all confirmed** | **yes** | **1** | FEAT-32, BUG-19 |
 
@@ -409,6 +409,39 @@ as mojibake.
 keeps the full text and names UTF-8. That split is the one real cost of writing
 the answer twice, and it is still cheaper than a JSON parser in VBA.
 
+### BUG-29 — every beam arrived with a z offset of −1500 · `testing`
+
+**How it was found.** The project owner's properties panel: a beam on `06 TERRACE LVL.` with
+`Start Level Offset` 0, `End Level Offset` 0, and **`z Offset Value` −1500.000**.
+
+**Cause.** Nothing set it. `NewFamilyInstance` gives a beam whatever the family and the last
+placement left behind, and −1500 is the foundation level — a value from somewhere else in the model
+that the API happily carried into ninety beams.
+
+**Fix, and the general form of it.** Justification and offset are **stated, not inherited**: `yz`
+uniform, `y` origin at zero, `z` top at zero, and the sheet's `Offset` written to the start and end
+level offsets where it belongs. Anything a run does not set is a value somebody else chose, and on a
+family instance that is most of them.
+
+### BUG-30 — beams ran column centre to column centre, and joined · `testing`
+
+**How it was found.** The project owner: *"it is right as per Excel but not as BIM model — beam is
+not disallowed join from both ends and it should stop at column face, not on centre."*
+
+**Both halves are right and they are one job.** A grid intersection is a column's *centre*; a beam
+drawn between two of them runs through both columns. Revit's automatic join then extends it further,
+so the concrete is counted twice at every junction and the shop drawing shows a beam that does not
+exist.
+
+**Fix.** `DisallowJoinAtEnd` on both ends, and each end **cut back to the column face** — by half the
+column's dimension *along the beam's own direction*, which is its Width for a beam running along X
+and its Depth for one running along Y. The column is looked up in `COLUMN_PLACEMENT` by the same
+intersection the beam names, and its size in `COLUMN_TYPES`; rotation is read, because a turned
+column presents its other face.
+
+An end with no column under it is not cut back, and that is said once. `EndPrep` on the sheet says
+which convention a row uses, so a beam that really does run to the grid can still say so.
+
 ### BUG-28 — footings never wrote the schedule mark · `testing`
 
 **How it was found.** The project owner, after `S_ScheduleMark` started working for columns: *"footing
@@ -682,6 +715,9 @@ Each carries the verdict from the PRD, so the queue and the estimate cannot drif
 | FEAT-35 | **Extract Template** — a pyRevit button that writes the model's contents to Markdown | A `.rvt` cannot be read outside Revit: it is a compound binary only Revit opens. So the model describes itself instead — every category, family, type, and every parameter with its scope (shared, project, global, family, instance, type) — as a tree in one `.md`, which is reviewable in a diff and readable by anybody | `testing` |
 | FEAT-36 | **The template and the workbook, coordinated** | **Proposal written**, `docs/specs/2026-08-25-template-and-workbook.md`: each fact has one owner, the template says what is possible and the workbook says what is wanted. It is a starting position to argue with, not a description of anything — The question is which of the two is the authority for each thing — a family is the template's, a size is the workbook's, and the list of which is which is the deliverable | `pending` |
 | FEAT-37 | **The survey point, set from the workbook** | The owner fixed a survey mismatch by hand with *Specify Coordinates at Point* and asked whether it could be automated. It can: `levels.sync` already reads the model's offset to check the sheet against it, so making it *set* the offset is the same knowledge pointed the other way. **Off by default** — moving a survey point re-coordinates a whole project, and that is a decision, not a convenience | `testing` |
+| FEAT-39 | **`schedules.sync`** — Revit schedules from a sheet | **Proposed, `pending`**: `docs/specs/2026-08-26-schedules-and-footing-rebar.md`. The easiest thing left — no geometry, no judgement — and the first time `S_ScheduleMark` earns its keep. Until something reads that parameter, filling it in is an act of faith | `pending` |
+| FEAT-40 | **`REBAR_FOOTING` sheet** — footing rebar from the workbook | **Proposed, `pending`**, same document, and the estimate is the point of it: **weeks, not days**. RC Automation has spent seven versions on footing rebar and its constraints are still `testing`. Every other command places one thing per row; this one places a hundred bars from a row and each can be wrong on its own | `pending` |
+| FEAT-38 | **A `NAMING` sheet** — type names as patterns, `{b} X {h}` | The project owner asked for this in the workbook rather than in code, the way `cad2bim` already does it. One row per element, a pattern, and a worked example beside it so the syntax is visible rather than documented. A pattern that will not render is reported and the default used — a naming sheet that stops a run is worse than one with a typo in it | `testing` |
 | FEAT-31 | **The workbook's formatting**, as a build output rather than something re-applied by hand | Fonts `Inter, Segoe UI, Cambria, Calibri`; three sizes a step apart, not a jump; every row 20 units; every column width computed from what is in it; `mm` shown as a whole number and `m` to two decimals. All of it generated, because a rebuild throws away anything done by hand | `testing` |
 | FEAT-32 | **Shape buttons, from the owner's own template** | The owner replaced the Form Controls with rounded rectangles — and `openpyxl` deletes every drawing on a rebuild, so the buttons have to be redrawable rather than drawn. `AnonGeeBridge_AddButtons` now duplicates a template shape when the sheet has one and builds one to match when it does not, on `CONTROL` and on `INFO` for `ApplyUnits` | `testing` |
 | FEAT-33 | **Cover and diameter stay in millimetres** | A cover of `0.05` and a bar of `0.012` is the workbook being consistent at the cost of being readable, which was the reason for metres in the first place. Those columns are pinned: their header says `(mm)`, and the converter is told to leave a pinned column alone | `testing` |

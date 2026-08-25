@@ -22,6 +22,14 @@ __version__ = "0.1.0"
 #: Where a beam's section comes from when the model does not have the type.
 TYPES_SHEET = "BEAM_TYPES"
 
+#: Where the columns a beam stops against are described.
+COLUMN_PLACEMENT_SHEET = "COLUMN_PLACEMENT"
+COLUMN_TYPES_SHEET = "COLUMN_TYPES"
+
+#: What `EndPrep` may say. The first is the default and the BIM-correct one.
+COLUMN_FACE = "column face"
+GRID_LINE = "grid line"
+
 
 def run(uiapp, envelope):
     """``(summary, findings, note)``. Never raises."""
@@ -72,6 +80,8 @@ def _apply(doc, plans, findings, finding, context):
 
     levels = _sheets.levels(doc)
     sizes = _sheets.sizes(context, TYPES_SHEET, findings, finding)
+    columns = _column_faces(context)
+    patterns = _sheets.naming(context, findings, finding)
     label_parameters = _marks.candidates(context)
     reported = set()
     cache = {}
@@ -83,7 +93,10 @@ def _apply(doc, plans, findings, finding, context):
             size = sizes.get(_fold(row.type_mark)) or {}
             symbol, note = framing.ensure_symbol(
                 doc, row.type_mark, size.get("width_mm"),
-                size.get("depth_mm"), cache)
+                size.get("depth_mm"), cache,
+                name=_sheets.type_name(patterns, "beam", row.type_mark,
+                                       b=size.get("width_mm"),
+                                       h=size.get("depth_mm")))
             if symbol is None:
                 findings.append(finding("Error", row.row, note))
                 continue
@@ -115,8 +128,10 @@ def _apply(doc, plans, findings, finding, context):
                     "no level called {0!r} in this model".format(row.level)))
                 continue
 
+            cutback = _cutback(row, columns, reported, findings, finding)
             instance = framing.create(doc, row.start_mm, row.end_mm, symbol,
-                                      level, row.offset_mm or 0.0)
+                                      level, row.offset_mm or 0.0,
+                                      cutback_mm=cutback)
             _marks.write(instance, row, label_parameters, reported, findings,
                          finding)
             written += 1
@@ -124,6 +139,86 @@ def _apply(doc, plans, findings, finding, context):
             findings.append(finding(
                 "Error", row.row, "{0!r}: {1}".format(row.mark, error)))
     return written
+
+
+def _cutback(row, columns, reported, findings, finding):
+    """``(start, end)`` — how far to pull each end back to reach a column face.
+
+    A grid intersection is where a **column** stands, not where a beam ends. A
+    beam drawn between two of them runs through both columns, so the concrete
+    is counted twice at every junction and the shop drawing shows a beam that
+    does not exist.
+
+    Half the column's dimension **along the beam's own direction** — its Width
+    for a beam running along X, its Depth for one running along Y, swapped when
+    the column is turned. An end with no column under it is not cut back, and
+    that is said once.
+    """
+    if _fold(row.edge_rule or "") == _fold(GRID_LINE):
+        return (0.0, 0.0)
+
+    dx = (row.end_mm[0] - row.start_mm[0]) if row.start_mm and row.end_mm else 0
+    dy = (row.end_mm[1] - row.start_mm[1]) if row.start_mm and row.end_mm else 0
+    along_x = abs(dx) >= abs(dy)
+
+    found = []
+    missing = []
+    for name_x, name_y, which in ((row.from_grid_x, row.from_grid_y, "start"),
+                                  (row.to_grid_x, row.to_grid_y, "end")):
+        column = columns.get((_fold(row.level), _fold(name_x), _fold(name_y)))
+        if column is None:
+            missing.append(which)
+            found.append(0.0)
+            continue
+        width, depth, rotation = column
+        # A column turned 90 degrees presents its other face to the beam.
+        turned = abs((rotation or 0.0) % 180.0 - 90.0) < 45.0
+        across = (depth if turned else width) if along_x else (
+            width if turned else depth)
+        found.append((across or 0.0) / 2.0)
+
+    if missing and "no-column" not in reported:
+        reported.add("no-column")
+        findings.append(finding(
+            "Info", row.row,
+            "{0!r} has no column under its {1} in {2}, so that end is left on "
+            "the grid line. Beams are cut back by half the column's dimension "
+            "along their own direction.".format(
+                row.mark, " and ".join(missing), COLUMN_PLACEMENT_SHEET)))
+    return tuple(found)
+
+
+def _column_faces(context):
+    """``{(level, gx, gy): (width_mm, depth_mm, rotation)}`` for every column.
+
+    Keyed on the level the column's **top** reaches, because that is the level
+    the beam sits on. Read once — a hundred and thirty-two beams asking twice
+    each is two hundred and sixty-four passes over the same two sheets.
+    """
+    from anongee_toolkit.commands import _sheets
+    from anongee_toolkit.rc_automation import placement
+
+    grid = _sheets.sheet(context, COLUMN_PLACEMENT_SHEET)
+    if grid is None:
+        return {}
+
+    units = (context or {}).get("units", "mm")
+    sections, _issues = placement.parse_types(
+        _sheets.sheet(context, COLUMN_TYPES_SHEET) or [], COLUMN_TYPES_SHEET,
+        units)
+    rows, _row_issues = placement.parse_columns(grid, COLUMN_PLACEMENT_SHEET,
+                                                units)
+
+    faces = {}
+    for row in rows:
+        section = sections.get(_fold(row.type_mark)) or {}
+        width = section.get("width_mm")
+        depth = section.get("depth_mm")
+        if not width and not depth:
+            continue
+        faces[(_fold(row.top_level), _fold(row.grid_x), _fold(row.grid_y))] = (
+            width, depth, row.rotation_deg or 0.0)
+    return faces
 
 
 def _fold(text):

@@ -51,11 +51,13 @@ def _apply(doc, plans, findings, finding, context):
     its own — one undo step is the promise and two transactions would break it.
     """
     from anongee_toolkit.commands import _marks
+    from anongee_toolkit.commands import _sheets
     from anongee_toolkit.rc_automation import placement
     from anongee_toolkit.structural import columns
 
     levels = _levels(doc)
     sizes = _sizes(context, findings, finding)
+    patterns = _sheets.naming(context, findings, finding)
     label_parameters = _marks.candidates(context)
     reported = set()
     cache = {}
@@ -67,7 +69,10 @@ def _apply(doc, plans, findings, finding, context):
             size = sizes.get(_fold(row.type_mark)) or {}
             symbol, note = columns.ensure_symbol(
                 doc, row.type_mark, size.get("width_mm"),
-                size.get("depth_mm"), cache)
+                size.get("depth_mm"), cache,
+                name=_sheets.type_name(patterns, "column", row.type_mark,
+                                       b=size.get("width_mm"),
+                                       h=size.get("depth_mm")))
             if symbol is None:
                 findings.append(finding("Error", row.row, note))
                 continue

@@ -409,7 +409,12 @@ BEAM_TYPES = [
 BEAM_TYPE_LENGTHS = (1, 2, 3)
 BEAM_PLACEMENT_HEADERS = ("Mark", "TypeMark", "Span", "FromGridX", "FromGridY",
                           "ToGridX", "ToGridY", "Level", unit("Offset"),
-                          "Comments")
+                          "EndPrep", "Comments")
+
+#: What a beam does where it meets a column. The first is the default and the
+#: only one a BIM model wants: a grid intersection is where a *column* stands,
+#: so a beam drawn between two of them runs through both.
+END_PREPS = ("Column face", "Grid line")
 
 SLAB_TYPE_HEADERS = ("TypeMark", unit("Thickness"), unit("Cover"), "Concrete",
                      "Comments")
@@ -421,14 +426,40 @@ SLAB_PLACEMENT_HEADERS = ("Mark", "TypeMark", "Level", "FromGridX", "ToGridX",
 
 LOG_HEADERS = ("When", "Job", "Command", "Status", "Counts", "Note")
 
+NAMING_HEADERS = ("Element", "Pattern", "Example", "Fields it may use",
+                  "What it names")
+
 #: Every sheet this build writes, in the order they appear. A rebuild clears
 #: these in place and deletes anything else — see :func:`_empty` for why the
 #: distinction matters to a workbook carrying VBA.
 EXPECTED_SHEETS = (
-    "CONTROL", "INFO", "LEVELS", "GRIDS", "FOOTING_TYPES",
+    "CONTROL", "INFO", "NAMING", "LEVELS", "GRIDS", "FOOTING_TYPES",
     "FOOTING_PLACEMENT", "COLUMN_TYPES", "COLUMN_PLACEMENT", "BEAM_TYPES",
     "BEAM_PLACEMENT", "SLAB_TYPES", "SLAB_PLACEMENT", "LOG",
 )
+
+
+def naming_rows():
+    """The type-naming conventions, with the example generated from each.
+
+    Generated rather than typed beside the pattern, so the example cannot drift
+    from what the pattern actually produces — which is the whole reason it is
+    worth having a column for it.
+    """
+    import importlib.util
+    path = os.path.join(HERE, "..", "..", "AnonGee.extension", "lib", "py3",
+                        "anongee_toolkit", "rc_automation", "naming_sheet.py")
+    spec = importlib.util.spec_from_file_location("naming_sheet", path)
+    naming = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(naming)
+
+    patterns = naming.defaults()
+    rows = []
+    for key in sorted(naming.PATTERNS):
+        fields, pattern, what = naming.PATTERNS[key]
+        rows.append((key, pattern, naming.example(patterns, key),
+                     ", ".join("{" + field + "}" for field in fields), what))
+    return rows
 
 
 def typed_rows(rows, length_columns, headers):
@@ -596,10 +627,10 @@ def _spans(mark, beam_type, level, note, simply_supported, spans):
     """
     if simply_supported:
         return [[(("{0}-{1}".format(mark, index + 1)), beam_type, 1,
-                  from_x, from_y, to_x, to_y, level, 0, note)]
+                  from_x, from_y, to_x, to_y, level, 0, END_PREPS[0], note)]
                 for index, (from_x, from_y, to_x, to_y) in enumerate(spans)]
     return [[(mark, beam_type, index + 1, from_x, from_y, to_x, to_y, level,
-              0, note)
+              0, END_PREPS[0], note)
              for index, (from_x, from_y, to_x, to_y) in enumerate(spans)]]
 
 
@@ -799,6 +830,13 @@ def build(target=DEFAULT_TARGET):
     fit(info, INFO_HEADERS, rows)
     shape(info, INFO_HEADERS, rows)
 
+    # -- NAMING -------------------------------------------------------------
+    #
+    # The house convention for type names, where a person can change it. A
+    # pattern that will not render is reported and the default used: a naming
+    # preference should never stop a run.
+    table("NAMING", NAMING_HEADERS, naming_rows())
+
     # -- the datum ----------------------------------------------------------
     levels = table("LEVELS", LEVEL_HEADERS, level_rows())
     choices(levels, ELEVATION_BASES, "D2:D{0}".format(1 + len(LEVELS)))
@@ -817,7 +855,8 @@ def build(target=DEFAULT_TARGET):
 
     table("BEAM_TYPES", BEAM_TYPE_HEADERS,
           typed_rows(BEAM_TYPES, BEAM_TYPE_LENGTHS, BEAM_TYPE_HEADERS))
-    table("BEAM_PLACEMENT", BEAM_PLACEMENT_HEADERS, beam_rows())
+    beams = table("BEAM_PLACEMENT", BEAM_PLACEMENT_HEADERS, beam_rows())
+    choices(beams, END_PREPS, "J2:J{0}".format(1 + len(beam_rows())))
 
     table("SLAB_TYPES", SLAB_TYPE_HEADERS,
           typed_rows(SLAB_TYPES, SLAB_TYPE_LENGTHS, SLAB_TYPE_HEADERS))
