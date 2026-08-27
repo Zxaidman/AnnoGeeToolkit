@@ -137,6 +137,21 @@ are held to the same three names by a test, because that is exactly the contract
 
 ## 2. Errors and bugs
 
+### BUG-38 — option B's steps could never be built · `superseded`
+
+**How it was found.** The owner's stair run: five `Error` findings, one per flight, all reading
+`ST1': type(s) expected`. The waists were in the model — visible in their screenshot — and the steps
+were not, and `written=0` because the exception came after the waist and before the counter.
+
+**Cause.** `List[object]()`. `object` is Python's builtin, not `System.Object`, and pythonnet
+answers `type(s) expected` when a generic is indexed with something that is not a CLR type. It
+should have been `List[GeometryObject]()`.
+
+**Not fixed, and deliberately.** The owner chose option A in the same message, so this code is gone.
+It is recorded because it is the third time §12.9.4's rule — *a raw Python list is not a .NET list* —
+has cost a round, and because `tests/test_stairs.py` asserted `List[CurveLoop]()` was present and
+passed while the actual failure was one line below it, in a list the test never looked at.
+
 ### BUG-36 — a same-named type was reused without checking its size · `testing`
 
 **How it was found.** In the findings from the owner's `beams.sync` run, which succeeded:
@@ -888,7 +903,7 @@ Recorded here first, which is the rule.
 | ID | What | Verdict | Phase |
 | --- | --- | --- | --- |
 | FEAT-41 | **`NAMING` stays self-consistent** — `Example` and `Fields it may use` follow a hand-edited `Pattern` | The owner rewrote the patterns to the house convention (`CH-{b} X {h}`) and the two columns beside them still show the old ones, so the sheet now disagrees with itself in writing. Two ways: a `Refresh naming` button beside the others, or Excel formulas. **A formula cannot do it** — `Example` needs the renderer, and the field list needs `PATTERNS`. So: a button, and the same call `beams.sync` makes, so the example is produced by the code that will produce the name. **Built, `testing`** — `naming.refresh`, plus a `#CELLS` block on the result so a command can answer into a sheet at all, which nothing could do before | `testing` |
-| FEAT-42 | **Staircases** — modelled and scheduled | New scope. A stair is not a column: it is a run, a landing, a waist and a set of treads, and the quantity people care about is the waist volume plus the steps. Sized. Its own sheet pair, `STAIR_TYPES` and `STAIR_PLACEMENT`. **Option B built for review, `testing`** — waist as a slanted framing member, steps as one DirectShape of triangular prisms, five flights in the sample. No mid-landing yet, and the waist lands in Structural Framing schedules, which is the cost the owner is being asked to weigh | `testing` |
+| FEAT-42 | **Staircases** — modelled and scheduled | **Option A, `testing`.** Real Revit `Stairs` via `StairsEditScope`, after the owner ran option B and rejected it: *"building stairs with beam and slab is management nightmare"*. Option B is recorded as `superseded` in `docs/specs/2026-08-27-stairs-option-b.md`; its arithmetic, both sheets and the reading half of the command carried over unchanged. New scope. A stair is not a column: it is a run, a landing, a waist and a set of treads, and the quantity people care about is the waist volume plus the steps. Sized. Its own sheet pair, `STAIR_TYPES` and `STAIR_PLACEMENT`, unchanged by the switch. **The one command that holds no transaction while it writes** — `StairsEditScope` refuses to start inside one — so it is run through `_placement.outside_a_transaction` and each flight commits its own scope. The cost of that: a run failing on the fourth of five leaves three built, and it says so. No mid-landing yet | `testing` |
 | FEAT-43 | **Volume *and* formwork on every schedule, and a `SUMMARY` sheet** | Replaces the combined-concrete-volume schedule proposed in `docs/specs/2026-08-26-schedules-and-footing-rebar.md`. Each schedule carries its own concrete volume and its own shuttering area; `SUMMARY` adds them up. Formwork is not a Revit parameter — it is the contact area, and which faces count is a decision per element, so it is computed and written, not read | `pending` |
 | FEAT-44 | **A schedule generator that is not Revit's** | The owner's point: Revit's native schedule will not take every parameter an element has. So generate the table from the model — read every parameter, including the ones a native schedule refuses, and write it. Where it lands (a Revit schedule where possible, a sheet in the workbook where not) is the design question | `pending` |
 | FEAT-45 | **The rebar schedule's real columns** | The proposed sheet was a bar bending schedule and the owner's is a procurement document too. Three additions: **bar dimensions `A`–`E`** (the shape code's own legs, which is what a BBS actually prints), **which Revit layout rule** — Single / Number with Spacing / Maximum Spacing / Fixed Number, because that decides what a change to the pad does to the bars — and **Phase or Procurement**, which must exist on **both** the concrete and the rebar parameters so a client can be told what a stage costs | `pending` |

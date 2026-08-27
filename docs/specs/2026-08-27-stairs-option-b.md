@@ -1,5 +1,25 @@
 # Stairs, option B — built so it can be argued with
 
+> ## Decided: **option A**, 2026-08-27
+>
+> The project owner, having run it:
+>
+> > building stairs with beam and slab is management nightmare and scheduling
+> > for use Revit own stairs if need use stairs sketch
+>
+> Which is the answer this document pointed at — *"if the answer to 2 is no,
+> that alone settles it and nothing else matters"*. Schedule pollution was
+> point 2, and it was never going to be fixable from inside option B.
+>
+> `structural/stairs.py` was rewritten against a real Revit `Stairs` in 1.25.0.
+> `rc_automation/flight.py`, both sheets and the reading half of the command
+> carried over unchanged, exactly as the last section here predicted.
+>
+> **The rest of this page is kept as the record of what was measured, not as a
+> live proposal.** Option B also had a real bug — `List[object]` is not a
+> marshallable .NET list, so the steps never built (`type(s) expected`) — and
+> that is recorded as `BUG-38`, superseded.
+
 **This is for a decision, not for approval.** The project owner leans towards a
 real Revit `Stair` element and asked to see the alternative working first. So
 this says what was built, what it gets right, and — at more length — what it

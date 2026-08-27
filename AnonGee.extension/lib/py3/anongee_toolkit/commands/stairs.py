@@ -1,24 +1,27 @@
 # -*- coding: utf-8 -*-
-"""``stairs.sync`` — the RC stairs the STAIR_PLACEMENT sheet describes.
+"""``stairs.sync`` — real Revit stairs from the STAIR_PLACEMENT sheet.
 
-**Option B, for the project owner to look at and judge.** See
-:mod:`anongee_toolkit.structural.stairs` for what it builds and what it costs.
+**Option A**, chosen by the project owner over the waist-slab version that
+shipped in 1.24.0. Their reason, and it is the right one: a stair built out of
+beams and slabs is a management nightmare to schedule, and Revit's own stair is
+what a stair should be.
 
 A flight is a span between two grid intersections with a level at each end, so
-the sheet reads like the beam sheet and is parsed by the same code: one row is
-a straight flight, and **a dog-leg is two rows sharing a mark with a blank row
-after them** — the same idiom that makes a continuous beam a group.
+the sheet reads like the beam sheet and is parsed by the same code. **A dog-leg
+is two rows sharing a mark with a blank row after them**, the same idiom that
+makes a continuous beam a group — and, for now, the same idiom that gets two
+separate straight flights, because the landing between them is not placed yet.
 
-What is deliberately not here, and would be next if this direction is chosen:
+**This command holds no transaction while it writes**, which no other command
+can say. ``StairsEditScope`` refuses to start inside one. So it is run through
+``_placement.outside_a_transaction`` and opens what it needs itself: one
+transaction for type work, then a scope per flight.
 
-* **the mid-landing slab** between two flights of a group. The two flights are
-  placed correctly and the landing between them is not, so a dog-leg comes out
-  as two flights with a gap. That is the honest state of it;
-* handrails, nosings, finishes;
-* rebar.
+What that costs: a run that fails on the fourth of five flights leaves three
+built. Every other command rolls back whole. It is reported.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 TYPES_SHEET = "STAIR_TYPES"
 
@@ -39,7 +42,8 @@ def run(uiapp, envelope):
         what="stair flight",
         option=envelope_module.option,
         locate=placement.locate_span,
-        plan=placement.plan_spans)
+        plan=placement.plan_spans,
+        write=_placement.outside_a_transaction)
 
 
 def _parse(grid, sheet, units):
@@ -59,7 +63,7 @@ def _existing(doc):
 
 
 def _apply(doc, plans, findings, finding, context):
-    """Build each flight. ``written``. Inside the caller's transaction."""
+    """Build each flight. ``written``. **No transaction is open here.**"""
     from anongee_toolkit.commands import _marks
     from anongee_toolkit.commands import _sheets
     from anongee_toolkit.rc_automation import flight as flight_module
@@ -70,7 +74,6 @@ def _apply(doc, plans, findings, finding, context):
     sizes = _stair_sizes(context, findings, finding)
     patterns = _sheets.naming(context, findings, finding)
     label_parameters = _marks.candidates(context)
-    already = stairs.steps_by_mark(doc)
     reported = set()
     cache = {}
     written = 0
@@ -84,27 +87,27 @@ def _apply(doc, plans, findings, finding, context):
             if base is None or top is None:
                 findings.append(finding(
                     "Error", row.row,
-                    "no level called {0!r} in this model — a flight needs both "
+                    "no level called {0!r} in this model - a flight needs both "
                     "the level it leaves and the one it arrives at".format(
                         row.level if base is None else row.top_level)))
                 continue
 
-            rise_mm = _rise_mm(base, top)
             solved, issues = flight_module.solve(
-                rise_mm, size, sheet=(context or {}).get("sheet", ""),
-                row=row.row, mark=row.mark,
-                available_mm=_distance(row.start_mm, row.end_mm))
+                _rise_mm(base, top), size,
+                sheet=(context or {}).get("sheet", ""), row=row.row,
+                mark=row.mark, available_mm=_distance(row.start_mm, row.end_mm))
             for issue in issues:
-                findings.append(finding(issue.severity, row.row,
-                                        issue.message))
+                findings.append(finding(issue.severity, row.row, issue.message))
             if solved is None:
                 continue
 
-            symbol, note = stairs.ensure_waist_symbol(
-                doc, row.type_mark, solved.width_mm, solved.waist_mm, cache,
-                name=_sheets.type_name(patterns, "stair", row.type_mark,
-                                       w=solved.width_mm, t=solved.waist_mm))
-            if symbol is None:
+            # The type is made inside a transaction of its own, which is then
+            # committed before the edit scope opens. A scope will not start
+            # while a transaction is open, and a type cannot be made without
+            # one, so they cannot overlap.
+            type_id, note = _ensure_type(doc, row, size, solved, patterns,
+                                         cache)
+            if type_id is None:
                 findings.append(finding("Error", row.row, note))
                 continue
             if note and note not in reported:
@@ -112,15 +115,7 @@ def _apply(doc, plans, findings, finding, context):
                 findings.append(finding("Info", row.row, note))
 
             if plan.action == placement.MODIFY:
-                instance = doc.GetElement(plan.existing)
-                if instance is not None and stairs.set_type(doc, instance,
-                                                            symbol):
-                    written += 1
-                else:
-                    findings.append(finding(
-                        "Warning", row.row,
-                        "{0!r} is there but Revit would not change its waist "
-                        "type to {1}".format(row.mark, row.type_mark)))
+                written += _retype(doc, plan, row, type_id, findings, finding)
                 continue
 
             direction = _direction(row.start_mm, row.end_mm)
@@ -131,46 +126,113 @@ def _apply(doc, plans, findings, finding, context):
                     "direction to climb in".format(row.mark)))
                 continue
 
-            key = "{0}{1}".format(row.unique_mark, stairs.STEPS_SUFFIX)
-            if key in already:
-                findings.append(finding(
-                    "Info", row.row,
-                    "the steps for {0!r} were already in the model and were "
-                    "left alone; only the waist was rebuilt".format(row.mark)))
+            built, build_note = stairs.create(
+                doc, row.start_mm, direction, base, top, solved, type_id,
+                mark=row.unique_mark)
+            if build_note:
+                findings.append(finding("Info", row.row, build_note))
 
-            waist, _steps, step_note = stairs.create(
-                doc, row.start_mm, direction, base, solved, symbol,
-                mark=row.unique_mark, base_offset_mm=row.offset_mm or 0.0)
-            if step_note:
-                findings.append(finding("Warning", row.row, step_note))
-
-            _marks.write(waist, row, label_parameters, reported, findings,
-                         finding)
-            _report_quantities(solved, row, findings, finding, reported)
+            _write_mark(doc, built, row, label_parameters, reported, findings,
+                        finding)
+            _report_quantities(solved, row, findings, finding)
             written += 1
         except Exception as error:
             findings.append(finding(
-                "Error", row.row, "{0!r}: {1}".format(row.mark, error)))
+                "Error", row.row,
+                "{0!r}: {1}. Flights already built in this run stay built - "
+                "a stair commits its own scope, so this one cannot be rolled "
+                "back with the others.".format(row.mark, error)))
     return written
 
 
-def _report_quantities(solved, row, findings, finding, reported):
+def _ensure_type(doc, row, size, solved, patterns, cache):
+    """``(ElementId, note)``, inside a transaction opened and closed here."""
+    from Autodesk.Revit.DB import Transaction
+    from anongee_toolkit.commands import _sheets
+    from anongee_toolkit.structural import stairs
+
+    key = _fold(row.type_mark)
+    if key in cache:
+        return cache[key], ""
+
+    transaction = Transaction(doc, "AnonGee stair type")
+    try:
+        transaction.Start()
+        type_id, note = stairs.ensure_type(
+            doc, row.type_mark, size, cache,
+            name=_sheets.type_name(patterns, "stair", row.type_mark,
+                                   w=solved.width_mm, t=solved.waist_mm))
+        transaction.Commit()
+    except Exception as error:
+        if transaction.HasStarted() and not transaction.HasEnded():
+            transaction.RollBack()
+        return None, "could not prepare a stair type: {0}".format(error)
+    return type_id, note
+
+
+def _retype(doc, plan, row, type_id, findings, finding):
+    """Change an existing stair's type. ``1`` when it took, else ``0``."""
+    from Autodesk.Revit.DB import Transaction
+    from anongee_toolkit.structural import stairs
+
+    instance = doc.GetElement(plan.existing)
+    if instance is None:
+        findings.append(finding(
+            "Error", row.row,
+            "{0!r} vanished between planning and writing".format(row.mark)))
+        return 0
+
+    transaction = Transaction(doc, "AnonGee stair retype")
+    try:
+        transaction.Start()
+        took = stairs.set_type(doc, instance, type_id)
+        transaction.Commit()
+    except Exception as error:
+        if transaction.HasStarted() and not transaction.HasEnded():
+            transaction.RollBack()
+        findings.append(finding("Error", row.row, "{0!r}: {1}".format(
+            row.mark, error)))
+        return 0
+
+    if not took:
+        findings.append(finding(
+            "Warning", row.row,
+            "{0!r} is there but Revit would not change its type to "
+            "{1}".format(row.mark, row.type_mark)))
+        return 0
+    return 1
+
+
+def _write_mark(doc, built, row, label_parameters, reported, findings,
+                finding):
+    """The mark, in its own transaction — the scope has already closed."""
+    from Autodesk.Revit.DB import Transaction
+    from anongee_toolkit.commands import _marks
+
+    transaction = Transaction(doc, "AnonGee stair mark")
+    try:
+        transaction.Start()
+        _marks.write(built, row, label_parameters, reported, findings, finding)
+        transaction.Commit()
+    except Exception:
+        if transaction.HasStarted() and not transaction.HasEnded():
+            transaction.RollBack()
+
+
+def _report_quantities(solved, row, findings, finding):
     """Say what was built, in the numbers a person would check it with.
 
     A staircase one riser out arrives at the floor looking almost right, so the
     riser count and the pitch are reported for every flight rather than left to
-    be measured off the model. This is the *first* thing anybody judging option
-    B will want, and reading it off a schedule that does not exist yet is not
-    an option.
+    be measured off the model.
     """
     findings.append(finding(
         "Info", row.row,
         "{0}: {1} risers of {2:.1f} mm, {3} treads of {4:.0f} mm, run "
-        "{5:.0f} mm, pitch {6:.1f}°, concrete {7:.3f} m³ ({8:.3f} waist + "
-        "{9:.3f} steps)".format(
+        "{5:.0f} mm, pitch {6:.1f} deg, waist {7:.0f} mm".format(
             row.mark, solved.risers, solved.riser_mm, solved.treads,
             solved.tread_mm, solved.run_mm, solved.pitch_degrees,
-            solved.volume_m3, solved.waist_volume_m3, solved.step_volume_m3)))
+            solved.waist_mm)))
 
 
 def _stair_sizes(context, findings, finding):

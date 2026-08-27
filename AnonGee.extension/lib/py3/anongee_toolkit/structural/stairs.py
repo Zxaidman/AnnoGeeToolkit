@@ -1,242 +1,272 @@
 # -*- coding: utf-8 -*-
-"""An RC stair built out of primitives. Writes — inside a caller's transaction.
+"""Real Revit stairs, from the sheet. Writes — and owns its own transactions.
 
-**This is option B, and it is a proposal rather than a settled design.** The
-project owner asked to see it working before choosing between this and a real
-Revit ``Stair`` element, so what follows is written to be judged.
+**Option A, chosen by the project owner on 2026-08-27**, over the waist-slab
+version that shipped in 1.24.0:
 
-The claim it makes: an RCC stair is a **waist slab with triangular steps on
-it**, and both of those are shapes this repository can already place, size,
-schedule and — later — put rebar in. So:
+    building stairs with beam and slab is management nightmare and scheduling
+    for use Revit own stairs if need use stairs sketch
 
-* the **waist** is a slanted structural framing member whose section is the
-  stair's width by the waist thickness. That is not a trick. A beam's section
-  is swept perpendicular to its curve, which is exactly how a waist slab's
-  thickness is measured, so the volume is right rather than nearly right;
-* the **steps** are one ``DirectShape`` per flight holding a triangular prism
-  per tread. Triangular, because a step modelled as a box doubles every step in
-  the building's concrete.
+Which is the right call, and the review document said so: a waist modelled as a
+framing member lands in every Structural Framing schedule and has to be
+filtered out of each one, for ever. That cost does not go away, and no amount of
+work on the other side would have removed it.
 
-**What it costs, and the owner should weigh this.** The waist is a structural
-framing instance, so it appears in Structural Framing schedules beside the
-beams and has to be filtered out of them. It carries ``STAIR WAIST`` in its
-comments so that filter is one condition, but the pollution is real and it is
-the strongest argument for the other option.
+**The one thing that makes this module different from every other writer here.**
+``StairsEditScope.Start`` throws if a transaction is already open, and it has to
+open one of its own. Every other command runs inside a transaction the caller
+opened. So this one is handed a document with only a *transaction group* open —
+see ``commands._placement.outside_a_transaction`` — and each flight opens, uses
+and commits its own scope.
 
-**What it buys.** Exact quantities, a sheet that drives it, idempotence, and a
-waist that is a real structural element a rebar run can host on. A Revit
-``Stair`` gives none of those without a fight.
+The consequence is worth stating: a run that fails on the fourth of five flights
+leaves three built. The others roll back whole. That is a real difference and it
+is reported rather than smoothed over.
+
+**What a Revit stair takes from the sheet, and what it decides for itself.** The
+type carries the tread depth, the maximum riser and — for a monolithic stair —
+the structural depth, which is the waist. The instance carries the riser count.
+Revit then works out the riser height by dividing the rise by that count, which
+is the same rule :mod:`rc_automation.flight` applies, so the two agree by
+construction rather than by luck.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
-#: What the waist carries so a beam schedule can exclude it in one condition.
-WAIST_COMMENT = "STAIR WAIST"
-STEPS_COMMENT = "STAIR STEPS"
-
-#: The steps carry the stair's mark with this on the end.
+#: The type parameters an RC stair needs, in the order they are set.
 #:
-#: The **waist** carries the mark itself, written by ``commands/_marks`` like
-#: every other placed element — it is the element a second run matches, so it
-#: has to look like one. An earlier version wrote ``-WAIST`` here as well and
-#: ``_marks.write`` immediately overwrote it, which left a constant in this
-#: file describing something that was never in the model.
-STEPS_SUFFIX = "-STEPS"
+#: ``MonolithicStairs`` first and deliberately: a stair that is not monolithic
+#: has no structural depth to set, so setting the waist before it silently does
+#: nothing.
+MONOLITHIC = "MonolithicStairs"
+WAIST = "StructuralDepth"
+TREAD = "MinimumTreadDepth"
+RISER = "MaxRiserHeight"
 
-#: The waist's section, in the parameters the rectangular families use.
-WIDTH_NAMES = ("b", "Width", "width", "w", "B", "W")
-DEPTH_NAMES = ("h", "Depth", "depth", "d", "H", "D")
+#: Cached CLR types. A class that subclasses a Revit interface can only be
+#: defined once per session — defining it again gives a second, incompatible
+#: type — and it cannot be defined at import time because the interface does
+#: not exist outside Revit. Same pattern the listener uses for its external
+#: event handler.
+_CLR = {}
 
 
-def ensure_waist_symbol(doc, wanted, width_mm, waist_mm, cache=None,
-                        name=None):
-    """The framing type a waist is cut from. ``(FamilySymbol, note)``.
+def stairs_types(doc):
+    """``[(label, name, ElementId)]`` of the loaded stair types."""
+    from Autodesk.Revit.DB import FilteredElementCollector
+    from Autodesk.Revit.DB.Architecture import StairsType
 
-    Deliberately the beam path — a 1200 x 150 section is a 1200 x 150 section,
-    and giving stairs their own copy of type-finding is how the copies start to
-    differ.
+    found = []
+    for stair_type in (FilteredElementCollector(doc)
+                       .OfClass(StairsType)
+                       .ToElements()):
+        found.append((_name(stair_type), _name(stair_type), stair_type.Id))
+    return sorted(found, key=lambda item: item[0])
+
+
+def ensure_type(doc, wanted, sizes, cache=None, name=None):
+    """``(ElementId, note)`` for a stair type — found, or duplicated and sized.
+
+    **Requires a transaction**, which is the awkward part: this has to happen
+    *before* the edit scope opens, because a scope cannot start inside a
+    transaction and a type cannot be made without one.
     """
-    from anongee_toolkit.structural import framing
-    return framing.ensure_symbol(doc, wanted, width_mm, waist_mm, cache,
-                                 name=name)
+    from anongee_toolkit.structural import typemaker
+
+    cache = cache if cache is not None else {}
+    key = _fold(wanted)
+    if key in cache:
+        return cache[key], ""
+
+    loaded = stairs_types(doc)
+    if not loaded:
+        return None, ("this model has no stair type at all, so there is "
+                      "nothing to duplicate one from")
+
+    for label, _name_, type_id in loaded:
+        if _fold(label) == key:
+            cache[key] = type_id
+            return type_id, ""
+
+    wanted_name = typemaker.sanitise(name or wanted) or wanted
+    for label, _name_, type_id in loaded:
+        if _fold(label) == _fold(wanted_name):
+            cache[key] = type_id
+            return type_id, "{0!r} already existed and was used".format(label)
+
+    base = doc.GetElement(loaded[0][2])
+    try:
+        made = base.Duplicate(wanted_name)
+    except Exception as error:
+        return None, ("Revit would not create a stair type called {0!r}: "
+                      "{1}: {2}".format(wanted_name, type(error).__name__,
+                                        _short(error)))
+
+    missed = _size_type(made, sizes)
+    cache[key] = made.Id
+    note = "created stair type {0!r} from {1!r}".format(wanted_name,
+                                                        _name(base))
+    if missed:
+        note = "{0}, but could not set {1} on it".format(note,
+                                                         ", ".join(missed))
+    return made.Id, note
 
 
-def create(doc, start_mm, direction, base_level, flight, symbol, mark="",
-           base_offset_mm=0.0):
-    """Build one flight. ``(waist, steps, note)``. **Requires a transaction.**
-
-    *start_mm* is where the bottom of the flight stands, *direction* the unit
-    vector it climbs along in plan, and *flight* a solved
-    :class:`rc_automation.flight.Flight`.
-    """
-    from Autodesk.Revit.DB import Line, XYZ
-    from Autodesk.Revit.DB.Structure import StructuralFramingUtils
-    from Autodesk.Revit.DB.Structure import StructuralType
+def _size_type(stair_type, sizes):
+    """Put the sheet's numbers on the type. ``[names that would not take]``."""
     from anongee_toolkit.revit.units import mm_to_ft
 
-    base = base_level.Elevation + mm_to_ft(base_offset_mm or 0.0)
+    missed = []
+    if not _set_by_name(stair_type, MONOLITHIC, 1):
+        missed.append("Monolithic")
 
-    # The waist's top line: from the foot of the first riser to the last
-    # internal corner, which is one riser below the floor above. The final
-    # riser closes that gap against the slab and has no tread of its own.
-    foot = XYZ(mm_to_ft(start_mm[0]), mm_to_ft(start_mm[1]), base)
-    head = XYZ(mm_to_ft(start_mm[0] + direction[0] * flight.run_mm),
-               mm_to_ft(start_mm[1] + direction[1] * flight.run_mm),
-               base + mm_to_ft(flight.waist_top_rise_mm))
+    for name, value_mm, label in ((WAIST, sizes.get("waist_mm"), "Waist"),
+                                  (TREAD, sizes.get("tread_mm"), "Tread"),
+                                  (RISER, sizes.get("riser_mm"), "Riser")):
+        if not value_mm:
+            continue
+        if not _set_by_name(stair_type, name, mm_to_ft(value_mm)):
+            missed.append(label)
+    return missed
 
-    waist = doc.Create.NewFamilyInstance(
-        Line.CreateBound(foot, head), symbol, base_level, StructuralType.Beam)
-    _state_the_justification(waist)
-    for end in (0, 1):
+
+def create(doc, start_mm, direction, base_level, top_level, flight,
+           stairs_type_id, mark=""):
+    """Build one flight as a real ``Stairs``. ``(Stairs, note)``.
+
+    **Must be called with no transaction open.** ``StairsEditScope`` starts one
+    of its own and refuses if there is already one.
+    """
+    from Autodesk.Revit.DB import Line, Transaction, XYZ
+    from Autodesk.Revit.DB.Architecture import (StairsEditScope, StairsRun,
+                                                StairsRunJustification)
+    from anongee_toolkit.revit.units import mm_to_ft
+
+    scope = StairsEditScope(doc, "AnonGee stair {0}".format(mark or ""))
+    stairs_id = scope.Start(base_level.Id, top_level.Id)
+
+    transaction = Transaction(doc, "AnonGee stair run {0}".format(mark or ""))
+    try:
+        transaction.Start()
+        stairs = doc.GetElement(stairs_id)
+        if stairs_type_id is not None:
+            try:
+                stairs.ChangeTypeId(stairs_type_id)
+            except Exception:
+                pass
+
+        # The riser count is the instance's, and it is what makes the flight
+        # land on the floor. Revit divides the rise by it exactly as
+        # `rc_automation.flight` does, so the two agree by construction.
+        stairs.DesiredRisersNumber = flight.risers
+
+        base = XYZ(mm_to_ft(start_mm[0]), mm_to_ft(start_mm[1]),
+                   base_level.Elevation)
+        head = XYZ(mm_to_ft(start_mm[0] + direction[0] * flight.run_mm),
+                   mm_to_ft(start_mm[1] + direction[1] * flight.run_mm),
+                   base_level.Elevation)
+        run = StairsRun.CreateStraightRun(doc, stairs_id,
+                                          Line.CreateBound(base, head),
+                                          StairsRunJustification.Center)
         try:
-            StructuralFramingUtils.DisallowJoinAtEnd(waist, end)
+            run.ActualRunWidth = mm_to_ft(flight.width_mm)
         except Exception:
             pass
-    _set_string(waist, "ALL_MODEL_INSTANCE_COMMENTS", WAIST_COMMENT)
-    # The waist's Mark is written by the caller through ``_marks``, the same
-    # way every other placed element's is.
 
-    steps, note = _steps(doc, start_mm, direction, base, flight, mark)
-    return waist, steps, note
-
-
-def _steps(doc, start_mm, direction, base_elevation_ft, flight, mark):
-    """One ``DirectShape`` holding a triangular prism per tread.
-
-    A single element rather than nineteen, because nineteen elements per flight
-    is a browser nobody can read and nineteen rows in every schedule. The
-    volume is written onto it, since a ``DirectShape`` does not compute one.
-    """
-    from Autodesk.Revit.DB import (BuiltInCategory, CurveLoop, DirectShape,
-                                   ElementId, GeometryCreationUtilities, Line,
-                                   XYZ)
-    from System.Collections.Generic import List
-    from anongee_toolkit.revit.units import mm_to_ft
-
-    # Across the flight, in plan. The line runs down the middle of the stair,
-    # so the prisms start half a width to one side.
-    across = (-direction[1], direction[0])
-    half = flight.width_mm / 2.0
-
-    solids = List[object]()
-    made = 0
-    for along0, up0, along1, up1 in flight.steps_mm():
+        _set_string(stairs, "ALL_MODEL_MARK", mark)
+        transaction.Commit()
+    except Exception as error:
+        if transaction.HasStarted() and not transaction.HasEnded():
+            transaction.RollBack()
         try:
-            corners = []
-            for along, up in ((along0, up0), (along1, up1), (along0, up1)):
-                corners.append(XYZ(
-                    mm_to_ft(start_mm[0] + direction[0] * along
-                             + across[0] * -half),
-                    mm_to_ft(start_mm[1] + direction[1] * along
-                             + across[1] * -half),
-                    base_elevation_ft + mm_to_ft(up)))
-
-            loop = CurveLoop()
-            for index in range(3):
-                loop.Append(Line.CreateBound(corners[index],
-                                             corners[(index + 1) % 3]))
-
-            loops = List[CurveLoop]()
-            loops.Add(loop)
-            solids.Add(GeometryCreationUtilities.CreateExtrusionGeometry(
-                loops, XYZ(across[0], across[1], 0.0),
-                mm_to_ft(flight.width_mm)))
-            made += 1
+            scope.Cancel()
         except Exception:
-            continue
+            pass
+        raise error
 
-    if not made:
-        return None, "the steps could not be built as geometry"
-
-    shape = DirectShape.CreateElement(
-        doc, ElementId(BuiltInCategory.OST_Stairs))
-    shape.SetShape(solids)
-    _set_string(shape, "ALL_MODEL_INSTANCE_COMMENTS", STEPS_COMMENT)
-    _set_string(shape, "ALL_MODEL_MARK", mark + STEPS_SUFFIX if mark else "")
-
-    note = ""
-    if made != flight.treads:
-        note = "{0} of {1} steps could be built".format(made, flight.treads)
-    return shape, note
+    scope.Commit(_swallow_warnings())
+    return doc.GetElement(stairs_id), ""
 
 
-def _state_the_justification(instance):
-    """The section hangs **below** the line, because the line is the waist's
-    top — the surface the steps sit on.
+def _swallow_warnings():
+    """A failure preprocessor that lets Revit's stair warnings through.
 
-    Stated rather than inherited, for the reason BUG-29 established: a family
-    instance arrives carrying whatever the family and the last placement left
-    behind, and a waist that inherits a −1500 offset is a staircase in the
-    basement.
+    A stair almost always produces at least one — *the stair does not satisfy
+    the required riser height* is routine on a sheet-driven flight — and an
+    unhandled one aborts the whole edit scope. Warnings are deleted; **errors
+    are left alone**, so a stair that genuinely cannot be built still fails.
     """
-    from Autodesk.Revit.DB import BuiltInParameter
-    _set(instance, BuiltInParameter.YZ_JUSTIFICATION, 0)        # Uniform
-    _set(instance, BuiltInParameter.Y_JUSTIFICATION, 2)         # Origin
-    _set(instance, BuiltInParameter.Y_OFFSET_VALUE, 0.0)
-    _set(instance, BuiltInParameter.Z_JUSTIFICATION, 0)         # Top
-    _set(instance, BuiltInParameter.Z_OFFSET_VALUE, 0.0)
-    for built_in in (BuiltInParameter.STRUCTURAL_BEAM_END0_ELEVATION,
-                     BuiltInParameter.STRUCTURAL_BEAM_END1_ELEVATION):
-        _set(instance, built_in, 0.0)
+    from Autodesk.Revit.DB import (FailureProcessingResult,
+                                   IFailuresPreprocessor)
+
+    if "swallow" not in _CLR:
+        class SwallowStairWarnings(IFailuresPreprocessor):
+            # On the class, not the module. pythonnet needs a namespace to
+            # build the CLR type into, and a module-level ``__namespace__``
+            # does nothing at all — which is a fault the Bridge Listener
+            # shipped with for a release because IronPython did not care.
+            __namespace__ = "AnonGeeStairs"
+
+            def PreprocessFailures(self, accessor):
+                try:
+                    accessor.DeleteAllWarnings()
+                except Exception:
+                    pass
+                return FailureProcessingResult.Continue
+
+        _CLR["swallow"] = SwallowStairWarnings
+    return _CLR["swallow"]()
 
 
 def placed(doc):
-    """``[(ElementId, (x, y), level_name, type_name)]`` of the waists there now.
+    """``[(ElementId, (x, y), level_name, type_name)]`` of the stairs there now.
 
-    Only the waists. They are what a second run matches against — the steps
-    belong to a waist and are found through it, which is why they carry the
-    same mark with a different suffix.
+    Keyed on the **midpoint of the first run's path**, which is what the planner
+    matches against, and which is the same point the sheet's two grid
+    intersections give. A stair whose path cannot be read is skipped rather
+    than guessed at.
     """
-    from Autodesk.Revit.DB import (BuiltInCategory, BuiltInParameter,
-                                   FamilyInstance, FilteredElementCollector)
+    from Autodesk.Revit.DB import FilteredElementCollector
+    from Autodesk.Revit.DB.Architecture import Stairs
     from anongee_toolkit.revit.units import ft_to_mm
 
     found = []
-    for instance in (FilteredElementCollector(doc)
-                     .OfCategory(BuiltInCategory.OST_StructuralFraming)
-                     .OfClass(FamilyInstance)
-                     .WhereElementIsNotElementType()
-                     .ToElements()):
-        if _string(instance, BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS) \
-                != WAIST_COMMENT:
+    for stairs in (FilteredElementCollector(doc)
+                   .OfClass(Stairs)
+                   .WhereElementIsNotElementType()
+                   .ToElements()):
+        point = _midpoint(doc, stairs, ft_to_mm)
+        if point is None:
+            continue
+        found.append((stairs.Id, point, _base_level_name(doc, stairs),
+                      _type_name(doc, stairs)))
+    return found
+
+
+def _midpoint(doc, stairs, ft_to_mm):
+    try:
+        run_ids = list(stairs.GetStairsRuns())
+    except Exception:
+        run_ids = []
+    for run_id in run_ids:
+        run = doc.GetElement(run_id)
+        if run is None:
             continue
         try:
-            curve = instance.Location.Curve
-            start, end = curve.GetEndPoint(0), curve.GetEndPoint(1)
+            for curve in run.GetStairsPath():
+                start = curve.GetEndPoint(0)
+                end = curve.GetEndPoint(1)
+                return (ft_to_mm((start.X + end.X) / 2.0),
+                        ft_to_mm((start.Y + end.Y) / 2.0))
         except Exception:
             continue
-        found.append((instance.Id,
-                      (ft_to_mm((start.X + end.X) / 2.0),
-                       ft_to_mm((start.Y + end.Y) / 2.0)),
-                      _level_name(doc, instance), _type_name(doc, instance)))
-    return found
+    return None
 
 
-def steps_by_mark(doc):
-    """``{mark: ElementId}`` of the step solids already in the model.
-
-    So a second run recognises the steps it made rather than adding another
-    nineteen prisms on top of them. A ``DirectShape`` has no geometry a planner
-    can match on, so the mark is the only handle — which is exactly why it is
-    written.
-    """
-    from Autodesk.Revit.DB import (BuiltInCategory, BuiltInParameter,
-                                   DirectShape, FilteredElementCollector)
-    found = {}
-    for shape in (FilteredElementCollector(doc)
-                  .OfCategory(BuiltInCategory.OST_Stairs)
-                  .OfClass(DirectShape)
-                  .WhereElementIsNotElementType()
-                  .ToElements()):
-        mark = _string(shape, BuiltInParameter.ALL_MODEL_MARK)
-        if mark:
-            found[mark] = shape.Id
-    return found
-
-
-def set_type(doc, instance, symbol):
+def set_type(doc, stairs, stairs_type_id):
+    """Change a placed stair's type. True when it took."""
     try:
-        instance.Symbol = symbol
+        stairs.ChangeTypeId(stairs_type_id)
         return True
     except Exception:
         return False
@@ -246,15 +276,14 @@ def set_type(doc, instance, symbol):
 # The small Revit awkwardnesses
 # ---------------------------------------------------------------------------
 
-def _set(element, built_in, value):
+def _set_by_name(element, name, value):
     try:
-        parameter = element.get_Parameter(built_in)
-        if parameter is not None and not parameter.IsReadOnly:
-            parameter.Set(value)
-            return True
+        parameter = element.LookupParameter(name)
+        if parameter is None or parameter.IsReadOnly:
+            return False
+        return bool(parameter.Set(value))
     except Exception:
-        pass
-    return False
+        return False
 
 
 def _set_string(element, built_in_name, value):
@@ -262,26 +291,29 @@ def _set_string(element, built_in_name, value):
     built_in = getattr(BuiltInParameter, built_in_name, None)
     if built_in is None or not value:
         return False
-    return _set(element, built_in, value)
-
-
-def _string(element, built_in):
     try:
         parameter = element.get_Parameter(built_in)
-        if parameter is None:
-            return ""
-        return parameter.AsString() or ""
+        if parameter is not None and not parameter.IsReadOnly:
+            return bool(parameter.Set(value))
     except Exception:
-        return ""
+        pass
+    return False
 
 
-def _level_name(doc, instance):
+#: What a stair's base level is called, across Revit versions. Asked by name
+#: rather than by attribute, because a missing member on the enum raises at
+#: import in one version and works in the next.
+BASE_LEVEL_PARAMETERS = ("STAIRS_BASE_LEVEL_PARAM", "STAIRS_BASE_LEVEL")
+
+
+def _base_level_name(doc, stairs):
     from Autodesk.Revit.DB import BuiltInParameter
-    for built_in in (BuiltInParameter.INSTANCE_REFERENCE_LEVEL_PARAM,
-                     BuiltInParameter.FAMILY_LEVEL_PARAM,
-                     BuiltInParameter.SCHEDULE_LEVEL_PARAM):
+    for name in BASE_LEVEL_PARAMETERS:
+        built_in = getattr(BuiltInParameter, name, None)
+        if built_in is None:
+            continue
         try:
-            parameter = instance.get_Parameter(built_in)
+            parameter = stairs.get_Parameter(built_in)
             if parameter is None:
                 continue
             level = doc.GetElement(parameter.AsElementId())
@@ -289,12 +321,15 @@ def _level_name(doc, instance):
                 return _name(level)
         except Exception:
             continue
-    return ""
-
-
-def _type_name(doc, instance):
     try:
-        return _name(doc.GetElement(instance.GetTypeId()))
+        return _name(doc.GetElement(stairs.LevelId))
+    except Exception:
+        return ""
+
+
+def _type_name(doc, stairs):
+    try:
+        return _name(doc.GetElement(stairs.GetTypeId()))
     except Exception:
         return ""
 
@@ -309,3 +344,13 @@ def _name(element):
         return Element.Name.GetValue(element)
     except Exception:
         return ""
+
+
+def _short(error):
+    text = " ".join("{0}".format(error).split())
+    return text[:240] if len(text) > 240 else text
+
+
+def _fold(text):
+    return "".join(character for character in str(text or "").lower()
+                   if character.isalnum())

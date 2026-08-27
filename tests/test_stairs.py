@@ -264,7 +264,12 @@ class SampleStairTests(unittest.TestCase):
 
 
 class StairModuleTests(unittest.TestCase):
-    """Static checks on the Revit half, which cannot be imported here."""
+    """Static checks on the Revit half — option A, which cannot be imported
+    here because ``Autodesk.Revit.DB.Architecture`` does not exist off Revit.
+
+    What is checked is everything that would otherwise fail only inside Revit,
+    and each has a specific failure in mind.
+    """
 
     def source(self, package, name):
         path = os.path.join(_ROOT, "AnonGee.extension", "lib", "py3",
@@ -272,42 +277,118 @@ class StairModuleTests(unittest.TestCase):
         with io.open(path, encoding="utf-8") as handle:
             return handle.read()
 
-    def test_the_waist_is_marked_so_a_beam_schedule_can_exclude_it(self):
-        """The cost of option B, and the owner should be able to see it named
-        in the code: a waist is a structural framing instance, so it lands in
-        Structural Framing schedules beside the beams. One comment makes the
-        filter one condition — but the pollution is real."""
+    def test_it_builds_a_real_revit_stair(self):
+        """Option A. The waist-slab version is gone, and nothing should be
+        quietly left behind that still places framing for a stair."""
         body = self.source("structural", "stairs.py")
-        self.assertIn('WAIST_COMMENT = "STAIR WAIST"', body)
-        tree = ast.parse(body)
-        placed = [node for node in ast.walk(tree)
-                  if isinstance(node, ast.FunctionDef) and node.name == "placed"]
-        self.assertTrue(placed)
-        names = [node.id for node in ast.walk(placed[0])
-                 if isinstance(node, ast.Name)]
-        self.assertIn("WAIST_COMMENT", names,
-                      "placed() must filter on the comment or it returns "
-                      "every beam in the model as a stair")
+        self.assertIn("StairsEditScope", body)
+        self.assertIn("StairsRun.CreateStraightRun", body)
+        self.assertNotIn("StructuralType.Beam", body)
+        self.assertNotIn("DirectShape", body)
+
+    def test_the_edit_scope_is_not_opened_inside_a_transaction(self):
+        """``StairsEditScope.Start`` throws if a transaction is open, and there
+        is no way to place a Revit stair without one. So ``create`` must start
+        the scope **before** it starts any transaction — reading the two calls
+        in source order is exactly what catches this getting reordered.
+        """
+        tree = ast.parse(self.source("structural", "stairs.py"))
+        create = [node for node in ast.walk(tree)
+                  if isinstance(node, ast.FunctionDef) and node.name == "create"]
+        self.assertTrue(create)
+
+        scope_at = transaction_at = None
+        for node in ast.walk(create[0]):
+            if not isinstance(node, ast.Call):
+                continue
+            target = node.func
+            name = getattr(target, "attr", None) or getattr(target, "id", None)
+            if name == "StairsEditScope" and scope_at is None:
+                scope_at = node.lineno
+            if name == "Transaction" and transaction_at is None:
+                transaction_at = node.lineno
+        self.assertIsNotNone(scope_at)
+        self.assertIsNotNone(transaction_at)
+        self.assertLess(scope_at, transaction_at,
+                        "the edit scope must be started before any "
+                        "transaction, or Start() throws")
+
+    def test_the_command_asks_for_a_writer_that_holds_no_transaction(self):
+        """Every other command runs inside a transaction the runner opened.
+        This one cannot, and says so by passing its own writer."""
+        body = self.source("commands", "stairs.py")
+        self.assertIn("write=_placement.outside_a_transaction", body)
+
+    def test_the_writer_it_asks_for_opens_no_transaction(self):
+        """The whole point of the override. If a transaction crept back into
+        it, every stair run would fail at ``scope.Start`` and the reason would
+        be nowhere near the change."""
+        tree = ast.parse(self.source("commands", "_placement.py"))
+        writer = [node for node in ast.walk(tree)
+                  if isinstance(node, ast.FunctionDef)
+                  and node.name == "outside_a_transaction"]
+        self.assertTrue(writer)
+        called = [getattr(node.func, "attr", None) or getattr(node.func, "id", None)
+                  for node in ast.walk(writer[0]) if isinstance(node, ast.Call)]
+        self.assertIn("TransactionGroup", called)
+        self.assertNotIn("Transaction", called)
+
+    def test_the_default_writer_still_opens_one(self):
+        """Six commands depend on it, and the override must not have changed
+        what they get."""
+        tree = ast.parse(self.source("commands", "_placement.py"))
+        writer = [node for node in ast.walk(tree)
+                  if isinstance(node, ast.FunctionDef) and node.name == "_write"]
+        called = [getattr(node.func, "attr", None) or getattr(node.func, "id", None)
+                  for node in ast.walk(writer[0]) if isinstance(node, ast.Call)]
+        self.assertIn("Transaction", called)
+        self.assertIn("TransactionGroup", called)
+
+    def test_the_riser_count_is_set_on_the_instance(self):
+        """It is what makes a flight land on the floor. Revit divides the rise
+        by it exactly as ``flight.solve`` does, so the two agree by
+        construction rather than by luck."""
+        self.assertIn("DesiredRisersNumber",
+                      self.source("structural", "stairs.py"))
+
+    def test_the_type_carries_the_waist_and_the_tread(self):
+        """A monolithic stair's structural depth *is* the waist. Setting it
+        before ``MonolithicStairs`` silently does nothing, which is why the
+        order is pinned here."""
+        body = self.source("structural", "stairs.py")
+        self.assertIn('MONOLITHIC = "MonolithicStairs"', body)
+        self.assertIn('WAIST = "StructuralDepth"', body)
+        self.assertIn('TREAD = "MinimumTreadDepth"', body)
+        self.assertLess(body.index("MONOLITHIC ="), body.index("WAIST ="))
+
+    def test_the_failure_preprocessor_is_a_clr_class_built_once(self):
+        """A class subclassing a Revit interface can only be defined once per
+        session — a second definition is a second, incompatible type. It also
+        cannot be defined at import, because the interface does not exist off
+        Revit. Hence the cache."""
+        body = self.source("structural", "stairs.py")
+        self.assertIn("IFailuresPreprocessor", body)
+        self.assertIn("_CLR", body)
+        self.assertIn('__namespace__', body)
+
+    def test_only_warnings_are_swallowed(self):
+        """A stair almost always raises one and an unhandled warning aborts the
+        scope. Errors must still fail, or a stair that genuinely cannot be
+        built reports success."""
+        body = self.source("structural", "stairs.py")
+        self.assertIn("DeleteAllWarnings", body)
+        self.assertNotIn("ResolveFailures", body)
 
     def test_no_revit_import_at_module_level(self):
-        tree = ast.parse(self.source("structural", "stairs.py"))
-        for node in tree.body:
-            self.assertNotIsInstance(node, (ast.Import, ast.ImportFrom))
+        for name in ("stairs.py",):
+            tree = ast.parse(self.source("structural", name))
+            for node in tree.body:
+                self.assertNotIsInstance(node, (ast.Import, ast.ImportFrom))
 
-    def test_the_geometry_uses_a_typed_dotnet_list(self):
-        """A raw Python list handed to a Revit API method is a fatal
-        marshalling fault across pythonnet, not a catchable TypeError."""
-        body = self.source("structural", "stairs.py")
-        self.assertIn("List[CurveLoop]()", body)
-        self.assertIn("from System.Collections.Generic import List", body)
-
-    def test_the_justification_is_stated_and_not_inherited(self):
-        """BUG-29 again: a family instance arrives carrying whatever the family
-        and the last placement left behind, and a waist that inherits a -1500
-        offset is a staircase in the basement."""
-        body = self.source("structural", "stairs.py")
-        self.assertIn("_state_the_justification", body)
-        self.assertIn("Z_JUSTIFICATION", body)
+    def test_a_failed_flight_says_the_others_stay_built(self):
+        """The cost of committing a scope per flight, and it must not be
+        silent: every other command rolls back whole."""
+        self.assertIn("stay built", self.source("commands", "stairs.py"))
 
 
 if __name__ == "__main__":

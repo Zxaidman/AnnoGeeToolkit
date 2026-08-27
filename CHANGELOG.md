@@ -35,6 +35,45 @@ of view of someone using the thing rather than someone reading the diff:
 
 ---
 
+## 1.25.0
+
+**Changed**
+
+- **Stairs are real Revit stairs now.** The project owner ran option B — a
+  waist slab with triangular steps, built out of framing and a `DirectShape` —
+  and chose Revit's own `Stairs` instead: *"building stairs with beam and slab
+  is management nightmare and scheduling for use Revit own stairs"*. That is
+  what the review document pointed at: schedule pollution was the one cost
+  option B could never fix.
+
+  `structural/stairs.py` is rewritten against `StairsEditScope` and
+  `StairsRun.CreateStraightRun`. `rc_automation/flight.py`, `STAIR_TYPES`,
+  `STAIR_PLACEMENT` and the reading half of the command carried over unchanged,
+  as the review said they would.
+
+  **This is the one command that holds no transaction while it writes.**
+  `StairsEditScope.Start` throws if a transaction is open and has to open one of
+  its own, so `_placement.run` now takes a *write* override and stairs use
+  `outside_a_transaction`: the transaction group stays, so the undo step is
+  still one, but each flight commits its own scope. The cost is real and it is
+  reported — a run that fails on the fourth of five leaves three built, where
+  every other command rolls back whole.
+
+  The sheet drives the type: waist to `StructuralDepth`, tread to
+  `MinimumTreadDepth`, riser to `MaxRiserHeight`, with `MonolithicStairs` set
+  first because a stair that is not monolithic has no structural depth to set.
+  The riser **count** goes on the instance, so Revit divides the rise by the
+  same whole number `flight.solve` does and the two agree by construction.
+
+**Recorded, not fixed**
+
+- **Option B's steps could never have been built.** `List[object]()` is not a
+  marshallable .NET list — pythonnet answers `type(s) expected` — so every
+  flight raised after its waist was placed and `written` stayed 0. The code is
+  gone with option B. It is recorded because a test asserted `List[CurveLoop]()`
+  was present and passed, while the actual failure was one line below it in a
+  list the test never looked at. (BUG-38)
+
 ## 1.24.1
 
 **Fixed**

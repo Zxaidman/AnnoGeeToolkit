@@ -18,7 +18,7 @@ __version__ = "0.1.0"
 
 
 def run(uiapp, envelope, sheet_default, parse, span, existing, apply, what,
-        option, locate=None, plan=None):
+        option, locate=None, plan=None, write=None):
     """``(summary, findings, note)``. Never raises."""
     from anongee_toolkit.rc_automation import datum
     from anongee_toolkit.rc_automation import excel_engine
@@ -82,7 +82,8 @@ def run(uiapp, envelope, sheet_default, parse, span, existing, apply, what,
 
     context = {"sheets": grids, "units": units, "sheet": sheet_name,
                "workbook": workbook}
-    written, write_findings = _write(doc, doing, apply, what, context)
+    written, write_findings = (write or _write)(doc, doing, apply, what,
+                                                context)
     summary["written"] = written
     findings.extend(write_findings)
     return summary, findings, _what_happened(written, len(doing), what, reading)
@@ -133,6 +134,13 @@ def _write(doc, plans, apply, what, context):
 
     A run that throws halfway is rolled back whole. Half a floor of columns is
     worse than none, because none is obvious.
+
+    **Six of the seven commands use this.** Stairs cannot: ``StairsEditScope``
+    refuses to start while a transaction is open, and it has to open one of its
+    own. So :func:`run` takes a *write* to override this, and
+    :mod:`commands.stairs` supplies one that keeps the group — which is what
+    gives the single undo step — and leaves the transaction to the scope. See
+    :func:`outside_a_transaction`.
     """
     from Autodesk.Revit.DB import Transaction, TransactionGroup
 
@@ -153,6 +161,40 @@ def _write(doc, plans, apply, what, context):
             if transaction.HasStarted() and not transaction.HasEnded():
                 transaction.RollBack()
             raise inner
+        group.Assimilate()
+    except Exception as error:
+        if group.HasStarted() and not group.HasEnded():
+            group.RollBack()
+        findings.append(_finding(
+            "Error", "", "", "the run was rolled back: {0}".format(error)))
+        return 0, findings
+    return written, findings
+
+
+def outside_a_transaction(doc, plans, apply, what, context):
+    """The same group, without an open transaction. ``(written, findings)``.
+
+    ``StairsEditScope.Start`` throws if a transaction is open, and there is no
+    way to place a Revit stair without one. A ``TransactionGroup`` is not a
+    transaction, so the undo behaviour every other command has is kept: one
+    group, assimilated, one step in the undo stack.
+
+    What is lost is the all-or-nothing property. Each flight commits its own
+    scope, so a run that fails on the fourth of five leaves three built. That is
+    reported rather than hidden — and it is the reason this is a separate
+    function with its own name rather than a flag on the one above.
+    """
+    from Autodesk.Revit.DB import TransactionGroup
+
+    findings = []
+
+    def finding(severity, row, message):
+        return _finding(severity, "", row, message)
+
+    group = TransactionGroup(doc, "AnonGee - {0}s.sync".format(what))
+    group.Start()
+    try:
+        written = apply(doc, plans, findings, finding, context)
         group.Assimilate()
     except Exception as error:
         if group.HasStarted() and not group.HasEnded():
