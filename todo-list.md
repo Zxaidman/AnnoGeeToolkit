@@ -137,6 +137,92 @@ are held to the same three names by a test, because that is exactly the contract
 
 ## 2. Errors and bugs
 
+### BUG-31 — a beam type the model does not have cannot be created, and 110 beams went with it · `redo`
+
+**How it was found.** The project owner changed the floor beam from `B-300x600` to `B-230x600` on
+`BEAM_TYPES` and `BEAM_PLACEMENT`, ran `beams.sync` on the existing model, got no change and *"a long
+finding error"*; then deleted every beam and re-ran, and only the plinth beams appeared. **Reproduced
+from the pushed workbook by elimination** — not yet reproduced in Revit, because the exception text
+was destroyed by `BUG-32` before it could be read.
+
+**The evidence, from `LOG`.** Two runs, and between them they name the failure:
+
+| Time | Job | Counts |
+| --- | --- | --- |
+| 11:38:36 | `0008` | `matched=22 modified=110 written=0` — the retype run. 110 planned, none written |
+| 11:42:01 | `0013` | `created=132 written=22` — the rebuild. 22 built, 110 not |
+
+The 110 are exactly the `B-230x600` rows and the 22 are exactly the `PB-230x450` rows. `PB-230x450`
+already existed in the model from the 11:11 run; `B-230x600` is a name no model has ever held.
+
+**Cause, by elimination.** The `11:38` run took the `MODIFY` branch, which never reaches a level and
+never reaches `framing.create` — so the failure is in `ensure_symbol` or `set_type`. Had
+`ensure_symbol` succeeded there, the type would exist and the `11:42` run would have found it by Type
+Mark and built all 132. It built 22. So `ensure_symbol` returns `None` for `B-230x600` in both runs.
+Its two `None` paths are *no Width and Depth* and *`Duplicate` threw*; the first is ruled out by
+running the owner's own sheet through `placement.parse_types`, which gives
+`{'width_mm': 230.0, 'depth_mm': 600.0}`. **So `base.Duplicate(name)` throws.**
+
+**What that means, and it is the uncomfortable part.** The beam type-*creation* path has never once
+succeeded in a real model. Every green beam run so far — 08-25 and 08-27 alike — *found* its types.
+`FEAT-34` was confirmed for columns and footings and was assumed for beams; the first time a beam
+type actually had to be made, it failed. An assumption that rode on somebody else's green test.
+
+**Fix.** Report the exception rather than folding it into `None`, and say which of the four passes
+was tried; then `BUG-32` keeps the answer long enough to read it.
+
+### BUG-32 — the next command destroys the last command's findings · `pending`
+
+**How it was found.** Looking for the 110 explanations `BUG-31` produced at 11:42:01. `slabs.sync`
+ran at 11:43:12 — **seventy-one seconds later** — and `FINDINGS` now holds two rows, both its.
+Reproduced: the sheet is in the repository with the header `Findings from | slabs.sync | 20260827-114311-0014`.
+
+**Cause.** `BUG-20` fixed *empty results wipe the sheet*. This is its sibling and the fix did not
+cover it: **any** next command clears it, so the findings for a failure survive only until somebody
+tries the next thing — which is exactly what a person does after a failure.
+
+**Fix.** Findings append under a per-job header rather than replacing, newest block at the top, with
+older blocks kept until the sheet is cleared deliberately. A run that fails and a run that reports
+nothing must stay tellable apart for longer than one command.
+
+### BUG-33 — two counts that read as success when they are not · `pending`
+
+**How it was found.** Reading `LOG` for `BUG-31`. Two separate misreports, both in
+`commands/_placement.py`:
+
+1. **`written=22` of `created=132` is reported as `"22 beam(s) written, as one undo step"`** and
+   nothing says the other 110 did not happen. The count is right and the sentence is reassuring,
+   which is the worst combination. This is what let the failure look like a success in the log.
+2. **11:09:33, job `0001`: `invalid=132`, note `"every beam the sheet describes is already there"`.**
+   When every row is invalid, `doing` is empty, and the empty-`doing` branch says everything already
+   agrees — exactly backwards. Nothing was there and nothing could be placed.
+
+**Fix.** The note compares `written` against what was planned and says the shortfall first; the
+empty-`doing` branch distinguishes *nothing to do because everything matches* from *nothing to do
+because nothing was usable*.
+
+### BUG-34 — the owner's `beam_mark` pattern is rejected by the sheet's own rules · `pending`
+
+**How it was found.** Running the owner's edited `NAMING` sheet through `naming_sheet.parse` here,
+off Revit. It returns a warning nobody has seen:
+
+> `beam_mark: 'n' — this one takes {level}, {grid}. Using 'B{level}-{grid}' instead`
+
+**Reproduced**, in this repository, against the pushed workbook.
+
+**Cause.** The owner wrote `B{n}`, to match `C{n}` and `F{n}`. `PATTERNS["beam_mark"]` declares its
+fields as `("level", "grid")` and nothing else, so `{n}` fails `check()` and the default is
+substituted. The sheet's own **`Fields it may use`** column says `{n}, {level}, {grid}` — because
+the owner edited that column too. **So the workbook advertises a field the code refuses**, which is
+the same disagreement `FEAT-41` is about, pointing the other way.
+
+**Why it went unnoticed.** It degrades exactly as designed — a naming preference must never stop a
+run — so 132 beams were placed with the wrong marks and the run said `done`. The one warning that
+would have said so went to `FINDINGS`, and `BUG-32` wiped it.
+
+**Fix.** `beam_mark` takes `{n}` as well, and a mark pattern's fields are whatever the sheet offers
+for all three marks, not three different lists.
+
 ### BUG-1 — Bridge Check could not reach the wire at all · `testing`
 
 **Found by the `CRIT-1` run.** The pushbutton that exists to diagnose the bridge could not call it:
@@ -722,6 +808,19 @@ Each carries the verdict from the PRD, so the queue and the estimate cannot drif
 | FEAT-32 | **Shape buttons, from the owner's own template** | The owner replaced the Form Controls with rounded rectangles — and `openpyxl` deletes every drawing on a rebuild, so the buttons have to be redrawable rather than drawn. `AnonGeeBridge_AddButtons` now duplicates a template shape when the sheet has one and builds one to match when it does not, on `CONTROL` and on `INFO` for `ApplyUnits` | `testing` |
 | FEAT-33 | **Cover and diameter stay in millimetres** | A cover of `0.05` and a bar of `0.012` is the workbook being consistent at the cost of being readable, which was the reason for metres in the first place. Those columns are pinned: their header says `(mm)`, and the converter is told to leave a pinned column alone | `testing` |
 | FEAT-4 | `template.xlsm` build script — sheets, validation, `keep_vba=True` | **Built, `testing`.** `bridge/excel/build_workbook.py` writes `CONTROL`, `INFO`, `LEVELS`, `GRIDS`, `LOG`. One manual step remains and always will: `openpyxl` preserves a VBA project and cannot create one | `testing` |
+
+### Schedules, quantities, staircases and rebar
+
+Opened by the project owner on 2026-08-27, in a round explicitly held **before anything is built**.
+Recorded here first, which is the rule.
+
+| ID | What | Verdict | Phase |
+| --- | --- | --- | --- |
+| FEAT-41 | **`NAMING` stays self-consistent** — `Example` and `Fields it may use` follow a hand-edited `Pattern` | The owner rewrote the patterns to the house convention (`CH-{b} X {h}`) and the two columns beside them still show the old ones, so the sheet now disagrees with itself in writing. Two ways: a `Refresh naming` button beside the others, or Excel formulas. **A formula cannot do it** — `Example` needs the renderer, and the field list needs `PATTERNS`. So: a button, and the same call `beams.sync` makes, so the example is produced by the code that will produce the name | `pending` |
+| FEAT-42 | **Staircases** — modelled and scheduled | New scope. A stair is not a column: it is a run, a landing, a waist and a set of treads, and the quantity people care about is the waist volume plus the steps. Sized. Probably its own sheet pair (`STAIR_TYPES`, `STAIR_PLACEMENT`) rather than a column on something else | `pending` |
+| FEAT-43 | **Volume *and* formwork on every schedule, and a `SUMMARY` sheet** | Replaces the combined-concrete-volume schedule proposed in `docs/specs/2026-08-26-schedules-and-footing-rebar.md`. Each schedule carries its own concrete volume and its own shuttering area; `SUMMARY` adds them up. Formwork is not a Revit parameter — it is the contact area, and which faces count is a decision per element, so it is computed and written, not read | `pending` |
+| FEAT-44 | **A schedule generator that is not Revit's** | The owner's point: Revit's native schedule will not take every parameter an element has. So generate the table from the model — read every parameter, including the ones a native schedule refuses, and write it. Where it lands (a Revit schedule where possible, a sheet in the workbook where not) is the design question | `pending` |
+| FEAT-45 | **The rebar schedule's real columns** | The proposed sheet was a bar bending schedule and the owner's is a procurement document too. Three additions: **bar dimensions `A`–`E`** (the shape code's own legs, which is what a BBS actually prints), **which Revit layout rule** — Single / Number with Spacing / Maximum Spacing / Fixed Number, because that decides what a change to the pad does to the bars — and **Phase or Procurement**, which must exist on **both** the concrete and the rebar parameters so a client can be told what a stage costs | `pending` |
 
 ### Datum and setup
 
