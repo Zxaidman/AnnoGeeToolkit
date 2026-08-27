@@ -236,14 +236,39 @@ def as_tsv(result):
     return "\n".join(lines) + "\n"
 
 
+#: What a character outside ASCII becomes on the way to Excel.
+#:
+#: The result file is written as ``ascii``, because a file crossing into VBA
+#: has no way to declare its encoding — the same lesson the ``.bas`` learned
+#: the hard way. But ``errors="replace"`` turns every one of these into a
+#: literal ``?``, so a run reported *"0 of 5 stair flight(s) written ? 5 did
+#: NOT happen"* and a note written in English arrived looking like a bug.
+#:
+#: Transliterating here rather than policing every message means a future
+#: sentence with a degree sign in it cannot reintroduce the fault.
+TRANSLITERATE = {
+    u"\u2014": "-", u"\u2013": "-", u"\u2212": "-",
+    u"\u2018": "'", u"\u2019": "'", u"\u201c": '"', u"\u201d": '"',
+    u"\u2026": "...", u"\u00b0": " deg", u"\u00b2": "2", u"\u00b3": "3",
+    u"\u00d7": "x", u"\u00a0": " ", u"\u2192": "->", u"\u00b7": "-",
+}
+
+
 def _flat(value):
-    """One cell's worth of text: no tabs, no newlines, nothing to escape."""
+    """One cell's worth of text: no tabs, no newlines, and nothing Excel
+    cannot be handed as plain ASCII."""
     if value is None:
         return ""
-    text = "{0}".format(value)
+    text = u"{0}".format(value)
     for bad, good in (("\t", " "), ("\r", " "), ("\n", " ")):
         text = text.replace(bad, good)
-    return text
+    for bad, good in TRANSLITERATE.items():
+        if bad in text:
+            text = text.replace(bad, good)
+    # Anything still outside ASCII is dropped rather than left to become a
+    # question mark somebody has to interpret.
+    return "".join(character if ord(character) < 128 else "?"
+                   for character in text)
 
 
 def findings_from_issues(issues):

@@ -137,6 +137,28 @@ are held to the same three names by a test, because that is exactly the contract
 
 ## 2. Errors and bugs
 
+### BUG-36 — a same-named type was reused without checking its size · `testing`
+
+**How it was found.** In the findings from the owner's `beams.sync` run, which succeeded:
+
+> `created 'B-230x600' at 230 x 600 — 'PB-230x450' already existed in Concrete - Rectangular Beam
+> and was used rather than duplicated`
+
+`written=110`, `status=done`, and **every floor beam had been given the 230 x 450 plinth section.**
+Reproduced off Revit.
+
+**Cause.** Mine, introduced with `BUG-31`'s hardening. `typemaker.duplicate` checked whether the
+target name was already taken and, if it was, handed that type back — on the reasoning that *the
+name being taken means the type already exists*. That reasoning is wrong. **A name is not a size.**
+
+**Why it mattered more than the bug it was fixing.** `BUG-31` failed loudly: nothing was placed and
+the log said so. This produced a hundred and ten beams of the wrong depth and reported success. A
+hardening that turns a visible failure into a silent wrong answer is worse than the failure.
+
+**Fix.** `duplicate` takes an `accept` callback and every caller passes one that compares the type's
+actual width and depth against what was asked for. A same-named type of the wrong size is refused,
+reported, and the next candidate name is used instead.
+
 ### BUG-31 — a beam type the model does not have cannot be created, and 110 beams went with it · `testing`
 
 **How it was found.** The project owner changed the floor beam from `B-300x600` to `B-230x600` on
@@ -168,8 +190,22 @@ succeeded in a real model. Every green beam run so far — 08-25 and 08-27 alike
 `FEAT-34` was confirmed for columns and footings and was assumed for beams; the first time a beam
 type actually had to be made, it failed. An assumption that rode on somebody else's green test.
 
-**Fix.** Report the exception rather than folding it into `None`, and say which of the four passes
-was tried; then `BUG-32` keeps the answer long enough to read it.
+**Cause — found, and it was not `Duplicate` being fussy.** `ensure_symbol` takes a parameter called
+`name`: the type name the NAMING sheet asked for. Its four match passes were written as
+`for _label, name, ... in loaded:`. **Python's for-loop leaks its variable**, so once all four ran
+without matching — which is *precisely* the case where a type has to be created — `name` no longer
+held the wanted name. It held the name of the **last loaded type in the model**. The next line said
+`Duplicate(name or wanted)`, so every creation asked Revit for a name that already existed, by
+construction. It could never succeed.
+
+`columns.py` was untouched only because its four passes live in a separate `find_symbol`, where
+there is no parameter to shadow — which is exactly why columns created types happily and beams
+never once did, and why the helper looked proven when it was not.
+
+**Fix.** The loops bind `found`. `typemaker` reports Revit's own exception either way, which is what
+made the cause readable in one run instead of four days. A repository-wide test now fails on any
+loop that rebinds one of its own function's parameters — mutation-checked against the original
+line.
 
 ### BUG-32 — the next command destroys the last command's findings · `testing`
 
@@ -199,7 +235,23 @@ nothing must stay tellable apart for longer than one command.
 
 **Fix.** The note compares `written` against what was planned and says the shortfall first; the
 empty-`doing` branch distinguishes *nothing to do because everything matches* from *nothing to do
-because nothing was usable*.
+because nothing was usable*. **Confirmed working** — the owner's stair run reported *"0 of 5 stair
+flight(s) written"* instead of *"0 written"*, which is what made the failure visible at a glance.
+
+### BUG-37 — every message arrived with a question mark in the middle of it · `testing`
+
+**How it was found.** The owner's screenshot: *"0 of 5 stair flight(s) written ? 5 did NOT happen"*.
+Reproduced immediately. Also in `LOG` and `FINDINGS` on every message written this round.
+
+**Cause.** The result file is written as `ascii` — deliberately, because a file crossing into VBA
+has no way to declare its encoding, which is the same rule the `.bas` follows. But `errors="replace"`
+turns every character outside ASCII into a literal `?`. The em dashes and the degree sign in the new
+messages are mine, added this round.
+
+**Fix.** Transliterate in `envelope._flat`, one place: `—` to `-`, `°` to ` deg`, `³` to `3`, curly
+quotes to straight ones. Policing every message string would have worked until the next sentence
+with a degree sign in it. A test reports any character in a message literal that transliteration
+does not yet know about — docstrings excluded, because prose is allowed to be typeset properly.
 
 ### BUG-34 — the owner's `beam_mark` pattern is rejected by the sheet's own rules · `testing`
 

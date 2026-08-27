@@ -76,21 +76,38 @@ def ensure_symbol(doc, wanted, width_mm=None, depth_mm=None, cache=None,
                       "Load one — Concrete-Rectangular Beam is the standard — "
                       "and run this again")
 
-    for _label, _name_, type_mark, symbol_id in loaded:
+    # ``found`` and never ``name`` in these four loops.
+    #
+    # **This is BUG-31.** They were written as ``for _label, name, ...``, and
+    # ``name`` is this function's own parameter — the type name the NAMING
+    # sheet asked for. Python's for-loop leaks its variable, so once all four
+    # passes ran without matching — which is *precisely* the case where a type
+    # has to be created — ``name`` no longer held the wanted name. It held the
+    # name of the **last loaded type in the model**.
+    #
+    # The next line down then said ``Duplicate(name or wanted)``, so every
+    # creation asked Revit for a name that already existed, by construction.
+    # It could never succeed. A hundred and ten beams failed on it and the run
+    # said ``written=22`` without comment.
+    #
+    # ``columns.py`` was untouched by this only because its four passes live in
+    # a separate ``find_symbol``, where there is no parameter to shadow — which
+    # is why columns created types happily and beams never once did.
+    for _label, _found, type_mark, symbol_id in loaded:
         if type_mark and _fold(type_mark) == key:
             return _activate(doc, symbol_id, cache, key), ""
-    for _label, name, _mark, symbol_id in loaded:
-        if _fold(name) == key:
+    for _label, found, _mark, symbol_id in loaded:
+        if _fold(found) == key:
             return _activate(doc, symbol_id, cache, key), ""
-    for label, name, _mark, symbol_id in loaded:
-        if key and key in _fold(name):
+    for label, found, _mark, symbol_id in loaded:
+        if key and key in _fold(found):
             return (_activate(doc, symbol_id, cache, key),
                     "matched {0!r} to {1}".format(wanted, label))
 
     size = columns._dimensions(wanted)
     if len(size) == 2:
-        for label, name, _mark, symbol_id in loaded:
-            if columns._dimensions(name) == size:
+        for label, found, _mark, symbol_id in loaded:
+            if columns._dimensions(found) == size:
                 return (_activate(doc, symbol_id, cache, key),
                         "matched {0!r} to {1} - same section, different "
                         "name".format(wanted, label))
@@ -107,7 +124,10 @@ def ensure_symbol(doc, wanted, width_mm=None, depth_mm=None, cache=None,
     from anongee_toolkit.structural import typemaker
 
     base = _base_symbol(doc, loaded)
-    duplicated, note = typemaker.duplicate(doc, base, name or wanted, wanted)
+    duplicated, note = typemaker.duplicate(
+        doc, base, name or wanted, wanted,
+        accept=lambda symbol: typemaker.fits(
+            symbol, ((WIDTH_NAMES, width_mm), (DEPTH_NAMES, depth_mm))))
     if duplicated is None:
         return None, "no framing type called {0!r}, and {1}".format(
             wanted, note)

@@ -67,12 +67,58 @@ def named_sibling(doc, base, name):
     return None
 
 
-def duplicate(doc, base, preferred, fallback=None):
+def fits(symbol, wanted, tolerance_mm=1.0):
+    """True when *symbol* already measures what was asked for.
+
+    *wanted* is ``((parameter names, millimetres), ...)``.
+
+    **A name is not a size.** Reusing a type because its *name* matched, without
+    checking what it measures, is how a hundred and ten 230 x 600 floor beams
+    were quietly given a 230 x 450 plinth section — and the run reported
+    ``written=110`` and looked like a success. A same-named type of the wrong
+    size is a different type.
+    """
+    for names, value_mm in wanted:
+        if not value_mm:
+            continue
+        found = reads(symbol, names)
+        if found is None or abs(found - value_mm) > tolerance_mm:
+            return False
+    return True
+
+
+#: Revit's internal unit is the decimal foot, and a foot is 304.8 mm exactly.
+#:
+#: Spelled here rather than imported from ``revit.units``, so that :func:`fits`
+#: — the check that stops a wrong-sized type being reused — can be exercised
+#: off Revit. Importing the units module drags in ``System`` and the whole
+#: check would only ever run on somebody's machine.
+FEET_TO_MM = 304.8
+
+
+def reads(symbol, names):
+    """The millimetre value of the first of these parameters that exists."""
+    for name in names:
+        try:
+            parameter = symbol.LookupParameter(name)
+            if parameter is None or not parameter.HasValue:
+                continue
+            return float(parameter.AsDouble()) * FEET_TO_MM
+        except Exception:
+            continue
+    return None
+
+
+def duplicate(doc, base, preferred, fallback=None, accept=None):
     """``(symbol, note)`` — a new type of *base*'s family, or ``(None, why)``.
 
     *why* carries the exception Revit raised, the name that was refused and the
     family it was refused in. That sentence is the entire point of this
     function; the retries below are a convenience.
+
+    *accept* decides whether a type that **already carries the wanted name** can
+    be used as it is. Without it, a name collision silently hands back whatever
+    was already called that — see :func:`fits`.
     """
     if base is None:
         return None, "there is no loaded type to duplicate from"
@@ -85,9 +131,13 @@ def duplicate(doc, base, preferred, fallback=None):
 
         existing = named_sibling(doc, base, name)
         if existing is not None:
+            if accept is not None and not accept(existing):
+                tried.append("{0!r} (already used by a type of a different "
+                             "size)".format(name))
+                continue
             return existing, (
-                "{0!r} already existed in {1} and was used rather than "
-                "duplicated".format(name, family_name))
+                "{0!r} already existed in {1} at the right size and was used "
+                "rather than duplicated".format(name, family_name))
 
         try:
             made = base.Duplicate(name)

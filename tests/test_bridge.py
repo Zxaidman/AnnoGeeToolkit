@@ -1961,3 +1961,108 @@ class CellsBlockTests(unittest.TestCase):
 
     def test_unpack_survives_nonsense(self):
         self.assertEqual(_envelope.unpack(None), (None, None, "", []))
+
+
+class AsciiAcrossTheBridgeTests(unittest.TestCase):
+    """Everything Excel is handed has to survive being written as ASCII.
+
+    The result file is written as ``ascii`` because a file crossing into VBA
+    has no way to declare its encoding — the same lesson the ``.bas`` learned
+    the hard way. With ``errors="replace"`` every character outside it became a
+    literal ``?``, so a perfectly good sentence arrived as *"0 of 5 stair
+    flight(s) written ? 5 did NOT happen"* and read like a bug in the tool.
+
+    The fix is transliteration in one place rather than policing every message,
+    because the next sentence with a degree sign in it is always about to be
+    written.
+    """
+
+    def test_an_em_dash_becomes_a_hyphen(self):
+        result = _envelope.new_result(
+            {"jobId": "j", "command": "c"},
+            note=u"0 of 5 written — 5 did NOT happen")
+        self.assertIn("written - 5 did NOT happen", _envelope.as_tsv(result))
+        self.assertNotIn("?", _envelope.as_tsv(result))
+
+    def test_the_units_an_engineer_writes_survive(self):
+        result = _envelope.new_result(
+            {"jobId": "j", "command": "c"},
+            note=u"pitch 30.5°, concrete 1.638 m³, 300×600")
+        note = [line for line in _envelope.as_tsv(result).split("\n")
+                if line.startswith("note")][0]
+        self.assertIn("30.5 deg", note)
+        self.assertIn("1.638 m3", note)
+        self.assertIn("300x600", note)
+
+    def test_curly_quotes_do_not_become_question_marks(self):
+        result = _envelope.new_result(
+            {"jobId": "j", "command": "c"},
+            note=u"‘B-230x600’ and “this”")
+        self.assertNotIn("?", _envelope.as_tsv(result))
+
+    def test_the_whole_file_is_ascii_whatever_it_is_given(self):
+        result = _envelope.new_result(
+            {"jobId": "j", "command": "c"},
+            note=u"你好 — 30°",
+            findings=[{"severity": "Error", "sheet": "S", "row": 1,
+                       "column": "C", "message": u"café → tomorrow"}])
+        body = _envelope.as_tsv(result)
+        self.assertTrue(all(ord(character) < 128 for character in body))
+        body.encode("ascii")
+
+    def test_no_message_in_the_command_layer_carries_a_character_excel_cannot_take(self):
+        """Belt and braces: transliteration handles what it knows about, and
+        this says which characters the code is actually using.
+
+        It is deliberately a *report*, not a ban — a message may use anything
+        in ``TRANSLITERATE``. Anything else has to be added there first, or it
+        arrives as a question mark.
+        """
+        import ast
+        known = set(_envelope.TRANSLITERATE)
+        offenders = []
+        root = os.path.join(_ROOT, "AnonGee.extension", "lib", "py3",
+                            "anongee_toolkit")
+        for folder in ("commands", "structural", "rc_automation"):
+            directory = os.path.join(root, folder)
+            for name in sorted(os.listdir(directory)):
+                if not name.endswith(".py"):
+                    continue
+                with io.open(os.path.join(directory, name),
+                             encoding="utf-8") as handle:
+                    tree = ast.parse(handle.read())
+                for node in self._message_strings(tree):
+                    for character in node:
+                        if ord(character) < 128 or character in known:
+                            continue
+                        offenders.append("{0}: {1!r} in {2!r}".format(
+                            name, character, node[:60]))
+        self.assertEqual(sorted(set(offenders)), [],
+                         "\n".join(sorted(set(offenders))))
+
+    def _message_strings(self, tree):
+        """Every string literal that is not a docstring or a comment.
+
+        Prose is allowed to be typeset properly — the em dashes in this
+        repository's docstrings never cross the bridge. What matters is the
+        strings that end up in a finding, a note or a dialog.
+        """
+        import ast
+        docstrings = set()
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.Module, ast.ClassDef,
+                                     ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            body = getattr(node, "body", None) or []
+            if (body and isinstance(body[0], ast.Expr)
+                    and isinstance(body[0].value, ast.Constant)
+                    and isinstance(body[0].value.value, str)):
+                docstrings.add(id(body[0].value))
+
+        found = []
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Constant)
+                    and isinstance(node.value, str)
+                    and id(node) not in docstrings):
+                found.append(node.value)
+        return found

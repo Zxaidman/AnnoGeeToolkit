@@ -154,7 +154,10 @@ def ensure_symbol(doc, wanted, width_mm=None, depth_mm=None, cache=None,
     from anongee_toolkit.structural import typemaker
 
     missing = note
-    duplicated, note = typemaker.duplicate(doc, base, name or wanted, wanted)
+    duplicated, note = typemaker.duplicate(
+        doc, base, name or wanted, wanted,
+        accept=lambda symbol: typemaker.fits(
+            symbol, ((WIDTH_NAMES, width_mm), (DEPTH_NAMES, depth_mm))))
     if duplicated is None:
         return None, "{0} — and {1}".format(missing, note)
 

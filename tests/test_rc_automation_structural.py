@@ -719,3 +719,202 @@ class TypeMakerTests(unittest.TestCase):
         for node in tree.body:
             self.assertNotIsInstance(node, (ast.Import, ast.ImportFrom),
                                      "module-level import in typemaker")
+
+
+class ParameterShadowingTests(unittest.TestCase):
+    """BUG-31's actual cause, and a guard so it cannot come back anywhere.
+
+    ``framing.ensure_symbol`` took a parameter called ``name`` — the type name
+    the NAMING sheet asked for — and then ran four ``for _label, name, ... in
+    loaded:`` loops over the model's types. Python's for-loop leaks its
+    variable, so once all four passes ran without matching, which is *exactly*
+    the case where a type has to be created, ``name`` held the last loaded
+    type's name instead. ``Duplicate(name or wanted)`` therefore asked Revit
+    for a name that already existed **by construction**, and could never
+    succeed. A hundred and ten beams died on it.
+
+    ``columns.py`` was untouched only because its four passes live in a
+    separate ``find_symbol``, where there is no parameter to shadow.
+
+    So this walks every function in the toolkit and fails when a loop target
+    rebinds one of that function's own parameters.
+    """
+
+    #: Loop variables so conventional that rebinding one is never the bug.
+    HARMLESS = ("_", "__")
+
+    def files(self):
+        found = []
+        root = os.path.join(_ROOT, "AnonGee.extension", "lib", "py3",
+                            "anongee_toolkit")
+        for folder in ("structural", "commands", "rc_automation", "bridge"):
+            directory = os.path.join(root, folder)
+            if not os.path.isdir(directory):
+                continue
+            for name in sorted(os.listdir(directory)):
+                if name.endswith(".py"):
+                    found.append(os.path.join(directory, name))
+        return found
+
+    def parameters(self, function):
+        found = []
+        arguments = function.args
+        for group in (getattr(arguments, "posonlyargs", []), arguments.args,
+                      arguments.kwonlyargs):
+            for argument in group:
+                found.append(argument.arg)
+        for extra in (arguments.vararg, arguments.kwarg):
+            if extra is not None:
+                found.append(extra.arg)
+        return set(found)
+
+    def targets(self, node):
+        """Every name a ``for`` binds, including inside a tuple unpack."""
+        found = set()
+        for item in ast.walk(node.target):
+            if isinstance(item, ast.Name):
+                found.add(item.id)
+        return found
+
+    def test_no_loop_rebinds_a_parameter_of_its_own_function(self):
+        offenders = []
+        for path in self.files():
+            with io.open(path, encoding="utf-8") as handle:
+                tree = ast.parse(handle.read())
+            for function in ast.walk(tree):
+                if not isinstance(function, (ast.FunctionDef,
+                                             ast.AsyncFunctionDef)):
+                    continue
+                names = self.parameters(function)
+                if not names:
+                    continue
+                for node in ast.walk(function):
+                    if not isinstance(node, (ast.For, ast.AsyncFor)):
+                        continue
+                    # Only loops belonging to *this* function, not to one
+                    # nested inside it with parameters of its own.
+                    clashing = (self.targets(node) & names) - set(self.HARMLESS)
+                    for clash in sorted(clashing):
+                        offenders.append("{0}:{1} {2}() rebinds {3!r}".format(
+                            os.path.basename(path), node.lineno,
+                            function.name, clash))
+        self.assertEqual(offenders, [], "\n".join(offenders))
+
+
+class TypeReuseTests(unittest.TestCase):
+    """A name is not a size.
+
+    ``duplicate`` may find a type already carrying the name it wants. Handing
+    it back without checking what it *measures* is how a hundred and ten
+    230 x 600 floor beams were quietly given the 230 x 450 plinth section,
+    with the run reporting ``written=110`` and reading as a success.
+    """
+
+    def module(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "_typemaker_reuse", _path("typemaker"))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    class Symbol(object):
+        def __init__(self, name, family=None):
+            self.Name = name
+            self.Family = family
+
+        def Duplicate(self, name):
+            return TypeReuseTests.Symbol(name, self.Family)
+
+    class Family(object):
+        def __init__(self, name, ids):
+            self.Name = name
+            self._ids = ids
+
+        def GetFamilySymbolIds(self):
+            return self._ids
+
+    class Document(object):
+        def __init__(self, by_id):
+            self.by_id = by_id
+
+        def GetElement(self, identifier):
+            return self.by_id.get(identifier)
+
+    def world(self, *names):
+        symbols = [TypeReuseTests.Symbol(name) for name in names]
+        family = TypeReuseTests.Family("Concrete - Rectangular Beam",
+                                       list(range(len(symbols))))
+        for symbol in symbols:
+            symbol.Family = family
+        document = TypeReuseTests.Document(
+            dict((index, symbol) for index, symbol in enumerate(symbols)))
+        return document, symbols
+
+    def test_a_free_name_is_duplicated_under_that_name(self):
+        maker = self.module()
+        document, symbols = self.world("PB-230x450", "B-300x600")
+        made, note = maker.duplicate(document, symbols[0], "CH-230 X 600",
+                                     "B-230x600")
+        self.assertEqual(made.Name, "CH-230 X 600")
+        self.assertEqual(note, "")
+
+    def test_a_taken_name_of_the_right_size_is_reused(self):
+        maker = self.module()
+        document, symbols = self.world("CH-230 X 600", "B-300x600")
+        made, note = maker.duplicate(document, symbols[0], "CH-230 X 600",
+                                     "B-230x600", accept=lambda symbol: True)
+        self.assertIs(made, symbols[0])
+        self.assertIn("already existed", note)
+
+    def test_a_taken_name_of_the_wrong_size_is_not_reused(self):
+        """The one that matters. Rejecting it moves to the next name rather
+        than handing back a section nobody asked for."""
+        maker = self.module()
+        document, symbols = self.world("CH-230 X 600", "B-300x600")
+        made, note = maker.duplicate(document, symbols[0], "CH-230 X 600",
+                                     "B-230x600", accept=lambda symbol: False)
+        self.assertIsNot(made, symbols[0])
+        self.assertEqual(made.Name, "B-230x600")
+        self.assertIn("refused", note)
+
+    def test_with_no_acceptance_test_nothing_is_reused_blindly(self):
+        """``accept=None`` is the old behaviour and every caller now passes
+        one; this pins what happens if a future caller forgets."""
+        maker = self.module()
+        document, symbols = self.world("CH-230 X 600")
+        made, _note = maker.duplicate(document, symbols[0], "CH-230 X 600")
+        self.assertIs(made, symbols[0])
+
+    def test_fits_needs_every_dimension_to_agree(self):
+        maker = self.module()
+
+        class Sized(object):
+            def __init__(self, values):
+                self.values = values
+
+            def LookupParameter(self, name):
+                return self.values.get(name)
+
+        class Value(object):
+            def __init__(self, feet):
+                self.feet = feet
+                self.HasValue = True
+
+            def AsDouble(self):
+                return self.feet
+
+        symbol = Sized({"b": Value(230.0 / 304.8), "h": Value(600.0 / 304.8)})
+        self.assertTrue(maker.fits(symbol, ((("b",), 230.0), (("h",), 600.0))))
+        self.assertFalse(maker.fits(symbol, ((("b",), 230.0), (("h",), 450.0))))
+
+    def test_a_dimension_it_cannot_read_is_not_a_match(self):
+        """Unreadable is not the same as equal. Treating it as equal would put
+        the silent-wrong-section bug straight back."""
+        maker = self.module()
+
+        class Blank(object):
+            def LookupParameter(self, name):
+                return None
+
+        self.assertFalse(maker.fits(Blank(), ((("b",), 230.0),)))

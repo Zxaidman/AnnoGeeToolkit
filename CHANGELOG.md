@@ -35,6 +35,42 @@ of view of someone using the thing rather than someone reading the diff:
 
 ---
 
+## 1.24.1
+
+**Fixed**
+
+- **BUG-31's actual cause, found in the model.** `ensure_symbol` takes a
+  parameter called `name` — the type name the NAMING sheet asked for — and its
+  four match passes were written `for _label, name, ... in loaded:`. Python's
+  for-loop leaks its variable, so once all four ran without matching, which is
+  precisely when a type has to be created, `name` held **the last loaded type's
+  name** instead. `Duplicate(name or wanted)` therefore asked Revit for a name
+  that already existed by construction, and could never succeed. `columns.py`
+  escaped it only because its passes live in a separate `find_symbol` with no
+  parameter to shadow — which is why columns created types happily and beams
+  never once did. A repository-wide test now fails on any loop that rebinds one
+  of its own function's parameters, mutation-checked against the original line.
+- **A same-named type was reused without checking its size.** Introduced with
+  1.24.0's hardening, and worse than the bug it was fixing: `beams.sync`
+  reported `written=110`, `status=done`, and gave every 230 x 600 floor beam the
+  230 x 450 plinth section. A name is not a size. `duplicate` now takes an
+  `accept` callback and every caller compares the type's real width and depth
+  before reusing it. (BUG-36)
+- **Every message arrived with a question mark in the middle of it** — *"0 of 5
+  stair flight(s) written ? 5 did NOT happen"*. The result file is written as
+  ASCII on purpose, and `errors="replace"` turned the new em dashes and degree
+  signs into literal `?`. Transliterated in one place rather than policed per
+  message, with a test that reports any character transliteration does not know
+  about. (BUG-37)
+
+**Confirmed in Revit**
+
+- Findings now survive the next command — eighteen jobs of history, newest
+  first, in the workbook the owner pushed back. (BUG-32)
+- The shortfall is reported first: *"0 of 5 stair flight(s) written"* rather
+  than *"0 written"*, which is what made the stair failure visible. (BUG-33)
+- `naming.refresh` runs and is idempotent. (FEAT-41)
+
 ## 1.24.0
 
 **Fixed**
