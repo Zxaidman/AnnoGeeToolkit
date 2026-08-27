@@ -5,7 +5,7 @@ What this model contains, written out so it can be read, diffed and argued with 
 A `.rvt` is a compound binary that only Revit opens, so a template cannot be reviewed anywhere else. This is the model describing itself instead.
 
 - **File** — `D:\ZAID\Advance AI\rvt\R25_REBAR_AUTOMATION.rvt`
-- **Survey offset** — 0 mm. What the Survey Point reads where the Project Base Point reads zero.
+- **Survey offset** — 100000 mm. What the Survey Point reads where the Project Base Point reads zero.
 
 ## Datum
 
@@ -15,7 +15,7 @@ What `levels.sync` and `grids.sync` match against. A name here is what the workb
 
 | Name | Elevation (mm) |
 | --- | ---: |
-| `Level 0` | 0 |
+| `01 GROUND LVL.` | 0 |
 
 ## Categories
 
@@ -75,7 +75,7 @@ What the model is made of. **Types** is what a template carries; **instances** i
 | Internal Origin | 0 | 1 |
 | Keynote Tags | 3 | 0 |
 | Landings | 2 | 0 |
-| Legend Components | 0 | 126 |
+| Legend Components | 0 | 82 |
 | Level Heads | 4 | 0 |
 | Levels | 1 | 1 |
 | Location Data | 2 | 0 |
@@ -120,8 +120,7 @@ What the model is made of. **Types** is what a template carries; **instances** i
 | Roofs | 8 | 0 |
 | Room Tags | 3 | 0 |
 | Runs | 4 | 0 |
-| Schedule Graphics | 0 | 3 |
-| Schedules | 0 | 4 |
+| Schedules | 0 | 5 |
 | Section Boxes | 0 | 1 |
 | Section Marks | 5 | 0 |
 | Shared Site | 0 | 2 |
@@ -136,18 +135,18 @@ What the model is made of. **Types** is what a template carries; **instances** i
 | Stair Run Tags | 2 | 0 |
 | Stair Support Tags | 1 | 0 |
 | Stair Tags | 2 | 0 |
-| Stairs | 10 | 0 |
+| Stairs | 11 | 0 |
 | Structural Beam System Tags | 1 | 0 |
 | Structural Beam Systems | 1 | 0 |
 | Structural Column Tags | 1 | 0 |
-| Structural Columns | 97 | 0 |
-| Structural Foundations | 10 | 0 |
-| Structural Framing | 65 | 0 |
+| Structural Columns | 3 | 0 |
+| Structural Foundations | 5 | 0 |
+| Structural Framing | 5 | 0 |
 | Structural Framing Tags | 2 | 0 |
 | Structural Load Cases | 0 | 8 |
 | Structural Rebar | 24 | 0 |
 | Structural Rebar Bending Details | 2 | 0 |
-| Sun Path | 0 | 48 |
+| Sun Path | 0 | 44 |
 | Supports | 3 | 0 |
 | Survey Point | 0 | 1 |
 | System-Zones | 1 | 0 |
@@ -158,18 +157,18 @@ What the model is made of. **Types** is what a template carries; **instances** i
 | Toposolid Tags | 1 | 0 |
 | View Reference | 1 | 0 |
 | View Titles | 2 | 0 |
-| Views | 0 | 27 |
+| Views | 0 | 25 |
 | Voltages | 1 | 0 |
 | Wall Sweeps | 1 | 0 |
 | Wall Tags | 2 | 0 |
-| Walls | 59 | 0 |
+| Walls | 22 | 0 |
 | Window Tags | 1 | 0 |
 | Windows | 17 | 0 |
 | Wire Insulations | 26 | 0 |
 | Wire Materials | 4 | 0 |
 | Wire Temperature Ratings | 3 | 0 |
 | Wires | 1 | 0 |
-| Work Plane Grid | 0 | 10 |
+| Work Plane Grid | 0 | 8 |
 
 ## Families and types
 
@@ -1143,6 +1142,7 @@ Every family in the model and every type inside it. A **type mark** in bold is w
 
 - **Assembled Stair** _(system)_
   - `190mm max riser 250mm going`
+  - `CH-1200 X 150`
   - `Industrial and Assembly`
   - `Part M (Disabled)`
   - `Private`
@@ -1172,198 +1172,36 @@ Every family in the model and every type inside it. A **type mark** in bold is w
 
 ### Structural Columns
 
-- **COLUMN** _(loadable)_
-  - `200 X 2000`
-  - `200 X 2400`
-  - `200 X 2630`
-  - `230 X 2280`
-  - `230 X 2310`
-  - `230 X 2750`
-  - `230 X 2875`
-  - `230 X 5950`
-  - `300 X 1200`
-  - `300 X 1280`
-  - `300 X 1325`
-  - `300 X 1500`
-  - `300 X 1600`
-  - `300 X 1660`
-  - `300 X 1675`
-  - `300 X 1820`
-  - `300 X 1875`
-  - `300 X 1975`
-  - `300 X 2000`
-  - `300 X 2075`
-  - `300 X 2095`
-  - `300 X 2165`
-  - `300 X 2195`
-  - `300 X 2400`
-  - `300 X 2420`
-  - `300 X 2450`
-  - `300 X 2500`
-  - `300 X 2515`
-  - `300 X 2520`
-  - `300 X 2525`
-  - `300 X 2600`
-  - `300 X 2625`
-  - `300 X 2630`
-  - `300 X 300`
-  - `300 X 3040`
-  - `300 X 3930`
-  - `300 X 4350`
-  - `300 X 4475`
-  - `300 X 450`
-  - `300 X 600`
-  - `300 X 750`
-  - `300 X 800`
-  - `300 X 805`
-  - `300 x 2940`
-  - `350 X 3625`
-  - `400 X 1600`
-  - `450 X 1000`
-  - `450 X 1200`
-  - `450 X 1250`
-  - `450 X 1400`
-  - `450 X 1600`
-  - `450 X 2880`
-  - `450 X 2885`
-  - `450 X 500`
-  - `450 X 750`
-  - `450 X 800`
-  - `450 X 805`
-  - `450 X 900`
-  - `450 x 2940`
-  - `500 X 1160`
-  - `500 X 2005`
-  - `500 X 2515`
-  - `500 X 900`
-  - `600 X 1740`
-  - `600 X 1750`
-  - `600 X 1865`
-  - `600 X 2040`
-  - `600 X 2065`
-  - `600 X 2095`
-  - `600 X 2195`
-  - `600 X 2300`
-  - `600 X 2600`
-  - `600 X 2855`
-  - `600 X 2865`
-  - `600 X 2940`
-  - `600 X 4000`
-  - `600 X 4400`
-  - `600 X 600`
-  - `600 X 900`
-  - `600 X 955`
-  - `650 X 1350`
-  - `650 X 1450`
-  - `650 X 930`
-  - `830 X 1410`
-- **Concrete Rectangular** _(loadable)_
-  - `300 X 600` — b 300.000, h 600.000
-  - `300 X 900` — b 300.000, h 900.000
-  - `400 X 900` — b 400.000, h 900.000
-  - `C-300x450` — **C-300x450** — b 300.000, h 450.000
-  - `C-300x600` — **C-300x600** — b 300.000, h 600.000
-- **Concrete Round** _(loadable)_
-  - `300D` — b 300.000
-  - `600D` — b 600.000
-  - `750D` — b 750.000
-  - `900D` — b 900.000
-- **FLAIR COLUMN** _(loadable)_
-  - `300 X 1820/2420`
-  - `600 X 2300/2865`
-  - `650 X 930/1350`
-- **ROUND COLUMN** _(loadable)_
-  - `500 DIA`
+- **CH-Concrete-Flair-Column** _(loadable)_
+  - `CH-300 X 900/1200`
+- **CH-Concrete-Rectangular-Column** _(loadable)_
+  - `CH-300 X 600` — b 300.000, h 600.000
+- **CH-Concrete-Round-Column** _(loadable)_
+  - `CH-300` — b 300.000
 
 ### Structural Foundations
 
-- **Footing-Rectangular** _(loadable)_
-  - `1800 x 1200 x 450mm` — Width 1200.000, Length 1800.000
-  - `2400 x 1800 x 450mm` — Width 1800.000, Length 2400.000
+- **CH-Concrete-Rectangular-Footing** _(loadable)_
+  - `CH-1200 X 1800 X 600` — Width 1200.000, Length 1800.000
 - **Foundation Slab** _(system)_
-  - `F1` — Default Thickness 600.000
-  - `F2` — Default Thickness 500.000
-  - `F3` — Default Thickness 450.000
-  - `RCC FOOTING 1000mm thk` — Default Thickness 1000.000
-  - `RCC FOOTING 750mm thk` — Default Thickness 750.000
-  - `RCC FOOTING 900mm thk` — Default Thickness 900.000
+  - `CH-FOOTING-600` — Default Thickness 600.000
+  - `CH-SLAB-150` — Default Thickness 150.000
 - **Wall Foundation** _(system)_
-  - `Bearing Footing - 900 x 300` — Width 900.000
-  - `Retaining Footing - 600 x 300 x 300`
+  - `CH-BEARING-FOOTING-900 X 300` — Width 900.000
+  - `CH-RETAINING-FOOTING-600 X 300 X 300`
 
 ### Structural Framing
 
-- **CH_Beam_Rectangular** _(loadable)_
-  - `140 X 650`
-  - `1400 X 500`
-  - `145 X 650`
-  - `150 X 650`
-  - `150 X 750`
-  - `1500 X 1000`
-  - `1500 X 500`
-  - `1700 X 900`
-  - `1800 X 500`
-  - `200 X 400`
-  - `200 X 500`
-  - `200 X 600`
-  - `200 X 750`
-  - `200 X 900`
-  - `215 X 550`
-  - `220 X 750`
-  - `230 X 750`
-  - `270 X 750`
-  - `300 X 500`
-  - `300 X 600`
-  - `300 X 700`
-  - `300 X 750`
-  - `300 X 900`
-  - `3000 X 500`
-  - `325 X 500`
-  - `325 X 750`
-  - `325 X 900`
-  - `400 X 500`
-  - `400 X 750`
-  - `410 X 650`
-  - `410 X 655`
-  - `4220 X 500`
-  - `4225 X 500`
-  - `4230 X 500`
-  - `4235 X 500`
-  - `4315 X 500`
-  - `4350 X 500`
-  - `450 X 500`
-  - `450 X 600`
-  - `450 X 650`
-  - `450 X 750`
-  - `450 X 800`
-  - `450 X 900`
-  - `500 X 600`
-  - `500 X 750`
-  - `600 X 500`
-  - `600 X 600`
-  - `600 X 750`
-  - `700 X 600`
-  - `900 X 1000`
-  - `900 X 500`
-  - `900 X 900`
-- **CH_Step Beam from bottom** _(loadable)_
-  - `200 X 450/700`
-- **CH_Step Beam from top** _(loadable)_
-  - `200 X 550/600`
-  - `200 X 550/750`
-  - `300 X 550/750`
-  - `300 X 550/900`
-- **CH_Tapered Beam** _(loadable)_
-  - `240 X 400/600`
-  - `300 X 750/1000`
-- **CH_Tapered Beam from bottom** _(loadable)_
-  - `240 X 400/600`
-  - `300 X 750/1000`
-- **Concrete - Rectangular Beam** _(loadable)_
-  - `300 X 600` — b 300.000, h 600.000
-  - `300 X 900` — b 300.000, h 900.000
-  - `400 X 600` — b 400.000, h 600.000
-  - `400 X 900` — b 400.000, h 900.000
+- **CH-Concrete-Rectangular-Beam** _(loadable)_
+  - `CH-300 X 600` — b 300.000, h 600.000
+- **CH-Concrete-Step-Beam-Bottom** _(loadable)_
+  - `CH-200 X 450/700`
+- **CH-Concrete-Step-Beam-Top** _(loadable)_
+  - `CH-200 X 550/600`
+- **CH-Concrete-Tapered-Beam-Bottom** _(loadable)_
+  - `CH-300 X 750/1000`
+- **CH-Concrete-Tapered-Beam-Top** _(loadable)_
+  - `CH-300 X 750/1000`
 
 ### Structural Framing Tags
 
@@ -1383,9 +1221,9 @@ Every family in the model and every type inside it. A **type mark** in bold is w
   - `40T`
   - `8T`
 - **Rebar Hook** _(system)_
-  - `Stirrup/Tie - 135 deg.`
-  - `Stirrup/Tie - 180 deg.`
-  - `Stirrup/Tie - 90 deg.`
+  - `CH-Stirrup/Tie - 135 deg.`
+  - `CH-Stirrup/Tie - 180 deg.`
+  - `CH-Stirrup/Tie - 90 deg.`
 - **Rebar Shape** _(system)_
   - `00`
   - `11`
@@ -1485,62 +1323,25 @@ Every family in the model and every type inside it. A **type mark** in bold is w
 ### Walls
 
 - **Basic Wall** _(system)_
-  - `CH_100MM_PARDI WALL` — Width 100.000
-  - `CH_150MM_PARDI WALL` — Width 150.000
-  - `CH_200MM_PARDI WALL` — Width 200.000
-  - `CH_300MM_PARDI WALL` — Width 300.000
-  - `CH_350MM_PARDI WALL` — Width 350.000
-  - `CH_EXTRA CONCRETE COVER_100mm thk` — Width 100.000
-  - `CH_Extra Cover_100mm thk` — Width 100.000
-  - `CH_NSW_100mm thk` — Width 100.000
-  - `CH_NSW_160mm thk` — Width 160.000
-  - `CH_NSW_200mm thk` — Width 200.000
-  - `CH_NSW_230mm thk` — Width 230.000
-  - `CH_NSW_270mm thk` — Width 270.000
-  - `CH_RT_200mm thk` — Width 200.000
-  - `CH_RT_250mm thk` — Width 250.000
-  - `CH_RT_300mm thk` — Width 300.000
-  - `CH_RW_300mm thk` — Width 300.000
-  - `CH_SW_160mm thk` — Width 160.000
-  - `CH_SW_200mm thk` — Width 200.000
-  - `CH_SW_225mm thk` — Width 225.000
-  - `CH_SW_230mm thk` — Width 230.000
-  - `CH_SW_250mm thk` — Width 250.000
-  - `CH_SW_300mm thk` — Width 300.000
-  - `CH_SW_350mm thk` — Width 350.000
-  - `CH_SW_400mm thk` — Width 400.000
-  - `CH_SW_500mm thk` — Width 500.000
-  - `CH_SW_650mm thk` — Width 650.000
-  - `CH_SW_750mm thk` — Width 750.000
-  - `CH_SW_800mm thk` — Width 800.000
-  - `CH_TW_200mm thk` — Width 200.000
-  - `CH_TW_400mm thk` — Width 400.000
-  - `CH_TW_450mm thk` — Width 450.000
-  - `CH_TW_500mm thk` — Width 500.000
-  - `CH_Tank Wall_300mm thk` — Width 300.000
-  - `CW 102-50-100p` — Width 264.000
-  - `CW 102-50-140p` — Width 304.000
-  - `CW 102-50-215p` — Width 379.000
-  - `CW 102-85-100p` — Width 299.000
-  - `CW 102-85-140p` — Width 339.000
-  - `CW 102-85-215p` — Width 414.000
+  - `CH-NS-WALL-100` — Width 200.000
+  - `CH-NS-WALL-230` — Width 230.000
+  - `CH-PARDI-WALL-100` — Width 100.000
+  - `CH-PARDI-WALL-150` — Width 150.000
+  - `CH-RETAINING-WALL-200` — Width 200.000
+  - `CH-RETAINING-WALL-250` — Width 250.000
+  - `CH-RETAINING-WALL-300` — Width 300.000
+  - `CH-SHEAR-WALL-300` — Width 300.000
+  - `CH-SHEAR-WALL-350` — Width 350.000
+  - `CH-SHEAR-WALL-400` — Width 400.000
+  - `CH-SHEAR-WALL-500` — Width 500.000
+  - `CH-SHEAR-WALL-650` — Width 650.000
+  - `CH-SHEAR-WALL-750` — Width 750.000
+  - `CH-SHEAR-WALL-800` — Width 800.000
+  - `CH-TANK-WALL-200` — Width 200.000
+  - `CH-TANK-WALL-400` — Width 400.000
+  - `CH-TANK-WALL-500` — Width 500.000
   - `Exterior - Block on Mtl. Stud` — Width 460.000
   - `Exterior - Brick on Mtl. Stud` — Width 350.000
-  - `Exterior - Render on Brick on Block` — Width 429.000
-  - `Foundation - 300mm Concrete` — Width 300.000
-  - `Generic - 140mm Masonry` — Width 140.000
-  - `Generic - 200mm` — Width 200.000
-  - `Generic - 200mm - Filled` — Width 200.000
-  - `Generic - 225mm Masonry` — Width 225.000
-  - `Generic - 300mm` — Width 300.000
-  - `Generic - 90mm Brick` — Width 90.000
-  - `Interior - 135mm Partition (2-hr)` — Width 135.500
-  - `Interior - 138mm Partition (1-hr)` — Width 138.500
-  - `Interior - 79mm Partition (1-hr)` — Width 79.000
-  - `Interior - Blockwork 100` — Width 124.000
-  - `Interior - Blockwork 140` — Width 164.000
-  - `Interior - Blockwork 190` — Width 214.000
-  - `Retaining - 300mm Concrete` — Width 300.000
 - **Curtain Wall** _(system)_
   - `Curtain Wall`
   - `Exterior Glazing`
@@ -1635,6 +1436,7 @@ Scheduleable, taggable, and survives a family reload. **This is what a workbook 
 | Name | Type | Per | Categories |
 | --- | --- | --- | --- |
 | `ID` | spec.string | instance | <Path of Travel Lines>, Abutment Foundations, Abutment Piles, Abutment Walls, Abutments, Air Systems, Air Terminals, Alignments, Analytical Links, Analytical Members, Analytical Nodes, Analytical Openings, Analytical Panels, Analytical Pipe Connections, Analytical Spaces, Analytical Surfaces, Anchors, Approach Slabs, Arches, Area Loads, Areas, Assemblies, Audio Visual Devices, Bearings, Bolts, Bridge Cables, Bridge Decks, Bridge Framing, Building Type Settings, Cable Tray Fittings, Cable Tray Runs, Cable Trays, Casework, Ceilings, Columns, Communication Devices, Conduit Fittings, Conduit Runs, Conduits, Cross Bracing, Curtain Panels, Curtain Systems, Curtain Wall Mullions, Data Devices, Data Exchanges, Detail Items, Diaphragms, Doors, Duct Accessories, Duct Fittings, Duct Insulations, Duct Linings, Duct Placeholders, Duct Systems, Ducts, Electrical Analytical Bus, Electrical Analytical Load Set, Electrical Analytical Loads, Electrical Analytical Power Source, Electrical Analytical Transfer Switch, Electrical Analytical Transformer, Electrical Circuits, Electrical Equipment, Electrical Fixtures, Electrical Load Areas, Entourage, Expansion Joints, Fabric Wire, Fascias, Fire Alarm Devices, Fire Protection, Flex Ducts, Flex Pipes, Floors, Food Service Equipment, Furniture, Furniture Systems, Generic Models, Grids, Gutters, HVAC Zones, Handrails, Hardscape, Holes, Insulation, Insulation, Internal Area Loads, Internal Line Loads, Internal Point Loads, Landings, Levels, Lighting Devices, Lighting Fixtures, Line Loads, Lining, MEP Ancillary Framing, MEP Fabrication Containment, MEP Fabrication Ductwork, MEP Fabrication Ductwork Stiffeners, MEP Fabrication Hangers, MEP Fabrication Pipework, Mass, Mass Exterior Wall, Mass Floor, Mass Glazing, Mass Interior Wall, Mass Opening, Mass Roof, Mass Skylight, Mass Zone, Materials, Mechanical Control Devices, Mechanical Equipment, Mechanical Equipment Sets, Medical Equipment, Model Groups, Modifiers, Multi-segmented Grid, Nurse Call Devices, Others, Pads, Parking, Parts, Pier Caps, Pier Columns, Pier Foundations, Pier Piles, Pier Towers, Pier Walls, Piers, Pipe Accessories, Pipe Fittings, Pipe Insulations, Pipe Placeholders, Pipes, Piping Systems, Planting, Plates, Plumbing Equipment, Plumbing Fixtures, Point Loads, Primarys, Profiles, Project Information, Property Line Segments, Property Lines, RVT Links, Railings, Ramps, Rebar Shape, Revision Clouds, Roads, Roof Soffits, Roofs, Rooms, Runs, Schedules, Security Devices, Shaft Openings, Shear Studs, Sheets, Signage, Site, Slab Edges, Space Type Settings, Spaces, Specialty Equipment, Sprinklers, Stairs, Structural Area Reinforcement, Structural Beam Systems, Structural Columns, Structural Connections, Structural Fabric Areas, Structural Fabric Reinforcement, Structural Foundations, Structural Framing, Structural Path Reinforcement, Structural Rebar, Structural Rebar Couplers, Structural Stiffeners, Structural Tendons, Structural Trusses, Supports, Supports, Switch System, System-Zones, Telephone Devices, Temporary Structures, Terminations, Top Rails, Topography, Topography Links, Toposolid, Toposolid Links, Trusses, Vertical Circulation, Vibration Dampers, Vibration Isolators, Vibration Management, Views, Wall Sweeps, Walls, Water Loops, Welds, Windows, Wires, Zone Equipment |
+| `S_ScheduleMark` | spec.string | instance | Analytical Spaces, Analytical Surfaces, Areas, Assemblies, Audio Visual Devices, Casework, Ceilings, Columns, Curtain Panels, Curtain Systems, Curtain Wall Mullions, Data Exchanges, Detail Items, Doors, Electrical Equipment, Electrical Fixtures, Entourage, Fire Protection, Floors, Food Service Equipment, Furniture, Furniture Systems, Generic Models, Grids, Hardscape, Levels, Lighting Fixtures, Mass, Materials, Mechanical Control Devices, Mechanical Equipment, Medical Equipment, Model Groups, Parking, Parts, Planting, Plumbing Equipment, Plumbing Fixtures, Project Information, RVT Links, Railings, Ramps, Revision Clouds, Roads, Roofs, Rooms, Schedules, Shaft Openings, Sheets, Signage, Site, Specialty Equipment, Stairs, Structural Beam Systems, Structural Columns, Structural Connections, Structural Foundations, Structural Framing, Structural Rebar, Structural Rebar Couplers, Structural Stiffeners, Temporary Structures, Topography, Toposolid, Vertical Circulation, Views, Walls, Windows |
 
 ### Project
 
@@ -2132,7 +1934,177 @@ Belongs to the family and cannot be reached from outside it.
 
 </details>
 
-<details><summary><strong>CH_Beam_Rectangular</strong> — 28 parameters, 16 writable</summary>
+<details><summary><strong>CH-Concrete-Flair-Column</strong> — 28 parameters, 16 writable</summary>
+
+| Name | Type | Shared | Writable |
+| --- | --- | --- | --- |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Keynote` | spec.string | no | yes |
+| `L` | length | yes | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Section Name Key` | spec.string | no | no |
+| `Section Shape` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
+| `W` | length | yes | yes |
+| `W1` | length | yes | yes |
+
+</details>
+
+<details><summary><strong>CH-Concrete-Rectangular-Beam</strong> — 28 parameters, 16 writable</summary>
+
+| Name | Type | Shared | Writable |
+| --- | --- | --- | --- |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `b` | length | yes | yes |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Fire Rating` | spec.string | no | yes |
+| `h` | length | yes | yes |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Section Name Key` | spec.string | no | no |
+| `Section Shape` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
+
+</details>
+
+<details><summary><strong>CH-Concrete-Rectangular-Column</strong> — 27 parameters, 15 writable</summary>
+
+| Name | Type | Shared | Writable |
+| --- | --- | --- | --- |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `b` | length | yes | yes |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `h` | length | yes | yes |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Section Name Key` | spec.string | no | no |
+| `Section Shape` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
+
+</details>
+
+<details><summary><strong>CH-Concrete-Rectangular-Footing</strong> — 26 parameters, 16 writable</summary>
+
+| Name | Type | Shared | Writable |
+| --- | --- | --- | --- |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Foundation Thickness` | length | no | yes |
+| `Keynote` | spec.string | no | yes |
+| `Length` | length | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
+| `Width` | length | no | yes |
+
+</details>
+
+<details><summary><strong>CH-Concrete-Round-Column</strong> — 26 parameters, 14 writable</summary>
+
+| Name | Type | Shared | Writable |
+| --- | --- | --- | --- |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `b` | length | yes | yes |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Section Name Key` | spec.string | no | no |
+| `Section Shape` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
+
+</details>
+
+<details><summary><strong>CH-Concrete-Step-Beam-Bottom</strong> — 29 parameters, 17 writable</summary>
 
 | Name | Type | Shared | Writable |
 | --- | --- | --- | --- |
@@ -2149,6 +2121,115 @@ Belongs to the family and cannot be reached from outside it.
 | `Family Name` | spec.string | no | no |
 | `Fire Rating` | spec.string | no | yes |
 | `H` | length | yes | yes |
+| `H1` | length | yes | yes |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Section Name Key` | spec.string | no | no |
+| `Section Shape` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
+| `W` | length | yes | yes |
+
+</details>
+
+<details><summary><strong>CH-Concrete-Step-Beam-Top</strong> — 29 parameters, 17 writable</summary>
+
+| Name | Type | Shared | Writable |
+| --- | --- | --- | --- |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Fire Rating` | spec.string | no | yes |
+| `H` | length | yes | yes |
+| `H1` | length | yes | yes |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Section Name Key` | spec.string | no | no |
+| `Section Shape` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
+| `W` | length | yes | yes |
+
+</details>
+
+<details><summary><strong>CH-Concrete-Tapered-Beam-Bottom</strong> — 29 parameters, 17 writable</summary>
+
+| Name | Type | Shared | Writable |
+| --- | --- | --- | --- |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Fire Rating` | spec.string | no | yes |
+| `H` | length | yes | yes |
+| `H1` | length | yes | yes |
+| `Keynote` | spec.string | no | yes |
+| `Manufacturer` | spec.string | no | yes |
+| `Model` | spec.string | no | yes |
+| `OmniClass Number` | spec.string | no | no |
+| `OmniClass Title` | spec.string | no | no |
+| `Section Name Key` | spec.string | no | no |
+| `Section Shape` | spec.string | no | no |
+| `Type Comments` | spec.string | no | yes |
+| `Type IFC Predefined Type` | spec.string | no | yes |
+| `Type IfcGUID` | spec.string | no | yes |
+| `Type Image` | image | no | no |
+| `Type Mark` | spec.string | no | yes |
+| `Type Name` | spec.string | no | no |
+| `URL` | url | no | yes |
+| `W` | length | yes | yes |
+
+</details>
+
+<details><summary><strong>CH-Concrete-Tapered-Beam-Top</strong> — 29 parameters, 17 writable</summary>
+
+| Name | Type | Shared | Writable |
+| --- | --- | --- | --- |
+| `Assembly Code` | spec.string | no | yes |
+| `Assembly Description` | spec.string | no | no |
+| `Category` | — | no | no |
+| `Category` | — | no | no |
+| `Code Name` | spec.string | no | no |
+| `Cost` | currency | no | yes |
+| `Description` | spec.string | no | yes |
+| `Design Option` | — | no | no |
+| `Export Type to IFC` | — | no | yes |
+| `Export Type to IFC As` | spec.string | no | yes |
+| `Family Name` | spec.string | no | no |
+| `Fire Rating` | spec.string | no | yes |
+| `H` | length | yes | yes |
+| `H1` | length | yes | yes |
 | `Keynote` | spec.string | no | yes |
 | `Manufacturer` | spec.string | no | yes |
 | `Model` | spec.string | no | yes |
@@ -2182,184 +2263,6 @@ Belongs to the family and cannot be reached from outside it.
 
 </details>
 
-<details><summary><strong>CH_Step Beam from bottom</strong> — 29 parameters, 17 writable</summary>
-
-| Name | Type | Shared | Writable |
-| --- | --- | --- | --- |
-| `Assembly Code` | spec.string | no | yes |
-| `Assembly Description` | spec.string | no | no |
-| `Category` | — | no | no |
-| `Category` | — | no | no |
-| `Code Name` | spec.string | no | no |
-| `Cost` | currency | no | yes |
-| `Description` | spec.string | no | yes |
-| `Design Option` | — | no | no |
-| `Export Type to IFC` | — | no | yes |
-| `Export Type to IFC As` | spec.string | no | yes |
-| `Family Name` | spec.string | no | no |
-| `Fire Rating` | spec.string | no | yes |
-| `H` | length | yes | yes |
-| `H1` | length | yes | yes |
-| `Keynote` | spec.string | no | yes |
-| `Manufacturer` | spec.string | no | yes |
-| `Model` | spec.string | no | yes |
-| `OmniClass Number` | spec.string | no | no |
-| `OmniClass Title` | spec.string | no | no |
-| `Section Name Key` | spec.string | no | no |
-| `Section Shape` | spec.string | no | no |
-| `Type Comments` | spec.string | no | yes |
-| `Type IFC Predefined Type` | spec.string | no | yes |
-| `Type IfcGUID` | spec.string | no | yes |
-| `Type Image` | image | no | no |
-| `Type Mark` | spec.string | no | yes |
-| `Type Name` | spec.string | no | no |
-| `URL` | url | no | yes |
-| `W` | length | yes | yes |
-
-</details>
-
-<details><summary><strong>CH_Step Beam from top</strong> — 29 parameters, 17 writable</summary>
-
-| Name | Type | Shared | Writable |
-| --- | --- | --- | --- |
-| `Assembly Code` | spec.string | no | yes |
-| `Assembly Description` | spec.string | no | no |
-| `Category` | — | no | no |
-| `Category` | — | no | no |
-| `Code Name` | spec.string | no | no |
-| `Cost` | currency | no | yes |
-| `Description` | spec.string | no | yes |
-| `Design Option` | — | no | no |
-| `Export Type to IFC` | — | no | yes |
-| `Export Type to IFC As` | spec.string | no | yes |
-| `Family Name` | spec.string | no | no |
-| `Fire Rating` | spec.string | no | yes |
-| `H` | length | yes | yes |
-| `H1` | length | yes | yes |
-| `Keynote` | spec.string | no | yes |
-| `Manufacturer` | spec.string | no | yes |
-| `Model` | spec.string | no | yes |
-| `OmniClass Number` | spec.string | no | no |
-| `OmniClass Title` | spec.string | no | no |
-| `Section Name Key` | spec.string | no | no |
-| `Section Shape` | spec.string | no | no |
-| `Type Comments` | spec.string | no | yes |
-| `Type IFC Predefined Type` | spec.string | no | yes |
-| `Type IfcGUID` | spec.string | no | yes |
-| `Type Image` | image | no | no |
-| `Type Mark` | spec.string | no | yes |
-| `Type Name` | spec.string | no | no |
-| `URL` | url | no | yes |
-| `W` | length | yes | yes |
-
-</details>
-
-<details><summary><strong>CH_Tapered Beam</strong> — 29 parameters, 17 writable</summary>
-
-| Name | Type | Shared | Writable |
-| --- | --- | --- | --- |
-| `Assembly Code` | spec.string | no | yes |
-| `Assembly Description` | spec.string | no | no |
-| `Category` | — | no | no |
-| `Category` | — | no | no |
-| `Code Name` | spec.string | no | no |
-| `Cost` | currency | no | yes |
-| `Description` | spec.string | no | yes |
-| `Design Option` | — | no | no |
-| `Export Type to IFC` | — | no | yes |
-| `Export Type to IFC As` | spec.string | no | yes |
-| `Family Name` | spec.string | no | no |
-| `Fire Rating` | spec.string | no | yes |
-| `H` | length | yes | yes |
-| `H1` | length | yes | yes |
-| `Keynote` | spec.string | no | yes |
-| `Manufacturer` | spec.string | no | yes |
-| `Model` | spec.string | no | yes |
-| `OmniClass Number` | spec.string | no | no |
-| `OmniClass Title` | spec.string | no | no |
-| `Section Name Key` | spec.string | no | no |
-| `Section Shape` | spec.string | no | no |
-| `Type Comments` | spec.string | no | yes |
-| `Type IFC Predefined Type` | spec.string | no | yes |
-| `Type IfcGUID` | spec.string | no | yes |
-| `Type Image` | image | no | no |
-| `Type Mark` | spec.string | no | yes |
-| `Type Name` | spec.string | no | no |
-| `URL` | url | no | yes |
-| `W` | length | yes | yes |
-
-</details>
-
-<details><summary><strong>CH_Tapered Beam from bottom</strong> — 29 parameters, 17 writable</summary>
-
-| Name | Type | Shared | Writable |
-| --- | --- | --- | --- |
-| `Assembly Code` | spec.string | no | yes |
-| `Assembly Description` | spec.string | no | no |
-| `Category` | — | no | no |
-| `Category` | — | no | no |
-| `Code Name` | spec.string | no | no |
-| `Cost` | currency | no | yes |
-| `Description` | spec.string | no | yes |
-| `Design Option` | — | no | no |
-| `Export Type to IFC` | — | no | yes |
-| `Export Type to IFC As` | spec.string | no | yes |
-| `Family Name` | spec.string | no | no |
-| `Fire Rating` | spec.string | no | yes |
-| `H` | length | yes | yes |
-| `H1` | length | yes | yes |
-| `Keynote` | spec.string | no | yes |
-| `Manufacturer` | spec.string | no | yes |
-| `Model` | spec.string | no | yes |
-| `OmniClass Number` | spec.string | no | no |
-| `OmniClass Title` | spec.string | no | no |
-| `Section Name Key` | spec.string | no | no |
-| `Section Shape` | spec.string | no | no |
-| `Type Comments` | spec.string | no | yes |
-| `Type IFC Predefined Type` | spec.string | no | yes |
-| `Type IfcGUID` | spec.string | no | yes |
-| `Type Image` | image | no | no |
-| `Type Mark` | spec.string | no | yes |
-| `Type Name` | spec.string | no | no |
-| `URL` | url | no | yes |
-| `W` | length | yes | yes |
-
-</details>
-
-<details><summary><strong>COLUMN</strong> — 27 parameters, 15 writable</summary>
-
-| Name | Type | Shared | Writable |
-| --- | --- | --- | --- |
-| `Assembly Code` | spec.string | no | yes |
-| `Assembly Description` | spec.string | no | no |
-| `Category` | — | no | no |
-| `Category` | — | no | no |
-| `Code Name` | spec.string | no | no |
-| `Cost` | currency | no | yes |
-| `Description` | spec.string | no | yes |
-| `Design Option` | — | no | no |
-| `Export Type to IFC` | — | no | yes |
-| `Export Type to IFC As` | spec.string | no | yes |
-| `Family Name` | spec.string | no | no |
-| `Keynote` | spec.string | no | yes |
-| `L` | length | yes | yes |
-| `Manufacturer` | spec.string | no | yes |
-| `Model` | spec.string | no | yes |
-| `OmniClass Number` | spec.string | no | no |
-| `OmniClass Title` | spec.string | no | no |
-| `Section Name Key` | spec.string | no | no |
-| `Section Shape` | spec.string | no | no |
-| `Type Comments` | spec.string | no | yes |
-| `Type IFC Predefined Type` | spec.string | no | yes |
-| `Type IfcGUID` | spec.string | no | yes |
-| `Type Image` | image | no | no |
-| `Type Mark` | spec.string | no | yes |
-| `Type Name` | spec.string | no | no |
-| `URL` | url | no | yes |
-| `W` | length | yes | yes |
-
-</details>
-
 <details><summary><strong>Circular Mullion</strong> — 30 parameters, 18 writable</summary>
 
 | Name | Type | Shared | Writable |
@@ -2387,108 +2290,6 @@ Belongs to the family and cannot be reached from outside it.
 | `Position` | — | no | yes |
 | `Profile` | — | no | yes |
 | `Radius` | length | no | yes |
-| `Type Comments` | spec.string | no | yes |
-| `Type IFC Predefined Type` | spec.string | no | yes |
-| `Type IfcGUID` | spec.string | no | yes |
-| `Type Image` | image | no | no |
-| `Type Mark` | spec.string | no | yes |
-| `Type Name` | spec.string | no | no |
-| `URL` | url | no | yes |
-
-</details>
-
-<details><summary><strong>Concrete - Rectangular Beam</strong> — 28 parameters, 16 writable</summary>
-
-| Name | Type | Shared | Writable |
-| --- | --- | --- | --- |
-| `Assembly Code` | spec.string | no | yes |
-| `Assembly Description` | spec.string | no | no |
-| `b` | length | yes | yes |
-| `Category` | — | no | no |
-| `Category` | — | no | no |
-| `Code Name` | spec.string | no | no |
-| `Cost` | currency | no | yes |
-| `Description` | spec.string | no | yes |
-| `Design Option` | — | no | no |
-| `Export Type to IFC` | — | no | yes |
-| `Export Type to IFC As` | spec.string | no | yes |
-| `Family Name` | spec.string | no | no |
-| `Fire Rating` | spec.string | no | yes |
-| `h` | length | yes | yes |
-| `Keynote` | spec.string | no | yes |
-| `Manufacturer` | spec.string | no | yes |
-| `Model` | spec.string | no | yes |
-| `OmniClass Number` | spec.string | no | no |
-| `OmniClass Title` | spec.string | no | no |
-| `Section Name Key` | spec.string | no | no |
-| `Section Shape` | spec.string | no | no |
-| `Type Comments` | spec.string | no | yes |
-| `Type IFC Predefined Type` | spec.string | no | yes |
-| `Type IfcGUID` | spec.string | no | yes |
-| `Type Image` | image | no | no |
-| `Type Mark` | spec.string | no | yes |
-| `Type Name` | spec.string | no | no |
-| `URL` | url | no | yes |
-
-</details>
-
-<details><summary><strong>Concrete Rectangular</strong> — 27 parameters, 15 writable</summary>
-
-| Name | Type | Shared | Writable |
-| --- | --- | --- | --- |
-| `Assembly Code` | spec.string | no | yes |
-| `Assembly Description` | spec.string | no | no |
-| `b` | length | yes | yes |
-| `Category` | — | no | no |
-| `Category` | — | no | no |
-| `Code Name` | spec.string | no | no |
-| `Cost` | currency | no | yes |
-| `Description` | spec.string | no | yes |
-| `Design Option` | — | no | no |
-| `Export Type to IFC` | — | no | yes |
-| `Export Type to IFC As` | spec.string | no | yes |
-| `Family Name` | spec.string | no | no |
-| `h` | length | yes | yes |
-| `Keynote` | spec.string | no | yes |
-| `Manufacturer` | spec.string | no | yes |
-| `Model` | spec.string | no | yes |
-| `OmniClass Number` | spec.string | no | no |
-| `OmniClass Title` | spec.string | no | no |
-| `Section Name Key` | spec.string | no | no |
-| `Section Shape` | spec.string | no | no |
-| `Type Comments` | spec.string | no | yes |
-| `Type IFC Predefined Type` | spec.string | no | yes |
-| `Type IfcGUID` | spec.string | no | yes |
-| `Type Image` | image | no | no |
-| `Type Mark` | spec.string | no | yes |
-| `Type Name` | spec.string | no | no |
-| `URL` | url | no | yes |
-
-</details>
-
-<details><summary><strong>Concrete Round</strong> — 26 parameters, 14 writable</summary>
-
-| Name | Type | Shared | Writable |
-| --- | --- | --- | --- |
-| `Assembly Code` | spec.string | no | yes |
-| `Assembly Description` | spec.string | no | no |
-| `b` | length | yes | yes |
-| `Category` | — | no | no |
-| `Category` | — | no | no |
-| `Code Name` | spec.string | no | no |
-| `Cost` | currency | no | yes |
-| `Description` | spec.string | no | yes |
-| `Design Option` | — | no | no |
-| `Export Type to IFC` | — | no | yes |
-| `Export Type to IFC As` | spec.string | no | yes |
-| `Family Name` | spec.string | no | no |
-| `Keynote` | spec.string | no | yes |
-| `Manufacturer` | spec.string | no | yes |
-| `Model` | spec.string | no | yes |
-| `OmniClass Number` | spec.string | no | no |
-| `OmniClass Title` | spec.string | no | no |
-| `Section Name Key` | spec.string | no | no |
-| `Section Shape` | spec.string | no | no |
 | `Type Comments` | spec.string | no | yes |
 | `Type IFC Predefined Type` | spec.string | no | yes |
 | `Type IfcGUID` | spec.string | no | yes |
@@ -2537,74 +2338,6 @@ Belongs to the family and cannot be reached from outside it.
 | `Type Name` | spec.string | no | no |
 | `URL` | url | no | yes |
 | `Visual Light Transmittance` | number | no | no |
-
-</details>
-
-<details><summary><strong>FLAIR COLUMN</strong> — 28 parameters, 16 writable</summary>
-
-| Name | Type | Shared | Writable |
-| --- | --- | --- | --- |
-| `Assembly Code` | spec.string | no | yes |
-| `Assembly Description` | spec.string | no | no |
-| `Category` | — | no | no |
-| `Category` | — | no | no |
-| `Code Name` | spec.string | no | no |
-| `Cost` | currency | no | yes |
-| `Description` | spec.string | no | yes |
-| `Design Option` | — | no | no |
-| `Export Type to IFC` | — | no | yes |
-| `Export Type to IFC As` | spec.string | no | yes |
-| `Family Name` | spec.string | no | no |
-| `Keynote` | spec.string | no | yes |
-| `L` | length | yes | yes |
-| `Manufacturer` | spec.string | no | yes |
-| `Model` | spec.string | no | yes |
-| `OmniClass Number` | spec.string | no | no |
-| `OmniClass Title` | spec.string | no | no |
-| `Section Name Key` | spec.string | no | no |
-| `Section Shape` | spec.string | no | no |
-| `Type Comments` | spec.string | no | yes |
-| `Type IFC Predefined Type` | spec.string | no | yes |
-| `Type IfcGUID` | spec.string | no | yes |
-| `Type Image` | image | no | no |
-| `Type Mark` | spec.string | no | yes |
-| `Type Name` | spec.string | no | no |
-| `URL` | url | no | yes |
-| `W` | length | yes | yes |
-| `W1` | length | yes | yes |
-
-</details>
-
-<details><summary><strong>Footing-Rectangular</strong> — 26 parameters, 16 writable</summary>
-
-| Name | Type | Shared | Writable |
-| --- | --- | --- | --- |
-| `Assembly Code` | spec.string | no | yes |
-| `Assembly Description` | spec.string | no | no |
-| `Category` | — | no | no |
-| `Category` | — | no | no |
-| `Code Name` | spec.string | no | no |
-| `Cost` | currency | no | yes |
-| `Description` | spec.string | no | yes |
-| `Design Option` | — | no | no |
-| `Export Type to IFC` | — | no | yes |
-| `Export Type to IFC As` | spec.string | no | yes |
-| `Family Name` | spec.string | no | no |
-| `Foundation Thickness` | length | no | yes |
-| `Keynote` | spec.string | no | yes |
-| `Length` | length | no | yes |
-| `Manufacturer` | spec.string | no | yes |
-| `Model` | spec.string | no | yes |
-| `OmniClass Number` | spec.string | no | no |
-| `OmniClass Title` | spec.string | no | no |
-| `Type Comments` | spec.string | no | yes |
-| `Type IFC Predefined Type` | spec.string | no | yes |
-| `Type IfcGUID` | spec.string | no | yes |
-| `Type Image` | image | no | no |
-| `Type Mark` | spec.string | no | yes |
-| `Type Name` | spec.string | no | no |
-| `URL` | url | no | yes |
-| `Width` | length | no | yes |
 
 </details>
 
@@ -4422,39 +4155,6 @@ Belongs to the family and cannot be reached from outside it.
 | `Offset` | length | no | yes |
 | `OmniClass Number` | spec.string | no | no |
 | `OmniClass Title` | spec.string | no | no |
-| `Type Comments` | spec.string | no | yes |
-| `Type IFC Predefined Type` | spec.string | no | yes |
-| `Type IfcGUID` | spec.string | no | yes |
-| `Type Image` | image | no | no |
-| `Type Mark` | spec.string | no | yes |
-| `Type Name` | spec.string | no | no |
-| `URL` | url | no | yes |
-
-</details>
-
-<details><summary><strong>ROUND COLUMN</strong> — 26 parameters, 14 writable</summary>
-
-| Name | Type | Shared | Writable |
-| --- | --- | --- | --- |
-| `Assembly Code` | spec.string | no | yes |
-| `Assembly Description` | spec.string | no | no |
-| `Category` | — | no | no |
-| `Category` | — | no | no |
-| `Code Name` | spec.string | no | no |
-| `Cost` | currency | no | yes |
-| `Description` | spec.string | no | yes |
-| `Design Option` | — | no | no |
-| `Export Type to IFC` | — | no | yes |
-| `Export Type to IFC As` | spec.string | no | yes |
-| `Family Name` | spec.string | no | no |
-| `Keynote` | spec.string | no | yes |
-| `L` | length | yes | yes |
-| `Manufacturer` | spec.string | no | yes |
-| `Model` | spec.string | no | yes |
-| `OmniClass Number` | spec.string | no | no |
-| `OmniClass Title` | spec.string | no | no |
-| `Section Name Key` | spec.string | no | no |
-| `Section Shape` | spec.string | no | no |
 | `Type Comments` | spec.string | no | yes |
 | `Type IFC Predefined Type` | spec.string | no | yes |
 | `Type IfcGUID` | spec.string | no | yes |
