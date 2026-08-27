@@ -137,6 +137,86 @@ are held to the same three names by a test, because that is exactly the contract
 
 ## 2. Errors and bugs
 
+### BUG-39 — a reused type was resized, and the plinth beams went with it · `testing`
+
+**How it was found.** The project owner, after a run: *"it was using the PB-230 X 450 without
+duplicating the beam type and adding 600 to h, which also invalided the PB beam"*.
+
+**Cause.** `ensure_symbol` sized whatever `typemaker.duplicate` handed back, whether it had been
+created or merely found. Under `BUG-31`'s shadowing the found type was `PB-230x450`, so the run set
+its depth to 600 — **editing a type twenty-two plinth beams were already using.** Every one of them
+became 600 deep, and the run reported `written=110  status=done`.
+
+**Fix.** `duplicate` returns `(symbol, made, note)` and **only what was made is sized**. Reused is
+returned untouched, and the note says *nothing was changed on it*.
+
+### BUG-40 — every category but columns ignored the naming convention · `testing`
+
+**How it was found.** The owner, same message: *"only Column is using naming convention right, else
+Footing is naming F3, beam is using PB-230 X 450 and Slab is using SL-150 instead on workbook
+convention"*.
+
+**Cause.** The house name was only ever used **to name a type being created**. The search still went
+looking for the workbook's `TypeMark`, and for a name-contains, and for a matching pair of
+dimensions — so any type the template already had was adopted under the template's own name and the
+NAMING sheet never took effect. Footings and slabs were worse: they were never passed the patterns
+at all.
+
+**Fix.** `typemaker.choose` — **the house name is the identity**. A beam is `CH-230 X 600`, not
+whatever the model happens to call a 230 x 600 section. The old passes remain only as a fallback for
+when there is no house name to render, and each is reported when used. The owner's reason is the
+deciding one: *"our Revit template is premature"*, so the workbook is the authority on names and the
+template is not.
+
+### BUG-41 — the schedule mark was the sheet's row label, not the convention · `testing`
+
+**How it was found.** The owner: *"mark S-ScheduleMark shoud hold the PB1,2 or B1,2 etc via naming
+convetions"*.
+
+**Cause.** `column_mark`, `beam_mark` and `footing_mark` were read by no command — recorded in
+`BUG-34` and not acted on. `S_ScheduleMark` got `row.mark`, the per-row label a *person* uses to
+find the row again (`B01-1-1`), which is not what a schedule groups by.
+
+**Fix.** The three patterns are wired. `{prefix}` is new and is what makes one pattern serve both
+series: it is the letters the workbook's own `TypeMark` starts with, so `PB-230x450` gives `PB1` and
+`B-230x600` gives `B1` without the distinction being typed twice. `{n}` counts distinct TypeMarks
+**within a prefix**, in sheet order.
+
+**And a trap that came with it.** `B{n}` — which is what the sheet said — counts within a prefix but
+does not print it, so both beams would have come out `B1`: two sections on one schedule line, which
+is a bill of quantities quietly wrong rather than obviously wrong. Two answers: those three legacy
+patterns are migrated once to `{prefix}{n}` by the builder, and **any** collision is reported every
+run, whatever the pattern.
+
+### BUG-42 — the stair API was wrong in three places at once · `testing`
+
+**How it was found.** The owner's run, five identical errors:
+
+> `cannot import name 'StairsEditScope' from 'Autodesk.Revit.DB.Architecture'`
+
+and, above them, `created stair type 'CH-1200 X 150' … but could not set Monolithic, Waist, Tread,
+Riser on it` — four for four.
+
+**Cause.** Three, and each is its own lesson:
+
+1. **`StairsEditScope` is in `Autodesk.Revit.DB`**, not `.Architecture`, while `StairsRun` and
+   `StairsType` *are* in `.Architecture`. There is no rule that gets you from one to the other.
+2. **The type members are CLR properties, not parameters.** `LookupParameter("MaxRiserHeight")`
+   returns `None` — the parameter a user sees is *Maximum Riser Height*. All four writes were
+   `LookupParameter`, so all four failed and none of them raised.
+3. **The waist is on `StairsRunType`, not `StairsType`**, and reads back as `0.0` unless the run is
+   monolithic — so it has to be set *after* the construction method, or it writes to nothing.
+
+**Fix.** All three, from the reference rather than from memory, plus
+`StairsConstructionMethod`'s member names **read at runtime** because they could not be confirmed —
+guessing a name is what caused this in the first place.
+
+**And the real fix.** [`REVIT_API_RESEARCH.md`](REVIT_API_RESEARCH.md) is now a general reference
+rather than a rebar note, with §0 carrying the five rules that have each cost a round. The owner
+asked for *"each and every Revit API"*; that is not a document anybody can write or check, so what
+is there instead is **coverage by contact** — a member earns a place when this repository calls it —
+and a stated method for settling the next one before it is written.
+
 ### BUG-38 — option B's steps could never be built · `superseded`
 
 **How it was found.** The owner's stair run: five `Error` findings, one per flight, all reading

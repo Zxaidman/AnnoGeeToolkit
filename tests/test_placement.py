@@ -991,17 +991,31 @@ class NamingSheetTests(unittest.TestCase):
         for key in ("column_mark", "beam_mark", "footing_mark"):
             self.assertEqual(naming.PATTERNS[key][0], naming.MARK_FIELDS, key)
 
-    def test_a_pattern_nothing_reads_yet_says_so(self):
-        """A preference that quietly does nothing is worse than one refused.
-        The three ``*_mark`` keys are read by no command — a placement sheet
-        carries its own Mark column — so a pattern typed against one is kept
-        and reported rather than appearing to take effect."""
+    def test_every_pattern_is_read_by_something_now(self):
+        """The three ``*_mark`` keys were read by no command for two releases —
+        a placement sheet carried its own Mark column and that went into
+        ``S_ScheduleMark``. The owner asked for the schedule mark to be
+        generated instead, so all eight are wired and none is reported as
+        decoration."""
         naming = self.naming()
+        for key in naming.PATTERNS:
+            self.assertIn(key, naming.WIRED, key)
         _patterns, issues = naming.parse(
             [["Element", "Pattern"], ["beam_mark", "BM-{n}"]])
-        self.assertEqual(len(issues), 1)
-        self.assertEqual(issues[0].severity, "Info")
-        self.assertIn("nothing reads it yet", issues[0].message)
+        self.assertEqual(issues, [])
+
+    def test_a_mark_pattern_takes_the_prefix_from_the_type(self):
+        """``{prefix}`` is the letters the workbook's own TypeMark starts with,
+        so a plinth beam schedules as ``PB1`` and a floor beam as ``B1``
+        without the distinction being typed a second time."""
+        naming = self.naming()
+        self.assertIn("prefix", naming.MARK_FIELDS)
+        self.assertEqual(
+            naming.render(naming.defaults(), "beam_mark", prefix="PB", n=1,
+                          level="", grid=""), "PB1")
+        self.assertEqual(
+            naming.render(naming.defaults(), "beam_mark", prefix="B", n=2,
+                          level="", grid=""), "B2")
 
     def test_a_wired_pattern_is_not_reported(self):
         """The four that *are* read say nothing — otherwise the notice becomes
@@ -1221,3 +1235,94 @@ def _load_module(package, name):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+class ScheduleLabelTests(unittest.TestCase):
+    """``S_ScheduleMark`` is generated, not copied off the sheet.
+
+    The project owner's rule, 2026-08-27: a plinth beam should schedule as
+    ``PB1`` and a floor beam as ``B1``, from the NAMING convention — not as
+    ``B01-1-1``, which is the per-row mark the placement sheet carries so that
+    a *person* can find the row again.
+    """
+
+    def marks(self):
+        return _load_module("commands", "_marks")
+
+    def naming(self):
+        return _load_module("rc_automation", "naming_sheet")
+
+    class Row(object):
+        def __init__(self, type_mark):
+            self.type_mark = type_mark
+
+    def rows(self, *type_marks):
+        return [ScheduleLabelTests.Row(mark) for mark in type_marks]
+
+    def test_the_prefix_comes_from_the_type_mark(self):
+        marks = self.marks()
+        self.assertEqual(marks._prefix("PB-230x450"), "PB")
+        self.assertEqual(marks._prefix("B-230x600"), "B")
+        self.assertEqual(marks._prefix("F1"), "F")
+        self.assertEqual(marks._prefix("C-300x600"), "C")
+
+    def test_a_type_mark_with_no_letters_gives_nothing(self):
+        """Wrong-looking enough that somebody fixes the TypeMark, which is the
+        right place to fix it."""
+        self.assertEqual(self.marks()._prefix("300x600"), "")
+        self.assertEqual(self.marks()._prefix(None), "")
+
+    def test_plinth_and_floor_beams_number_separately(self):
+        """The whole point. One pattern, two series, and the distinction is the
+        one the engineer already made in the TypeMark column."""
+        marks, naming = self.marks(), self.naming()
+        found = marks.labels(
+            self.rows("PB-230x450", "PB-230x450", "B-230x600", "B-230x600"),
+            naming.defaults(), "beam_mark")
+        self.assertEqual(found["pb230x450"], "PB1")
+        self.assertEqual(found["b230x600"], "B1")
+
+    def test_a_second_section_of_the_same_prefix_counts_up(self):
+        marks, naming = self.marks(), self.naming()
+        found = marks.labels(self.rows("B-230x600", "B-200x400"),
+                             naming.defaults(), "beam_mark")
+        self.assertEqual(found["b230x600"], "B1")
+        self.assertEqual(found["b200x400"], "B2")
+
+    def test_numbering_follows_the_sheet_and_not_the_alphabet(self):
+        """Sorting would renumber every beam in the building the day somebody
+        adds ``B-200x400`` above the others."""
+        marks, naming = self.marks(), self.naming()
+        found = marks.labels(self.rows("B-900x900", "B-100x100"),
+                             naming.defaults(), "beam_mark")
+        self.assertEqual(found["b900x900"], "B1")
+        self.assertEqual(found["b100x100"], "B2")
+
+    def test_the_same_type_never_gets_two_labels(self):
+        """It is a *repeating* label — that is what makes it schedulable."""
+        marks, naming = self.marks(), self.naming()
+        found = marks.labels(self.rows(*(["F1"] * 15)), naming.defaults(),
+                             "footing_mark")
+        self.assertEqual(found, {"f1": "F1"})
+
+    def test_the_owners_footings_keep_the_marks_they_already_have(self):
+        """F1, F2, F3 in the sheet must still schedule as F1, F2, F3 — the
+        change must not renumber a model that was already right."""
+        marks, naming = self.marks(), self.naming()
+        found = marks.labels(self.rows("F1", "F2", "F3"), naming.defaults(),
+                             "footing_mark")
+        self.assertEqual([found["f1"], found["f2"], found["f3"]],
+                         ["F1", "F2", "F3"])
+
+    def test_a_hand_written_pattern_still_wins(self):
+        marks, naming = self.marks(), self.naming()
+        patterns = dict(naming.defaults())
+        patterns["beam_mark"] = "BM-{prefix}{n}"
+        found = marks.labels(self.rows("B-230x600"), patterns, "beam_mark")
+        self.assertEqual(found["b230x600"], "BM-B1")
+
+    def test_no_rows_gives_no_labels(self):
+        marks, naming = self.marks(), self.naming()
+        self.assertEqual(marks.labels([], naming.defaults(), "beam_mark"), {})
+        self.assertEqual(marks.labels(None, naming.defaults(), "beam_mark"),
+                         {})

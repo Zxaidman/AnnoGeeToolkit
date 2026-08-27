@@ -67,6 +67,64 @@ def named_sibling(doc, base, name):
     return None
 
 
+def choose(loaded, house, wanted):
+    """Which loaded type to use. ``(index into loaded, note)``, or ``(None, note)``.
+
+    ``loaded`` is ``[(label, name, type_mark, id)]``.
+
+    **The house name is the identity.** This is the project owner's rule, given
+    on 2026-08-27 and it reverses what this did before:
+
+        tool should able to create duplicate and use naming convention from
+        workbook as our Revit template is premature
+
+    So a beam is not *whatever the model happens to call a 230 x 600 section* —
+    it is ``CH-230 X 600``, and if the model has no such type one is made. A
+    template holding ``PB-230x450`` and ``300 X 600`` is not the authority on
+    what things are called; the NAMING sheet is. Adopting the template's names
+    was the old behaviour and it is why footings came out ``F3``, beams
+    ``PB-230x450`` and slabs ``SL-150`` while the workbook said otherwise.
+
+    The old passes are kept **only as a fallback for when there is no house
+    name** — no NAMING pattern, or no sizes to render it from — and every one
+    of them is reported, because a type matched by anything other than its name
+    is a guess that happened to be right.
+
+    Nothing here touches Revit, so the rule can be argued with off it.
+    """
+    house_key = _fold(house)
+    wanted_key = _fold(wanted)
+
+    if house_key:
+        for index, (_label, name, _mark, _id) in enumerate(loaded):
+            if _fold(name) == house_key:
+                return index, ""
+        for index, (label, _name, type_mark, _id) in enumerate(loaded):
+            if type_mark and _fold(type_mark) == house_key:
+                return index, "matched {0!r} on its Type Mark, in {1}".format(
+                    house, label)
+        # Deliberately no further passes. A type of the right size under
+        # another name is *not* this type — it is the template's name for it,
+        # and the house name is what the model should carry.
+        return None, ""
+
+    if not wanted_key:
+        return None, ""
+
+    for index, (_label, _name, type_mark, _id) in enumerate(loaded):
+        if type_mark and _fold(type_mark) == wanted_key:
+            return index, ""
+    for index, (_label, name, _mark, _id) in enumerate(loaded):
+        if _fold(name) == wanted_key:
+            return index, ""
+    for index, (label, name, _mark, _id) in enumerate(loaded):
+        if wanted_key in _fold(name):
+            return index, ("matched {0!r} to {1} - the NAMING sheet gave no "
+                           "name for it, so the model's own was used".format(
+                               wanted, label))
+    return None, ""
+
+
 def fits(symbol, wanted, tolerance_mm=1.0):
     """True when *symbol* already measures what was asked for.
 
@@ -110,18 +168,26 @@ def reads(symbol, names):
 
 
 def duplicate(doc, base, preferred, fallback=None, accept=None):
-    """``(symbol, note)`` — a new type of *base*'s family, or ``(None, why)``.
+    """``(symbol, made, note)`` — a type of *base*'s family, or ``(None, False, why)``.
+
+    *made* is **True only when a new type was created**, and it is the most
+    important thing this function returns.
+
+    A caller sizes what it makes. When this hands back a type that already
+    existed, sizing it **edits a type other elements are using**: a run asking
+    for 230 x 600 was given the existing ``PB-230x450``, set its depth to 600,
+    and every plinth beam in the model became 600 deep. The run reported
+    success. So the caller has to be able to tell the two cases apart, and a
+    boolean is the only way that is not easy to get wrong.
 
     *why* carries the exception Revit raised, the name that was refused and the
-    family it was refused in. That sentence is the entire point of this
-    function; the retries below are a convenience.
+    family it was refused in.
 
     *accept* decides whether a type that **already carries the wanted name** can
-    be used as it is. Without it, a name collision silently hands back whatever
-    was already called that — see :func:`fits`.
+    be used as it is — see :func:`fits`.
     """
     if base is None:
-        return None, "there is no loaded type to duplicate from"
+        return None, False, "there is no loaded type to duplicate from"
 
     family_name = _family_name(base)
     tried = []
@@ -135,9 +201,10 @@ def duplicate(doc, base, preferred, fallback=None, accept=None):
                 tried.append("{0!r} (already used by a type of a different "
                              "size)".format(name))
                 continue
-            return existing, (
+            return existing, False, (
                 "{0!r} already existed in {1} at the right size and was used "
-                "rather than duplicated".format(name, family_name))
+                "as it is - nothing was changed on it".format(name,
+                                                              family_name))
 
         try:
             made = base.Duplicate(name)
@@ -148,11 +215,11 @@ def duplicate(doc, base, preferred, fallback=None, accept=None):
 
         note = ""
         if source != "preferred":
-            note = "created {0!r} in {1} — {2}".format(name, family_name,
+            note = "created {0!r} in {1} - {2}".format(name, family_name,
                                                        source)
-        return made, note
+        return made, True, note
 
-    return None, (
+    return None, False, (
         "Revit would not create a type in {0}. Tried {1}. Load a rectangular "
         "family, or give the type a name Revit accepts — no {2} characters, "
         "and not one already in that family.".format(

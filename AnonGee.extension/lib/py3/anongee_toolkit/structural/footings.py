@@ -118,6 +118,84 @@ def _set_thickness(floor_type, value_mm):
         return False
 
 
+def ensure_named_type(doc, wanted, thickness_mm_value=None, cache=None,
+                      name=None):
+    """``(FloorType, note)`` — the house type, found or made.
+
+    *name* is the house name the NAMING sheet renders, and **it is the
+    identity**. Footings came out of the model called ``F3`` and slabs
+    ``SL-150`` while the workbook said ``CH-2400 X 2400 X 150`` and
+    ``CH-150 THK.``, because this adopted whatever the template already had.
+    See :func:`typemaker.choose`.
+
+    **Duplicated, never authored.** A floor type is a compound structure with
+    materials in it, and copying one a real template set up is the only way to
+    get a pad that behaves like the rest of the model's concrete.
+
+    Requires a transaction when it has to duplicate.
+    """
+    from anongee_toolkit.structural import typemaker
+
+    cache = cache if cache is not None else {}
+    key = _fold(name or wanted)
+    if key in cache:
+        return cache[key], ""
+
+    loaded = []
+    for floor_type in FilteredElementCollector(doc).OfClass(FloorType).ToElements():
+        try:
+            loaded.append((floor_type.Name, floor_type.Name, "", floor_type.Id))
+        except Exception:
+            continue
+
+    index, note = typemaker.choose(loaded, name, wanted)
+    if index is not None:
+        found = doc.GetElement(loaded[index][3])
+        cache[key] = found
+        return found, note
+
+    base_id = default_type_id(doc)
+    if base_id is None:
+        return None, ("this model has no floor or foundation type at all, so "
+                      "there is nothing to duplicate a pad type from")
+    base = doc.GetElement(base_id)
+
+    wanted_name = typemaker.sanitise(name or wanted) or wanted
+    try:
+        duplicated = base.Duplicate(wanted_name)
+    except Exception as error:
+        cache[key] = base
+        return base, ("could not create a type called {0!r} ({1}: {2}); using "
+                      "{3!r} as it is, so its thickness is that type's and not "
+                      "the sheet's".format(wanted_name, type(error).__name__,
+                                           error, base.Name))
+
+    cache[key] = duplicated
+    if not thickness_mm_value:
+        return duplicated, "created {0!r} from {1!r}".format(wanted_name,
+                                                             base.Name)
+    if not _set_thickness(duplicated, thickness_mm_value):
+        return duplicated, ("created {0!r} but could not set its thickness to "
+                            "{1:g} - check the type's structure".format(
+                                wanted_name, thickness_mm_value))
+    return duplicated, "created {0!r} at {1:g} thick".format(
+        wanted_name, thickness_mm_value)
+
+
+def _set_thickness(floor_type, value_mm):
+    """Set a type's thickness through its core layer. True when it took."""
+    try:
+        structure = floor_type.GetCompoundStructure()
+        if structure is None:
+            return False
+        structure.SetLayerWidth(structure.GetFirstCoreLayerIndex(),
+                                mm_to_ft(value_mm))
+        floor_type.SetCompoundStructure(structure)
+        return True
+    except Exception:
+        return False
+
+
 def ensure_named_type(doc, wanted, thickness_mm_value=None, cache=None):
     """``(FloorType, note)`` for a type mark — found, or duplicated and sized.
 

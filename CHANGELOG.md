@@ -35,6 +35,54 @@ of view of someone using the thing rather than someone reading the diff:
 
 ---
 
+## 1.26.0
+
+**Fixed**
+
+- **A reused type was resized, and the plinth beams went with it.**
+  `ensure_symbol` sized whatever it was handed, created or found — so a run
+  asking for 230 x 600 took the existing `PB-230x450`, set its depth to 600, and
+  every plinth beam in the model became 600 deep. `written=110`, `status=done`.
+  `duplicate` now returns whether it *made* the type, and only what was made is
+  sized. (BUG-39)
+- **Every category but columns ignored the naming convention.** Footings came
+  out `F3`, beams `PB-230x450`, slabs `SL-150`, while the workbook said
+  otherwise. The house name was only ever used to *name a type being created*;
+  the search still adopted whatever the template already had. Now
+  `typemaker.choose` makes **the house name the identity** — a beam is
+  `CH-230 X 600`, not whatever the model calls a 230 x 600 section — with the
+  old passes kept only as a reported fallback. Footings and slabs were never
+  passed the patterns at all; they are now. (BUG-40)
+- **`S_ScheduleMark` held the sheet's row label, not the convention.** The three
+  `*_mark` patterns were read by nothing. They are wired, and `{prefix}` is new:
+  the letters the workbook's own `TypeMark` starts with, so `PB-230x450` gives
+  `PB1` and `B-230x600` gives `B1` from one pattern. `{n}` counts distinct
+  TypeMarks within a prefix, in sheet order. A pattern that would give two
+  sections the same label is reported every run, and the three legacy patterns
+  are migrated once by the builder. (BUG-41)
+- **The stair API was wrong in three places at once.** `StairsEditScope` is in
+  `Autodesk.Revit.DB`, not `.Architecture`. The type members are CLR properties,
+  not parameters — `LookupParameter("MaxRiserHeight")` returns `None`, which is
+  why all four writes failed silently. And the waist is `StairsRunType`'s, not
+  `StairsType`'s, and reads back as zero unless the run is monolithic first.
+  `StairsConstructionMethod` is read at runtime rather than named, because its
+  members could not be confirmed and guessing is what caused this. (BUG-42)
+
+**Changed**
+
+- **`REVIT_API_RESEARCH.md` is a general reference now**, not a rebar note. §0
+  carries the five rules that have each cost a round in a live model —
+  namespaces are not guessable, a property is not a parameter, a Python list is
+  not a .NET list, `__namespace__` goes on the class, an edit scope will not
+  start inside a transaction — and §1 is stairs, checked member by member
+  against the published reference.
+
+  It does **not** contain every Revit API, and says so: that document cannot be
+  written or checked, and claiming otherwise would make it the file nobody
+  verifies a claim against. What it has instead is coverage by contact — a
+  member earns a place when this repository calls it — plus a stated method for
+  settling the next one before the first line is written.
+
 ## 1.25.0
 
 **Changed**

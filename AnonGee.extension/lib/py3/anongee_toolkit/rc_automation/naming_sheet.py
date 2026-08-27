@@ -24,7 +24,7 @@ SHEET = "NAMING"
 #: because three lists is how ``beam_mark`` came to refuse ``{n}`` while the
 #: sheet's own *Fields it may use* column offered it — the workbook advertising
 #: a field the code rejects, and the rejection degrading silently. BUG-34.
-MARK_FIELDS = ("n", "level", "grid")
+MARK_FIELDS = ("prefix", "n", "level", "grid")
 
 #: ``key -> (fields it may use, the default pattern, what it names)``.
 #:
@@ -37,33 +37,44 @@ PATTERNS = {
     "footing": (("l", "w", "t"), "{l} x {w} x {t}mm", "a pad footing type"),
     "slab": (("t",), "{t}mm thk", "a floor or foundation slab type"),
     "stair": (("w", "t"), "{w} X {t}", "a stair waist and its landing"),
-    "column_mark": (MARK_FIELDS, "C{n}", "a column's schedule mark"),
-    "footing_mark": (MARK_FIELDS, "F{n}", "a footing's schedule mark"),
-    "beam_mark": (MARK_FIELDS, "B{n}", "a beam's schedule mark"),
+    "column_mark": (MARK_FIELDS, "{prefix}{n}", "a column's schedule mark"),
+    "footing_mark": (MARK_FIELDS, "{prefix}{n}", "a footing's schedule mark"),
+    "beam_mark": (MARK_FIELDS, "{prefix}{n}", "a beam's schedule mark"),
 }
 
-#: Which keys name a type the commands actually create. The three ``*_mark``
-#: keys are **read by nothing yet** — a placement sheet carries its own ``Mark``
-#: column and that is what is written — so a pattern typed against one of them
-#: is recorded and has no effect. Said out loud here, and reported by
-#: :func:`check`, because a preference that quietly does nothing is worse than
-#: one that is refused.
-WIRED = ("column", "beam", "footing", "slab", "stair")
+#: Which keys are read by a command. All of them, now.
+#:
+#: The three ``*_mark`` keys were read by nothing for two releases — a
+#: placement sheet carried its own ``Mark`` column and that was what went into
+#: ``S_ScheduleMark``. The project owner asked for the schedule mark to be
+#: generated instead, so that a plinth beam schedules as ``PB1`` and a floor
+#: beam as ``B1`` whatever the placement sheet's per-row marks say.
+#:
+#: ``{prefix}`` is what makes that work without three separate patterns: it is
+#: the letters the workbook's own ``TypeMark`` starts with — ``PB`` out of
+#: ``PB-230x450``, ``B`` out of ``B-230x600``, ``F`` out of ``F1`` — so the
+#: distinction the engineer already made in the TypeMark column carries into
+#: the schedule mark rather than being typed a second time.
+WIRED = ("column", "beam", "footing", "slab", "stair",
+         "column_mark", "beam_mark", "footing_mark")
 
 #: Which keys are text rather than a size, so a check feeds them something
 #: readable instead of 100.
-_TEXT_FIELDS = ("level", "grid", "name", "label")
+_TEXT_FIELDS = ("level", "grid", "name", "label", "prefix")
 
 #: What each field is worth in an example. Per field, not per position: a
 #: positional sample gave ``C300`` for a column mark, which is not a mark and
 #: not a number anybody would recognise.
 _SAMPLE = {"b": 300, "h": 600, "l": 2400, "w": 2400, "t": 150, "n": 1,
-           "level": "01", "grid": "1"}
+           "level": "01", "grid": "1", "prefix": "B"}
 
 #: Where one field means two different sizes. ``w`` is a pad's 2400 and a
 #: stair's 1200, and an example showing a 2400-wide flight teaches the wrong
 #: thing about a sheet whose entire job is to be read.
-_SAMPLE_BY_KEY = {"stair": {"w": 1200, "t": 150}}
+_SAMPLE_BY_KEY = {"stair": {"w": 1200, "t": 150},
+                  "column_mark": {"prefix": "C"},
+                  "footing_mark": {"prefix": "F"},
+                  "beam_mark": {"prefix": "PB"}}
 
 
 def defaults():

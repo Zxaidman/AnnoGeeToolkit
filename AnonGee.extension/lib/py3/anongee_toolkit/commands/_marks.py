@@ -55,7 +55,78 @@ def split(cell):
     return found
 
 
-def write(instance, row, names, reported, findings, finding):
+def labels(rows, patterns, key):
+    """``{folded TypeMark: schedule label}`` for one placement sheet.
+
+    The project owner's rule, given 2026-08-27: ``S_ScheduleMark`` should read
+    ``PB1``, ``B1``, ``F1`` — a **repeating label per section**, generated from
+    the NAMING sheet — rather than the per-row ``Mark`` the sheet happens to
+    carry.
+
+    ``{prefix}`` is the letters the workbook's own ``TypeMark`` starts with, and
+    ``{n}`` counts distinct TypeMarks **within that prefix**, in the order the
+    sheet lists them. So ``PB-230x450`` gives ``PB1`` and ``B-230x600`` gives
+    ``B1``, and the plinth/floor distinction the engineer already made in the
+    TypeMark column carries through without being typed again.
+
+    Numbered by first appearance rather than sorted, because a schedule read
+    top to bottom should count up, and because sorting would renumber every
+    beam in the building the day somebody adds ``B-200x400``.
+
+    Pure — rows in, labels out.
+    """
+    from anongee_toolkit.rc_automation import naming_sheet
+
+    seen = {}
+    counts = {}
+    for row in rows or ():
+        type_mark = getattr(row, "type_mark", "") or ""
+        folded = _fold(type_mark)
+        if not folded or folded in seen:
+            continue
+        prefix = _prefix(type_mark)
+        counts[prefix] = counts.get(prefix, 0) + 1
+        seen[folded] = naming_sheet.render(patterns, key, prefix=prefix,
+                                           n=counts[prefix], level="", grid="")
+    return seen
+
+
+def collisions(found):
+    """``[(label, [type marks])]`` where one label covers two sections.
+
+    A pattern of ``B{n}`` counts within a prefix but does not *print* it, so a
+    230x450 plinth beam and a 230x600 floor beam both come out ``B1`` — two
+    different sections sharing a schedule line, which is a bill of quantities
+    that is quietly wrong rather than obviously wrong.
+
+    Detected rather than prevented, because the pattern belongs to whoever
+    writes the sheet. Reported every run until it is fixed.
+    """
+    by_label = {}
+    for type_mark, label in sorted((found or {}).items()):
+        by_label.setdefault(label, []).append(type_mark)
+    return [(label, marks) for label, marks in sorted(by_label.items())
+            if len(marks) > 1]
+
+
+def _prefix(type_mark):
+    """``PB`` out of ``PB-230x450``; ``F`` out of ``F1``; ``C`` out of
+    ``C-300x600``.
+
+    The letters it starts with, and nothing else. A TypeMark with no leading
+    letters gives ``""``, which renders as a bare number — wrong-looking enough
+    that somebody will fix the TypeMark, which is the right place to fix it.
+    """
+    found = ""
+    for character in str(type_mark or ""):
+        if character.isalpha():
+            found += character
+        else:
+            break
+    return found.upper()
+
+
+def write(instance, row, names, reported, findings, finding, label=None):
     """Write both marks on one element.
 
     Revit's ``Mark`` always; the schedule label into the first of *names* the
@@ -64,7 +135,8 @@ def write(instance, row, names, reported, findings, finding):
     values sat in ``Comments``, where nobody looked.
     """
     _set_builtin_mark(instance, row.unique_mark)
-    _set_schedule_mark(instance, row, names, reported, findings, finding)
+    _set_schedule_mark(instance, row, names, reported, findings, finding,
+                       label)
 
 
 def _set_builtin_mark(instance, mark):
@@ -77,8 +149,11 @@ def _set_builtin_mark(instance, mark):
         pass
 
 
-def _set_schedule_mark(instance, row, names, reported, findings, finding):
-    label = row.mark
+def _set_schedule_mark(instance, row, names, reported, findings, finding,
+                       label=None):
+    # The generated label when there is one, and the sheet's own Mark when
+    # there is not — a workbook with no NAMING sheet still schedules.
+    label = label or row.mark
     if not label:
         return
 

@@ -59,6 +59,15 @@ def _apply(doc, plans, findings, finding, context):
     sizes = _sizes(context, findings, finding)
     patterns = _sheets.naming(context, findings, finding)
     label_parameters = _marks.candidates(context)
+    schedule_marks = _marks.labels(
+        [item.row for item in plans], patterns, "column_mark")
+    for label, sharing in _marks.collisions(schedule_marks):
+        findings.append(finding(
+            "Warning", "",
+            "{0} sections would all schedule as {1!r}: {2}. The {3} pattern "
+            "counts within a prefix but does not print it - use "
+            "'{{prefix}}{{n}}' on NAMING so they read PB1 and B1.".format(
+                len(sharing), label, ", ".join(sharing), "column_mark")))
     reported = set()
     cache = {}
     written = 0
@@ -115,7 +124,8 @@ def _apply(doc, plans, findings, finding, context):
                 doc, row.point_mm, symbol, base, top,
                 row.base_offset_mm, row.top_offset_mm)
             _marks.write(instance, row, label_parameters, reported,
-                         findings, finding)
+                         findings, finding,
+                         schedule_marks.get(_fold(row.type_mark)))
             _rotate(doc, instance, row)
             written += 1
         except Exception as error:

@@ -33,15 +33,25 @@ construction rather than by luck.
 
 __version__ = "0.2.0"
 
-#: The type parameters an RC stair needs, in the order they are set.
-#:
-#: ``MonolithicStairs`` first and deliberately: a stair that is not monolithic
-#: has no structural depth to set, so setting the waist before it silently does
-#: nothing.
-MONOLITHIC = "MonolithicStairs"
-WAIST = "StructuralDepth"
-TREAD = "MinimumTreadDepth"
+#: The ``StairsType`` **properties** an RC stair needs. Properties, not
+#: parameters: ``LookupParameter("MaxRiserHeight")`` returns ``None`` because
+#: the parameter a user sees is called *Maximum Riser Height*. A whole run
+#: reported "could not set Monolithic, Waist, Tread, Riser" — four for four —
+#: on exactly that mistake. REVIT_API_RESEARCH §0.2.
+TREAD = "MinTreadDepth"
 RISER = "MaxRiserHeight"
+RUN_WIDTH = "MinRunWidth"
+
+#: The waist. It is on the **run** type, not the stair type, and it reads back
+#: as 0.0 unless the run is monolithic — so the construction method has to be
+#: set first or this writes to nothing and says nothing. §1.5.
+WAIST = "StructuralDepth"
+
+#: What a monolithic stair's construction method is called. **Not hard-coded**:
+#: the enum's member names could not be confirmed from the public reference, so
+#: it is read at runtime and the member whose name contains this wins. §0.1
+#: applied to an enum — guessing a name is what cost the last round.
+MONOLITHIC_HINT = "monolith"
 
 #: Cached CLR types. A class that subclasses a Revit interface can only be
 #: defined once per session — defining it again gives a second, incompatible
@@ -74,7 +84,7 @@ def ensure_type(doc, wanted, sizes, cache=None, name=None):
     from anongee_toolkit.structural import typemaker
 
     cache = cache if cache is not None else {}
-    key = _fold(wanted)
+    key = _fold(name or wanted)
     if key in cache:
         return cache[key], ""
 
@@ -83,17 +93,15 @@ def ensure_type(doc, wanted, sizes, cache=None, name=None):
         return None, ("this model has no stair type at all, so there is "
                       "nothing to duplicate one from")
 
-    for label, _name_, type_id in loaded:
-        if _fold(label) == key:
-            cache[key] = type_id
-            return type_id, ""
+    # House name first, the same rule the other four categories follow.
+    index, note = typemaker.choose(
+        [(label, type_name, "", type_id)
+         for label, type_name, type_id in loaded], name, wanted)
+    if index is not None:
+        cache[key] = loaded[index][2]
+        return loaded[index][2], note
 
     wanted_name = typemaker.sanitise(name or wanted) or wanted
-    for label, _name_, type_id in loaded:
-        if _fold(label) == _fold(wanted_name):
-            cache[key] = type_id
-            return type_id, "{0!r} already existed and was used".format(label)
-
     base = doc.GetElement(loaded[0][2])
     try:
         made = base.Duplicate(wanted_name)
@@ -102,7 +110,7 @@ def ensure_type(doc, wanted, sizes, cache=None, name=None):
                       "{1}: {2}".format(wanted_name, type(error).__name__,
                                         _short(error)))
 
-    missed = _size_type(made, sizes)
+    missed = _size_type(doc, made, sizes)
     cache[key] = made.Id
     note = "created stair type {0!r} from {1!r}".format(wanted_name,
                                                         _name(base))
@@ -112,22 +120,79 @@ def ensure_type(doc, wanted, sizes, cache=None, name=None):
     return made.Id, note
 
 
-def _size_type(stair_type, sizes):
-    """Put the sheet's numbers on the type. ``[names that would not take]``."""
+def _size_type(doc, stair_type, sizes):
+    """Put the sheet's numbers on the type. ``[what would not take]``.
+
+    **Monolithic first.** ``StairsRunType.StructuralDepth`` reads back as 0.0
+    unless the run is monolithic, so setting the waist before the construction
+    method writes to nothing and reports success.
+    """
     from anongee_toolkit.revit.units import mm_to_ft
 
     missed = []
-    if not _set_by_name(stair_type, MONOLITHIC, 1):
+    if not _make_monolithic(stair_type):
         missed.append("Monolithic")
 
-    for name, value_mm, label in ((WAIST, sizes.get("waist_mm"), "Waist"),
+    for name, value_mm, label in ((RISER, sizes.get("riser_mm"), "Riser"),
                                   (TREAD, sizes.get("tread_mm"), "Tread"),
-                                  (RISER, sizes.get("riser_mm"), "Riser")):
+                                  (RUN_WIDTH, sizes.get("width_mm"), "Width")):
         if not value_mm:
             continue
-        if not _set_by_name(stair_type, name, mm_to_ft(value_mm)):
+        if not _set_property(stair_type, name, mm_to_ft(value_mm)):
             missed.append(label)
+
+    if sizes.get("waist_mm") and not _set_waist(doc, stair_type,
+                                                mm_to_ft(sizes["waist_mm"])):
+        missed.append("Waist")
     return missed
+
+
+def _make_monolithic(stair_type):
+    """Set ``ConstructionMethod`` to whichever member means monolithic.
+
+    Read rather than named, because the enum's members could not be confirmed
+    from the public reference and a guessed name is what cost the last round.
+    """
+    try:
+        current = stair_type.ConstructionMethod
+    except Exception:
+        return False
+    for name in dir(type(current)):
+        if MONOLITHIC_HINT not in name.lower():
+            continue
+        try:
+            stair_type.ConstructionMethod = getattr(type(current), name)
+            return True
+        except Exception:
+            continue
+    return False
+
+
+def _set_waist(doc, stair_type, value_ft):
+    """The waist, on the run type rather than the stair type."""
+    try:
+        run_type = stair_type.RunType
+    except Exception:
+        return False
+    if run_type is None:
+        return False
+    return _set_property(run_type, WAIST, value_ft)
+
+
+def _set_property(owner, name, value):
+    """A CLR property, with a named parameter as the fallback.
+
+    The property is the documented member; ``LookupParameter`` is tried second
+    because a family-authored type may surface the same idea under the name the
+    UI shows. Both are reported as one answer, so the caller says *could not set
+    the waist* rather than *could not find StructuralDepth*.
+    """
+    try:
+        setattr(owner, name, value)
+        return True
+    except Exception:
+        pass
+    return _set_by_name(owner, name, value)
 
 
 def create(doc, start_mm, direction, base_level, top_level, flight,
@@ -137,8 +202,13 @@ def create(doc, start_mm, direction, base_level, top_level, flight,
     **Must be called with no transaction open.** ``StairsEditScope`` starts one
     of its own and refuses if there is already one.
     """
-    from Autodesk.Revit.DB import Line, Transaction, XYZ
-    from Autodesk.Revit.DB.Architecture import (StairsEditScope, StairsRun,
+    # StairsEditScope is in Autodesk.Revit.DB. StairsRun and its justification
+    # are in .Architecture. There is no rule that gets you from one to the
+    # other, and assuming there was placed nothing five times:
+    #   cannot import name 'StairsEditScope' from 'Autodesk.Revit.DB.Architecture'
+    # REVIT_API_RESEARCH §0.1.
+    from Autodesk.Revit.DB import Line, StairsEditScope, Transaction, XYZ
+    from Autodesk.Revit.DB.Architecture import (StairsRun,
                                                 StairsRunJustification)
     from anongee_toolkit.revit.units import mm_to_ft
 

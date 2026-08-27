@@ -83,6 +83,7 @@ def _apply(doc, plans, findings, finding, context):
     levels = _sheets.levels(doc)
     sizes = _sheets.sizes(context, TYPES_SHEET, findings, finding)
     widths = _beam_widths(context, findings, finding)
+    patterns = _sheets.naming(context, findings, finding)
     label_parameters = _marks.candidates(context)
     reported = set()
     cache = {}
@@ -108,7 +109,9 @@ def _apply(doc, plans, findings, finding, context):
 
             size = sizes.get(_fold(row.type_mark)) or {}
             floor_type, note = footings.ensure_named_type(
-                doc, row.type_mark, size.get("thickness_mm"), cache)
+                doc, row.type_mark, size.get("thickness_mm"), cache,
+                name=_sheets.type_name(patterns, "slab", row.type_mark,
+                                       t=size.get("thickness_mm")))
             if floor_type is None:
                 findings.append(finding("Error", row.row, note))
                 continue

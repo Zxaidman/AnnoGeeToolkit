@@ -54,102 +54,73 @@ def symbols(doc):
 
 def ensure_symbol(doc, wanted, width_mm=None, depth_mm=None, cache=None,
                   name=None):
-    """``(FamilySymbol, note)`` — found, or duplicated and sized to order.
+    """``(FamilySymbol, note)`` — the house type, found or made.
 
-    Four passes, narrowest first — Type Mark, exact name, name containing, and
-    finally the **same two dimensions under a different name**, because a
-    template holding ``300 X 600`` and a workbook asking for ``B-300x600`` mean
-    the same section and duplicating it would fill a model with types that
-    already existed.
+    *name* is the house name the NAMING sheet renders, and **it is the
+    identity**: a beam is ``CH-230 X 600``, not whatever the template happens to
+    call a 230 x 600 section. See :func:`typemaker.choose` for why that reversed.
+
+    Requires a transaction when it has to create — the caller has one open.
     """
-    from anongee_toolkit.structural import columns
+    from anongee_toolkit.structural import typemaker
 
     if cache is None:
         cache = {}
-    key = _fold(wanted)
+    key = _fold(name or wanted)
     if key in cache:
         return cache[key], ""
 
     loaded = symbols(doc)
     if not loaded:
         return None, ("this model has no structural framing family loaded. "
-                      "Load one — Concrete-Rectangular Beam is the standard — "
+                      "Load one - Concrete-Rectangular Beam is the standard - "
                       "and run this again")
 
-    # ``found`` and never ``name`` in these four loops.
-    #
-    # **This is BUG-31.** They were written as ``for _label, name, ...``, and
-    # ``name`` is this function's own parameter — the type name the NAMING
-    # sheet asked for. Python's for-loop leaks its variable, so once all four
-    # passes ran without matching — which is *precisely* the case where a type
-    # has to be created — ``name`` no longer held the wanted name. It held the
-    # name of the **last loaded type in the model**.
-    #
-    # The next line down then said ``Duplicate(name or wanted)``, so every
-    # creation asked Revit for a name that already existed, by construction.
-    # It could never succeed. A hundred and ten beams failed on it and the run
-    # said ``written=22`` without comment.
-    #
-    # ``columns.py`` was untouched by this only because its four passes live in
-    # a separate ``find_symbol``, where there is no parameter to shadow — which
-    # is why columns created types happily and beams never once did.
-    for _label, _found, type_mark, symbol_id in loaded:
-        if type_mark and _fold(type_mark) == key:
-            return _activate(doc, symbol_id, cache, key), ""
-    for _label, found, _mark, symbol_id in loaded:
-        if _fold(found) == key:
-            return _activate(doc, symbol_id, cache, key), ""
-    for label, found, _mark, symbol_id in loaded:
-        if key and key in _fold(found):
-            return (_activate(doc, symbol_id, cache, key),
-                    "matched {0!r} to {1}".format(wanted, label))
-
-    size = columns._dimensions(wanted)
-    if len(size) == 2:
-        for label, found, _mark, symbol_id in loaded:
-            if columns._dimensions(found) == size:
-                return (_activate(doc, symbol_id, cache, key),
-                        "matched {0!r} to {1} - same section, different "
-                        "name".format(wanted, label))
+    index, note = typemaker.choose(loaded, name, wanted)
+    if index is not None:
+        return _activate(doc, loaded[index][3], cache, key), note
 
     if not width_mm or not depth_mm:
         return None, ("no framing type called {0!r}, and BEAM_TYPES does not "
                       "give it a Width and a Depth, so one cannot be made"
-                      .format(wanted))
-
-    # Everything below is shared with columns and footings, and used to be
-    # copied into each. The copies were not the problem — the silence was.
-    # A hundred and ten beams failed here and the run reported `written=22`
-    # without saying why. BUG-31.
-    from anongee_toolkit.structural import typemaker
+                      .format(name or wanted))
 
     base = _base_symbol(doc, loaded)
-    duplicated, note = typemaker.duplicate(
+    duplicated, made, note = typemaker.duplicate(
         doc, base, name or wanted, wanted,
         accept=lambda symbol: typemaker.fits(
             symbol, ((WIDTH_NAMES, width_mm), (DEPTH_NAMES, depth_mm))))
     if duplicated is None:
         return None, "no framing type called {0!r}, and {1}".format(
-            wanted, note)
+            name or wanted, note)
+
+    cache[key] = duplicated
+    typemaker.activate(doc, duplicated)
+
+    # **Only what was created is sized.** Sizing a type that already existed
+    # edits a type other elements are using: a run asking for 230 x 600 was
+    # handed the existing PB-230x450, set its depth to 600, and every plinth
+    # beam in the model became 600 deep. The run reported success.
+    if not made:
+        return duplicated, note
 
     set_width, set_depth = typemaker.size(duplicated, WIDTH_NAMES, width_mm,
                                           DEPTH_NAMES, depth_mm)
     typemaker.set_type_mark(duplicated, wanted)
-    typemaker.activate(doc, duplicated)
-    cache[key] = duplicated
 
-    made = "created {0!r} at {1:g} x {2:g}".format(wanted, width_mm, depth_mm)
+    built = "created {0!r} at {1:g} x {2:g}".format(name or wanted, width_mm,
+                                                    depth_mm)
     if note:
-        made = "{0} — {1}".format(made, note)
+        built = "{0} - {1}".format(built, note)
     if not (set_width and set_depth):
         return duplicated, (
             "{0}, but could not set its {1}: the family does not use a "
             "parameter this recognises ({2} / {3}), so the type is the size "
             "the family came at".format(
-                made, "size" if not (set_width or set_depth)
+                built, "size" if not (set_width or set_depth)
                 else ("width" if not set_width else "depth"),
                 ", ".join(WIDTH_NAMES), ", ".join(DEPTH_NAMES)))
-    return duplicated, made
+    return duplicated, built
 
 
 def create(doc, start_mm, end_mm, symbol, level, offset_mm=0.0,

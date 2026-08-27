@@ -1,29 +1,257 @@
-# Revit API research — reinforcement
+# Revit API research
 
-Findings from the Revit 2025/2026 API reference, gathered after a real run
-reported:
+**What this file is.** The Revit API members this programme actually uses,
+checked against the published reference rather than recalled, with the trap
+attached to each. It exists because four separate rounds have now been lost to
+an API detail that a thirty-second lookup would have settled, and the last one —
+stairs — failed on a *namespace*.
 
-```
-Constrained rebar isn't a free form rebar element. Parameter name: handle
-   at Autodesk.Revit.DB.Structure.RebarConstraint.Create(
-      RebarConstrainedHandle handle, IList`1 targetReferences,
-      Boolean isConstraintToCover, Double offsetValue)
-```
+**What it is not, and this matters.** It is not every Revit API. The 2025+ API
+publishes on the order of ten thousand public members across `RevitAPI.dll` and
+`RevitAPIUI.dll`, and no useful document contains them all: an index that large
+is a search engine with worse search. A file claiming completeness would also be
+the file nobody checks a claim against, which is exactly the failure it is meant
+to prevent.
 
-That message is the whole story: **`RebarConstraint.Create` is for free-form
-rebar only.** Every bar RC Automation places is shape-driven, so the call could
-never have worked, and the constraint code written for it was aimed at the wrong
-half of the API. What follows is what the documentation actually says, and what
-of it is worth using.
-
-Sources:
-[RebarConstraintsManager](https://www.revitapidocs.com/2026/32fe1ec6-ddb3-feac-f18c-8683b054f639.htm) ·
-[RebarConstraint members](https://www.revitapidocs.com/2023/3a2afe27-b578-5d23-611e-ceb2be08c0b4.htm) ·
-[RebarShapeDrivenAccessor](https://rvtdocs.com/2025/6d2f77e7-bbe2-5bd5-723a-bf27c3df1a65) ·
-[RebarConstrainedHandle](https://www.revitapidocs.com/2025/08b4c4a3-3bb9-0801-9cc8-cd5420a306d9.htm) ·
-[Revit API Developers Guide — Rebar](https://help.autodesk.com/view/RVT/2025/ENU/?guid=Revit_API_Revit_API_Developers_Guide_Discipline_Specific_Functionality_Structural_Engineering_Structural_Model_Elements_Reinforcement_Rebar_html)
+So the rule here is **coverage by contact**: a member earns a place when this
+repository calls it, or when it was considered and rejected. Everything below is
+one of those. When something new is needed, §0 says how to settle it before the
+first line is written, and the answer gets added here.
 
 ---
+
+## 0. Settle it before you write it
+
+Five rules, each of which has cost this project at least one round in a live
+model.
+
+### 0.1 A namespace is not guessable
+
+`StairsEditScope` is in **`Autodesk.Revit.DB`**. `Stairs`, `StairsRun`,
+`StairsType`, `StairsRunType` and `StairsRunJustification` are all in
+**`Autodesk.Revit.DB.Architecture`**. There is no rule that gets you from one to
+the other, and the run that assumed there was placed nothing five times:
+
+```
+cannot import name 'StairsEditScope' from 'Autodesk.Revit.DB.Architecture'
+```
+
+Import the namespace, not the name, when there is any doubt — the failure then
+happens at the call site, where it is readable, rather than at import:
+
+```python
+import Autodesk.Revit.DB as DB
+import Autodesk.Revit.DB.Architecture as Arch
+scope = DB.StairsEditScope(doc, "…")          # DB, not Arch
+run = Arch.StairsRun.CreateStraightRun(...)   # Arch, not DB
+```
+
+### 0.2 A property is not a parameter
+
+`LookupParameter("MaxRiserHeight")` returns `None`. The API surfaces
+`StairsType.MaxRiserHeight` as a **CLR property**; the *parameter* a user sees is
+called "Maximum Riser Height". Guessing the parameter name from the property name
+fails silently — it returns `None` and the code moves on.
+
+This produced a whole run reporting:
+
+> created stair type 'CH-1200 X 150' … **but could not set Monolithic, Waist,
+> Tread, Riser on it**
+
+Four for four. Prefer the property. Reach for `LookupParameter` only for
+family-authored parameters, and for those use the name **as the UI shows it**.
+
+### 0.3 A raw Python list is not a .NET list
+
+`List[GeometryObject]()`, never `[]`, and never `List[object]()` — `object` is
+Python's builtin, not `System.Object`, and pythonnet answers:
+
+```
+type(s) expected
+```
+
+Third time this has cost a round. `§12.9.4`.
+
+### 0.4 A CLR interface subclass needs `__namespace__` **on the class**
+
+At module scope it does nothing. It also cannot be declared at import time,
+because the interface does not exist off Revit — so the class is built lazily
+and cached, since defining it twice gives two incompatible CLR types and
+`Duplicate type name within an assembly` on the second press.
+
+```python
+_CLR = {}
+
+def _preprocessor():
+    from Autodesk.Revit.DB import FailureProcessingResult, IFailuresPreprocessor
+    if "swallow" not in _CLR:
+        class Swallow(IFailuresPreprocessor):
+            __namespace__ = "AnonGeeStairs"      # on the class
+            def PreprocessFailures(self, accessor):
+                accessor.DeleteAllWarnings()
+                return FailureProcessingResult.Continue
+        _CLR["swallow"] = Swallow
+    return _CLR["swallow"]()
+```
+
+### 0.5 An edit scope is not a transaction, and will not start inside one
+
+`StairsEditScope.Start` throws if a transaction is open, and opens a transaction
+group of its own. Everything else this repository writes runs *inside* a
+transaction the caller opened, so stairs needed a second write strategy —
+`commands/_placement.outside_a_transaction` — that keeps the group and leaves the
+transaction to the scope.
+
+---
+
+## 1. Stairs
+
+Everything here is checked against the reference; the citations are at the end
+of the section. **Untested in a model at the time of writing** — the previous
+attempt never got past the import.
+
+### 1.1 The shape of a stair
+
+| | Namespace | What it is |
+| --- | --- | --- |
+| `StairsEditScope` | `Autodesk.Revit.DB` | The session inside which a stair may be built |
+| `Stairs` | `…DB.Architecture` | The stair element |
+| `StairsRun` | `…DB.Architecture` | One flight |
+| `StairsLanding` | `…DB.Architecture` | One landing |
+| `StairsType` | `…DB.Architecture` | The stair's type |
+| `StairsRunType` | `…DB.Architecture` | The **run's** type — where the waist lives |
+| `StairsRunJustification` | `…DB.Architecture` | `Center`, `Left`, `Right` |
+
+### 1.2 The creation sequence, and its order is load-bearing
+
+```python
+scope = StairsEditScope(doc, "New Stairs")          # no transaction open
+stairs_id = scope.Start(base_level.Id, top_level.Id)
+t = Transaction(doc, "Add runs")                     # now a transaction
+t.Start()
+run = StairsRun.CreateStraightRun(doc, stairs_id, line, StairsRunJustification.Center)
+run.ActualRunWidth = width_ft
+t.Commit()
+scope.Commit(failure_preprocessor)                   # takes IFailuresPreprocessor
+```
+
+`Start(bottomLevelId, topLevelId)` returns the new stair's `ElementId`. The
+`line` is drawn **in plan at the base level's elevation**; the climb comes from
+the two levels, never from the line.
+
+`scope.Commit` **requires** an `IFailuresPreprocessor`. A sheet-driven flight
+routinely raises *the stair does not satisfy the required riser height*, and an
+unhandled warning aborts the whole scope — so warnings are deleted and errors
+are left to fail.
+
+### 1.3 `Stairs` — the members worth having
+
+| Member | Type | Note |
+| --- | --- | --- |
+| `DesiredRisersNumber` | `int`, get/set | **What makes a flight land on the floor.** Revit divides the rise by it |
+| `ActualRisersNumber` | `int`, read-only | What was built. Compare the two |
+| `ActualRiserHeight` | `double`, read-only | Feet |
+| `ActualTreadsNumber` | `int`, read-only | |
+| `ActualTreadDepth` | `double`, get/set | |
+| `Height` | `double` | Base to top level |
+| `BaseElevation` / `TopElevation` | `double` | |
+| `MultistoryStairsId` | `ElementId` | |
+| `NumberOfStories` | `int` | 1 for a single-storey stair |
+| `GetStairsRuns()` | `ICollection<ElementId>` | |
+| `GetStairsLandings()` | `ICollection<ElementId>` | |
+| `GetStairsSupports()` | `ICollection<ElementId>` | |
+| `GetAssociatedRailings()` | | |
+| `IsInEditMode()` | `bool` | |
+
+**There is no base-level property on `Stairs`.** `BaseElevation` is a number, not
+a level. Reach the level through `BuiltInParameter.STAIRS_BASE_LEVEL_PARAM`, and
+fall back to matching `BaseElevation` against the model's levels.
+
+### 1.4 `StairsType` — properties, not parameters
+
+| Property | Type | |
+| --- | --- | --- |
+| `MaxRiserHeight` | `double` | Feet. `> 0`, `<= 30000` |
+| `MinTreadDepth` | `double` | Feet |
+| `MinRunWidth` | `double` | Feet |
+| `ConstructionMethod` | `StairsConstructionMethod` | Monolithic vs assembled |
+| `RunType` | `StairsRunType` | **The waist is on this, not here** |
+| `LandingType` | `StairsLandingType` | |
+| `LeftSideSupportType` / `RightSideSupportType` / `MiddleSupportType` | `StairsSupportType` | |
+| `HasMiddleSupports` | `bool` | |
+| `MiddleSupportsNumber` | `int` | |
+| `LeftLateralOffset` / `RightLateralOffset` | `double` | |
+| `NotchExtension` / `NotchThickness` / `NotchHorizontalGap` / `NotchVerticalGap` | `double` | |
+| `EndConnectionType` | `StairsLandingConnectionType` | |
+
+### 1.5 `StairsRunType` — and the waist
+
+| Property | Type | |
+| --- | --- | --- |
+| `StructuralDepth` | `double`, get/set | **The waist.** Only meaningful for a monolithic run — *returns 0.0 if the run is not monolithic* |
+| `TreadThickness` | `double` | |
+| `RiserThickness` | `double` | |
+
+**So the order is forced:** make the stair monolithic first, then set
+`StructuralDepth`. Setting the waist on a non-monolithic run writes to something
+that reads back as zero, and nothing complains.
+
+`StairsConstructionMethod`'s member names could not be confirmed from the public
+reference. **Do not hard-code one** — read the enum at runtime and take the
+member whose name contains `monolith`, and report what was found. That is the
+§0.1 lesson applied to an enum.
+
+### 1.6 What an RC stair maps to
+
+| Workbook | Where it goes |
+| --- | --- |
+| `Width` | `StairsRun.ActualRunWidth` (per run), `StairsType.MinRunWidth` |
+| `Waist` | `StairsRunType.StructuralDepth`, monolithic first |
+| `Tread` | `StairsType.MinTreadDepth` |
+| `Riser` | `StairsType.MaxRiserHeight`, and the **count** on `Stairs.DesiredRisersNumber` |
+
+Sources:
+[StairsEditScope](https://www.revitapidocs.com/2015/47e4576e-4b01-ed1f-6dc1-885b6780aa07.htm) ·
+[Creating and Editing Stairs](https://help.autodesk.com/cloudhelp/2024/ITA/Revit-API/files/Revit_API_Developers_Guide/Revit_Geometric_Elements/Stairs_and_Railings/Revit_API_Revit_API_Developers_Guide_Revit_Geometric_Elements_Stairs_and_Railings_Creating_and_Editing_Stairs_html.html) ·
+[Stairs members](https://www.revitapidocs.com/2023/e306937c-0f0e-288f-6a5b-ac4e9c41fe42.htm) ·
+[StairsType members](https://www.revitapidocs.com/2015/03e9941e-aa3e-64e9-125a-5d94d319e673.htm) ·
+[MaxRiserHeight](https://www.revitapidocs.com/2025.3/70999f80-decb-bdbb-d251-662dfcd1bf10.htm) ·
+[StairsRunType.StructuralDepth](https://apidocs.co/apps/revit/2025/796c6515-9e91-e455-d0e8-91b15241074c.htm) ·
+[CreateStraightRun](https://www.revitapidocs.com/2015/54fd7462-c16c-41bf-705f-ede3af0bc572.htm)
+
+---
+
+## 2. Types, and duplicating them
+
+What every placement command does before it places anything.
+
+| Call | Note |
+| --- | --- |
+| `ElementType.Duplicate(name)` | Throws when *name* is already used **in that family**. A name already taken means the type exists — but **a name is not a size**, so check what it measures before reusing it |
+| `FamilySymbol.Activate()` | A symbol must be active before `NewFamilyInstance`. Follow with `doc.Regenerate()` |
+| `FamilySymbol.Family.GetFamilySymbolIds()` | The siblings, for finding a name collision before provoking one |
+| `Element.Name` | Raises on some elements; fall back to `Element.Name.GetValue(element)` |
+| `BuiltInParameter.ALL_MODEL_TYPE_MARK` | The Type Mark. Writing it is what makes a created type findable on the second run |
+| `Floor.Create(doc, IList<CurveLoop>, typeId, levelId)` | Pads and slabs. The loops must be a typed list |
+
+**Names Revit refuses:** `\ : { } [ ] | ; < > ? \` ~` and leading or trailing
+spaces. `Duplicate` throws rather than sanitising.
+
+---
+
+## 3. Units
+
+Revit's internal unit is the **decimal foot**, whatever the project's display
+units say. A foot is 304.8 mm exactly. Every number crossing into the API is
+converted; every number coming out is converted back. There is no exception to
+this and no parameter that quietly honours millimetres.
+
+---
+
+# Part 2 — Reinforcement
+
+The original contents of this file, kept whole. Gathered after a real run
+reported `Constrained rebar isn't a free form rebar element`.
 
 ## 1. Shape-driven and free-form are two different APIs
 

@@ -498,9 +498,25 @@ HOUSE_PATTERNS = {
     "footing": "CH-{l} X {w} X {t}",
     "slab": "CH-{t} THK.",
     "stair": "CH-{w} X {t}",
-    "column_mark": "C{n}",
-    "footing_mark": "F{n}",
-    "beam_mark": "B{n}",
+    "column_mark": "{prefix}{n}",
+    "footing_mark": "{prefix}{n}",
+    "beam_mark": "{prefix}{n}",
+}
+
+#: Mark patterns written before ``{prefix}`` existed, and what they become.
+#:
+#: The owner wrote ``B{n}``, ``C{n}`` and ``F{n}`` when the only field a mark
+#: pattern had was ``{n}``. With ``{prefix}`` those are now actively wrong for
+#: beams: the counter runs **within** a prefix, so a 230x450 plinth and a
+#: 230x600 floor beam both come out ``B1`` — two sections on one schedule line.
+#:
+#: So these three are migrated once, and only these three exact strings. Any
+#: other hand-written pattern is left exactly as it is, which is the whole
+#: point of `BUG-35`.
+LEGACY_MARK_PATTERNS = {
+    "column_mark": ("C{n}",),
+    "footing_mark": ("F{n}",),
+    "beam_mark": ("B{n}", "B{level}-{grid}"),
 }
 
 
@@ -533,8 +549,11 @@ def naming_rows(existing=None):
     patterns = naming.defaults()
     patterns.update(HOUSE_PATTERNS)
     for key, pattern in (existing or {}).items():
-        if key in naming.PATTERNS and pattern:
-            patterns[key] = pattern
+        if key not in naming.PATTERNS or not pattern:
+            continue
+        if pattern in LEGACY_MARK_PATTERNS.get(key, ()):
+            continue      # migrated to the house default, see above
+        patterns[key] = pattern
 
     rows = []
     for key in sorted(naming.PATTERNS):

@@ -68,12 +68,23 @@ def _existing(doc):
 def _apply(doc, plans, findings, finding, context):
     """Create pads. ``written``. Inside the caller's transaction."""
     from anongee_toolkit.commands import _marks
+    from anongee_toolkit.commands import _sheets
     from anongee_toolkit.rc_automation import placement
     from anongee_toolkit.structural import footings
 
     levels = _levels(doc)
     sizes = _sizes(context, findings, finding)
+    patterns = _sheets.naming(context, findings, finding)
     label_parameters = _marks.candidates(context)
+    schedule_marks = _marks.labels(
+        [item.row for item in plans], patterns, "footing_mark")
+    for label, sharing in _marks.collisions(schedule_marks):
+        findings.append(finding(
+            "Warning", "",
+            "{0} sections would all schedule as {1!r}: {2}. The {3} pattern "
+            "counts within a prefix but does not print it - use "
+            "'{{prefix}}{{n}}' on NAMING so they read PB1 and B1.".format(
+                len(sharing), label, ", ".join(sharing), "footing_mark")))
     reported = set()
     cache = {}
     written = 0
@@ -101,7 +112,10 @@ def _apply(doc, plans, findings, finding, context):
 
             size = sizes.get(_fold(row.type_mark)) or {}
             floor_type, note = footings.ensure_named_type(
-                doc, row.type_mark, size.get("thickness_mm"), cache)
+                doc, row.type_mark, size.get("thickness_mm"), cache,
+                name=_sheets.type_name(patterns, "footing", row.type_mark,
+                                       l=size.get("length_mm"), w=size.get("width_mm"),
+                                       t=size.get("thickness_mm")))
             if floor_type is None:
                 findings.append(finding("Error", row.row, note))
                 continue
@@ -117,7 +131,8 @@ def _apply(doc, plans, findings, finding, context):
                 rotation_deg=row.rotation_deg or 0.0,
                 offset_mm=row.top_offset_mm or 0.0, mark=row.unique_mark)
             _marks.write(floor, row, label_parameters, reported, findings,
-                         finding)
+                         finding,
+                         schedule_marks.get(_fold(row.type_mark)))
             if skipped:
                 findings.append(finding(
                     "Warning", row.row,

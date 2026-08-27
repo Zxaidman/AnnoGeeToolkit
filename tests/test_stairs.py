@@ -351,15 +351,62 @@ class StairModuleTests(unittest.TestCase):
         self.assertIn("DesiredRisersNumber",
                       self.source("structural", "stairs.py"))
 
-    def test_the_type_carries_the_waist_and_the_tread(self):
-        """A monolithic stair's structural depth *is* the waist. Setting it
-        before ``MonolithicStairs`` silently does nothing, which is why the
-        order is pinned here."""
+    def test_the_type_members_are_the_documented_ones(self):
+        """A run reported *could not set Monolithic, Waist, Tread, Riser* —
+        four for four — because all four were being written with
+        ``LookupParameter``. They are CLR **properties**; the parameters a user
+        sees are called *Maximum Riser Height* and so on. §0.2.
+        """
         body = self.source("structural", "stairs.py")
-        self.assertIn('MONOLITHIC = "MonolithicStairs"', body)
+        self.assertIn('TREAD = "MinTreadDepth"', body)
+        self.assertIn('RISER = "MaxRiserHeight"', body)
+        self.assertIn('RUN_WIDTH = "MinRunWidth"', body)
         self.assertIn('WAIST = "StructuralDepth"', body)
-        self.assertIn('TREAD = "MinimumTreadDepth"', body)
-        self.assertLess(body.index("MONOLITHIC ="), body.index("WAIST ="))
+        self.assertNotIn("MinimumTreadDepth", body)
+        self.assertNotIn('"MonolithicStairs"', body)
+
+    def test_the_waist_is_set_on_the_run_type(self):
+        """``StructuralDepth`` is on ``StairsRunType``, not ``StairsType`` —
+        reading it off the stair type gives nothing."""
+        body = self.source("structural", "stairs.py")
+        self.assertIn("stair_type.RunType", body)
+
+    def test_monolithic_is_set_before_the_waist(self):
+        """``StructuralDepth`` reads back as 0.0 unless the run is monolithic,
+        so setting the waist first writes to nothing and reports success."""
+        tree = ast.parse(self.source("structural", "stairs.py"))
+        sizer = [node for node in ast.walk(tree)
+                 if isinstance(node, ast.FunctionDef)
+                 and node.name == "_size_type"]
+        self.assertTrue(sizer)
+        called = [getattr(node.func, "attr", None) or getattr(node.func, "id", None)
+                  for node in ast.walk(sizer[0]) if isinstance(node, ast.Call)]
+        self.assertIn("_make_monolithic", called)
+        self.assertIn("_set_waist", called)
+        self.assertLess(called.index("_make_monolithic"),
+                        called.index("_set_waist"))
+
+    def test_the_construction_method_enum_is_read_not_guessed(self):
+        """The enum's members could not be confirmed from the public
+        reference, and guessing a name is exactly what cost the last round."""
+        body = self.source("structural", "stairs.py")
+        self.assertIn('MONOLITHIC_HINT = "monolith"', body)
+        self.assertIn("ConstructionMethod", body)
+
+    def test_the_edit_scope_is_imported_from_the_right_namespace(self):
+        """The whole of last round: ``StairsEditScope`` is in
+        ``Autodesk.Revit.DB``; ``StairsRun`` is in ``.Architecture``. There is
+        no rule that gets you from one to the other."""
+        tree = ast.parse(self.source("structural", "stairs.py"))
+        found = {}
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom):
+                continue
+            for alias in node.names:
+                found.setdefault(alias.name, set()).add(node.module)
+        self.assertIn("Autodesk.Revit.DB", found.get("StairsEditScope", set()))
+        self.assertIn("Autodesk.Revit.DB.Architecture",
+                      found.get("StairsRun", set()))
 
     def test_the_failure_preprocessor_is_a_clr_class_built_once(self):
         """A class subclassing a Revit interface can only be defined once per

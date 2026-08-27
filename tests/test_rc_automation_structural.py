@@ -854,17 +854,22 @@ class TypeReuseTests(unittest.TestCase):
     def test_a_free_name_is_duplicated_under_that_name(self):
         maker = self.module()
         document, symbols = self.world("PB-230x450", "B-300x600")
-        made, note = maker.duplicate(document, symbols[0], "CH-230 X 600",
-                                     "B-230x600")
+        made, created, note = maker.duplicate(document, symbols[0],
+                                              "CH-230 X 600", "B-230x600")
         self.assertEqual(made.Name, "CH-230 X 600")
+        self.assertTrue(created)
         self.assertEqual(note, "")
 
     def test_a_taken_name_of_the_right_size_is_reused(self):
         maker = self.module()
         document, symbols = self.world("CH-230 X 600", "B-300x600")
-        made, note = maker.duplicate(document, symbols[0], "CH-230 X 600",
-                                     "B-230x600", accept=lambda symbol: True)
+        made, created, note = maker.duplicate(
+            document, symbols[0], "CH-230 X 600", "B-230x600",
+            accept=lambda symbol: True)
         self.assertIs(made, symbols[0])
+        self.assertFalse(created,
+                         "a reused type must never be reported as created - "
+                         "the caller sizes what it makes")
         self.assertIn("already existed", note)
 
     def test_a_taken_name_of_the_wrong_size_is_not_reused(self):
@@ -872,9 +877,11 @@ class TypeReuseTests(unittest.TestCase):
         than handing back a section nobody asked for."""
         maker = self.module()
         document, symbols = self.world("CH-230 X 600", "B-300x600")
-        made, note = maker.duplicate(document, symbols[0], "CH-230 X 600",
-                                     "B-230x600", accept=lambda symbol: False)
+        made, created, note = maker.duplicate(
+            document, symbols[0], "CH-230 X 600", "B-230x600",
+            accept=lambda symbol: False)
         self.assertIsNot(made, symbols[0])
+        self.assertTrue(created)
         self.assertEqual(made.Name, "B-230x600")
         self.assertIn("refused", note)
 
@@ -883,8 +890,10 @@ class TypeReuseTests(unittest.TestCase):
         one; this pins what happens if a future caller forgets."""
         maker = self.module()
         document, symbols = self.world("CH-230 X 600")
-        made, _note = maker.duplicate(document, symbols[0], "CH-230 X 600")
+        made, created, _note = maker.duplicate(document, symbols[0],
+                                               "CH-230 X 600")
         self.assertIs(made, symbols[0])
+        self.assertFalse(created)
 
     def test_fits_needs_every_dimension_to_agree(self):
         maker = self.module()

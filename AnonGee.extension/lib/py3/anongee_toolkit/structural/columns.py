@@ -126,59 +126,78 @@ FAMILY_HINTS = ("concreterectangularcolumn", "rectangularcolumn",
 
 def ensure_symbol(doc, wanted, width_mm=None, depth_mm=None, cache=None,
                   name=None):
-    """``(FamilySymbol, note)`` — found, or duplicated and sized to order.
+    """``(FamilySymbol, note)`` — the house type, found or made.
+
+    *name* is the house name the NAMING sheet renders, and **it is the
+    identity** — see :func:`typemaker.choose`. ``find_symbol`` is left as it
+    was, because the extraction tool and the diagnostics still ask *does this
+    model have a type called X*, which is a different question.
 
     **Creating a type is not authoring a family.** The family has to be loaded
-    already; what this makes is a named, sized type of one that is. A model with
-    no rectangular column family in it is reported rather than guessed at,
-    because inventing a section is the kind of help nobody wants.
+    already; what this makes is a named, sized type of one that is.
 
-    Requires a transaction when it has to duplicate — the caller has one open.
+    Requires a transaction when it has to create — the caller has one open.
     """
+    from anongee_toolkit.structural import typemaker
+
     if cache is None:
         cache = {}
-    symbol, note = find_symbol(doc, wanted, cache)
-    if symbol is not None:
-        return symbol, note
+    key = _fold(name or wanted)
+    if key in cache:
+        return cache[key], ""
+
+    loaded = symbols(doc)
+    if not loaded:
+        return None, ("this model has no structural column family loaded. "
+                      "Load one - Concrete-Rectangular-Column is the standard "
+                      "- and run this again")
+
+    index, note = typemaker.choose(loaded, name, wanted)
+    if index is not None:
+        return _activate(doc, loaded[index][3], cache, key), note
 
     if not width_mm or not depth_mm:
-        return None, ("{0} — and the TYPES sheet does not give it a Width and "
-                      "a Depth, so one cannot be made".format(note))
+        return None, ("no column type called {0!r}, and the TYPES sheet does "
+                      "not give it a Width and a Depth, so one cannot be "
+                      "made".format(name or wanted))
 
     base, base_note = _base_symbol(doc)
     if base is None:
         return None, base_note
 
-    # Shared with beams and footings — see ``typemaker`` for why it stopped
-    # being three copies. BUG-31.
-    from anongee_toolkit.structural import typemaker
-
-    missing = note
-    duplicated, note = typemaker.duplicate(
+    duplicated, made, note = typemaker.duplicate(
         doc, base, name or wanted, wanted,
         accept=lambda symbol: typemaker.fits(
             symbol, ((WIDTH_NAMES, width_mm), (DEPTH_NAMES, depth_mm))))
     if duplicated is None:
-        return None, "{0} — and {1}".format(missing, note)
+        return None, "no column type called {0!r}, and {1}".format(
+            name or wanted, note)
+
+    cache[key] = duplicated
+    typemaker.activate(doc, duplicated)
+
+    # Only what was created is sized — sizing a type that already existed edits
+    # a type other elements are using. See ``framing.ensure_symbol``.
+    if not made:
+        return duplicated, note
 
     set_width, set_depth = typemaker.size(duplicated, WIDTH_NAMES, width_mm,
                                           DEPTH_NAMES, depth_mm)
     typemaker.set_type_mark(duplicated, wanted)
-    typemaker.activate(doc, duplicated)
-    cache[_fold(wanted)] = duplicated
 
-    made = "created {0!r} at {1:g} x {2:g}".format(wanted, width_mm, depth_mm)
+    built = "created {0!r} at {1:g} x {2:g}".format(name or wanted, width_mm,
+                                                    depth_mm)
     if note:
-        made = "{0} — {1}".format(made, note)
+        built = "{0} - {1}".format(built, note)
     if not (set_width and set_depth):
         return duplicated, (
             "{0}, but could not set its {1}: the family does not use a "
             "parameter this recognises ({2} / {3}), so the type is the size "
             "the family came at".format(
-                made, "size" if not (set_width or set_depth)
+                built, "size" if not (set_width or set_depth)
                 else ("width" if not set_width else "depth"),
                 ", ".join(WIDTH_NAMES), ", ".join(DEPTH_NAMES)))
-    return duplicated, made
+    return duplicated, built
 
 
 def _base_symbol(doc):
