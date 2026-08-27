@@ -15,6 +15,7 @@ which storey it is in.
 Which makes the second-run test the one that matters. Anything can create.
 """
 
+import ast
 import importlib.util
 import os
 import sys
@@ -416,9 +417,70 @@ class TypeCreationTests(unittest.TestCase):
             return handle.read()
 
     def test_a_column_type_is_duplicated_from_a_loaded_family(self):
-        body = self.source("structural", "columns.py")
-        self.assertIn("def ensure_symbol(", body)
-        self.assertIn("base.Duplicate(name or wanted)", body)
+        """Read as a call graph, not as text.
+
+        This test used to assert the literal string
+        ``base.Duplicate(name or wanted)``, and moving that line into the
+        shared ``typemaker`` — which is exactly the fix BUG-31 called for —
+        broke it while the behaviour it names was still true. That is the
+        fifth time a check here has matched prose instead of code. So: parse
+        it, and assert that ``ensure_symbol`` reaches a duplicate call by
+        *some* route.
+        """
+        for package, name in (("structural", "columns.py"),
+                              ("structural", "framing.py")):
+            tree = ast.parse(self.source(package, name))
+            function = self._function(tree, "ensure_symbol")
+            self.assertIsNotNone(function, name)
+            called = self._calls(function)
+            self.assertTrue(
+                any("duplicate" in call.lower() for call in called),
+                "{0}: ensure_symbol never duplicates anything".format(name))
+
+    def test_a_type_that_cannot_be_made_carries_revit_s_own_words(self):
+        """The whole of BUG-31 in one assertion.
+
+        A hundred and ten beams failed inside ``Duplicate`` and every one of
+        them was reported as *no framing type called 'B-230x600'* — the type
+        being looked for, never the exception explaining why it could not be
+        made. The cause then had to be found by elimination from a spreadsheet
+        four days later. Whatever else ``typemaker.duplicate`` does, it must
+        put the caught exception into the sentence it returns.
+        """
+        tree = ast.parse(self.source("structural", "typemaker.py"))
+        function = self._function(tree, "duplicate")
+        self.assertIsNotNone(function)
+
+        handlers = [node for node in ast.walk(function)
+                    if isinstance(node, ast.ExceptHandler)]
+        self.assertTrue(handlers, "duplicate() catches nothing")
+        for handler in handlers:
+            self.assertIsNotNone(
+                handler.name,
+                "duplicate() catches an exception without binding it, so it "
+                "cannot report what Revit said")
+            bound = handler.name
+            used = any(isinstance(node, ast.Name) and node.id == bound
+                       for node in ast.walk(handler))
+            self.assertTrue(used, "the caught exception is never reported")
+
+    def _function(self, tree, name):
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name == name:
+                return node
+        return None
+
+    def _calls(self, function):
+        found = []
+        for node in ast.walk(function):
+            if not isinstance(node, ast.Call):
+                continue
+            target = node.func
+            if isinstance(target, ast.Attribute):
+                found.append(target.attr)
+            elif isinstance(target, ast.Name):
+                found.append(target.id)
+        return found
 
     def test_a_new_type_is_named_by_the_house_pattern(self):
         """The workbook's TypeMark is what a row *asks for*; the NAMING sheet
@@ -902,8 +964,52 @@ class NamingSheetTests(unittest.TestCase):
         naming = self.naming()
         patterns, issues = naming.parse(
             [["Element", "Pattern"], ["column_mark", "COL-{n}"]])
-        self.assertEqual(issues, [])
+        self.assertEqual([issue for issue in issues
+                          if issue.severity != "Info"], [])
         self.assertEqual(naming.render(patterns, "column_mark", n=4), "COL-4")
+
+    def test_beam_mark_takes_the_field_the_sheet_offers(self):
+        """The owner wrote ``B{n}`` to match ``C{n}`` and ``F{n}``, and it was
+        rejected: ``beam_mark`` declared ``{level}`` and ``{grid}`` and nothing
+        else, while the sheet's own *Fields it may use* column offered ``{n}``.
+        The workbook advertised a field the code refused, and the refusal was
+        silent by design — a naming preference must never stop a run — so 132
+        beams were placed with marks nobody asked for. BUG-34.
+        """
+        naming = self.naming()
+        patterns, issues = naming.parse(
+            [["Element", "Pattern"], ["beam_mark", "B{n}"]])
+        self.assertEqual([issue for issue in issues
+                          if issue.severity != "Info"], [])
+        self.assertEqual(patterns["beam_mark"], "B{n}")
+        self.assertEqual(naming.render(patterns, "beam_mark", n=7), "B7")
+
+    def test_all_three_marks_take_the_same_fields(self):
+        """Three separate field lists is how the last one came to disagree with
+        the other two. One list, so they cannot drift again."""
+        naming = self.naming()
+        for key in ("column_mark", "beam_mark", "footing_mark"):
+            self.assertEqual(naming.PATTERNS[key][0], naming.MARK_FIELDS, key)
+
+    def test_a_pattern_nothing_reads_yet_says_so(self):
+        """A preference that quietly does nothing is worse than one refused.
+        The three ``*_mark`` keys are read by no command — a placement sheet
+        carries its own Mark column — so a pattern typed against one is kept
+        and reported rather than appearing to take effect."""
+        naming = self.naming()
+        _patterns, issues = naming.parse(
+            [["Element", "Pattern"], ["beam_mark", "BM-{n}"]])
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].severity, "Info")
+        self.assertIn("nothing reads it yet", issues[0].message)
+
+    def test_a_wired_pattern_is_not_reported(self):
+        """The four that *are* read say nothing — otherwise the notice becomes
+        noise and stops being read."""
+        naming = self.naming()
+        _patterns, issues = naming.parse(
+            [["Element", "Pattern"], ["beam", "CH-{b} X {h}"]])
+        self.assertEqual(issues, [])
 
     def test_an_unknown_element_says_what_it_does_know(self):
         naming = self.naming()
@@ -937,13 +1043,52 @@ class NamingSheetTests(unittest.TestCase):
                          "C1")
 
     def test_the_sheet_the_builder_writes_is_the_sheet_the_reader_reads(self):
+        """The round trip, and the test that caught ``_fold`` eating the
+        underscore out of three keys in the sheet this repository writes."""
         sample = _sample()
         naming = self.naming()
         rows = sample.naming_rows()
         patterns, issues = naming.parse(
             [list(sample.NAMING_HEADERS)] + [list(row) for row in rows])
         self.assertEqual(issues, [])
-        self.assertEqual(patterns, naming.defaults())
+        self.assertEqual(patterns, dict(sample.HOUSE_PATTERNS))
+
+    def test_the_workbook_ships_the_house_convention(self):
+        """The module keeps the neutral default and the workbook carries the
+        practice's own — which is the split the NAMING sheet exists to make.
+
+        The module's ``{b} X {h}`` is what a stock Revit template holds, and it
+        is the fallback when a pattern will not render, so it stays generic.
+        ``CH-{b} X {h}`` is what this practice writes on a drawing.
+        """
+        sample = _sample()
+        naming = self.naming()
+        self.assertEqual(naming.defaults()["beam"], "{b} X {h}")
+        self.assertEqual(sample.HOUSE_PATTERNS["beam"], "CH-{b} X {h}")
+        for key in naming.PATTERNS:
+            self.assertIn(key, sample.HOUSE_PATTERNS, key)
+
+    def test_a_hand_edited_pattern_survives_a_rebuild(self):
+        """``Pattern`` is the one column on this sheet a person owns.
+
+        A rebuild that reset it would throw the house convention away every
+        time the sample data changed — which is exactly what happened the first
+        time the stair sheets were added, and the owner's ``CH-`` patterns went
+        with it.
+        """
+        sample = _sample()
+        rows = sample.naming_rows({"beam": "PRACTICE-{b}x{h}"})
+        found = dict((row[0], row[1]) for row in rows)
+        self.assertEqual(found["beam"], "PRACTICE-{b}x{h}")
+        self.assertEqual(found["column"], sample.HOUSE_PATTERNS["column"])
+
+    def test_a_preserved_pattern_regenerates_its_example(self):
+        """Keeping the pattern and keeping the old example beside it would be
+        the disagreement this sheet is meant to stop."""
+        sample = _sample()
+        rows = sample.naming_rows({"beam": "PRACTICE-{b}x{h}"})
+        example = dict((row[0], row[2]) for row in rows)["beam"]
+        self.assertEqual(example, "PRACTICE-300x600")
 
 
 def _read_source(package, name):
@@ -955,3 +1100,124 @@ def _read_source(package, name):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NamingRefreshTests(unittest.TestCase):
+    """``naming.refresh`` — the cells it asks the workbook to write.
+
+    Static, because the command opens a workbook and this cannot. What is
+    checked is the part that decides whether the sheet stops disagreeing with
+    itself: which columns it touches, which it does not, and that it returns
+    nothing when nothing has drifted.
+    """
+
+    def module(self):
+        import importlib.util
+        path = os.path.join(_ROOT, "AnonGee.extension", "lib", "py3",
+                            "anongee_toolkit", "commands", "naming.py")
+        spec = importlib.util.spec_from_file_location("_naming_cmd", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def naming(self):
+        return _load_module("rc_automation", "naming_sheet")
+
+    HEADER = ["Element", "Pattern", "Example", "Fields it may use",
+              "What it names"]
+
+    def test_the_pattern_column_is_never_written(self):
+        """The one column a person owns. A refresh that rewrote it is a
+        refresh nobody would press twice."""
+        self.assertNotIn("Pattern", self.module().COLUMNS)
+
+    def test_a_stale_example_is_rewritten(self):
+        module = self.module()
+        grid = [self.HEADER,
+                ["beam", "CH-{b} X {h}", "300 X 600", "{b}, {h}", "a beam"]]
+        header_at, columns = module._header(grid)
+        cells, read, changed = module._cells(
+            grid, header_at, columns, {"beam": "CH-{b} X {h}"})
+        self.assertEqual(read, 1)
+        self.assertTrue(changed)
+        examples = [cell for cell in cells if cell["column"] == 3]
+        self.assertEqual(examples[0]["value"], "CH-300 X 600")
+        self.assertEqual(examples[0]["row"], 2)
+
+    def test_a_sheet_that_already_agrees_asks_for_nothing(self):
+        """A refresh that rewrote all sixty cells every time would put an
+        unsaved-changes dot on a workbook that had not changed, and would
+        report the same number for ever — which stops meaning anything the
+        second time it is read."""
+        naming = self.naming()
+        module = self.module()
+        patterns = {"beam": "CH-{b} X {h}"}
+        grid = [self.HEADER,
+                ["beam", "CH-{b} X {h}", naming.example(patterns, "beam"),
+                 "{b}, {h}", naming.PATTERNS["beam"][2]]]
+        header_at, columns = module._header(grid)
+        cells, read, changed = module._cells(grid, header_at, columns,
+                                             patterns)
+        self.assertEqual(read, 1)
+        self.assertEqual(changed, 0)
+        self.assertEqual(cells, [])
+
+    def test_the_fields_column_follows_the_code(self):
+        """It is what tells a person which placeholders exist. The owner's
+        edited copy of it advertised ``{n}`` for a key that refused it —
+        BUG-34 — and this is the column that has to stop being hand-kept."""
+        module = self.module()
+        self.assertEqual(module._fields("beam"), "{b}, {h}")
+        self.assertIn("{n}", module._fields("beam_mark"))
+
+    def test_a_missing_column_is_reported_and_skipped(self):
+        module = self.module()
+        grid = [["Element", "Pattern"], ["beam", "CH-{b} X {h}"]]
+        header_at, columns = module._header(grid)
+        cells, read, _changed = module._cells(grid, header_at, columns,
+                                              {"beam": "CH-{b} X {h}"})
+        self.assertEqual(read, 1)
+        self.assertEqual(cells, [])
+
+    def test_an_unknown_element_row_is_left_alone(self):
+        module = self.module()
+        grid = [self.HEADER,
+                ["girder", "{b} x {h}", "", "", ""]]
+        header_at, columns = module._header(grid)
+        cells, read, _changed = module._cells(grid, header_at, columns, {})
+        self.assertEqual(read, 0)
+        self.assertEqual(cells, [])
+
+    def test_the_header_is_found_the_way_the_reader_finds_it(self):
+        """A sheet this can refresh and a sheet that can be read have to be the
+        same sheet, or the button silently does nothing to a workbook that
+        works."""
+        module = self.module()
+        grid = [["AnonGee Bridge - naming", "", "", "", ""],
+                self.HEADER,
+                ["beam", "CH-{b} X {h}", "", "", ""]]
+        header_at, columns = module._header(grid)
+        self.assertEqual(header_at, 1)
+        self.assertEqual(columns["element"], 0)
+        self.assertEqual(columns["pattern"], 1)
+
+    def test_it_writes_nothing_to_revit(self):
+        """It needs no document and opens no transaction — the only command
+        with an answer that belongs in a sheet."""
+        import importlib.util
+        path = os.path.join(_ROOT, "AnonGee.extension", "lib", "py3",
+                            "anongee_toolkit", "commands", "naming.py")
+        with open(path, encoding="utf-8") as handle:
+            body = handle.read()
+        for forbidden in ("Transaction", "doc.Create", "ActiveUIDocument"):
+            self.assertNotIn(forbidden, body)
+
+
+def _load_module(package, name):
+    import importlib.util
+    path = os.path.join(_ROOT, "AnonGee.extension", "lib", "py3",
+                        "anongee_toolkit", package, name + ".py")
+    spec = importlib.util.spec_from_file_location("_" + name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module

@@ -153,7 +153,23 @@ def new_result(envelope, status=STATUS_QUEUED, summary=None, findings=None,
         "note": note,
         "summary": dict(summary or {}),
         "findings": [dict(finding) for finding in (findings or ())],
+        "cells": [],
     }
+
+
+def unpack(answer):
+    """A handler's return value as ``(summary, findings, note, cells)``.
+
+    Seven handlers return three things and one returns four. Rather than make
+    six of them carry an empty list they have no use for, the fourth is
+    optional and this is the one place that knows it — so the listener does not
+    grow a branch, and the rule can be tested off Revit.
+    """
+    items = list(answer or ())
+    while len(items) < 4:
+        items.append(None)
+    summary, findings, note, cells = items[0], items[1], items[2], items[3]
+    return summary, findings, note or "", cells or []
 
 
 def rejected(envelope, note):
@@ -168,11 +184,23 @@ def rejected(envelope, note):
 #: fix it.
 FINDING_FIELDS = ("severity", "sheet", "row", "column", "message")
 
-#: Marks the two blocks in the TSV. A line starting with ``#`` is structure;
+#: Marks the blocks in the TSV. A line starting with ``#`` is structure;
 #: everything else is data. Excel reads this with ``Line Input`` and nothing
 #: else, which is the point.
 TSV_RESULT_MARKER = "#RESULT"
 TSV_FINDINGS_MARKER = "#FINDINGS"
+
+#: The third block: cells a command wants written back into the workbook.
+#:
+#: Every command so far has been one-way — the workbook says what it wants and
+#: Revit reports what it did. ``naming.refresh`` is the first that has an answer
+#: belonging *in a sheet* rather than in a log, and the parameter-driven
+#: schedule generator will be the second. ``sheet, row, column, value``, one per
+#: line, and the macro writes exactly those and nothing else.
+TSV_CELLS_MARKER = "#CELLS"
+
+#: The cell columns, in the order the TSV prints them.
+CELL_FIELDS = ("sheet", "row", "column", "value")
 
 
 def as_tsv(result):
@@ -196,6 +224,15 @@ def as_tsv(result):
     for finding in result.get("findings") or ():
         lines.append("\t".join(
             _flat(finding.get(field, "")) for field in FINDING_FIELDS))
+
+    # Written unconditionally, header and all, even when there is nothing to
+    # write. A block that appears only sometimes is a block a macro forgets to
+    # handle, and the failure would be silent.
+    lines.append(TSV_CELLS_MARKER)
+    lines.append("\t".join(field.title() for field in CELL_FIELDS))
+    for cell in result.get("cells") or ():
+        lines.append("\t".join(
+            _flat(cell.get(field, "")) for field in CELL_FIELDS))
     return "\n".join(lines) + "\n"
 
 

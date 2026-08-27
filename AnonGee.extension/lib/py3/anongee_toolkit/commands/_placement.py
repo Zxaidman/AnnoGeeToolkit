@@ -78,17 +78,54 @@ def run(uiapp, envelope, sheet_default, parse, span, existing, apply, what,
             "written. Set Write? to Yes to build. ({2})".format(
                 len(doing), what, reading))
     if not doing:
-        return summary, findings, (
-            "every {0} the sheet describes is already there".format(what))
+        return summary, findings, _nothing_to_do(summary, what, reading)
 
     context = {"sheets": grids, "units": units, "sheet": sheet_name,
                "workbook": workbook}
     written, write_findings = _write(doc, doing, apply, what, context)
     summary["written"] = written
     findings.extend(write_findings)
-    return summary, findings, (
-        "{0} {1}(s) written, as one undo step ({2})".format(
-            written, what, reading))
+    return summary, findings, _what_happened(written, len(doing), what, reading)
+
+
+def _nothing_to_do(summary, what, reading):
+    """Why there was nothing to do — and they are not the same reason.
+
+    ``doing`` is empty when every row already matches the model, and it is
+    **also** empty when not one row could be located. Both used to report
+    *every beam the sheet describes is already there*, which in the second case
+    is exactly backwards: nothing was there, and nothing could be placed. A run
+    that found no grid to stand on said the model was up to date. BUG-33.
+    """
+    invalid = summary.get("invalid") or 0
+    matched = summary.get("matched") or 0
+    if invalid and not matched:
+        return ("nothing was placed: not one of the {0} row(s) could be "
+                "located. Nothing in the model was checked, so this is not a "
+                "run that found everything already there. ({1})".format(
+                    invalid, reading))
+    if invalid:
+        return ("every {0} that could be located is already there, but {1} "
+                "row(s) could not be located at all — see the findings "
+                "({2})".format(what, invalid, reading))
+    return "every {0} the sheet describes is already there".format(what)
+
+
+def _what_happened(written, planned, what, reading):
+    """The shortfall first, when there is one.
+
+    ``written=22`` out of ``created=132`` was reported as *"22 beam(s) written,
+    as one undo step"*. The number was right and the sentence was reassuring,
+    which is the combination that let a hundred and ten missing beams read as a
+    success in the log for four days. BUG-33.
+    """
+    if written >= planned:
+        return "{0} {1}(s) written, as one undo step ({2})".format(
+            written, what, reading)
+    return ("{0} of {1} {2}(s) written — {3} did NOT happen and each one is in "
+            "the findings. Read those before running anything else, because "
+            "the next command overwrites them. ({4})".format(
+                written, planned, what, planned - written, reading))
 
 
 def _write(doc, plans, apply, what, context):

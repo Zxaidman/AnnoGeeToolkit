@@ -137,7 +137,7 @@ are held to the same three names by a test, because that is exactly the contract
 
 ## 2. Errors and bugs
 
-### BUG-31 — a beam type the model does not have cannot be created, and 110 beams went with it · `redo`
+### BUG-31 — a beam type the model does not have cannot be created, and 110 beams went with it · `testing`
 
 **How it was found.** The project owner changed the floor beam from `B-300x600` to `B-230x600` on
 `BEAM_TYPES` and `BEAM_PLACEMENT`, ran `beams.sync` on the existing model, got no change and *"a long
@@ -171,7 +171,7 @@ type actually had to be made, it failed. An assumption that rode on somebody els
 **Fix.** Report the exception rather than folding it into `None`, and say which of the four passes
 was tried; then `BUG-32` keeps the answer long enough to read it.
 
-### BUG-32 — the next command destroys the last command's findings · `pending`
+### BUG-32 — the next command destroys the last command's findings · `testing`
 
 **How it was found.** Looking for the 110 explanations `BUG-31` produced at 11:42:01. `slabs.sync`
 ran at 11:43:12 — **seventy-one seconds later** — and `FINDINGS` now holds two rows, both its.
@@ -185,7 +185,7 @@ tries the next thing — which is exactly what a person does after a failure.
 older blocks kept until the sheet is cleared deliberately. A run that fails and a run that reports
 nothing must stay tellable apart for longer than one command.
 
-### BUG-33 — two counts that read as success when they are not · `pending`
+### BUG-33 — two counts that read as success when they are not · `testing`
 
 **How it was found.** Reading `LOG` for `BUG-31`. Two separate misreports, both in
 `commands/_placement.py`:
@@ -201,7 +201,7 @@ nothing must stay tellable apart for longer than one command.
 empty-`doing` branch distinguishes *nothing to do because everything matches* from *nothing to do
 because nothing was usable*.
 
-### BUG-34 — the owner's `beam_mark` pattern is rejected by the sheet's own rules · `pending`
+### BUG-34 — the owner's `beam_mark` pattern is rejected by the sheet's own rules · `testing`
 
 **How it was found.** Running the owner's edited `NAMING` sheet through `naming_sheet.parse` here,
 off Revit. It returns a warning nobody has seen:
@@ -222,6 +222,25 @@ would have said so went to `FINDINGS`, and `BUG-32` wiped it.
 
 **Fix.** `beam_mark` takes `{n}` as well, and a mark pattern's fields are whatever the sheet offers
 for all three marks, not three different lists.
+
+### BUG-35 — a rebuild threw away the owner's naming patterns · `testing`
+
+**How it was found.** By doing it. Adding the stair sheets meant rebuilding the workbook, and the
+rebuild reset every `Pattern` on `NAMING` from the owner's `CH-{b} X {h}` back to the module's
+`{b} X {h}`. Reproduced immediately and fixed before the workbook was pushed — but it would have
+happened on **every** rebuild from here, and the owner had just said *"make it like that from now
+on"*.
+
+**Cause.** `naming_rows()` generated the sheet from `naming_sheet.defaults()` every time. The `LOG`
+was already carried across a rebuild for exactly this reason; `NAMING` was not, and it has the same
+property — part of it belongs to whoever has been using it.
+
+**Fix.** Two halves. The workbook now **ships** the house convention (`HOUSE_PATTERNS` in the
+builder) rather than the module's neutral default, because the owner asked for it. And a hand-edited
+`Pattern` is read before anything is cleared and **wins** over both. The module keeps `{b} X {h}`:
+it is what a stock Revit template holds and it is the fallback when a pattern will not render, so a
+generic module keeps a generic default. That split — the code says what is possible, the sheet says
+what is wanted — is the whole reason the sheet exists.
 
 ### BUG-1 — Bridge Check could not reach the wire at all · `testing`
 
@@ -816,8 +835,8 @@ Recorded here first, which is the rule.
 
 | ID | What | Verdict | Phase |
 | --- | --- | --- | --- |
-| FEAT-41 | **`NAMING` stays self-consistent** — `Example` and `Fields it may use` follow a hand-edited `Pattern` | The owner rewrote the patterns to the house convention (`CH-{b} X {h}`) and the two columns beside them still show the old ones, so the sheet now disagrees with itself in writing. Two ways: a `Refresh naming` button beside the others, or Excel formulas. **A formula cannot do it** — `Example` needs the renderer, and the field list needs `PATTERNS`. So: a button, and the same call `beams.sync` makes, so the example is produced by the code that will produce the name | `pending` |
-| FEAT-42 | **Staircases** — modelled and scheduled | New scope. A stair is not a column: it is a run, a landing, a waist and a set of treads, and the quantity people care about is the waist volume plus the steps. Sized. Probably its own sheet pair (`STAIR_TYPES`, `STAIR_PLACEMENT`) rather than a column on something else | `pending` |
+| FEAT-41 | **`NAMING` stays self-consistent** — `Example` and `Fields it may use` follow a hand-edited `Pattern` | The owner rewrote the patterns to the house convention (`CH-{b} X {h}`) and the two columns beside them still show the old ones, so the sheet now disagrees with itself in writing. Two ways: a `Refresh naming` button beside the others, or Excel formulas. **A formula cannot do it** — `Example` needs the renderer, and the field list needs `PATTERNS`. So: a button, and the same call `beams.sync` makes, so the example is produced by the code that will produce the name. **Built, `testing`** — `naming.refresh`, plus a `#CELLS` block on the result so a command can answer into a sheet at all, which nothing could do before | `testing` |
+| FEAT-42 | **Staircases** — modelled and scheduled | New scope. A stair is not a column: it is a run, a landing, a waist and a set of treads, and the quantity people care about is the waist volume plus the steps. Sized. Its own sheet pair, `STAIR_TYPES` and `STAIR_PLACEMENT`. **Option B built for review, `testing`** — waist as a slanted framing member, steps as one DirectShape of triangular prisms, five flights in the sample. No mid-landing yet, and the waist lands in Structural Framing schedules, which is the cost the owner is being asked to weigh | `testing` |
 | FEAT-43 | **Volume *and* formwork on every schedule, and a `SUMMARY` sheet** | Replaces the combined-concrete-volume schedule proposed in `docs/specs/2026-08-26-schedules-and-footing-rebar.md`. Each schedule carries its own concrete volume and its own shuttering area; `SUMMARY` adds them up. Formwork is not a Revit parameter — it is the contact area, and which faces count is a decision per element, so it is computed and written, not read | `pending` |
 | FEAT-44 | **A schedule generator that is not Revit's** | The owner's point: Revit's native schedule will not take every parameter an element has. So generate the table from the model — read every parameter, including the ones a native schedule refuses, and write it. Where it lands (a Revit schedule where possible, a sheet in the workbook where not) is the design question | `pending` |
 | FEAT-45 | **The rebar schedule's real columns** | The proposed sheet was a bar bending schedule and the owner's is a procurement document too. Three additions: **bar dimensions `A`–`E`** (the shape code's own legs, which is what a BBS actually prints), **which Revit layout rule** — Single / Number with Spacing / Maximum Spacing / Fixed Number, because that decides what a change to the pad does to the bars — and **Phase or Procurement**, which must exist on **both** the concrete and the rebar parameters so a client can be told what a stage costs | `pending` |

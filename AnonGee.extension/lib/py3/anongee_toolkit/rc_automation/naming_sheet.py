@@ -20,6 +20,12 @@ __version__ = "0.1.0"
 
 SHEET = "NAMING"
 
+#: The fields **every** mark pattern may use. One list rather than three,
+#: because three lists is how ``beam_mark`` came to refuse ``{n}`` while the
+#: sheet's own *Fields it may use* column offered it — the workbook advertising
+#: a field the code rejects, and the rejection degrading silently. BUG-34.
+MARK_FIELDS = ("n", "level", "grid")
+
 #: ``key -> (fields it may use, the default pattern, what it names)``.
 #:
 #: The defaults are the template's own convention — ``300 X 600``, capital X,
@@ -30,10 +36,19 @@ PATTERNS = {
     "beam": (("b", "h"), "{b} X {h}", "a rectangular beam type"),
     "footing": (("l", "w", "t"), "{l} x {w} x {t}mm", "a pad footing type"),
     "slab": (("t",), "{t}mm thk", "a floor or foundation slab type"),
-    "column_mark": (("n",), "C{n}", "a column's schedule mark"),
-    "footing_mark": (("n",), "F{n}", "a footing's schedule mark"),
-    "beam_mark": (("level", "grid"), "B{level}-{grid}", "a beam's mark"),
+    "stair": (("w", "t"), "{w} X {t}", "a stair waist and its landing"),
+    "column_mark": (MARK_FIELDS, "C{n}", "a column's schedule mark"),
+    "footing_mark": (MARK_FIELDS, "F{n}", "a footing's schedule mark"),
+    "beam_mark": (MARK_FIELDS, "B{n}", "a beam's schedule mark"),
 }
+
+#: Which keys name a type the commands actually create. The three ``*_mark``
+#: keys are **read by nothing yet** — a placement sheet carries its own ``Mark``
+#: column and that is what is written — so a pattern typed against one of them
+#: is recorded and has no effect. Said out loud here, and reported by
+#: :func:`check`, because a preference that quietly does nothing is worse than
+#: one that is refused.
+WIRED = ("column", "beam", "footing", "slab", "stair")
 
 #: Which keys are text rather than a size, so a check feeds them something
 #: readable instead of 100.
@@ -44,6 +59,11 @@ _TEXT_FIELDS = ("level", "grid", "name", "label")
 #: not a number anybody would recognise.
 _SAMPLE = {"b": 300, "h": 600, "l": 2400, "w": 2400, "t": 150, "n": 1,
            "level": "01", "grid": "1"}
+
+#: Where one field means two different sizes. ``w`` is a pad's 2400 and a
+#: stair's 1200, and an example showing a 2400-wide flight teaches the wrong
+#: thing about a sheet whose entire job is to be read.
+_SAMPLE_BY_KEY = {"stair": {"w": 1200, "t": 150}}
 
 
 def defaults():
@@ -111,6 +131,14 @@ def parse(grid, sheet=SHEET):
                 sheet=sheet, row=header_at + offset + 2, column="Pattern"))
             continue
         found[key] = pattern
+        if key not in WIRED and pattern != PATTERNS[key][1]:
+            issues.append(models.Issue(
+                models.SEVERITY_INFO,
+                "{0} is recorded but nothing reads it yet — a placement sheet "
+                "carries its own Mark column and that is what is written. The "
+                "pattern is kept and will apply when marks are generated "
+                "rather than typed.".format(key),
+                sheet=sheet, row=header_at + offset + 2, column="Pattern"))
     return found, issues
 
 
@@ -140,16 +168,14 @@ def render(patterns, key, **values):
     """
     pattern = (patterns or {}).get(key) or PATTERNS[key][1]
     shown = dict((name, _number(value)) for name, value in values.items())
-    try:
-        text = pattern.format(**shown).strip()
-    except (KeyError, IndexError, ValueError):
-        text = ""
-    if text:
-        return text
-    try:
-        return PATTERNS[key][1].format(**shown).strip()
-    except (KeyError, IndexError, ValueError):
-        return ""
+    for candidate in (pattern, PATTERNS[key][1]):
+        try:
+            text = candidate.format(**shown).strip()
+        except (KeyError, IndexError, ValueError):
+            continue
+        if text:
+            return text
+    return ""
 
 
 def example(patterns, key):
@@ -158,7 +184,8 @@ def example(patterns, key):
     The example is *generated* rather than typed beside the pattern, so it
     cannot drift from it — which is the whole reason it is worth having.
     """
-    sample = dict((field, _SAMPLE.get(field, 100))
+    special = _SAMPLE_BY_KEY.get(key) or {}
+    sample = dict((field, special.get(field, _SAMPLE.get(field, 100)))
                   for field in PATTERNS[key][0])
     return render(patterns, key, **sample)
 

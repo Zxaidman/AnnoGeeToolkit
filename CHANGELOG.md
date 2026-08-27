@@ -35,6 +35,65 @@ of view of someone using the thing rather than someone reading the diff:
 
 ---
 
+## 1.24.0
+
+**Fixed**
+
+- **A beam type the model does not have could not be created, and a hundred
+  and ten beams went with it.** Narrowed by elimination from the pushed
+  workbook: the failing rows were exactly the ones naming a type no model had
+  ever held, and the run that took the modify path — which never touches a
+  level — still wrote nothing, so the levels were innocent. Running the owner's
+  own `BEAM_TYPES` through `parse_types` ruled out the missing-size path, which
+  leaves `Duplicate` throwing. **The beam type-creation path had never once
+  succeeded in a real model**; every green beam run had *found* its types. It
+  was proven for columns and footings and assumed for beams. Type creation now
+  lives in one module, `structural/typemaker`, and reports the exception in
+  Revit's own words along with the name that was refused and the family it was
+  refused in — then tries the workbook's TypeMark and a numbered variant.
+  (BUG-31)
+- **The next command destroyed the last command's findings.** BUG-20 stopped an
+  *empty* result wiping the sheet; any result still wiped it, so the reasons a
+  run failed survived only until somebody tried the next thing. A hundred and
+  ten explanations were overwritten seventy-one seconds after they were
+  written. Each job's findings are now inserted above the last, and only
+  `AnonGeeBridge_ClearFindings` empties the sheet. (BUG-32)
+- **Two counts that read as success.** `written=22` out of `created=132` was
+  reported as "22 beam(s) written" with no mention of the other hundred and
+  ten; and a run where every row was invalid reported that every beam was
+  already there. The note now leads with the shortfall, and *nothing matched*
+  is told apart from *nothing was usable*. (BUG-33)
+- **`beam_mark` refused the field its own sheet advertised.** `B{n}` was
+  rejected because that key declared only `{level}` and `{grid}`, while the
+  NAMING sheet's *Fields it may use* column offered `{n}`. It degraded silently
+  by design, so beams were placed with marks nobody asked for. All three mark
+  patterns now share one field list. The three are also **read by no command
+  yet**, and a pattern typed against one now says so. (BUG-34)
+- **A rebuild threw away hand-edited naming patterns.** Found by doing it: the
+  rebuild that added the stair sheets reset every `Pattern` to the module's
+  default. The workbook now ships the house convention and a hand-edited
+  pattern wins over it, read before anything is cleared — as the LOG already
+  was. (BUG-35)
+
+**Added**
+
+- **`naming.refresh`** — a button that rewrites the NAMING sheet's `Example`,
+  `Fields it may use` and `What it names` from the patterns beside them, so the
+  sheet cannot disagree with itself. Not an Excel formula, because `Example` is
+  the renderer run against a sample and a formula would be a second copy of it.
+  It touches no model and never writes the `Pattern` column. (FEAT-41)
+- **A `#CELLS` block on the result**, so a command can answer into a sheet
+  rather than into a log. Every command until now was one-way. (FEAT-41)
+- **Stairs, option B, for review.** `stairs.sync`, `STAIR_TYPES` and
+  `STAIR_PLACEMENT`: an RC stair as a waist slab with triangular steps on it —
+  the waist a slanted structural framing member whose section is the stair's
+  width by the waist thickness, the steps one `DirectShape` of triangular
+  prisms. Exact quantities, sheet-driven, idempotent, and the waist is a real
+  structural element rebar can host on later. **The cost:** the waist appears
+  in Structural Framing schedules and has to be filtered out of them. No
+  mid-landing yet, so a dog-leg comes out as two flights with a gap. Shipped to
+  be judged against a real Revit `Stair`, not as a finished thing. (FEAT-42)
+
 ## 1.23.0
 
 **Fixed**

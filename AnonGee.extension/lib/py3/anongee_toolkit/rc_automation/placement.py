@@ -89,6 +89,7 @@ _FOOTING_FIELDS = (
 
 SHEET_BEAMS = "BEAM_PLACEMENT"
 SHEET_SLABS = "SLAB_PLACEMENT"
+SHEET_STAIRS = "STAIR_PLACEMENT"
 
 _FROM_GRID_X = ("fromgridx", "startgridx", "gridxfrom")
 _FROM_GRID_Y = ("fromgridy", "startgridy", "gridyfrom")
@@ -333,12 +334,21 @@ def parse_beams(grid, sheet=SHEET_BEAMS, units=datum.UNITS_MM):
     So the blank rows are load-bearing, and this is the one parser that must
     **not** skip them.
     """
+    return _parse_groups(grid, _BEAM_FIELDS, sheet, units)
+
+
+def _parse_groups(grid, fields, sheet, units):
+    """Blank-row-separated groups of span rows. ``([[PlacementRow]], [Issue])``.
+
+    Shared by beams and stairs because they are the same sheet shape, and
+    because three copies of a helper is exactly what BUG-31 turned out to be.
+    """
     issues = []
     rows = list(grid or [])
 
     header_at = None
     for index, row in enumerate(rows):
-        found = _header_map(row, _BEAM_FIELDS)
+        found = _header_map(row, fields)
         if "mark" in found.values() and "from_grid_x" in found.values():
             header_at = index
             break
@@ -355,7 +365,7 @@ def parse_beams(grid, sheet=SHEET_BEAMS, units=datum.UNITS_MM):
             if groups[-1]:
                 groups.append([])
             continue
-        parsed, row_issues = parse([rows[header_at], raw], _BEAM_FIELDS,
+        parsed, row_issues = parse([rows[header_at], raw], fields,
                                    ("mark", "from_grid_x"), sheet, units)
         issues.extend(row_issues)
         for item in parsed:
@@ -374,6 +384,30 @@ def parse_slabs(grid, sheet=SHEET_SLABS, units=datum.UNITS_MM):
     return parse(grid, _SLAB_FIELDS, ("mark", "from_grid_x"), sheet, units)
 
 
+#: A flight is a span with two levels — it starts on one floor and arrives at
+#: another, which is the one thing that makes it not a beam.
+_STAIR_FIELDS = (
+    ("type_mark", _TYPE_MARK), ("span", _SPAN),
+    ("from_grid_x", _FROM_GRID_X), ("from_grid_y", _FROM_GRID_Y),
+    ("to_grid_x", _TO_GRID_X), ("to_grid_y", _TO_GRID_Y),
+    ("level", _LEVEL), ("top_level", _TOP_LEVEL),
+    ("offset_mm", _OFFSET),
+    ("mark", _MARK), ("comments", _COMMENTS),
+)
+
+
+def parse_stairs(grid, sheet=SHEET_STAIRS, units=datum.UNITS_MM):
+    """``([[PlacementRow]], [Issue])`` — **groups**, exactly like beams.
+
+    A straight flight is one row; a dog-leg is two rows sharing a mark with a
+    blank row after them. That is not a coincidence borrowed from the beam
+    sheet — it is the same fact. A continuous beam is several members that
+    make one beam, and a dog-leg stair is two flights that make one stair, and
+    in both cases the thing the schedule names is the group.
+    """
+    return _parse_groups(grid, _STAIR_FIELDS, sheet, units)
+
+
 _LENGTH = ("length", "l")
 _WIDTH = ("width", "w", "breadth", "b")
 _DEPTH = ("depth", "d")
@@ -389,6 +423,35 @@ _TYPE_FIELDS = (("type_mark", _TYPE_MARK), ("thickness_mm", _THICKNESS),
 #: What a type row can say about its size.
 TYPE_SIZES = ("length_mm", "width_mm", "depth_mm", "thickness_mm")
 
+#: A stair type's four numbers. Its own vocabulary rather than
+#: ``TYPE_SIZES``, because a stair's *depth* is meaningless and its **tread**
+#: and **riser** are not sizes at all — they are the rule that decides how many
+#: steps there are. Folding them into width/depth would size a flight off a
+#: column's number, which is the mistake ``_DEPTH`` and ``_THICKNESS`` are kept
+#: apart to avoid.
+_WAIST = ("waist", "waistthickness", "waistthk")
+_TREAD = ("tread", "going", "goingpertread")
+_RISER = ("riser", "rise", "riseperstep")
+
+_STAIR_TYPE_FIELDS = (("type_mark", _TYPE_MARK), ("waist_mm", _WAIST),
+                      ("tread_mm", _TREAD), ("riser_mm", _RISER),
+                      ("width_mm", _WIDTH))
+
+STAIR_SIZES = ("width_mm", "waist_mm", "tread_mm", "riser_mm")
+
+
+def parse_stair_types(grid, sheet="STAIR_TYPES", units=datum.UNITS_MM):
+    """``({type mark: {width_mm, waist_mm, tread_mm, riser_mm}}, [Issue])``.
+
+    ``Riser`` here is **nominal**, not final. The number of risers is the rise
+    divided by it and rounded, and the riser actually built is the rise divided
+    by that whole number — because a flight has to arrive exactly at the floor
+    and 3300 does not divide by 165 as tidily as anybody expects once a level
+    moves by ten millimetres.
+    """
+    return _parse_type_sheet(grid, _STAIR_TYPE_FIELDS, STAIR_SIZES, sheet,
+                             units)
+
 
 def parse_types(grid, sheet="", units=datum.UNITS_MM):
     """``({type mark: {field: mm}}, [Issue])`` from a TYPES sheet.
@@ -398,13 +461,19 @@ def parse_types(grid, sheet="", units=datum.UNITS_MM):
     a placement row can leave ``Outline`` blank — the rectangle is the type's,
     not the row's.
     """
+    return _parse_type_sheet(grid, _TYPE_FIELDS, TYPE_SIZES, sheet, units)
+
+
+def _parse_type_sheet(grid, fields, sizes_wanted, sheet, units):
+    """The shared half of every TYPES sheet: find the header, read the units off
+    it, coerce each row's numbers to millimetres."""
     issues = []
     rows = list(grid or [])
 
     header_at = None
     columns = {}
     for index, row in enumerate(rows):
-        found = _header_map(row, _TYPE_FIELDS)
+        found = _header_map(row, fields)
         if "type_mark" in found.values():
             header_at, columns = index, found
             break
@@ -431,7 +500,7 @@ def parse_types(grid, sheet="", units=datum.UNITS_MM):
         if not mark:
             continue
         sizes = {}
-        for field in TYPE_SIZES:
+        for field in sizes_wanted:
             sizes[field] = datum.to_mm(datum._number(values.get(field)),
                                        column_units.get(field, units))
         types[datum._fold(mark)] = sizes

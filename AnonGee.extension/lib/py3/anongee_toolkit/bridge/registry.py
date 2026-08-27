@@ -126,3 +126,15 @@ declare("beams.sync", sheet="BEAM_PLACEMENT",
 declare("slabs.sync", sheet="SLAB_PLACEMENT",
         summary="Create the floor slabs the placement sheet lists, from the "
                 "outline each one carries.")
+declare("stairs.sync", sheet="STAIR_PLACEMENT",
+        summary="Create the RC stairs the placement sheet lists — a waist "
+                "slab, a landing and the steps, as separate elements that "
+                "each carry their own volume.")
+
+# The first command that answers into a sheet rather than a model. It needs no
+# document and opens no transaction, and it ignores Write? because there is
+# nothing in Revit to be careful about.
+declare("naming.refresh", sheet="NAMING", writes=False,
+        summary="Rewrite the NAMING sheet's Example, Fields and What it names "
+                "columns from the patterns beside them, so the sheet cannot "
+                "disagree with itself.")

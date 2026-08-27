@@ -149,28 +149,33 @@ def ensure_symbol(doc, wanted, width_mm=None, depth_mm=None, cache=None,
     if base is None:
         return None, base_note
 
-    try:
-        duplicated = base.Duplicate(name or wanted)
-    except Exception as error:
-        return None, "could not create a type called {0!r}: {1}".format(
-            name or wanted, error)
+    # Shared with beams and footings — see ``typemaker`` for why it stopped
+    # being three copies. BUG-31.
+    from anongee_toolkit.structural import typemaker
 
-    set_width = _set_dimension(duplicated, WIDTH_NAMES, width_mm)
-    set_depth = _set_dimension(duplicated, DEPTH_NAMES, depth_mm)
-    _set_type_mark(duplicated, wanted)
-    _activate_symbol(doc, duplicated)
+    missing = note
+    duplicated, note = typemaker.duplicate(doc, base, name or wanted, wanted)
+    if duplicated is None:
+        return None, "{0} — and {1}".format(missing, note)
+
+    set_width, set_depth = typemaker.size(duplicated, WIDTH_NAMES, width_mm,
+                                          DEPTH_NAMES, depth_mm)
+    typemaker.set_type_mark(duplicated, wanted)
+    typemaker.activate(doc, duplicated)
     cache[_fold(wanted)] = duplicated
 
+    made = "created {0!r} at {1:g} x {2:g}".format(wanted, width_mm, depth_mm)
+    if note:
+        made = "{0} — {1}".format(made, note)
     if not (set_width and set_depth):
         return duplicated, (
-            "created {0!r} from {1}, but could not set its {2} — the family "
-            "does not use a parameter this recognises, so the type is the "
-            "size the family came at".format(
-                wanted, _name(base.Family) if base.Family else "the base type",
-                "size" if not (set_width or set_depth)
-                else ("width" if not set_width else "depth")))
-    return duplicated, "created {0!r} at {1:g} x {2:g}".format(
-        wanted, width_mm, depth_mm)
+            "{0}, but could not set its {1}: the family does not use a "
+            "parameter this recognises ({2} / {3}), so the type is the size "
+            "the family came at".format(
+                made, "size" if not (set_width or set_depth)
+                else ("width" if not set_width else "depth"),
+                ", ".join(WIDTH_NAMES), ", ".join(DEPTH_NAMES)))
+    return duplicated, made
 
 
 def _base_symbol(doc):

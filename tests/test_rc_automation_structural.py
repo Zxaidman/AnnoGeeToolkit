@@ -631,3 +631,91 @@ class IdentityParameterTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TypeMakerTests(unittest.TestCase):
+    """``structural/typemaker`` — the module that exists so a type that cannot
+    be made says why.
+
+    ``sanitise`` and ``_candidates`` are pure, so the rules can be argued with
+    here rather than through a dialog box on somebody's machine. Everything
+    else in the module needs Revit and is covered by the static checks above.
+    """
+
+    def module(self):
+        """Import it without the Revit half — every Revit import inside it is
+        deliberately function-local, which is the property being relied on."""
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "_typemaker_under_test", _path("typemaker"))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_a_forbidden_character_is_removed(self):
+        maker = self.module()
+        for character in maker.FORBIDDEN:
+            self.assertNotIn(character,
+                             maker.sanitise("CH-230{0} X 600".format(character)))
+
+    def test_a_usable_name_is_left_alone(self):
+        """The owner's house convention must survive untouched, or the sheet
+        stops meaning what it says."""
+        maker = self.module()
+        for name in ("CH-230 X 600", "B-230x600", "CH-2400 X 2400 X 150",
+                     "CH-150 THK.", "300 X 600"):
+            self.assertEqual(maker.sanitise(name), name)
+
+    def test_runs_of_space_collapse(self):
+        maker = self.module()
+        self.assertEqual(maker.sanitise("  CH-230   X  600  "), "CH-230 X 600")
+
+    def test_a_name_of_nothing_but_punctuation_is_empty(self):
+        maker = self.module()
+        self.assertEqual(maker.sanitise("{}[]"), "")
+        self.assertEqual(maker.sanitise(None), "")
+
+    def test_the_naming_sheet_is_tried_before_the_workbook(self):
+        """A type is *named* by the naming sheet and *found* by the workbook's
+        TypeMark. The order matters: the preferred name is the house
+        convention, and falling back to the TypeMark is a reported compromise,
+        not a default."""
+        maker = self.module()
+        candidates = maker._candidates("CH-230 X 600", "B-230x600")
+        self.assertEqual(candidates[0][0], "CH-230 X 600")
+        self.assertEqual(candidates[0][1], "preferred")
+        self.assertEqual(candidates[1][0], "B-230x600")
+        self.assertIn("refused", candidates[1][1])
+
+    def test_numbered_variants_follow_and_are_bounded(self):
+        """Enough to get past a clash, few enough that a family does not fill
+        up with ``CH-230 X 600 (7)``."""
+        maker = self.module()
+        candidates = maker._candidates("CH-230 X 600", "B-230x600")
+        numbered = [name for name, _why in candidates if name.endswith(")")]
+        self.assertEqual(len(numbered), maker.VARIANTS)
+        self.assertEqual(numbered[0], "CH-230 X 600 (2)")
+
+    def test_one_name_is_not_tried_twice(self):
+        """When the naming sheet renders exactly the TypeMark — which is what
+        the shipped defaults do — there is one name, not two identical ones."""
+        maker = self.module()
+        candidates = maker._candidates("300 X 600", "300 x 600")
+        self.assertEqual([name for name, _why in candidates
+                          if not name.endswith(")")], ["300 X 600"])
+
+    def test_a_missing_preferred_name_still_gives_candidates(self):
+        maker = self.module()
+        candidates = maker._candidates("", "B-230x600")
+        self.assertEqual(candidates[0][0], "B-230x600")
+
+    def test_every_revit_import_is_function_local(self):
+        """The whole module has to be importable off Revit for the tests above
+        to mean anything, and a module-level ``from Autodesk.Revit.DB import``
+        would silently take that away."""
+        with io.open(_path("typemaker"), encoding="utf-8") as handle:
+            maker_source = handle.read()
+        tree = ast.parse(maker_source)
+        for node in tree.body:
+            self.assertNotIsInstance(node, (ast.Import, ast.ImportFrom),
+                                     "module-level import in typemaker")

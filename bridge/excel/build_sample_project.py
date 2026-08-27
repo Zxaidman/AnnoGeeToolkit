@@ -351,6 +351,12 @@ COMMANDS = [
     ("Create slabs", "slabs.sync", "SLAB_PLACEMENT",
      "One slab per panel, inset from the grids by half the width of the "
      "beam actually on each edge.", "yes"),
+    ("Create stairs", "stairs.sync", "STAIR_PLACEMENT",
+     "Option B, for review: a waist slab and triangular steps, as separate "
+     "elements. No mid-landing yet.", "yes"),
+    ("Refresh naming", "naming.refresh", "NAMING",
+     "Rewrite Example, Fields and What it names from the patterns beside "
+     "them. Touches no model and ignores Write?.", "yes"),
 ]
 
 CONTROL_HEADERS = ("Run", "Command", "Sheet", "What it does", "Built?",
@@ -424,6 +430,24 @@ SLAB_PLACEMENT_HEADERS = ("Mark", "TypeMark", "Level", "FromGridX", "ToGridX",
                           "FromGridY", "ToGridY", "EdgeRule", unit("Offset"),
                           "Comments")
 
+#: The stair. One flight per storey in the same bay, which is what a stair core
+#: is — and which makes the second run's ``matched`` the test that matters.
+STAIR_TYPE_HEADERS = ("TypeMark", unit("Width"), unit("Waist"), unit("Tread"),
+                      unit("Riser"), "Concrete", "Comments")
+STAIR_TYPES = [("ST-1200", 1200, 150, 280, 165, CONCRETE,
+                "Main stair. Riser is nominal - the built riser is the rise "
+                "divided by a whole number of steps.")]
+STAIR_TYPE_LENGTHS = (1, 2, 3, 4)
+STAIR_PLACEMENT_HEADERS = ("Mark", "TypeMark", "FromGridX", "FromGridY",
+                           "ToGridX", "ToGridY", "Level", "TopLevel",
+                           unit("Offset"), "Comments")
+
+#: Which bay the stair climbs in, and which way. A1 to B1 is six metres, and a
+#: 3300 storey at a 165 nominal riser needs 19 treads of 280 — 5320 mm — so it
+#: fits with 680 to spare. That is not a coincidence, it is why this bay.
+STAIR_FROM = ("A", "1")
+STAIR_TO = ("B", "1")
+
 LOG_HEADERS = ("When", "Job", "Command", "Status", "Counts", "Note")
 
 NAMING_HEADERS = ("Element", "Pattern", "Example", "Fields it may use",
@@ -435,31 +459,133 @@ NAMING_HEADERS = ("Element", "Pattern", "Example", "Fields it may use",
 EXPECTED_SHEETS = (
     "CONTROL", "INFO", "NAMING", "LEVELS", "GRIDS", "FOOTING_TYPES",
     "FOOTING_PLACEMENT", "COLUMN_TYPES", "COLUMN_PLACEMENT", "BEAM_TYPES",
-    "BEAM_PLACEMENT", "SLAB_TYPES", "SLAB_PLACEMENT", "LOG",
+    "BEAM_PLACEMENT", "SLAB_TYPES", "SLAB_PLACEMENT", "STAIR_TYPES",
+    "STAIR_PLACEMENT", "LOG", "FINDINGS",
 )
 
 
-def naming_rows():
-    """The type-naming conventions, with the example generated from each.
+def stair_rows():
+    """One straight flight per storey, all in the same bay.
 
-    Generated rather than typed beside the pattern, so the example cannot drift
-    from what the pattern actually produces — which is the whole reason it is
-    worth having a column for it.
+    Each is its own stair rather than a group, because a straight flight is one
+    row — a dog-leg would be two rows sharing a mark with a blank row after
+    them, exactly as a continuous beam is. There is no dog-leg here because the
+    mid-landing is not built yet, and shipping a sheet describing something the
+    code does not place is how a workbook stops being trustworthy.
     """
+    rows = []
+    for index in range(1, len(LEVELS) - 1):
+        base = LEVELS[index][0]
+        top = LEVELS[index + 1][0]
+        rows.append(("ST{0}".format(index), STAIR_TYPES[0][0],
+                     STAIR_FROM[0], STAIR_FROM[1], STAIR_TO[0], STAIR_TO[1],
+                     base, top, length(0),
+                     "{0} to {1}".format(base.split()[0], top.split()[0])))
+    return rows
+
+
+#: The practice's own convention, which is what this workbook ships with.
+#:
+#: The module's defaults stay the neutral ``300 X 600`` — they are what a stock
+#: Revit template holds, and they are the fallback when a pattern will not
+#: render, so a generic module should keep a generic default. **The house
+#: convention belongs to the workbook**, which is exactly the split the NAMING
+#: sheet exists to make: the code says what is possible, the sheet says what is
+#: wanted. Given by the project owner on 2026-08-27.
+HOUSE_PATTERNS = {
+    "column": "CH-{b} X {h}",
+    "beam": "CH-{b} X {h}",
+    "footing": "CH-{l} X {w} X {t}",
+    "slab": "CH-{t} THK.",
+    "stair": "CH-{w} X {t}",
+    "column_mark": "C{n}",
+    "footing_mark": "F{n}",
+    "beam_mark": "B{n}",
+}
+
+
+def naming_module():
+    """``naming_sheet``, loaded from the extension without importing it."""
     import importlib.util
     path = os.path.join(HERE, "..", "..", "AnonGee.extension", "lib", "py3",
                         "anongee_toolkit", "rc_automation", "naming_sheet.py")
     spec = importlib.util.spec_from_file_location("naming_sheet", path)
     naming = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(naming)
+    return naming
+
+
+def naming_rows(existing=None):
+    """The type-naming conventions, with the example generated from each.
+
+    Generated rather than typed beside the pattern, so the example cannot drift
+    from what the pattern actually produces — which is the whole reason it is
+    worth having a column for it.
+
+    *existing* is whatever the workbook being rebuilt already had in its
+    ``Pattern`` column, and **it wins**. That column is the one thing on this
+    sheet a person owns; a rebuild that reset it would throw away the house
+    convention every time the sample data changed, which is precisely what
+    happened the first time these stair sheets were added.
+    """
+    naming = naming_module()
 
     patterns = naming.defaults()
+    patterns.update(HOUSE_PATTERNS)
+    for key, pattern in (existing or {}).items():
+        if key in naming.PATTERNS and pattern:
+            patterns[key] = pattern
+
     rows = []
     for key in sorted(naming.PATTERNS):
-        fields, pattern, what = naming.PATTERNS[key]
-        rows.append((key, pattern, naming.example(patterns, key),
+        fields, _default, what = naming.PATTERNS[key]
+        rows.append((key, patterns[key], naming.example(patterns, key),
                      ", ".join("{" + field + "}" for field in fields), what))
     return rows
+
+
+def _existing_patterns(book):
+    """``{key: pattern}`` already in a workbook's NAMING sheet.
+
+    Read before anything is cleared, for the same reason the LOG is: it is the
+    part of the sheet that belongs to whoever has been using it.
+    """
+    if "NAMING" not in book.sheetnames:
+        return {}
+    naming = naming_module()
+
+    # Read the two columns here rather than calling ``naming_sheet.parse``.
+    # That function reports its findings as ``models.Issue``, which means
+    # importing the toolkit package — and this builder deliberately loads
+    # ``naming_sheet`` from its file precisely so it can run with nothing
+    # installed. Borrowing the parser would drag the whole package in with it.
+    folded = dict((_fold(key), key) for key in naming.PATTERNS)
+    found = {}
+    key_at = pattern_at = None
+    for row in book["NAMING"].iter_rows(values_only=True):
+        cells = [("" if cell is None else "{0}".format(cell)) for cell in row]
+        if key_at is None:
+            for index, cell in enumerate(cells):
+                if _fold(cell) == "element":
+                    key_at = index
+                elif _fold(cell) == "pattern":
+                    pattern_at = index
+            if key_at is not None and pattern_at is not None:
+                continue
+            key_at = pattern_at = None
+            continue
+        if pattern_at is None or key_at >= len(cells):
+            continue
+        key = folded.get(_fold(cells[key_at]))
+        pattern = cells[pattern_at].strip() if pattern_at < len(cells) else ""
+        if key and pattern:
+            found[key] = pattern
+    return found
+
+
+def _fold(text):
+    return "".join(character for character in "{0}".format(text or "").lower()
+                   if character.isalnum())
 
 
 def typed_rows(rows, length_columns, headers):
@@ -691,12 +817,14 @@ def build(target=DEFAULT_TARGET):
 
     keep_vba = target.lower().endswith(".xlsm")
     history = []
+    patterns = {}
     if os.path.exists(target):
         # Read the old LOG before anything is thrown away, whatever the
         # extension. Only an .xlsm can carry the macros forward, but the record
         # of what was run belongs to the workbook rather than to its format.
         existing = load_workbook(target, keep_vba=keep_vba)
         history = _existing_log(existing)
+        patterns = _existing_patterns(existing)
         if keep_vba:
             book = existing
             _empty(book)
@@ -835,7 +963,7 @@ def build(target=DEFAULT_TARGET):
     # The house convention for type names, where a person can change it. A
     # pattern that will not render is reported and the default used: a naming
     # preference should never stop a run.
-    table("NAMING", NAMING_HEADERS, naming_rows())
+    table("NAMING", NAMING_HEADERS, naming_rows(patterns))
 
     # -- the datum ----------------------------------------------------------
     levels = table("LEVELS", LEVEL_HEADERS, level_rows())
@@ -863,11 +991,42 @@ def build(target=DEFAULT_TARGET):
     slabs = table("SLAB_PLACEMENT", SLAB_PLACEMENT_HEADERS, slab_rows())
     choices(slabs, EDGE_RULES, "H2:H{0}".format(1 + len(slab_panels())))
 
+    table("STAIR_TYPES", STAIR_TYPE_HEADERS,
+          typed_rows(STAIR_TYPES, STAIR_TYPE_LENGTHS, STAIR_TYPE_HEADERS))
+    table("STAIR_PLACEMENT", STAIR_PLACEMENT_HEADERS, stair_rows())
+
     log = table("LOG", LOG_HEADERS, history)
     del log
 
+    _findings_sheet(book, title, note)
+
     book.save(target)
     return target
+
+
+def _findings_sheet(book, title_font, note_font):
+    """Create FINDINGS if it is not there, and never write into it.
+
+    The macro owns this sheet — it inserts each job's block at the top. The
+    builder only makes sure it **exists**, for a reason that has nothing to do
+    with findings: a sheet the build does not know about is deleted on every
+    rebuild, and deleting a sheet from a macro-enabled workbook orphans its VBA
+    code module. That is BUG-24, and FINDINGS was quietly still doing it
+    because VBA created the sheet and the builder had never heard of it.
+
+    So it is listed, kept, and left alone.
+    """
+    if "FINDINGS" not in book.sheetnames:
+        book.create_sheet("FINDINGS")
+    sheet = book["FINDINGS"]
+    if sheet.max_row <= 1 and sheet.cell(row=1, column=1).value is None:
+        cell = sheet.cell(row=1, column=1)
+        cell.value = ("Findings appear here, newest run at the top. Older "
+                      "runs are kept below. To empty it: Alt+F8 -> "
+                      "AnonGeeBridge_ClearFindings.")
+        cell.font = note_font
+        sheet.column_dimensions["A"].width = 90
+    book._sheets.sort(key=lambda item: EXPECTED_SHEETS.index(item.title))
 
 
 def _empty(book):
@@ -927,6 +1086,7 @@ def counts():
         "beams": sum(len(group) for group in beam_groups()),
         "beam groups": len(beam_groups()),
         "slabs": len(slab_rows()),
+        "stair flights": len(stair_rows()),
     }
 
 

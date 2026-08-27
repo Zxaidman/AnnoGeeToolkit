@@ -465,8 +465,35 @@ class EnvelopeTests(unittest.TestCase):
             {"severity": "Error", "sheet": "LEVELS", "row": 3,
              "column": "Name", "message": "a\tb\nc"}])
         rows = _envelope.as_tsv(result).strip().split("\n")
-        self.assertEqual(len(rows[-1].split("\t")),
+        # The findings block is no longer last — `#CELLS` follows it — so the
+        # row is found rather than indexed from the end. A test that reaches
+        # for `rows[-1]` breaks every time a block is added, which says
+        # nothing about tabs.
+        findings_at = rows.index(_envelope.TSV_FINDINGS_MARKER)
+        message_row = rows[findings_at + 2]
+        self.assertIn("a b c", message_row)
+        self.assertEqual(len(message_row.split("\t")),
                          len(_envelope.FINDING_FIELDS))
+
+    def test_the_cells_block_is_always_present(self):
+        """A block that appears only when it has content is a block a macro
+        forgets to handle, and the failure is silent — the macro reads the
+        findings header as data, or stops early. So it is written every time,
+        header and all."""
+        result = _envelope.new_result(self.job())
+        rows = _envelope.as_tsv(result).strip().split("\n")
+        self.assertIn(_envelope.TSV_CELLS_MARKER, rows)
+        header_at = rows.index(_envelope.TSV_CELLS_MARKER) + 1
+        self.assertEqual(rows[header_at].split("\t"),
+                         [field.title() for field in _envelope.CELL_FIELDS])
+
+    def test_a_cell_crosses_as_four_fields(self):
+        result = _envelope.new_result(self.job())
+        result["cells"] = [{"sheet": "NAMING", "row": 2, "column": 3,
+                            "value": "CH-300 X 600"}]
+        rows = _envelope.as_tsv(result).strip().split("\n")
+        self.assertEqual(rows[-1].split("\t"),
+                         ["NAMING", "2", "3", "CH-300 X 600"])
 
     def test_a_finding_and_a_workbook_issue_are_the_same_shape(self):
         models = _rc.models
@@ -489,7 +516,7 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(_registry.known(),
                          ["beams.sync", "bridge.echo", "columns.sync",
                           "footings.sync", "grids.sync", "levels.sync",
-                          "slabs.sync"])
+                          "naming.refresh", "slabs.sync", "stairs.sync"])
 
     def test_every_declared_command_is_now_built(self):
         """Declared-before-written was a state, not a destination.
@@ -1473,10 +1500,7 @@ class MacroSurvivalTests(unittest.TestCase):
             self.builder().build(copy)
             self.assertEqual(
                 load_workbook(copy).sheetnames,
-                ["CONTROL", "INFO", "NAMING", "LEVELS", "GRIDS", "FOOTING_TYPES",
-                 "FOOTING_PLACEMENT", "COLUMN_TYPES", "COLUMN_PLACEMENT",
-                 "BEAM_TYPES", "BEAM_PLACEMENT", "SLAB_TYPES",
-                 "SLAB_PLACEMENT", "LOG"])
+                list(self.builder().EXPECTED_SHEETS))
         finally:
             shutil.rmtree(folder, ignore_errors=True)
 
@@ -1842,3 +1866,98 @@ class ListenerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FindingsHistoryTests(unittest.TestCase):
+    """BUG-32 — the next command must not destroy the last one's findings.
+
+    BUG-20 fixed *an empty result wipes the sheet* with a header. This is the
+    half the header did not fix: **any** next command still cleared it, so the
+    explanation for a failure survived exactly until somebody tried the next
+    thing — which is what a person does after a failure. A hundred and ten
+    beams failed at 11:42:01 and ``slabs.sync`` wiped the hundred and ten
+    reasons at 11:43:12, and the cause then took four days and a spreadsheet to
+    find by elimination.
+    """
+
+    def setUp(self):
+        path = os.path.join(_ROOT, "bridge", "excel", "modAnonGeeBridge.bas")
+        with io.open(path, encoding="utf-8") as handle:
+            self.vba = handle.read()
+
+    def body(self, name):
+        start = self.vba.index(name)
+        end = self.vba.index("End Sub", start)
+        return self.vba[start:end]
+
+    def test_show_findings_inserts_and_does_not_clear(self):
+        body = self.body("Private Sub ShowFindings(")
+        self.assertIn(".Insert", body)
+        self.assertNotIn("Cells.Clear", body)
+
+    def test_the_new_block_goes_on_top(self):
+        """Newest first, or the sheet has to be scrolled to be read and it
+        stops being read."""
+        self.assertIn("xlDown", self.body("Private Sub ShowFindings("))
+
+    def test_only_a_deliberate_press_empties_it(self):
+        body = self.body("Public Sub AnonGeeBridge_ClearFindings(")
+        self.assertIn("Cells.Clear", body)
+
+    def test_clearing_is_a_public_macro_a_person_can_run(self):
+        self.assertIn("Public Sub AnonGeeBridge_ClearFindings()", self.vba)
+
+    def test_a_run_with_nothing_to_say_still_leaves_a_header(self):
+        """An empty sheet and a run that failed to report are the same
+        picture, which is what BUG-20 was."""
+        body = self.body("Private Sub ShowFindings(")
+        self.assertIn("No findings", body)
+        self.assertIn('"Findings from"', body)
+
+    def test_the_block_says_how_many_it_carries(self):
+        self.assertIn('finding(s)"', self.body("Private Sub ShowFindings("))
+
+
+class CellsBlockTests(unittest.TestCase):
+    """The third TSV block: cells a command wants written back.
+
+    Every command until now was one-way. ``naming.refresh`` is the first with
+    an answer that belongs in a sheet, because its ``Example`` column is
+    ``render()`` run against a sample and no Excel formula can be that without
+    becoming a second copy of the renderer.
+    """
+
+    def setUp(self):
+        path = os.path.join(_ROOT, "bridge", "excel", "modAnonGeeBridge.bas")
+        with io.open(path, encoding="utf-8") as handle:
+            self.vba = handle.read()
+
+    def test_the_macro_reads_the_block(self):
+        self.assertIn('"#CELLS"', self.vba)
+        self.assertIn("Private Function WriteCells(", self.vba)
+
+    def test_it_never_creates_a_sheet_to_write_into(self):
+        """A command writing into a sheet that is not there is a mistake, not
+        a reason to invent one."""
+        start = self.vba.index("Private Function SheetNamed(")
+        body = self.vba[start:self.vba.index("End Function", start)]
+        self.assertNotIn("Add", body)
+        self.assertIn("ThisWorkbook.Worksheets(", body)
+
+    def test_the_result_always_carries_the_block(self):
+        result = _envelope.new_result({"jobId": "j", "command": "c"})
+        self.assertIn(_envelope.TSV_CELLS_MARKER,
+                      _envelope.as_tsv(result).split("\n"))
+
+    def test_a_handler_may_return_three_things_or_four(self):
+        """Seven handlers return three and one returns four. Rather than make
+        six carry an empty list they have no use for, the fourth is optional
+        and one function knows it."""
+        self.assertEqual(_envelope.unpack(({"a": 1}, [], "note")),
+                         ({"a": 1}, [], "note", []))
+        self.assertEqual(
+            _envelope.unpack(({"a": 1}, [], "note", [{"sheet": "NAMING"}])),
+            ({"a": 1}, [], "note", [{"sheet": "NAMING"}]))
+
+    def test_unpack_survives_nonsense(self):
+        self.assertEqual(_envelope.unpack(None), (None, None, "", []))

@@ -216,10 +216,12 @@ def _run_job(uiapp, claimed_path):
         return
 
     try:
-        summary, findings, note = command.handler(uiapp, job)
+        summary, findings, note, cells = envelope_module.unpack(
+            command.handler(uiapp, job))
         result = envelope_module.new_result(
             job, envelope_module.STATUS_DONE, summary, findings,
             started, datetime.datetime.now().isoformat(), note)
+        result["cells"] = [dict(cell) for cell in cells]
     except Exception as error:
         result = envelope_module.new_result(
             job, envelope_module.STATUS_FAILED, None, None,

@@ -523,6 +523,33 @@ Public Sub Run_Slabs()
 End Sub
 
 
+Public Sub Run_Stairs()
+    RunCommand "stairs.sync", "STAIR_PLACEMENT"
+End Sub
+
+
+Public Sub Run_RefreshNaming()
+    ' The one command that answers into a sheet rather than into the model.
+    RunCommand "naming.refresh", "NAMING"
+End Sub
+
+
+Public Sub AnonGeeBridge_ClearFindings()
+    ' Deliberate, and the only thing that empties the sheet.
+    '
+    ' Findings used to be cleared by whatever ran next, so the explanation for
+    ' a failure survived exactly until somebody tried the next thing -- which
+    ' is what a person does after a failure. A hundred and ten beams failed
+    ' and slabs.sync wiped the reasons seventy-one seconds later. BUG-32.
+    On Error Resume Next
+    Dim sheet As Worksheet
+    Set sheet = EnsureSheet("FINDINGS")
+    sheet.Cells.Clear
+    MsgBox "FINDINGS is empty. It fills up again on the next run, newest at " & _
+           "the top.", vbInformation, "AnonGee Bridge"
+End Sub
+
+
 Public Sub RunCommand(ByVal command As String, ByVal sheetName As String)
     ' The workbook on disk is what Revit reads, so it has to be the workbook
     ' you are looking at. Saving first is not a courtesy, it is the contract.
@@ -783,62 +810,176 @@ Private Sub WriteResult(ByVal command As String, ByVal body As String)
     LogRow jobId, command, status, counts, note
     ShowFindings body, command, jobId
 
+    Dim written As Long
+    written = WriteCells(body)
+
+    Dim extra As String
+    If written > 0 Then
+        extra = vbCrLf & written & " cell(s) were written back into this workbook."
+    End If
+
     MsgBox command & ": " & status & vbCrLf & vbCrLf & _
            Trim$(counts) & vbCrLf & note & vbCrLf & vbCrLf & _
-           findings & " finding(s) - see the FINDINGS sheet.", _
+           findings & " finding(s) - see the FINDINGS sheet." & extra, _
            vbInformation, "AnonGee Bridge"
 End Sub
 
 
+Private Function WriteCells(ByVal body As String) As Long
+    ' Write back the cells a command asked for. Returns how many.
+    '
+    ' Every command until now was one way: the workbook says what it wants and
+    ' Revit reports what it did. naming.refresh is the first with an answer
+    ' that belongs in a sheet -- its Example column is render() run against a
+    ' sample, which no Excel formula can be without becoming a second copy of
+    ' the renderer. So Revit computes it and this puts it where it goes.
+    '
+    ' Deliberately dumb: sheet, row, column, value, and nothing else. It writes
+    ' exactly the cells it is given.
+    On Error GoTo Failed
+
+    Dim lines() As String
+    lines = Split(Replace(body, vbCrLf, vbLf), vbLf)
+
+    Dim reading As Boolean
+    Dim seenHeader As Boolean
+    Dim count As Long
+
+    Dim index As Long
+    For index = LBound(lines) To UBound(lines)
+        If lines(index) = "#CELLS" Then
+            reading = True
+            seenHeader = False
+        ElseIf Left$(lines(index), 1) = "#" Then
+            reading = False
+        ElseIf reading And lines(index) <> "" Then
+            If Not seenHeader Then
+                seenHeader = True
+            Else
+                Dim parts() As String
+                parts = Split(lines(index), vbTab)
+                If UBound(parts) >= 3 Then
+                    Dim target As Worksheet
+                    Set target = SheetNamed(parts(0))
+                    If Not target Is Nothing Then
+                        target.Cells(CLng(parts(1)), CLng(parts(2))).Value = parts(3)
+                        count = count + 1
+                    End If
+                End If
+            End If
+        End If
+    Next index
+
+    WriteCells = count
+    Exit Function
+Failed:
+    WriteCells = count
+End Function
+
+
+Private Function SheetNamed(ByVal wanted As String) As Worksheet
+    ' A sheet by name, or Nothing. Never creates one -- a command writing into
+    ' a sheet that is not there is a mistake, not a reason to invent it.
+    On Error Resume Next
+    Set SheetNamed = ThisWorkbook.Worksheets(wanted)
+    On Error GoTo 0
+End Function
+
+
 Private Sub ShowFindings(ByVal body As String, ByVal command As String, _
                          ByVal jobId As String)
-    ' Write this job's findings, under a header saying whose they are.
+    ' This job's findings, on top of the last job's, under a header saying whose
+    ' they are.
     '
-    ' The header is not decoration. This sheet used to be cleared by every
-    ' result including one with nothing to say -- so pressing two unbuilt
-    ' commands after a run that reported fifteen failures left an empty sheet,
-    ' and an empty sheet is the same picture as a run that never reported.
-    ' Fifteen columns went unexplained exactly that way. BUG-20.
+    ' Two bugs, one sheet. BUG-20: the sheet was cleared by every result
+    ' including one with nothing to say, so pressing two unbuilt commands after
+    ' a run that reported fifteen failures left it empty -- and an empty sheet
+    ' is the same picture as a run that never reported. That was fixed with a
+    ' header.
+    '
+    ' BUG-32 is the half the header did not fix. **Any** next command still
+    ' cleared it, so the explanation for a failure survived exactly until
+    ' somebody tried the next thing -- which is what a person does after a
+    ' failure. A hundred and ten beams failed at 11:42 and slabs.sync wiped the
+    ' hundred and ten reasons at 11:43, and the cause then took four days and a
+    ' spreadsheet to find by elimination.
+    '
+    ' So: insert at the top, keep what was there, and empty it only when
+    ' somebody presses Clear findings.
+    On Error GoTo Failed
+
     Dim sheet As Worksheet
     Set sheet = EnsureSheet("FINDINGS")
-    sheet.Cells.Clear
+
+    ' Collect first, so the number of rows to insert is known before anything
+    ' moves. Inserting per row would push each previous row down again and the
+    ' block would come out reversed.
+    Dim rows() As String
+    ReDim rows(0 To 512)
+    Dim found As Long
+
+    Dim lines() As String
+    lines = Split(Replace(body, vbCrLf, vbLf), vbLf)
+
+    Dim reading As Boolean
+    Dim seenHeader As Boolean
+    Dim index As Long
+    For index = LBound(lines) To UBound(lines)
+        If lines(index) = "#FINDINGS" Then
+            reading = True
+            seenHeader = False
+        ElseIf Left$(lines(index), 1) = "#" Then
+            reading = False
+        ElseIf reading And lines(index) <> "" Then
+            If Not seenHeader Then
+                seenHeader = True
+            ElseIf found <= 511 Then
+                rows(found) = lines(index)
+                found = found + 1
+            End If
+        End If
+    Next index
+
+    ' Header, the findings, and a blank line between this block and the last.
+    Dim height As Long
+    height = found + 3
+    If found = 0 Then height = 4
+
+    sheet.rows("1:" & height).Insert Shift:=xlDown
 
     sheet.Cells(1, 1).Value = "Findings from"
     sheet.Cells(1, 2).Value = command
     sheet.Cells(1, 3).Value = jobId
     sheet.Cells(1, 4).Value = Now
-    sheet.Rows(1).Font.Bold = True
+    sheet.Cells(1, 5).Value = found & " finding(s)"
+    sheet.rows(1).Font.Bold = True
 
-    Dim lines() As String
-    lines = Split(Replace(body, vbCrLf, vbLf), vbLf)
+    sheet.Cells(2, 1).Value = "Severity"
+    sheet.Cells(2, 2).Value = "Sheet"
+    sheet.Cells(2, 3).Value = "Row"
+    sheet.Cells(2, 4).Value = "Column"
+    sheet.Cells(2, 5).Value = "Message"
+    sheet.rows(2).Font.Bold = True
 
-    Dim writing As Boolean
-    Dim row As Long
-    row = 3
-
-    Dim index As Long
-    For index = LBound(lines) To UBound(lines)
-        If lines(index) = "#FINDINGS" Then
-            writing = True
-        ElseIf lines(index) = "#RESULT" Then
-            writing = False
-        ElseIf writing And lines(index) <> "" Then
-            Dim parts() As String
-            parts = Split(lines(index), vbTab)
-            Dim column As Long
-            For column = LBound(parts) To UBound(parts)
-                sheet.Cells(row, column + 1).Value = parts(column)
-            Next column
-            row = row + 1
-        End If
-    Next index
-
-    If row = 3 Then
+    If found = 0 Then
         sheet.Cells(3, 1).Value = "No findings. This run had nothing to report."
     Else
-        sheet.Rows(3).Font.Bold = True
+        Dim row As Long
+        For row = 0 To found - 1
+            Dim parts() As String
+            parts = Split(rows(row), vbTab)
+            Dim column As Long
+            For column = LBound(parts) To UBound(parts)
+                sheet.Cells(row + 3, column + 1).Value = parts(column)
+            Next column
+        Next row
     End If
+
     sheet.Columns("A:E").AutoFit
+    Exit Sub
+Failed:
+    ' A findings sheet that will not render must never take the run down with
+    ' it -- the run already happened.
 End Sub
 
 
@@ -1354,6 +1495,8 @@ Public Function MacroFor(ByVal command As String) As String
         Case "columns.sync":   MacroFor = "Run_Columns"
         Case "beams.sync":     MacroFor = "Run_Beams"
         Case "slabs.sync":     MacroFor = "Run_Slabs"
+        Case "stairs.sync":    MacroFor = "Run_Stairs"
+        Case "naming.refresh": MacroFor = "Run_RefreshNaming"
         Case Else:             MacroFor = ""
     End Select
 End Function
