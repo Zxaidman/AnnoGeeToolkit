@@ -1,13 +1,16 @@
 # -*- coding: utf-8 -*-
-"""The two windows: Link DXF, and the main cad2bim dialog.
+"""The three windows: Link DXF, the main cad2bim dialog, and Advanced settings.
 
-Both are CAPTURE-ONLY. They hold no Revit API references and write nothing to
+All are CAPTURE-ONLY. They hold no Revit API references and write nothing to
 the model -- they gather the user's choices into `self.result` and close, and
 every model write happens afterwards on the Revit API thread. That separation is
 what lets the whole run be replayed offline from an exported JSON.
 
-The main dialog's tabs are its structure: Layers, Structure, Architecture,
-Staircase, Multi-storey, Tolerances, Materials & Graphics, Naming. Two of them
+The main dialog's tabs are its structure: Layers, Build, Multi-storey,
+Tolerances, Output & Graphics, Naming -- with Build split discipline-wise into
+General, Structure, Architecture, Foundation and Staircase sub-tabs (a
+nested TabControl; FindName resolves per window, so the bindings below never
+care about the nesting). Two of the tabs
 carry state that outlives the run -- the naming templates and the standard sizes
 are office conventions kept in the preferences file, and the whole dialog is
 snapshotted so the next session opens where this one left off.
@@ -20,21 +23,24 @@ import os
 import xml.etree.ElementTree as ElementTree
 
 from System.Windows import (Thickness, GridLength, GridUnitType,
-                            VerticalAlignment)
+                            VerticalAlignment, TextWrapping)
 from System.Windows.Controls import (Grid as WpfGrid, ColumnDefinition, TextBlock,
                                      ComboBox, TextBox, CheckBox, ListBoxItem)
+from System.Windows.Media import Brushes
 
-from . import config, floor_plans, naming, prefs, report, settings, stair_layout
+from . import (advanced, config, floor_plans, naming, prefs, report, settings,
+               stair_layout)
 from .builders import materials
 from .classify import layers
 from .readers import dxf_linker
 from .run_console import _say
-from .ui_dialogs import (_alert, _load_window, _select_containing, _open_dxf,
-                         _control_value, _set_control_value,
+from .ui_dialogs import (_alert, _confirm, _load_window, _select_containing,
+                         _open_dxf, _control_value, _set_control_value,
                          _open_settings_file, _save_settings_file)
 
 _XAML = None
 _LINK_XAML = None
+_ADVANCED_XAML = None
 
 
 def _version():
@@ -46,10 +52,11 @@ def _version():
         return "?"
 
 
-def use_xaml(main_path, link_path):
+def use_xaml(main_path, link_path, advanced_path=None):
     """Tell the windows where their .xaml files are (they live by the button)."""
-    global _XAML, _LINK_XAML
+    global _XAML, _LINK_XAML, _ADVANCED_XAML
     _XAML, _LINK_XAML = main_path, link_path
+    _ADVANCED_XAML = advanced_path
 
 
 _XAML_NAME_KEY = "{http://schemas.microsoft.com/winfx/2006/xaml}Name"
@@ -59,22 +66,55 @@ _CONTROL_NAMES = None
 
 
 def _control_names():
-    """Every x:Name in ui.xaml, read once.
+    """Every x:Name in ui.xaml's BODY, read once.
 
     The saved-settings pass needs the list of controls, and the XAML file is the
     only place that HAS the list -- WPF gives no enumeration of named elements.
     Reading the same file the window was built from means a control added to the
     dialog tomorrow is saved and restored without touching this code.
+
+    Window.Resources is skipped: it carries the inlined AnonGee theme (Brand
+    Guidelines 12.3 / 12.7.B), whose ControlTemplate part names (PART_*, Bg,
+    Stroke) live in template namescopes -- FindName never resolves them and
+    they are not settings.
     """
     global _CONTROL_NAMES
     if _CONTROL_NAMES is None:
         try:
-            tree = ElementTree.parse(_XAML)
-            _CONTROL_NAMES = [element.get(_XAML_NAME_KEY) for element in tree.iter()
-                              if element.get(_XAML_NAME_KEY)]
+            names = []
+
+            def walk(element):
+                for child in element:
+                    if child.tag.endswith("Window.Resources"):
+                        continue
+                    name = child.get(_XAML_NAME_KEY)
+                    if name:
+                        names.append(name)
+                    walk(child)
+            walk(ElementTree.parse(_XAML).getroot())
+            _CONTROL_NAMES = names
         except Exception:
             _CONTROL_NAMES = []      # settings are a convenience, never a blocker
     return _CONTROL_NAMES
+
+
+def _theme_style(window, key):
+    """A keyed style from the window's inlined theme dictionary, or None.
+
+    The dialogs inline the AnonGee theme under Window.Resources (Brand
+    Guidelines 12.3 strategy 2 / 12.7.B), so rows BUILT in code fetch the
+    same keyed styles the declared controls wear. A missing key styles
+    nothing rather than failing the dialog.
+    """
+    try:
+        return window.TryFindResource(key)
+    except Exception:
+        return None
+
+
+def _apply_style(control, style):
+    if style is not None:
+        control.Style = style
 
 
 class LinkOptionsDialog(object):
@@ -131,6 +171,115 @@ class LinkOptionsDialog(object):
         self.window.ShowDialog()
 
 
+class AdvancedSettingsDialog(object):
+    """The gated window over `advanced.REGISTRY`: one row per module tunable.
+
+    Capture-only, like every window here: it collects the numbers into
+    `self.result` and closes; nothing is rebound until the run applies them.
+    The rows are BUILT from the registry rather than declared in XAML, so a
+    constant registered tomorrow gets a row, a unit and its effect sentence
+    the day it appears -- the same reason the layer table is code-built.
+    """
+
+    def __init__(self, values):
+        self.result = None
+        self.window = _load_window(_ADVANCED_XAML)
+        find = self.window.FindName
+        find("advanced_version_text").Text = "v{0}".format(_version())
+        self._boxes = {}
+        panel = find("advanced_rows")
+        values = values or {}
+        for entry in advanced.REGISTRY:
+            panel.Children.Add(self._row(entry,
+                                         values.get(entry.key, entry.default)))
+        self.btn_adv_reset = find("btn_adv_reset")
+        self.btn_adv_apply = find("btn_adv_apply")
+        self.btn_adv_cancel = find("btn_adv_cancel")
+        self.btn_adv_reset.Click += self.on_reset
+        self.btn_adv_apply.Click += self.on_apply
+        self.btn_adv_cancel.Click += self.on_cancel
+
+    def _row(self, entry, value):
+        """label | value box | unit | the effect sentence.
+
+        Code-built, so the rows fetch their styles from the inlined theme by
+        key -- the same TextLabel / InputTextBox / HelpText the declared
+        dialogs wear (Brand Guidelines 12.3).
+        """
+        row = WpfGrid()
+        row.Margin = Thickness(0, 4, 0, 4)
+        for width in (170, 70, 76, None):          # None -> star column
+            column = ColumnDefinition()
+            column.Width = (GridLength(1, GridUnitType.Star) if width is None
+                            else GridLength(width))
+            row.ColumnDefinitions.Add(column)
+
+        label = TextBlock()
+        _apply_style(label, _theme_style(self.window, "TextLabel"))
+        label.Text = entry.label
+        label.VerticalAlignment = VerticalAlignment.Center
+        WpfGrid.SetColumn(label, 0)
+
+        box = TextBox()
+        _apply_style(box, _theme_style(self.window, "InputTextBox"))
+        box.Text = "{0:g}".format(value)
+        box.VerticalAlignment = VerticalAlignment.Center
+        WpfGrid.SetColumn(box, 1)
+        self._boxes[entry.key] = box
+
+        unit = TextBlock()
+        _apply_style(unit, _theme_style(self.window, "TextCaption"))
+        unit.Text = entry.unit
+        unit.VerticalAlignment = VerticalAlignment.Center
+        unit.Margin = Thickness(8, 0, 8, 0)
+        WpfGrid.SetColumn(unit, 2)
+
+        effect = TextBlock()
+        # help prose: the tokenized HelpText style (readable floor >= 12);
+        # the literal fallback keeps the sentence legible if the key is gone
+        help_style = _theme_style(self.window, "HelpText")
+        if help_style is not None:
+            _apply_style(effect, help_style)
+        else:
+            effect.FontSize = 12.0
+            effect.Foreground = Brushes.Gray
+        effect.Text = entry.effect
+        effect.TextWrapping = TextWrapping.Wrap
+        effect.VerticalAlignment = VerticalAlignment.Center
+        WpfGrid.SetColumn(effect, 3)
+
+        for child in (label, box, unit, effect):
+            row.Children.Add(child)
+        return row
+
+    def on_reset(self, sender, args):
+        # every box back to its registered default; nothing is stored until
+        # the user says "use these values"
+        for entry in advanced.REGISTRY:
+            self._boxes[entry.key].Text = "{0:g}".format(entry.default)
+
+    def on_apply(self, sender, args):
+        # a box that does not read as a number keeps the default -- the same
+        # forgiveness _read_float extends everywhere else on the dialog
+        out = {}
+        for entry in advanced.REGISTRY:
+            try:
+                value = float(self._boxes[entry.key].Text)
+            except (ValueError, TypeError):
+                continue
+            if value != entry.default:
+                out[entry.key] = value
+        self.result = out
+        self.window.Close()
+
+    def on_cancel(self, sender, args):
+        self.result = None
+        self.window.Close()
+
+    def show(self):
+        self.window.ShowDialog()
+
+
 class CadToBimWindow(object):
     """Capture-only window: edit the layer mapping and pick what to build.
 
@@ -146,10 +295,14 @@ class CadToBimWindow(object):
                  stair_regions=None, preset=None, storey_detection=None,
                  saved_naming=None, saved_standards=None,
                  footing_type_options=None, material_options=None,
-                 saved_settings=None):
+                 saved_settings=None, layer_notes=None,
+                 hatch_layer_rows=None, hatch_categories=None,
+                 default_hatch_mapping=None, hatch_notes=None,
+                 wall_type_options=None):
         self.result = None
         self._combos = []
         self._text_combos = []
+        self._hatch_combos = []
         saved_naming = saved_naming or naming.DEFAULTS
         saved_standards = saved_standards or {}
         self._saved_standards = saved_standards
@@ -159,10 +312,18 @@ class CadToBimWindow(object):
         find("version_text").Text = "v{0}".format(_version())
         find("source_text").Text = source_name
         self._build_rows(find("layer_rows"), layer_rows, categories,
-                         default_mapping, self._combos)
+                         default_mapping, self._combos,
+                         row_notes=layer_notes)
         self._build_rows(find("text_rows"), text_layer_rows or [],
                          text_categories or [], default_text_mapping or {},
                          self._text_combos)
+        # HATCH layers get a table OF THEIR OWN: a hatch is a region meaning
+        # (column fill / fold / sunk / cutout), not an element category, so
+        # routing one can never re-route the linework on a like-named layer.
+        # The LEGEND proposals seed THIS mapping and mark THESE rows.
+        self._build_rows(find("hatch_rows"), hatch_layer_rows or [],
+                         hatch_categories or [], default_hatch_mapping or {},
+                         self._hatch_combos, row_notes=hatch_notes)
 
         self.cb_family = find("cb_family")
         self.cb_circular_family = find("cb_circular_family")
@@ -174,7 +335,9 @@ class CadToBimWindow(object):
         self._fill_combo(self.cb_circular_family, column_symbols)
         _select_containing(self.cb_circular_family, ["round", "circ"])
         # Levels are sorted lowest-first, so combo index ascends with elevation.
-        # Base defaults to the lowest, top to the next level above it.
+        # Base defaults to the lowest, top to the next level above it. The same
+        # list feeds the per-storey Level combos on the Multi-storey tab.
+        self._level_options = list(level_options or [])
         self._level_ids = self._fill_combo(self.cb_base_level, level_options)
         self._fill_combo(self.cb_top_level, level_options)
         if self.cb_top_level.Items.Count > 1:
@@ -216,6 +379,8 @@ class CadToBimWindow(object):
         self.cb_footing_family = find("cb_footing_family")
         self.tb_footing_projection = find("tb_footing_projection")
         self.tb_footing_thickness = find("tb_footing_thickness")
+        self.tb_max_step = find("tb_max_step")
+        self.tb_fnd_min_area = find("tb_fnd_min_area")
         self._footing_ids = {}
         for label, symbol_id in (footing_type_options or []):
             self.cb_footing_family.Items.Add(label)
@@ -227,6 +392,26 @@ class CadToBimWindow(object):
             self.chk_footings.IsEnabled = False
             self.chk_footings.Content = ("Create footings (the model has no "
                                          "floor/foundation type)")
+        # Walls: the two kinds place against their OWN base types -- a shear
+        # wall and a brick partition are different assemblies -- so Structure
+        # and Architecture each carry a picker over the same wall-type list.
+        self.chk_struct_walls = find("chk_struct_walls")
+        self.chk_arch_walls = find("chk_arch_walls")
+        self.cb_struct_wall_type = find("cb_struct_wall_type")
+        self.cb_arch_wall_type = find("cb_arch_wall_type")
+        self._wall_ids = self._fill_combo(self.cb_struct_wall_type,
+                                          wall_type_options or [])
+        self._fill_combo(self.cb_arch_wall_type, wall_type_options or [])
+        _select_containing(self.cb_struct_wall_type, ["rcc", "conc", "retain"])
+        _select_containing(self.cb_arch_wall_type, ["brick", "block"])
+        if not self._wall_ids:
+            for checkbox, label in (
+                    (self.chk_struct_walls, "Create structural walls"),
+                    (self.chk_arch_walls, "Create architectural walls")):
+                checkbox.IsChecked = False
+                checkbox.IsEnabled = False
+                checkbox.Content = ("{0} (the model has no wall "
+                                    "type)".format(label))
         # Materials: one picker per element kind, "(unchanged)" leaving the
         # family's own material alone
         self.material_combos = {}
@@ -252,6 +437,14 @@ class CadToBimWindow(object):
         self.chk_view_filters = find("chk_view_filters")
         self.tb_filter_transparency = find("tb_filter_transparency")
         self.chk_filter_lines = find("chk_filter_lines")
+        # Advanced module tunables: a plain {key: number} dict on the window.
+        # The separate window edits a copy behind a confirmation gate; the
+        # dict rides _collect, the settings snapshot and the preferences file
+        # like any other value. Seeded from the prefs the pushbutton already
+        # applied, so the window shows what is actually in force.
+        self._advanced_values = advanced.load()
+        self.btn_advanced = find("btn_advanced")
+        self.btn_advanced.Click += self.on_advanced
         self.chk_multistorey = find("chk_multistorey")
         self.cb_boundary_layer = find("cb_boundary_layer")
         self.cb_origin_layer = find("cb_origin_layer")
@@ -322,7 +515,10 @@ class CadToBimWindow(object):
                              ("stair_waist", "stair_waist"),
                              ("level", "level"),
                              ("grid", "grid"),
-                             ("footing", "footing")):
+                             ("footing", "footing"),
+                             ("raft", "raft"),
+                             ("wall_struct", "wall_struct"),
+                             ("wall_arch", "wall_arch")):
             box = find("tb_name_{0}".format(control))
             box.Text = saved_naming.get(key, naming.DEFAULTS[key])
             box.TextChanged += self.on_naming_changed
@@ -336,11 +532,16 @@ class CadToBimWindow(object):
         self.tb_snap = find("tb_snap")
         self.tb_markrad = find("tb_markrad")
         self.tb_compare = find("tb_compare")
+        self.tb_grid_snap = find("tb_grid_snap")
         self.tb_region = find("tb_region")
         self.tb_circ_min = find("tb_circ_min")
         self.tb_circ_max = find("tb_circ_max")
         self.tb_pair_min = find("tb_pair_min")
         self.tb_pair_max = find("tb_pair_max")
+        self.tb_pair_overlap = find("tb_pair_overlap")
+        self.tb_parallel_angle = find("tb_parallel_angle")
+        self.tb_junction_tol = find("tb_junction_tol")
+        self.tb_concentric_tol = find("tb_concentric_tol")
         self.tb_slab_snap = find("tb_slab_snap")
         self.tb_slab_heal = find("tb_slab_heal")
         self.tb_slab_chain = find("tb_slab_chain")
@@ -373,7 +574,8 @@ class CadToBimWindow(object):
             self.chk_stairs.IsEnabled = False
             self.chk_stairs.Content = "Create staircases (the model has no stair type)"
 
-        # Staircase tab live sync: floor height follows the level picks; an
+        # Build > Staircase sub-tab live sync: floor height follows the level
+        # picks (Build > General); an
         # ABSOLUTE riser count drives the riser height (storey / count)
         self.cb_base_level.SelectionChanged += self._on_stair_sync
         self.cb_top_level.SelectionChanged += self._on_stair_sync
@@ -389,7 +591,7 @@ class CadToBimWindow(object):
         # last run's dialog, restored before the preset so the round trip
         # through "draw stair outlines" still wins
         if saved_settings:
-            landed = self._apply_settings(saved_settings)
+            landed = self._restore_controls(saved_settings)
             if landed:
                 self.status_text.Text = ("{0} setting(s) restored from the last "
                                          "run".format(landed))
@@ -410,30 +612,48 @@ class CadToBimWindow(object):
             combo.SelectedIndex = 0
         return mapping
 
-    def _build_rows(self, panel, layer_rows, categories, default_mapping, combo_store):
+    def _build_rows(self, panel, layer_rows, categories, default_mapping,
+                    combo_store, row_notes=None):
         """One row per layer: name, count, category combo. Appends (layer, combo)
-        to combo_store so the caller can read the chosen mapping back."""
+        to combo_store so the caller can read the chosen mapping back.
+
+        `row_notes` ({layer: note}) marks the rows whose default came from
+        somewhere the user should know about -- the LEGEND proposals. The row
+        shows a `*` after the layer name and carries the note as its tooltip
+        (name and combo both), so the proposal is visible where it can still
+        be changed; the combo stays an ordinary combo.
+        """
+        label_style = _theme_style(self.window, "TextLabel")
+        caption_style = _theme_style(self.window, "TextCaption")
+        combo_style = _theme_style(self.window, "InputComboBox")
         for layer, count in layer_rows:
             row = WpfGrid()
-            row.Margin = Thickness(0, 1, 0, 1)
+            row.Margin = Thickness(0, 2, 0, 2)
             for width in (None, 70, 180):   # None -> star column
                 column = ColumnDefinition()
                 column.Width = (GridLength(1, GridUnitType.Star) if width is None
                                 else GridLength(width))
                 row.ColumnDefinitions.Add(column)
 
+            note = (row_notes or {}).get(layer)
             name_block = TextBlock()
-            name_block.Text = layer
+            _apply_style(name_block, label_style)
+            name_block.Text = layer + (" *" if note else "")
             name_block.VerticalAlignment = VerticalAlignment.Center
+            if note:
+                name_block.ToolTip = note
             WpfGrid.SetColumn(name_block, 0)
 
             count_block = TextBlock()
+            _apply_style(count_block, caption_style)
             count_block.Text = str(count)
             count_block.VerticalAlignment = VerticalAlignment.Center
             WpfGrid.SetColumn(count_block, 1)
 
             combo = ComboBox()
-            combo.Height = 22.0
+            _apply_style(combo, combo_style)
+            if note:
+                combo.ToolTip = note
             for category in categories:
                 combo.Items.Add(category)
             combo.SelectedItem = default_mapping.get(layer)
@@ -479,16 +699,21 @@ class CadToBimWindow(object):
         textbox.LostFocus += on_text
 
     def _init_tolerances(self):
-        """Seed the Units & Tolerances fields from config defaults (mm)."""
+        """Seed every tunable box from config defaults (mm unless it says not)."""
         d = config.DEFAULTS
         self.tb_snap.Text = str(int(d["snap_tol_mm"]))
         self.tb_markrad.Text = str(int(d["mark_radius_mm"]))
         self.tb_compare.Text = str(int(d["compare_tol_mm"]))
+        self.tb_grid_snap.Text = str(int(d["grid_snap_mm"]))
         self.tb_region.Text = str(int(d["col_region_max_side_mm"]))
         self.tb_circ_min.Text = str(int(d["circle_min_dia_mm"]))
         self.tb_circ_max.Text = str(int(d["circle_max_dia_mm"]))
         self.tb_pair_min.Text = str(int(d["pair_min_width_mm"]))
         self.tb_pair_max.Text = str(int(d["pair_max_width_mm"]))
+        self.tb_pair_overlap.Text = str(int(d["pair_min_overlap_mm"]))
+        self.tb_parallel_angle.Text = "{0:g}".format(d["parallel_angle_deg"])
+        self.tb_junction_tol.Text = str(int(d["junction_tol_mm"]))
+        self.tb_concentric_tol.Text = str(int(d["concentric_tol_mm"]))
         self.tb_slab_snap.Text = str(int(d["slab_snap_mm"]))
         self.tb_slab_heal.Text = str(int(d["slab_heal_mm"]))
         self.tb_slab_chain.Text = str(int(d["slab_chain_mm"]))
@@ -517,6 +742,8 @@ class CadToBimWindow(object):
         self.tb_face_size.Text = str(int(d["face_size_tol_mm"]))
         self.tb_footing_projection.Text = str(int(d["footing_projection_mm"]))
         self.tb_footing_thickness.Text = str(int(d["footing_thickness_mm"]))
+        self.tb_max_step.Text = str(int(d["max_step_mm"]))
+        self.tb_fnd_min_area.Text = str(d["foundation_min_area_m2"])
         self.tb_filter_transparency.Text = str(int(d["filter_transparency"]))
 
     def _read_int(self, textbox, fallback):
@@ -537,11 +764,23 @@ class CadToBimWindow(object):
             "snap_tol_mm": self._read_float(self.tb_snap, d["snap_tol_mm"]),
             "mark_radius_mm": self._read_float(self.tb_markrad, d["mark_radius_mm"]),
             "compare_tol_mm": self._read_float(self.tb_compare, d["compare_tol_mm"]),
+            "grid_snap_mm": self._read_float(self.tb_grid_snap, d["grid_snap_mm"]),
             "col_region_max_side_mm": self._read_float(self.tb_region, d["col_region_max_side_mm"]),
             "circle_min_dia_mm": self._read_float(self.tb_circ_min, d["circle_min_dia_mm"]),
             "circle_max_dia_mm": self._read_float(self.tb_circ_max, d["circle_max_dia_mm"]),
             "pair_min_width_mm": self._read_float(self.tb_pair_min, d["pair_min_width_mm"]),
             "pair_max_width_mm": self._read_float(self.tb_pair_max, d["pair_max_width_mm"]),
+            "pair_min_overlap_mm": self._read_float(self.tb_pair_overlap,
+                                                    d["pair_min_overlap_mm"]),
+            "parallel_angle_deg": self._read_float(self.tb_parallel_angle,
+                                                   d["parallel_angle_deg"]),
+            "junction_tol_mm": self._read_float(self.tb_junction_tol,
+                                                d["junction_tol_mm"]),
+            "concentric_tol_mm": self._read_float(self.tb_concentric_tol,
+                                                  d["concentric_tol_mm"]),
+            "max_step_mm": self._read_float(self.tb_max_step, d["max_step_mm"]),
+            "foundation_min_area_m2": self._read_float(
+                self.tb_fnd_min_area, d["foundation_min_area_m2"]),
             "slab_snap_mm": self._read_float(self.tb_slab_snap, d["slab_snap_mm"]),
             "slab_heal_mm": self._read_float(self.tb_slab_heal, d["slab_heal_mm"]),
             "slab_chain_mm": self._read_float(self.tb_slab_chain, d["slab_chain_mm"]),
@@ -608,7 +847,7 @@ class CadToBimWindow(object):
                     int(_math.ceil(storey / riser - 1e-9)))
 
     def _stair_shape(self):
-        """The generic stair shape picked on the Staircase tab (U by default)."""
+        """The generic stair shape picked on Build > Staircase (U by default)."""
         for button, shape in self.shape_buttons:
             if button.IsChecked:
                 return shape
@@ -656,11 +895,16 @@ class CadToBimWindow(object):
         text_mapping = {}
         for layer, combo in self._text_combos:
             text_mapping[layer] = combo.SelectedItem or layers.CATEGORY_TEXT_IGNORE
-        self.result = self._collect(mapping=mapping, text_mapping=text_mapping)
+        hatch_mapping = {}
+        for layer, combo in self._hatch_combos:
+            hatch_mapping[layer] = combo.SelectedItem or layers.CATEGORY_UNMAPPED
+        self.result = self._collect(mapping=mapping, text_mapping=text_mapping,
+                                    hatch_mapping=hatch_mapping)
         self._remember_conventions()
         self.window.Close()
 
-    def _collect(self, mapping=None, text_mapping=None, action=None):
+    def _collect(self, mapping=None, text_mapping=None, hatch_mapping=None,
+                 action=None):
         """Every dialog value as one dict -- shared by Run and the draw button
         so re-opening the window restores exactly what was on screen."""
         if mapping is None:
@@ -672,11 +916,17 @@ class CadToBimWindow(object):
             for layer, combo in self._text_combos:
                 text_mapping[layer] = (combo.SelectedItem
                                        or layers.CATEGORY_TEXT_IGNORE)
+        if hatch_mapping is None:
+            hatch_mapping = {}
+            for layer, combo in self._hatch_combos:
+                hatch_mapping[layer] = (combo.SelectedItem
+                                        or layers.CATEGORY_UNMAPPED)
         return {
             "action": action,
             "stair_regions": list(self.stair_regions),
             "mapping": mapping,
             "text_mapping": text_mapping,
+            "hatch_mapping": hatch_mapping,
             "create_grids": bool(self.chk_grids.IsChecked),
             "create_columns": bool(self.chk_columns.IsChecked),
             "create_beams": bool(self.chk_beams.IsChecked),
@@ -723,6 +973,15 @@ class CadToBimWindow(object):
                 "column": report.parse_standard_sizes(self.tb_std_columns.Text),
                 "beam_widths": report.parse_standard_widths(self.tb_std_beams.Text),
             },
+            # the wall kinds tick and pick apart -- Structure owns the
+            # structural pair, Architecture the arch pair -- but both place
+            # through one _create_walls pass on the run side
+            "create_struct_walls": bool(self.chk_struct_walls.IsChecked),
+            "create_arch_walls": bool(self.chk_arch_walls.IsChecked),
+            "struct_wall_type_id": self._wall_ids.get(
+                self.cb_struct_wall_type.SelectedItem),
+            "arch_wall_type_id": self._wall_ids.get(
+                self.cb_arch_wall_type.SelectedItem),
             "create_footings": bool(self.chk_footings.IsChecked),
             "footing_symbol_id": self._footing_ids.get(
                 self.cb_footing_family.SelectedItem),
@@ -745,80 +1004,28 @@ class CadToBimWindow(object):
                 config.DEFAULTS["filter_transparency"]),
             "filter_colour_lines": bool(self.chk_filter_lines.IsChecked),
             "naming": self._read_naming(),
+            "advanced": dict(self._advanced_values),
             "level_follow_existing": bool(self.chk_level_follow.IsChecked),
-            "standard_text": {"column": self.tb_std_columns.Text,
-                              "beam_widths": self.tb_std_beams.Text},
+            # the window itself, as a settings snapshot: the draw-stairs round
+            # trip restores from this, so every control survives the rebuild
+            "preset_payload": self._capture_settings(),
         }
 
     def _apply_preset(self, preset):
         """Put a previous run of this dialog back on screen.
 
         The window is rebuilt after the user draws stair outlines in the view,
-        so everything they had already chosen must come back with it. Anything
-        the preset does not name keeps the freshly computed default.
+        so everything they had already chosen must come back with it. The
+        preset carries the same snapshot a settings file does (the
+        "preset_payload" _collect takes as the window closes), and it lands
+        through the same restore path -- one code path, every control, instead
+        of a hand-kept list that forgets the boxes added since it was written.
+        Only what the snapshot cannot carry is re-applied here: the storey
+        table (its rows are rebuilt from the drawing, then reshaped from the
+        preset) and the drawn-outline count. What detection answers from the
+        drawing itself (settings.DETECTED_NAMES) stays with the drawing.
         """
-        def combo(control, ids, wanted):
-            if wanted is None:
-                return
-            for label, element_id in ids.items():
-                if element_id == wanted:
-                    control.SelectedItem = label
-                    return
-
-        for layer, control in self._combos:
-            value = (preset.get("mapping") or {}).get(layer)
-            if value:
-                control.SelectedItem = value
-        for layer, control in self._text_combos:
-            value = (preset.get("text_mapping") or {}).get(layer)
-            if value:
-                control.SelectedItem = value
-        for key, box in (("create_grids", self.chk_grids),
-                         ("create_columns", self.chk_columns),
-                         ("create_beams", self.chk_beams),
-                         ("create_slabs", self.chk_slabs),
-                         ("create_stairs", self.chk_stairs),
-                         ("export", self.chk_export),
-                         ("create_footings", self.chk_footings),
-                         ("view_filters", self.chk_view_filters),
-                         ("filter_colour_lines", self.chk_filter_lines),
-                         ("grade_in_mark", self.chk_grade_in_mark),
-                         ("multistorey", self.chk_multistorey)):
-            if key in preset and box.IsEnabled:
-                box.IsChecked = bool(preset[key])
-        combo(self.cb_family, self._family_ids, preset.get("column_family_id"))
-        combo(self.cb_circular_family, self._family_ids,
-              preset.get("circular_family_id"))
-        combo(self.cb_beam_family, self._beam_ids, preset.get("beam_family_id"))
-        combo(self.cb_floor_type, self._floor_ids, preset.get("floor_type_id"))
-        combo(self.cb_stair_type, self._stair_ids, preset.get("stair_type_id"))
-        combo(self.cb_base_level, self._level_ids, preset.get("base_level_id"))
-        combo(self.cb_top_level, self._level_ids, preset.get("top_level_id"))
-        if preset.get("name_parameter"):
-            self.cb_name_param.Text = preset["name_parameter"]
-        source = preset.get("stair_source")
-        if source:
-            self.cb_stair_source.SelectedIndex = {
-                "auto": 0, "linework": 1, "text": 2, "region": 3}.get(source, 0)
-        shape = preset.get("stair_shape")
-        for radio, value in self.shape_buttons:
-            if value == shape:
-                radio.IsChecked = True
-        params = preset.get("stair_params") or {}
-        for key, box in (("riser_count", self.tb_stair_count),
-                         ("riser_mm", self.tb_stair_riser),
-                         ("tread_mm", self.tb_stair_tread),
-                         ("run_width_mm", self.tb_stair_width),
-                         ("landing_mm", self.tb_stair_landing),
-                         ("waist_mm", self.tb_stair_waist)):
-            if params.get(key) is not None:
-                box.Text = "{0:g}".format(params[key])
-        for name in ("boundary_layer", "origin_layer"):
-            wanted = preset.get(name)
-            control = (self.cb_boundary_layer if name == "boundary_layer"
-                       else self.cb_origin_layer)
-            if wanted:
-                control.SelectedItem = wanted
+        self._restore_controls(preset.get("preset_payload") or {})
         saved_rows = preset.get("storey_settings") or []
         if saved_rows and self._storey_plans:
             self._storey_rows = [
@@ -829,12 +1036,7 @@ class CadToBimWindow(object):
                  "include": saved.get("include", True)}
                 for saved in saved_rows]
             self._refresh_storey_rows()
-        for key, box in self.name_boxes.items():
-            value = (preset.get("naming") or {}).get(key)
-            if value:
-                box.Text = value
-        self._show_naming_preview()
-        self._stair_sync()
+        self._show_outline_count()
 
     def _apply_detection(self):
         """Fill the Multi-storey tab from what auto-detection found in the DXF.
@@ -901,6 +1103,9 @@ class CadToBimWindow(object):
         keep = self.storey_rows.SelectedIndex
         self.storey_rows.Items.Clear()
         self._storey_boxes = []
+        body_style = _theme_style(self.window, "TextBody")
+        combo_style = _theme_style(self.window, "InputComboBox")
+        box_style = _theme_style(self.window, "InputTextBox")
         for position, row in enumerate(self._storey_rows):
             grid = WpfGrid()
             for width in (40.0, 30.0, 0.0, 70.0, 52.0):
@@ -916,14 +1121,15 @@ class CadToBimWindow(object):
             grid.Children.Add(include)
 
             number = TextBlock()
+            _apply_style(number, body_style)
             number.Text = str(position + 1)
             number.VerticalAlignment = VerticalAlignment.Center
             WpfGrid.SetColumn(number, 1)
             grid.Children.Add(number)
 
             plan_combo = ComboBox()
-            plan_combo.Height = 22
-            plan_combo.Margin = Thickness(0, 1, 8, 1)
+            _apply_style(plan_combo, combo_style)
+            plan_combo.Margin = Thickness(0, 2, 8, 2)
             for index in range(len(self._storey_plans)):
                 plan_combo.Items.Add(self._plan_label(index))
             plan_combo.SelectedIndex = min(row.get("plan") or 0,
@@ -932,23 +1138,23 @@ class CadToBimWindow(object):
             grid.Children.Add(plan_combo)
 
             height = TextBox()
-            height.Height = 22
-            height.Margin = Thickness(0, 1, 8, 1)
+            _apply_style(height, box_style)
+            height.Margin = Thickness(0, 2, 8, 2)
             height.Text = ("" if row.get("height_mm") is None
                            else "{0:g}".format(row["height_mm"]))
             WpfGrid.SetColumn(height, 3)
             grid.Children.Add(height)
 
             repeat = TextBox()
-            repeat.Height = 22
-            repeat.Margin = Thickness(0, 1, 0, 1)
+            _apply_style(repeat, box_style)
+            repeat.Margin = Thickness(0, 2, 0, 2)
             repeat.Text = str(int(row.get("repeat") or 1))
             WpfGrid.SetColumn(repeat, 4)
             grid.Children.Add(repeat)
 
             item = ListBoxItem()
             item.Content = grid
-            item.Padding = Thickness(2, 1, 2, 1)
+            item.Padding = Thickness(4, 2, 4, 2)
             # PREVIEW: the tunnelling event reaches the row before the combo box
             # or text box inside it can handle the click, so clicking anywhere
             # on a row selects it
@@ -1053,18 +1259,18 @@ class CadToBimWindow(object):
     def _read_storey_settings(self):
         """The per-storey rows as plain dicts, bottom-up (what the build wants)."""
         self._capture_storey_rows()
-        settings = []
+        rows_out = []
         for row in self._storey_rows:
             plan = self._storey_plans[min(row.get("plan") or 0,
                                           len(self._storey_plans) - 1)]
-            settings.append({
+            rows_out.append({
                 "label": plan.get("label"),
                 "plan": row.get("plan") or 0,
                 "order": plan.get("order"),
                 "include": bool(row.get("include", True)),
                 "height_mm": row.get("height_mm"),
                 "repeat": int(row.get("repeat") or 1)})
-        return settings
+        return rows_out
 
     def _remember_conventions(self):
         """Keep this dialog for the NEXT Revit session.
@@ -1075,6 +1281,9 @@ class CadToBimWindow(object):
         so a user who tuned twenty boxes finds them tuned tomorrow morning.
         """
         naming.save(self._read_naming())
+        # the advanced overrides go under their OWN prefs key -- the pushbutton
+        # applies them before any planning runs, long before a dialog exists
+        advanced.save(self._advanced_values)
         prefs.update({"standards": {"column": self.tb_std_columns.Text or "",
                                     "beam_widths": self.tb_std_beams.Text or ""},
                       "dialog": self._capture_settings()})
@@ -1102,15 +1311,23 @@ class CadToBimWindow(object):
         text_map = dict((layer, str(combo.SelectedItem))
                         for layer, combo in self._text_combos
                         if combo.SelectedItem is not None)
+        hatch_map = dict((layer, str(combo.SelectedItem))
+                         for layer, combo in self._hatch_combos
+                         if combo.SelectedItem is not None)
         return settings.payload(values, layer_map, text_map,
-                                _version())
+                                _version(),
+                                advanced=dict(self._advanced_values),
+                                hatches=hatch_map)
 
-    def _apply_settings(self, data):
-        """Put a saved settings dict back on the window. Returns how many landed.
+    def _restore_controls(self, data):
+        """Land a captured snapshot back on the window; returns how many took.
 
-        Layer mappings are restored by LAYER NAME, so a saved file helps on the
-        next drawing from the same office even when the layer list differs --
-        the layers it recognises are mapped, the rest keep their guess.
+        The one restore path: a settings file, the last session's dialog and
+        the draw-stairs preset all come through here, so they restore exactly
+        the same set of controls. Layer mappings are restored by LAYER NAME, so
+        a saved file helps on the next drawing from the same office even when
+        the layer list differs -- the layers it recognises are mapped, the rest
+        keep their guess.
         """
         controls, layer_map, text_map = settings.sections(data)
         landed = 0
@@ -1119,16 +1336,57 @@ class CadToBimWindow(object):
                 continue
             if _set_control_value(self.window.FindName(name), value):
                 landed += 1
+        # the hatch table restores like the other two: by LAYER NAME, and a
+        # file older than schema 3 carries no section, so it lands nothing
+        # and the convention's guess stands
         for store, saved in ((self._combos, layer_map),
-                             (self._text_combos, text_map)):
+                             (self._text_combos, text_map),
+                             (self._hatch_combos,
+                              settings.hatch_mappings(data))):
             for layer, combo in store:
                 index = settings.pick_index(combo.Items, saved.get(layer))
                 if index >= 0:
                     combo.SelectedIndex = index
                     landed += 1
+        # a schema-1 file has no advanced section and must land unchanged --
+        # the current overrides stay; a file that carries one replaces them
+        saved_advanced = settings.advanced_overrides(data)
+        if saved_advanced:
+            self._advanced_values = saved_advanced
+            landed += len(saved_advanced)
         self._show_naming_preview()
         self._stair_sync()
         return landed
+
+    def on_advanced(self, sender, args):
+        """The Yes/No gate, then the Advanced window.
+
+        The gate states the risk BEFORE the window opens: these values fail
+        quietly, so the user must take a decision to reach them, not scroll
+        into them. Cancel in the window keeps whatever was in force.
+        """
+        if not _ADVANCED_XAML:
+            # a button older than this library never handed advanced.xaml
+            # over -- say so instead of crashing on a None path
+            _alert("Advanced settings",
+                   "This button is older than the cad2bim library and did "
+                   "not provide advanced.xaml, so the window cannot open.")
+            return
+        if not _confirm(
+                "Advanced settings",
+                "These change how drawings are read. The defaults are "
+                "measured against the fixture corpus; a wrong value here "
+                "fails quietly. Reset restores every default.\n\n"
+                "Open the advanced settings?"):
+            return
+        dialog = AdvancedSettingsDialog(dict(self._advanced_values))
+        dialog.show()
+        if dialog.result is not None:
+            self._advanced_values = dialog.result
+            self.status_text.Text = (
+                "{0} advanced value(s) changed from default".format(
+                    len(dialog.result)) if dialog.result
+                else "advanced values back on their defaults")
 
     def on_settings_save(self, sender, args):
         path = _save_settings_file()
@@ -1148,7 +1406,7 @@ class CadToBimWindow(object):
             self.status_text.Text = "not a cad2bim settings file: {0}".format(
                 os.path.basename(path))
             return
-        landed = self._apply_settings(data)
+        landed = self._restore_controls(data)
         self.status_text.Text = "{0} setting(s) loaded -- {1}".format(
             landed, settings.describe(data))
 

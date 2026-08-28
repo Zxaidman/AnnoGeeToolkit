@@ -22,19 +22,84 @@ _SCRIPT = os.path.join(_BUTTON, "script.py")
 _WINDOW = os.path.normpath(os.path.join(_HERE, "..", "ui_window.py"))
 # ...and the element-creation drivers moved beside them
 _BUILDERS = os.path.normpath(os.path.join(_HERE, "..", "run_builders.py"))
+# the wall builder itself: imports Revit at module level, so text-only here
+_WALLS_BUILDER = os.path.normpath(os.path.join(_HERE, "..", "builders",
+                                               "walls.py"))
 _XAML = os.path.join(_BUTTON, "ui.xaml")
 _LINK_XAML = os.path.join(_BUTTON, "link_options.xaml")
+_ADV_XAML = os.path.join(_BUTTON, "advanced.xaml")
+
+_RESOURCES = os.path.normpath(os.path.join(
+    _HERE, "..", "..", "..", "..", "..", "Resources"))
 
 _FIND = re.compile(r'\bfind\(\s*"([A-Za-z_][A-Za-z0-9_]*)"\s*\)')
 
 
+def _body_iter(path):
+    """Every element OUTSIDE Window.Resources -- the dialog's real controls.
+
+    The dialogs inline the AnonGee theme under Window.Resources (Brand
+    Guidelines 12.3 / 12.7.B), and its ControlTemplates carry part names
+    (PART_*, Bg, Stroke, Bd...) that live in their own WPF namescopes: they
+    are not dialog controls, FindName never resolves them, and the same part
+    name legitimately repeats across templates. Scans about the dialog's OWN
+    controls therefore walk the body only.
+    """
+    def walk(element):
+        for child in element:
+            if child.tag.endswith("Window.Resources"):
+                continue
+            yield child
+            for grandchild in walk(child):
+                yield grandchild
+    return walk(ET.parse(path).getroot())
+
+
 def _xaml_names(*paths):
-    """Every x:Name in the given .xaml files (both dialogs by default)."""
+    """Every x:Name in the given .xaml files (all three dialogs by default)."""
     key = "{http://schemas.microsoft.com/winfx/2006/xaml}Name"
     names = set()
-    for path in (paths or (_XAML, _LINK_XAML)):
-        names.update(el.get(key) for el in ET.parse(path).iter() if el.get(key))
+    for path in (paths or (_XAML, _LINK_XAML, _ADV_XAML)):
+        names.update(el.get(key) for el in _body_iter(path) if el.get(key))
     return names
+
+
+def _tab_homes():
+    """{x:Name: tab path} for every named control under a TabItem.
+
+    Which tab a control sits on is invisible to FindName -- WPF resolves names
+    per window -- so a control pasted onto the wrong tab still binds and still
+    runs. Only the user sees the difference, which makes the tab a thing worth
+    asserting. A control under a nested TabItem records the whole path, e.g.
+    "Build > Foundation"."""
+    key = "{http://schemas.microsoft.com/winfx/2006/xaml}Name"
+    homes = {}
+
+    def walk(element, header):
+        if element.tag.endswith("TabItem"):
+            own = element.get("Header")
+            header = "%s > %s" % (header, own) if header else own
+        name = element.get(key)
+        if name and header:
+            homes[name] = header
+        for child in element:
+            walk(child, header)
+    walk(ET.parse(_XAML).getroot(), None)
+    return homes
+
+
+def _tab_outline():
+    """[(top-level tab header, [sub-tab headers])], in document order."""
+    def tabs_under(element):
+        found = []
+        for child in element:
+            if child.tag.endswith("TabItem"):
+                found.append((child.get("Header"),
+                              [header for header, _ in tabs_under(child)]))
+            else:
+                found.extend(tabs_under(child))
+        return found
+    return tabs_under(ET.parse(_XAML).getroot())
 
 
 def _script_source():
@@ -128,7 +193,8 @@ class NamingTabControls(unittest.TestCase):
                 "beam_sized": "beam", "beam_width": "beam_width",
                 "floor": "floor", "stair": "stair",
                 "stair_waist": "stair_waist", "level": "level",
-                "grid": "grid", "footing": "footing"}
+                "grid": "grid", "footing": "footing", "raft": "raft",
+                "wall_struct": "wall_struct", "wall_arch": "wall_arch"}
 
     def test_one_box_and_one_preview_per_template(self):
         names = _xaml_names(_XAML)
@@ -184,12 +250,337 @@ class MaterialAndFootingControls(unittest.TestCase):
         for kind in kinds:
             self.assertIn("cb_mat_{0}".format(kind), names)
 
-    def test_the_footing_row_is_on_the_structure_tab(self):
-        names = _xaml_names(_XAML)
+    def test_the_footing_row_lives_on_the_foundation_sub_tab(self):
+        # Foundation is no longer a top-level tab: it lives inside Build
+        homes = _tab_homes()
         for control in ("chk_footings", "cb_footing_family",
                         "tb_footing_projection", "tb_footing_thickness",
-                        "chk_view_filters"):
+                        "tb_max_step", "tb_fnd_min_area"):
+            self.assertEqual(homes.get(control), "Build > Foundation",
+                             "%s sits on %r" % (control, homes.get(control)))
+        self.assertEqual(homes.get("chk_view_filters"), "Output & Graphics")
+
+
+class TheDialogTabSet(unittest.TestCase):
+    """The restructure's contract: six top-level tabs, Build split by discipline.
+
+    The user's exact five: General (the run-wide picks, grids included),
+    Structure (columns, beams and slabs together), Architecture (the walls
+    placeholder), Foundation and Staircase. Settings files restore controls
+    BY NAME, so moving a node between tabs is free -- but a control moved by
+    copy-paste is easily left behind in the old tab too, and a duplicated
+    x:Name is something XamlReader only refuses at runtime, in Revit, exactly
+    where these checks exist not to look.
+    """
+
+    _TABS = ["Layers", "Build", "Multi-storey", "Tolerances",
+             "Output & Graphics", "Naming"]
+    _BUILD = ["General", "Structure", "Architecture", "Foundation",
+              "Staircase"]
+
+    def test_the_six_top_level_tabs_in_order(self):
+        self.assertEqual([header for header, _ in _tab_outline()], self._TABS)
+
+    def test_build_carries_the_element_sub_tabs_in_order(self):
+        outline = dict(_tab_outline())
+        self.assertEqual(outline.get("Build"), self._BUILD)
+        for header, sub_tabs in _tab_outline():
+            if header != "Build":
+                self.assertEqual(sub_tabs, [],
+                                 "%s grew sub-tabs: %s" % (header, sub_tabs))
+
+    def test_no_name_is_declared_twice(self):
+        # body only: the inlined theme's template part names repeat by design
+        # and live in per-template namescopes XamlReader never complains about
+        key = "{http://schemas.microsoft.com/winfx/2006/xaml}Name"
+        for path in (_XAML, _LINK_XAML, _ADV_XAML):
+            names = [el.get(key) for el in _body_iter(path) if el.get(key)]
+            doubled = sorted(name for name in set(names)
+                             if names.count(name) > 1)
+            self.assertEqual(doubled, [], "%s declares twice: %s"
+                             % (os.path.basename(path), doubled))
+
+    def test_the_moved_controls_landed_where_the_layout_says(self):
+        homes = _tab_homes()
+        for control, tab in (
+                # run-wide picks: the level pair serves columns, beams, slabs,
+                # stairs and footings alike, so it lives on Build > General --
+                # and the grids moved in beside them ("move grid inside
+                # General tab")
+                ("cb_name_param", "Build > General"),
+                ("cb_base_level", "Build > General"),
+                ("cb_top_level", "Build > General"),
+                ("chk_grids", "Build > General"),
+                # columns, beams and slabs merged onto one Structure sub-tab,
+                # a GroupBox per element
+                ("chk_columns", "Build > Structure"),
+                ("cb_family", "Build > Structure"),
+                ("cb_circular_family", "Build > Structure"),
+                ("chk_beams", "Build > Structure"),
+                ("cb_beam_family", "Build > Structure"),
+                ("chk_slabs", "Build > Structure"),
+                ("cb_floor_type", "Build > Structure"),
+                ("chk_stairs", "Build > Staircase"),
+                ("cb_stair_type", "Build > Staircase"),
+                ("chk_export", "Output & Graphics"),
+                ("tb_compare", "Output & Graphics"),
+                ("tb_grid_snap", "Tolerances")):
+            self.assertEqual(homes.get(control), tab,
+                             "%s sits on %r" % (control, homes.get(control)))
+
+
+class HelpProseIsReadable(unittest.TestCase):
+    """The guide notes were FontSize 10 -- too small to read, the user said.
+
+    They share ONE keyed style, so the readable floor is asserted in one
+    place. Since the brand pass, HelpText is no longer ad hoc: it derives
+    from the guideline TextBody style (AnonGee Brand Guidelines section 4.4)
+    and takes its size from a local FontSizeHelp token -- which must still
+    honour the user's floor of 12, above the suite-wide FontSizeBody.
+    """
+
+    _WPF = "{http://schemas.microsoft.com/winfx/2006/xaml/presentation}"
+    _KEY = "{http://schemas.microsoft.com/winfx/2006/xaml}Key"
+    _SYS = "{clr-namespace:System;assembly=mscorlib}"
+    _STYLE = "{StaticResource HelpText}"
+
+    def _style(self):
+        for style in ET.parse(_XAML).iter(self._WPF + "Style"):
+            if style.get(self._KEY) == "HelpText":
+                return style
+        self.fail("ui.xaml has no HelpText style in Window.Resources")
+
+    def _resolve_size(self, value):
+        """A FontSize setter value as a number, following one token hop."""
+        match = re.match(r"\{StaticResource ([A-Za-z0-9_]+)\}", value or "")
+        if not match:
+            return float(value)
+        for double in ET.parse(_XAML).iter(self._SYS + "Double"):
+            if double.get(self._KEY) == match.group(1):
+                return float(double.text)
+        self.fail("FontSize token %r is not declared" % match.group(1))
+
+    def test_the_help_style_is_tokenized_and_at_least_font_size_12(self):
+        style = self._style()
+        self.assertEqual(style.get("TargetType"), "TextBlock")
+        # the brand pass: HelpText derives from the guideline TextBody style
+        self.assertEqual(style.get("BasedOn"), "{StaticResource TextBody}",
+                         "HelpText no longer derives from TextBody")
+        sizes = [setter.get("Value") for setter in style
+                 if setter.get("Property") == "FontSize"]
+        self.assertEqual(len(sizes), 1, "the style sets FontSize once")
+        self.assertGreaterEqual(self._resolve_size(sizes[0]), 12.0)
+        # ...and sets nothing else inline: colour and font come from TextBody
+        others = [setter.get("Property") for setter in style
+                  if setter.get("Property") != "FontSize"]
+        self.assertEqual(others, [],
+                         "HelpText re-pins what TextBody owns: %s" % others)
+
+    def test_every_long_note_uses_the_style_not_its_own_small_font(self):
+        # anything long enough to be prose (a label never reaches 80 chars)
+        # must carry the style and must not pin a FontSize of its own
+        styled = 0
+        for element in ET.parse(_XAML).iter(self._WPF + "TextBlock"):
+            text = element.get("Text") or ""
+            if len(text) < 80:
+                continue
+            self.assertEqual(element.get("Style"), self._STYLE,
+                             "unstyled help prose: %r..." % text[:48])
+            self.assertIsNone(element.get("FontSize"),
+                              "prose pins its own size: %r..." % text[:48])
+            styled += 1
+        self.assertGreater(styled, 20, "the prose sweep found almost nothing")
+
+    def test_the_known_guide_notes_are_spot_checked(self):
+        # two the user actually complained about: the foundation prose and
+        # the Architecture tab's note (the P3 walls placeholder until v0.76.0,
+        # now the roofs note beside the wall controls that replaced it)
+        tree = ET.parse(_XAML)
+        roofs = [el for el in tree.iter(self._WPF + "TextBlock")
+                 if (el.get("Text") or "").startswith(
+                     "Roofs are not built yet")]
+        self.assertEqual(len(roofs), 1, "the roofs note appears once")
+        self.assertEqual(roofs[0].get("Style"), self._STYLE)
+        foundation = [el for el in tree.iter(self._WPF + "TextBlock")
+                      if "invented pads SILENTLY" in (el.get("Text") or "")]
+        self.assertEqual(len(foundation), 1)
+        self.assertEqual(foundation[0].get("Style"), self._STYLE)
+
+
+class TheNewTolerancesAreWired(unittest.TestCase):
+    """A box on the dialog is only real once it is seeded AND read back out.
+
+    max_step_mm is the cautionary tale: run_builders read it from the
+    tolerances dict since the fold planner landed, and nothing ever put it
+    there -- no box, no _read_tolerances key, a dead wire the fixture runs
+    could not see because the default happened to match. These checks tie
+    each new key to a control at both ends.
+    """
+
+    _WIRES = {  # x:Name -> the tolerances key its box feeds
+        "tb_grid_snap": "grid_snap_mm",
+        "tb_pair_overlap": "pair_min_overlap_mm",
+        "tb_parallel_angle": "parallel_angle_deg",
+        "tb_junction_tol": "junction_tol_mm",
+        "tb_concentric_tol": "concentric_tol_mm",
+        "tb_max_step": "max_step_mm",
+        "tb_fnd_min_area": "foundation_min_area_m2",
+    }
+
+    def test_each_box_is_in_the_xaml(self):
+        names = _xaml_names(_XAML)
+        for control in self._WIRES:
             self.assertIn(control, names)
+
+    def test_each_box_is_seeded_from_the_defaults(self):
+        block = _window_source().split("def _init_tolerances(", 1)[1].split(
+            "\n    def ", 1)[0]
+        for control in self._WIRES:
+            self.assertIn("self.{0}.Text".format(control), block,
+                          "%s is never seeded" % control)
+
+    def test_each_key_is_emitted_from_its_box(self):
+        block = _window_source().split("def _read_tolerances(", 1)[1].split(
+            "\n    def ", 1)[0]
+        keys = re.findall(r'"([a-z0-9_]+)":\s*self\._read_(?:float|int)\(',
+                          block)
+        for control, key in self._WIRES.items():
+            self.assertIn(key, keys, "%s is not read from a control" % key)
+            self.assertIn("self.{0}".format(control), block)
+
+    def test_the_dead_wire_is_live_at_both_ends(self):
+        # the consumers already read these keys off the tolerances dict; what
+        # was missing was the dialog EMITTING them
+        self.assertIn('.get("max_step_mm")', _builders_source())
+        window = _window_source()
+        self.assertIn('"max_step_mm": self._read_float(', window)
+        self.assertIn('"foundation_min_area_m2": self._read_float(', window)
+
+
+class TheLegendProposalReachesTheDialog(unittest.TestCase):
+    """The legend result is a PROPOSAL into the dialog, never a silent apply.
+
+    test9's convention: swatch pattern -> legend text -> meaning, inherited
+    by every plan hatch of the pattern. The read itself is unit-tested in
+    test_legend.py; what no offline harness can reach is the WPF window, so
+    every link from the read to the marked row is pinned as text here, the
+    way the tolerance wires are. Each of these degrades SILENTLY if cut --
+    the dialog simply opens without the proposal and nobody is told.
+    """
+
+    def test_the_pushbutton_reads_the_legend_before_the_window(self):
+        script = _script_source()
+        self.assertIn("legend.read(dxf_result.regions, dxf_result.texts)",
+                      script)
+        self.assertIn("legend.propose(legend_entries, dxf_result.regions)",
+                      script)
+        # the proposal OVERRIDES the hatch convention's default for its
+        # layers -- a legend describes HATCHES, so it seeds the HATCH
+        # mapping, never the geometry one -- and that override, sitting in
+        # the editable hatch table, IS the proposal...
+        self.assertIn('default_hatch_mapping[layer_name] = '
+                      'proposal["mapping"][layer_name]', script)
+        self.assertNotIn('default_mapping[layer_name] = '
+                         'proposal["mapping"][layer_name]', script)
+        # ...the marked rows ride into the window's HATCH table, and the
+        # console says so
+        self.assertIn("hatch_notes=legend_notes", script)
+        self.assertIn('_say("  legend:', script)
+
+    def test_the_window_marks_the_proposed_rows(self):
+        window = _window_source()
+        self.assertIn("hatch_notes=None", window)
+        self.assertIn("row_notes=hatch_notes", window)
+        block = window.split("def _build_rows(", 1)[1].split("\n    def ",
+                                                             1)[0]
+        self.assertIn("row_notes", block)
+        self.assertIn("ToolTip = note", block)
+
+    def test_the_builder_hands_the_regions_to_the_cutout_machinery(self):
+        # a hatch the dialog routed to "cutout" must reach plan_foundations,
+        # where it holes the plan containing it (test_foundation_plan pins
+        # the behaviour; this pins the hand-over)
+        self.assertIn("foundation_plan.plan_foundations(records or [], "
+                      "texts or [],", _builders_source())
+        self.assertIn("regions=regions or []", _builders_source())
+
+
+class TheHatchLayersHaveTheirOwnTable(unittest.TestCase):
+    """Hatches map on their own table, apart from geometry and text.
+
+    v0.69.7 merged hatch-only layers into the GEOMETRY rows, so routing a
+    hatch could re-route the linework on a like-named layer. The third table
+    undoes that: hatch rows come only from the regions, carry the hatch
+    categories, and the regions are stamped from selections["hatch_mapping"]
+    -- never from the geometry mapping. Each wire here degrades silently if
+    cut, which is why it is pinned as text like the tolerance wires.
+    """
+
+    def test_the_third_table_sits_on_the_layers_tab(self):
+        self.assertIn("hatch_rows", _xaml_names(_XAML))
+        self.assertEqual(_tab_homes().get("hatch_rows"), "Layers")
+
+    def test_the_window_builds_and_reads_the_table(self):
+        window = _window_source()
+        self.assertIn('find("hatch_rows")', window)
+        self.assertIn("self._hatch_combos", window)
+        # emitted under its own key, with the same unmapped fallback the
+        # geometry table uses
+        collect = window.split("def _collect(", 1)[1].split("\n    def ",
+                                                            1)[0]
+        self.assertIn('"hatch_mapping": hatch_mapping', collect)
+
+    def test_the_rows_are_built_from_the_regions_only(self):
+        script = _script_source()
+        self.assertIn("layers.build_default_hatch_mapping(hatch_names)",
+                      script)
+        self.assertIn("layers.HATCH_CATEGORIES", script)
+        # ...and the geometry rows are records-only again: the v0.69.7 merge
+        # of region counts into the geometry table is gone
+        self.assertNotIn("| set(region_counts)", script)
+
+    def test_the_regions_never_consult_the_geometry_mapping(self):
+        script = _script_source()
+        self.assertIn('layers.apply_mapping(dxf_result.regions, '
+                      'selections["hatch_mapping"])', script)
+        self.assertNotIn('apply_mapping(dxf_result.regions, '
+                         'selections["mapping"])', script)
+
+    def test_the_mapping_is_persisted_and_restored(self):
+        window = _window_source()
+        capture = window.split("def _capture_settings(", 1)[1].split(
+            "\n    def ", 1)[0]
+        self.assertIn("self._hatch_combos", capture)
+        self.assertIn("hatches=hatch_map", capture)
+        restore = window.split("def _restore_controls(", 1)[1].split(
+            "\n    def ", 1)[0]
+        self.assertIn("settings.hatch_mappings(data)", restore)
+        self.assertIn("self._hatch_combos", restore)
+
+
+class TheDrawStairsRoundTripKeepsTheWholeDialog(unittest.TestCase):
+    """Closing the window to draw outlines must not cost the user's settings.
+
+    _apply_preset used to re-enumerate the dialog by hand and put back only
+    the ~45 values it happened to name; every control added since fell to its
+    default on reopen. The preset now carries the same snapshot a settings
+    file does, restored through the same path, so the two cannot drift apart
+    again.
+    """
+
+    def test_collect_carries_the_snapshot(self):
+        block = _window_source().split("def _collect(", 1)[1].split(
+            "\n    def ", 1)[0]
+        self.assertIn('"preset_payload": self._capture_settings()', block)
+
+    def test_the_preset_lands_through_the_settings_path(self):
+        block = _window_source().split("def _apply_preset(", 1)[1].split(
+            "\n    def ", 1)[0]
+        self.assertIn('preset.get("preset_payload")', block)
+        self.assertIn("self._restore_controls(", block)
+        # the live parts the snapshot cannot carry keep their special handling
+        self.assertIn('preset.get("storey_settings")', block)
+        self.assertIn("self._show_outline_count()", block)
 
 
 class OutcomesReachTheExportClean(unittest.TestCase):
@@ -250,6 +641,252 @@ class OutcomesReachTheExportClean(unittest.TestCase):
         source = _builders_source()
         self.assertNotIn('"created_ids":', source,
                          "an outcome dict exports an id list under a plain key")
+
+
+class TheDrawnFoundationsReachTheBuilder(unittest.TestCase):
+    """The drawing-fed footing path is Revit-side, so only a static check sees it.
+
+    Every link in it fails QUIETLY. Drop the records or the notes at the call
+    and `plan_foundations` reads an empty drawing; drop `outlines=` and the
+    builder falls back to the column-offset derivation. Either way the run says
+    "footings created" and lays invented pads over a drawing that showed the
+    real ones -- the same class of silent wrong answer as the swallowed type
+    clash in v0.68.1, and unreachable by the offline harnesses because
+    builders/footings.py imports Revit at module level.
+    """
+
+    def _function(self, source, name):
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.FunctionDef) and node.name == name:
+                return node
+        self.fail("no %s" % name)
+
+    def _call(self, node, name):
+        """The call to `name` (plain or dotted) inside `node`."""
+        for inner in ast.walk(node):
+            if not isinstance(inner, ast.Call):
+                continue
+            func = inner.func
+            called = (func.id if isinstance(func, ast.Name)
+                      else getattr(func, "attr", None))
+            if called == name:
+                return inner
+        return None
+
+    def test_the_storey_hands_its_geometry_and_notes_to_the_footings(self):
+        call = self._call(self._function(_script_source(), "_build_one_storey"),
+                          "_create_footings")
+        self.assertIsNotNone(call, "_build_one_storey never creates footings")
+        passed = set(keyword.arg for keyword in call.keywords)
+        for argument in ("records", "texts"):
+            self.assertIn(argument, passed,
+                          "the footing pass is called without %s: the drawing's "
+                          "own foundations cannot be read" % argument)
+
+    def test_the_notes_are_routed_by_layer_and_never_fall_back_to_all_text(self):
+        # a BARE "1200MM THK" is a raft on the foundation layer and a slab note
+        # anywhere else; only the routing separates them, so the slab notes'
+        # "use every text when nothing is routed" fallback would claim them
+        source = _script_source()
+        self.assertIn("CATEGORY_FOUNDATION_TEXT", source)
+        assignments = [node for node in ast.walk(ast.parse(source))
+                       if isinstance(node, ast.Assign)
+                       and any(getattr(t, "id", None) == "foundation_texts"
+                               for t in node.targets)]
+        self.assertEqual(len(assignments), 1,
+                         "foundation_texts is assigned more than once: one of "
+                         "them is a fall back to every text in the drawing")
+        self.assertIsInstance(assignments[0].value, ast.ListComp)
+
+    def test_the_outlines_the_drawing_carries_reach_place_footings(self):
+        node = self._function(_builders_source(), "_create_footings")
+        self.assertIsNotNone(self._call(node, "plan_foundations"),
+                             "the footing pass never reads the drawing")
+        call = self._call(node, "place_footings")
+        self.assertIsNotNone(call, "the footing pass places nothing")
+        self.assertIn("outlines", [keyword.arg for keyword in call.keywords],
+                      "place_footings is called without the drawn outlines: "
+                      "every run falls back to pads invented from the columns")
+
+    def test_the_hatches_are_moved_and_classified_like_everything_else(self):
+        """A region read but never placed or categorised is a region ignored.
+
+        The reader keeps hatches OUT of `records`, which is what stopped them
+        reaching the column passes -- and also what stops them being carried by
+        anything that walks records. Both passes have to name them explicitly.
+        """
+        source = _script_source()
+        self.assertIn("transform.apply_to_records(text_affine, dxf_result.regions)",
+                      source, "hatches are never moved into model coordinates")
+        self.assertIn("layers.apply_mapping(dxf_result.regions", source,
+                      "hatches are never classified, so no fold is a fold")
+
+    def test_each_storey_keeps_the_hatches_drawn_on_it(self):
+        # one DXF holds every storey side by side; a fold belongs to the plan it
+        # was drawn on, so the splitter has to carry hatches as it carries
+        # records, or the foundation storey inherits the whole sheet's folds
+        source = _script_source()
+        self.assertIn("hatches=dxf_result.regions", source)
+        self.assertIn("hatches=region.regions", source)
+        call = self._call(self._function(_builders_source(), "_create_footings"),
+                          "place_footings")
+        self.assertIn("steps", [keyword.arg for keyword in call.keywords],
+                      "the planned steps never reach the builder")
+
+    def test_the_region_limit_is_read_where_the_dialog_files_it(self):
+        # it lives in TOLERANCES, where the column pass reads it; the footing
+        # pass looked in "limits" and so always found None, which meant the
+        # user's own setting never reached it
+        call = self._call(self._function(_builders_source(), "_create_footings"),
+                          "place_footings")
+        keyword = [k for k in call.keywords if k.arg == "region_max_side_mm"]
+        self.assertEqual(len(keyword), 1)
+        read = set(node.value for node in ast.walk(keyword[0])
+                   if isinstance(node, ast.Constant)
+                   and isinstance(node.value, str))
+        self.assertIn("tolerances", read)
+        self.assertNotIn("limits", read)
+
+
+class TheWallsReachTheBuilder(unittest.TestCase):
+    """The wall pass is Revit-side past the planner, so its wiring is static.
+
+    `wall_plan` is unit-tested offline (test_wall_plan) and the sweep counts
+    its segments; `builders/walls.py` imports Revit at module level, so no
+    offline harness can execute it. Every link below fails QUIETLY if cut:
+    drop the tolerances at the plan_walls call and the planner reads config
+    defaults over the user's boxes; drop a selections key and a whole wall
+    kind silently stops building; leave a combo unfilled and the type picker
+    is decoration. Pinned as text, the way the foundation links are.
+    """
+
+    def _function(self, source, name):
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.FunctionDef) and node.name == name:
+                return node
+        self.fail("no %s" % name)
+
+    def _call(self, node, name):
+        """The call to `name` (plain or dotted) inside `node`."""
+        for inner in ast.walk(node):
+            if not isinstance(inner, ast.Call):
+                continue
+            func = inner.func
+            called = (func.id if isinstance(func, ast.Name)
+                      else getattr(func, "attr", None))
+            if called == name:
+                return inner
+        return None
+
+    def _walls_source(self):
+        with open(_WALLS_BUILDER, "rb") as handle:
+            return handle.read().decode("utf-8")
+
+    def test_each_kind_lives_on_its_own_discipline_tab(self):
+        # the user's tab set: structural walls belong to Structure, arch
+        # walls give Architecture its first real content
+        homes = _tab_homes()
+        for control, tab in (("chk_struct_walls", "Build > Structure"),
+                             ("cb_struct_wall_type", "Build > Structure"),
+                             ("chk_arch_walls", "Build > Architecture"),
+                             ("cb_arch_wall_type", "Build > Architecture"),
+                             ("tb_name_wall_struct", "Naming"),
+                             ("tb_name_wall_arch", "Naming")):
+            self.assertEqual(homes.get(control), tab,
+                             "%s sits on %r" % (control, homes.get(control)))
+
+    def test_the_pushbutton_offers_the_models_wall_types(self):
+        # mirrors how floor types reach the slab picker: one document scan,
+        # handed to the window by keyword
+        script = _script_source()
+        self.assertIn("walls.wall_types(doc)", script)
+        self.assertIn("wall_type_options=wall_type_options", script)
+
+    def test_the_window_fills_both_pickers_and_emits_the_selections(self):
+        window = _window_source()
+        self.assertIn('find("cb_struct_wall_type")', window)
+        self.assertIn('find("cb_arch_wall_type")', window)
+        collect = _window_source().split("def _collect(", 1)[1].split(
+            "\n    def ", 1)[0]
+        for key in ('"create_struct_walls"', '"create_arch_walls"',
+                    '"struct_wall_type_id"', '"arch_wall_type_id"'):
+            self.assertIn(key, collect,
+                          "%s never leaves the dialog" % key)
+
+    def test_the_storey_hands_its_records_to_the_wall_pass(self):
+        call = self._call(self._function(_script_source(),
+                                         "_build_one_storey"),
+                          "_create_walls")
+        self.assertIsNotNone(call, "_build_one_storey never creates walls")
+        # the records ride positionally: doc, records, selections
+        self.assertGreaterEqual(len(call.args), 2,
+                                "the wall pass is called without records")
+        records = call.args[1]
+        self.assertEqual(getattr(records, "attr", None), "records",
+                         "the second argument is not the storey's records: "
+                         "the planner would read an empty drawing")
+
+    def test_the_planner_gets_the_dialog_tolerances(self):
+        # plan_walls quietly falls back to config defaults without them --
+        # the user's pair-overlap and parallel-angle boxes would stop
+        # reaching the walls while still reaching the beams
+        call = self._call(self._function(_builders_source(), "_create_walls"),
+                          "plan_walls")
+        self.assertIsNotNone(call, "the wall pass never plans")
+        self.assertIn("tolerances", [k.arg for k in call.keywords],
+                      "plan_walls is called without the dialog tolerances")
+
+    def test_both_kinds_place_through_one_guarded_transaction(self):
+        block = _builders_source().split("def _create_walls(", 1)[1].split(
+            "\ndef ", 1)[0]
+        self.assertIn("txn_failures.attach_warning_swallower(transaction)",
+                      block)
+        self.assertIn("walls.place_walls(", block)
+        self.assertIn('structural=(kind == "structural")', block)
+        # errors print in red, apart from the skip/note lines (the v0.69.3
+        # convention every creator follows)
+        self.assertIn('_say_error("  wall: {0}".format(message))', block)
+
+    def test_place_walls_is_told_the_top_level_and_the_fallback_height(self):
+        call = self._call(self._function(_builders_source(), "_create_walls"),
+                          "place_walls")
+        self.assertIsNotNone(call)
+        passed = set(keyword.arg for keyword in call.keywords)
+        for argument in ("top_level_id", "height_mm", "structural"):
+            self.assertIn(argument, passed,
+                          "place_walls is called without %s" % argument)
+
+    def test_the_builder_sets_width_through_the_compound_structure(self):
+        # a wall has NO width parameter: the number lives in the type's
+        # compound structure, so the duplicate-and-resize is the whole
+        # mechanism -- and a structure that refuses the width must land in
+        # result["errors"], never raise out of the batch
+        source = self._walls_source()
+        for text in ("GetCompoundStructure", "SetLayerWidth",
+                     "SetCompoundStructure",
+                     'result["errors"].append(width_problem)'):
+            self.assertIn(text, source)
+
+    def test_the_builder_constrains_the_top_and_carries_the_kind(self):
+        # structural walls rise base-to-top like columns, arch walls run to
+        # the level above -- the constraint is WALL_HEIGHT_TYPE, attached
+        # after Create the way columns attach FAMILY_TOP_LEVEL_PARAM; and
+        # the `structural` bool on Wall.Create is what files the wall under
+        # structure for the analytical model
+        source = self._walls_source()
+        self.assertIn("WALL_HEIGHT_TYPE", source)
+        self.assertIn("Wall.Create(doc, line, wall_type.Id, base_level.Id,",
+                      source)
+        self.assertIn("height_ft, 0.0, False, structural)", source)
+
+    def test_the_type_cache_is_keyed_by_kind_and_width(self):
+        # a 200-wide shear wall and a 200-wide partition are two types with
+        # two names (the Naming tab's separate rows); a width-only key would
+        # hand one the other's type
+        source = self._walls_source()
+        self.assertIn("key = (kind, int(round(width_mm)))", source)
+        self.assertIn("naming.struct_wall_type_name(", source)
+        self.assertIn("naming.arch_wall_type_name(", source)
 
 
 class StoreyTableIsSelectable(unittest.TestCase):
@@ -396,6 +1033,92 @@ class AnOldLibraryIsReportedNotCrashed(unittest.TestCase):
         self.assertIn("_MISSING_MODULE", block)
 
 
+class TheAdvancedWindowIsGatedAndWired(unittest.TestCase):
+    """The Advanced settings window: its button, its gate, and its shell.
+
+    The rows themselves are code-built from advanced.REGISTRY (like the layer
+    table), so what the static check can pin is everything around them: the
+    button lives on Output & Graphics, the click goes through the Yes/No gate
+    before any window opens, the shell XAML declares the panel and the three
+    buttons the dialog binds, and the warning prose is the one the gate
+    repeats.
+    """
+
+    def test_the_button_lives_on_output_and_graphics(self):
+        homes = _tab_homes()
+        self.assertEqual(homes.get("btn_advanced"), "Output & Graphics",
+                         "btn_advanced sits on %r" % homes.get("btn_advanced"))
+
+    def test_the_click_goes_through_the_confirmation_gate(self):
+        block = _window_source().split("def on_advanced(", 1)[1].split(
+            "\n    def ", 1)[0]
+        self.assertIn("_confirm(", block)
+        self.assertIn("AdvancedSettingsDialog(", block)
+        # the risk statement is IN the gate, not only in the window behind it
+        self.assertIn("fails quietly", block)
+        # the gate refuses by default: the dialog only opens inside the branch
+        self.assertLess(block.index("_confirm("),
+                        block.index("AdvancedSettingsDialog("))
+
+    def test_the_shell_declares_what_the_dialog_binds(self):
+        names = _xaml_names(_ADV_XAML)
+        for control in ("advanced_rows", "advanced_version_text",
+                        "advanced_warning_text", "btn_adv_reset",
+                        "btn_adv_apply", "btn_adv_cancel"):
+            self.assertIn(control, names)
+
+    def test_the_warning_header_states_the_risk_and_the_way_back(self):
+        tree = ET.parse(_ADV_XAML)
+        key = "{http://schemas.microsoft.com/winfx/2006/xaml}Name"
+        warning = [el for el in tree.iter()
+                   if el.get(key) == "advanced_warning_text"]
+        self.assertEqual(len(warning), 1)
+        text = warning[0].get("Text") or ""
+        for sentence in ("These change how drawings are read",
+                         "fails quietly", "Reset restores every default"):
+            self.assertIn(sentence, text)
+
+    def test_the_rows_render_the_registry_not_a_second_list(self):
+        block = _window_source().split("class AdvancedSettingsDialog", 1)[1].split(
+            "\nclass ", 1)[0]
+        self.assertIn("for entry in advanced.REGISTRY", block)
+        self.assertIn("entry.effect", block)
+        self.assertIn("entry.unit", block)
+
+    def test_the_values_ride_collect_capture_and_restore(self):
+        source = _window_source()
+        collect = source.split("def _collect(", 1)[1].split("\n    def ", 1)[0]
+        self.assertIn('"advanced": dict(self._advanced_values)', collect)
+        capture = source.split("def _capture_settings(", 1)[1].split(
+            "\n    def ", 1)[0]
+        self.assertIn("advanced=dict(self._advanced_values)", capture)
+        restore = source.split("def _restore_controls(", 1)[1].split(
+            "\n    def ", 1)[0]
+        self.assertIn("settings.advanced_overrides(data)", restore)
+        remember = source.split("def _remember_conventions(", 1)[1].split(
+            "\n    def ", 1)[0]
+        self.assertIn("advanced.save(self._advanced_values)", remember)
+
+    def test_the_pushbutton_applies_the_overrides_before_any_planning(self):
+        # the saved overrides must rebind BEFORE storey detection runs --
+        # floor_plans is a registered consumer -- and again from the dialog's
+        # result so an edit takes effect on the run it was made for
+        source = _script_source()
+        self.assertIn('advanced.apply(_saved_prefs.get("advanced") or {})',
+                      source)
+        self.assertLess(
+            source.index('advanced.apply(_saved_prefs.get("advanced")'),
+            source.index("floor_plans.autodetect_storeys("))
+        self.assertIn('advanced.apply(selections.get("advanced") or {})',
+                      source)
+
+    def test_the_advanced_xaml_reaches_use_xaml(self):
+        source = _script_source()
+        self.assertIn('os.path.join(_HERE, "advanced.xaml")', source)
+        self.assertIn("ui_window.use_xaml(_XAML, _LINK_XAML, _ADVANCED_XAML)",
+                      source)
+
+
 class SettingsSaveAndLoad(unittest.TestCase):
     """The whole dialog has to survive a Revit session, not just two boxes."""
 
@@ -426,14 +1149,13 @@ class SettingsSaveAndLoad(unittest.TestCase):
 
     def test_every_saveable_xaml_control_is_a_kind_capture_understands(self):
         """A control type _control_value cannot read saves as nothing at all."""
-        import xml.etree.ElementTree as Tree
         known = ("TextBox", "CheckBox", "RadioButton", "ComboBox", "Slider",
                  "TextBlock", "ListBox", "Button", "StackPanel", "Grid",
                  "Border", "Expander", "TabItem", "ScrollViewer", "Window",
                  "Separator", "Label")
         key = "{http://schemas.microsoft.com/winfx/2006/xaml}Name"
         unknown = []
-        for element in Tree.parse(_XAML).iter():
+        for element in _body_iter(_XAML):
             name = element.get(key)
             if not name:
                 continue
@@ -443,6 +1165,155 @@ class SettingsSaveAndLoad(unittest.TestCase):
         self.assertEqual(unknown, [],
                          "settings cannot read these control types: %s"
                          % unknown)
+
+
+class TheDialogsSpeakTheTheme(unittest.TestCase):
+    """Brand pass: tokens, not hex (AnonGee Brand Guidelines 3 / 12.3 / 13.4).
+
+    The dialogs inline the shared theme under Window.Resources -- the one
+    strategy that survives Revit's pyRevit sandbox (12.7.B; runtime-merged
+    dictionaries fail to resolve there). Two things keep the copies honest:
+    a colour literal may exist ONLY on the token primitives themselves, and
+    any token that also exists in the shared Resources/*.xaml dictionaries
+    must carry the same value -- an inline copy that drifts is a defect
+    (12.3). The last two checks pin the template rules that crash or fail
+    silently inside Revit: no resource reference on the root Window element
+    (12.7.A) and PART_EditableTextBox wherever an editable ComboBox gets a
+    custom template (12.7.C).
+    """
+
+    _DIALOGS = (_XAML, _LINK_XAML, _ADV_XAML)
+    _WPF = "{http://schemas.microsoft.com/winfx/2006/xaml/presentation}"
+    _KEY = "{http://schemas.microsoft.com/winfx/2006/xaml}Key"
+    _NAME = "{http://schemas.microsoft.com/winfx/2006/xaml}Name"
+    _HEX = re.compile(r"#[0-9A-Fa-f]{3,8}\b")
+    _REF = re.compile(r"\{StaticResource\s+([A-Za-z0-9_]+)\}")
+    # the tiers that may carry a literal colour: Tier-1 primitives and the
+    # elevation shadows (13.1); everything else must reference a token key
+    _PRIMITIVES = ("Color", "SolidColorBrush", "GradientStop",
+                   "DropShadowEffect")
+
+    def _tokens(self, path):
+        """{key: value} for every primitive token a dictionary declares."""
+        out = {}
+        for element in ET.parse(path).iter():
+            key = element.get(self._KEY)
+            if not key:
+                continue
+            tag = element.tag.rsplit("}", 1)[-1]
+            if tag == "SolidColorBrush":
+                out[key] = ("Brush", (element.get("Color") or "").strip())
+            elif tag == "Color":
+                out[key] = ("Color", (element.text or "").strip())
+            elif tag == "Double":
+                out[key] = ("Double", (element.text or "").strip())
+            elif tag == "FontFamily":
+                out[key] = ("FontFamily", (element.text or "").strip())
+        return out
+
+    def test_hex_literals_live_only_on_token_primitives(self):
+        for path in self._DIALOGS:
+            for element in ET.parse(path).iter():
+                tag = element.tag.rsplit("}", 1)[-1]
+                if tag in self._PRIMITIVES:
+                    continue
+                for attribute, value in element.attrib.items():
+                    self.assertIsNone(
+                        self._HEX.search(value),
+                        "%s hardcodes %r as %s on <%s> -- use a theme token"
+                        % (os.path.basename(path), value, attribute, tag))
+
+    def test_every_referenced_token_is_declared_before_use(self):
+        # XamlReader resolves StaticResource eagerly, so a key referenced
+        # above its declaration (or never declared) dies at parse time in
+        # Revit -- exactly where these checks exist not to look
+        for path in self._DIALOGS:
+            with open(path, "rb") as handle:
+                source = handle.read().decode("utf-8")
+            for match in self._REF.finditer(source):
+                token = match.group(1)
+                declared = source.find('x:Key="%s"' % token)
+                self.assertGreaterEqual(
+                    declared, 0, "%s references undeclared token %r"
+                    % (os.path.basename(path), token))
+                self.assertLess(
+                    declared, match.start(),
+                    "%s references %r above its declaration"
+                    % (os.path.basename(path), token))
+
+    def test_the_inline_tokens_match_the_shared_dictionaries(self):
+        # 12.3: an inline copy is verbatim -- same key, same value as
+        # Resources/*.xaml; a hand-edited variant is a defect
+        shared = {}
+        for name in ("Colors.xaml", "Typography.xaml"):
+            shared.update(self._tokens(os.path.join(_RESOURCES, name)))
+        for path in self._DIALOGS:
+            for key, value in self._tokens(path).items():
+                if key not in shared:
+                    continue   # local additions (FontSizeHelp) are fine
+                self.assertEqual(
+                    value, shared[key],
+                    "%s drifts from Resources/ on %r: %r != %r"
+                    % (os.path.basename(path), key, value, shared[key]))
+
+    def test_the_dialogs_actually_wear_the_brand(self):
+        # each dialog carries the charcoal header band, the 3px Vivid Red
+        # rule and a primary action -- the section 12.6 window anatomy
+        for path in self._DIALOGS:
+            with open(path, "rb") as handle:
+                source = handle.read().decode("utf-8")
+            for token in ("BrushCharcoalBlack", "BrushVividRed",
+                          "ButtonPrimary", "TextH2OnDark"):
+                self.assertIn("{StaticResource %s}" % token, source,
+                              "%s never uses %s"
+                              % (os.path.basename(path), token))
+
+    def test_no_resource_reference_on_the_root_window(self):
+        # 12.7.A: XamlReader resolves root Window attributes BEFORE
+        # Window.Resources is parsed; a reference there throws in Revit
+        for path in self._DIALOGS:
+            root = ET.parse(path).getroot()
+            self.assertTrue(root.tag.endswith("Window"))
+            for attribute, value in root.attrib.items():
+                self.assertNotIn("{StaticResource", value,
+                                 "%s: StaticResource on root %s"
+                                 % (os.path.basename(path), attribute))
+                self.assertNotIn("{DynamicResource", value,
+                                 "%s: DynamicResource on root %s"
+                                 % (os.path.basename(path), attribute))
+
+    def _input_combo_template_names(self, path):
+        """x:Names inside the InputComboBox style, or None if no such style."""
+        for style in ET.parse(path).iter(self._WPF + "Style"):
+            if style.get(self._KEY) != "InputComboBox":
+                continue
+            return set(el.get(self._NAME) for el in style.iter()
+                       if el.get(self._NAME))
+        return None
+
+    def test_editable_combos_get_the_editable_template(self):
+        # 12.7.C: an editable ComboBox whose template lacks
+        # PART_EditableTextBox renders but silently refuses typed input
+        for path in self._DIALOGS:
+            editable = [el for el in _body_iter(path)
+                        if el.tag == self._WPF + "ComboBox"
+                        and el.get("IsEditable") == "True"]
+            if not editable:
+                continue
+            names = self._input_combo_template_names(path)
+            self.assertIsNotNone(names, "%s has editable combos but no "
+                                 "InputComboBox style"
+                                 % os.path.basename(path))
+            for part in ("PART_EditableTextBox", "PART_Popup"):
+                self.assertIn(part, names,
+                              "%s: InputComboBox template lacks %s"
+                              % (os.path.basename(path), part))
+            for combo in editable:
+                self.assertEqual(combo.get("Style"),
+                                 "{StaticResource InputComboBox}",
+                                 "editable combo %r does not wear the "
+                                 "editable-capable template"
+                                 % combo.get(self._NAME))
 
 
 if __name__ == "__main__":

@@ -116,8 +116,9 @@ _drop_stale_modules()
 import anongee_clr                      # noqa: F401  (imported for its lifetime)
 
 from anongee_toolkit import cad2bim
-from anongee_toolkit.cad2bim import (compat, config, floor_plans, naming,
-                                     prefs, report, settings, slab_outlines,
+from anongee_toolkit.cad2bim import (advanced, compat, config, floor_plans,
+                                     foundation_plan, legend, naming, prefs,
+                                     report, settings, slab_outlines,
                                      stair_layout)
 from anongee_toolkit.cad2bim.geom import transform, compare
 from anongee_toolkit.cad2bim.classify import layers, marks
@@ -134,8 +135,12 @@ try:
     from anongee_toolkit.cad2bim import ui_window
     from anongee_toolkit.cad2bim.run_builders import (   # noqa: F401
         _create_grids, _create_columns, _create_beams, _create_footings,
-        _create_slabs, _create_stairs, _apply_materials, _colour_open_views,
-        _strip_ids)
+        _create_slabs, _create_stairs, _create_walls, _apply_materials,
+        _colour_open_views, _strip_ids)
+    # builders.walls is new with v0.76.0, so it rides the guard: a stale
+    # library reports through _library_mismatch instead of raw-tracebacking
+    # on the module-level import below
+    from anongee_toolkit.cad2bim.builders import walls   # noqa: F401
     from anongee_toolkit.cad2bim.run_picking import _draw_stair_outlines
     from anongee_toolkit.cad2bim.ui_window import (CadToBimWindow,
                                                    LinkOptionsDialog)
@@ -186,9 +191,10 @@ from anongee_toolkit.cad2bim.builders import (beams, columns, footings,
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _XAML = os.path.join(_HERE, "ui.xaml")
 _LINK_XAML = os.path.join(_HERE, "link_options.xaml")
+_ADVANCED_XAML = os.path.join(_HERE, "advanced.xaml")
 # the windows live in the library; their .xaml lives here, beside the button
 if _MISSING_MODULE is None:
-    ui_window.use_xaml(_XAML, _LINK_XAML)
+    ui_window.use_xaml(_XAML, _LINK_XAML, _ADVANCED_XAML)
 
 # What this button needs the library to have. Checked once, up front, so a
 # library older than the button says so plainly instead of failing an hour into
@@ -403,6 +409,11 @@ def main():
     marks.parse_texts(dxf_result.texts)
     # Map a copy of the DXF geometry the same way, only to report problem geometry.
     transform.apply_to_records(text_affine, dxf_result.records)
+    # HATCH regions come from the DXF only -- the Revit API cannot read a hatch
+    # inside a link any more than it can read text -- so they take the same
+    # affine the texts do. A region carries `points` like a record, which is
+    # what lets apply_to_records move it.
+    transform.apply_to_records(text_affine, dxf_result.regions)
 
     # Build the window from the REVIT records (the build source) UNIONED with the
     # DXF-only layers. Revit's import drops some entity types outright -- a bare
@@ -416,18 +427,58 @@ def main():
     for name in names:
         revit_n = layer_counts.get(name, {}).get("count", 0)
         dxf_n = dxf_counts.get(name, {}).get("count", 0)
-        layer_rows.append((name, revit_n if revit_n else dxf_n))
+        layer_rows.append((name, revit_n or dxf_n))
     dxf_only = [name for name in names if not layer_counts.get(name)]
     if dxf_only:
         _say("Layers present in the DXF but not in the Revit link (still "
              "mappable): {0}".format(", ".join(dxf_only)))
     default_mapping = layers.build_default_mapping(names)
+    # HATCH layers get a mapping OF THEIR OWN, apart from geometry and text
+    # (the user's explicit instruction). A hatch is a region meaning -- column
+    # fill / fold / sunk / cutout -- not an element category, and v0.69.7's
+    # merge of hatch-only layers into the GEOMETRY rows meant routing a hatch
+    # could re-route linework on the same layer. The rows come ONLY from
+    # dxf_result.regions (the Revit API cannot read a hatch inside a link).
+    region_counts = {}
+    for region in dxf_result.regions:
+        region_counts[region.layer_key] = region_counts.get(region.layer_key,
+                                                            0) + 1
+    hatch_names = sorted(region_counts)
+    hatch_rows = [(name, region_counts[name]) for name in hatch_names]
+    default_hatch_mapping = layers.build_default_hatch_mapping(hatch_names)
+    # The LEGEND, if the drawing carries one (test9's convention): swatch
+    # pattern -> legend text -> meaning, inherited by every plan hatch of the
+    # pattern. The result is a PROPOSAL into the dialog, never a silent
+    # application -- it overrides the hatch convention's default for its
+    # layers (a legend describes HATCHES, so it seeds the hatch mapping, not
+    # the geometry one), the rows are marked, and the user can still change
+    # them. Regions and texts are already through the affine here, so the
+    # pairing distances are real millimetres.
+    legend_notes = {}
+    legend_entries = legend.read(dxf_result.regions, dxf_result.texts)
+    if legend_entries:
+        proposal = legend.propose(legend_entries, dxf_result.regions)
+        _say("Legend: {0} entr{1} read from the drawing.".format(
+            len(legend_entries),
+            "y" if len(legend_entries) == 1 else "ies"))
+        for layer_name in sorted(proposal["mapping"]):
+            default_hatch_mapping[layer_name] = proposal["mapping"][layer_name]
+            legend_notes[layer_name] = proposal["rows"][layer_name]
+            _say("  legend: {0} {1}".format(layer_name,
+                                            proposal["rows"][layer_name]))
+        for line in proposal["reports"]:
+            _say("  legend: {0}".format(line))
+        for line in proposal["notes"]:
+            _say("  legend: {0}".format(line))
     column_symbols = columns.structural_column_symbols(doc)
     level_options = columns.levels(doc)
     beam_symbols = beams.structural_framing_symbols(doc)
     floor_type_options = slabs.floor_types(doc)
     stair_type_options = stairs.stairs_types(doc)
     footing_type_options = footings.foundation_types(doc)
+    # Wall types feed TWO pickers -- Structure's and Architecture's -- the way
+    # floor types feed the slab picker: one document scan, basic types first.
+    wall_type_options = walls.wall_types(doc)
     material_options = materials.materials(doc)
     level_elevations = {label: doc.GetElement(level_id).Elevation
                         for label, level_id in level_options}
@@ -440,19 +491,27 @@ def main():
     text_layer_rows = [(name, text_layer_counts[name]) for name in text_names]
     default_text_mapping = layers.build_default_text_mapping(text_names)
 
-    # Is this ONE plan or a sheet of storeys? Read off the DXF (its bare origin
-    # POINTs do not always survive Revit's import) so the Multi-storey tab opens
-    # already answered instead of waiting for the user to guess two layer names.
-    storey_detection = floor_plans.autodetect_storeys(dxf_result.records,
-                                                      dxf_result.texts)
-    # Naming templates and standard sizes are office conventions, not per-drawing
-    # numbers, so they come back from the preferences file the last run wrote.
+    # Preferences come BEFORE any planning: the saved ADVANCED overrides
+    # rebind module constants, and the storey detection a few lines down is
+    # already a consumer (floor_plans reads its region and coverage
+    # thresholds at call time). Naming templates and standard sizes are
+    # office conventions, not per-drawing numbers, so they come back from the
+    # preferences file the last run wrote.
     saved_naming = naming.load()
     _saved_prefs = prefs.load()
     saved_standards = _saved_prefs.get("standards") or {}
     # ... and the rest of the dialog comes back too: every tolerance, tick and
     # dropdown the last run finished with, restored by name
     saved_settings = _saved_prefs.get("dialog") or None
+    advanced.apply(_saved_prefs.get("advanced") or {})
+    for problem in advanced.problems():
+        _say("advanced: {0}".format(problem))
+
+    # Is this ONE plan or a sheet of storeys? Read off the DXF (its bare origin
+    # POINTs do not always survive Revit's import) so the Multi-storey tab opens
+    # already answered instead of waiting for the user to guess two layer names.
+    storey_detection = floor_plans.autodetect_storeys(dxf_result.records,
+                                                      dxf_result.texts)
     _say("Storeys: {0}".format(storey_detection.reason))
     for note in storey_detection.notes:
         _say("  storey: {0}".format(note))
@@ -477,8 +536,14 @@ def main():
                                 saved_naming=saved_naming,
                                 saved_standards=saved_standards,
                                 footing_type_options=footing_type_options,
+                                wall_type_options=wall_type_options,
                                 material_options=material_options,
-                                saved_settings=saved_settings)
+                                saved_settings=saved_settings,
+                                hatch_layer_rows=hatch_rows,
+                                hatch_categories=list(
+                                    layers.HATCH_CATEGORIES),
+                                default_hatch_mapping=default_hatch_mapping,
+                                hatch_notes=legend_notes)
         window.show()
         if not window.result:
             return   # cancelled -- nothing was flushed, console stays closed
@@ -496,6 +561,11 @@ def main():
     # the DXF records carry the markers a Revit import drops, so they get the
     # SAME mapping -- otherwise a DXF-only layer stays uncategorised
     layers.apply_mapping(dxf_result.records, selections["mapping"])
+    # ...and the hatches take THEIR OWN mapping -- the third table on the
+    # Layers tab -- which is what tells a fold region from a sunk one and
+    # both from the column fill, without ever consulting (or disturbing) the
+    # geometry mapping for the layer of the same name.
+    layers.apply_mapping(dxf_result.regions, selections["hatch_mapping"])
     # The Multi-storey tab picks the boundary/origin layers BY NAME (they differ
     # per drawing), so route them here -- after the layer table, so an explicit
     # pick always wins over the naming convention.
@@ -511,12 +581,18 @@ def main():
     limits = selections.get("limits")
     standards = selections.get("standards")
     tolerances = selections.get("tolerances") or {}
-    # the Tolerances tab owns every tunable, including the ones that used to be
-    # module constants in the slab and stair geometry
+    # the dialog owns every tunable, including the ones that used to be module
+    # constants in the slab, stair and foundation geometry
     slab_outlines.apply_tolerances(tolerances)
     stair_layout.apply_tolerances(tolerances)
+    foundation_plan.apply_tolerances(tolerances)
+    # ...and the Advanced window's overrides bind for THIS run too, or an edit
+    # made behind the gate would only take effect next session
+    advanced.apply(selections.get("advanced") or {})
+    for problem in advanced.problems():
+        _say("advanced: {0}".format(problem))
     # every element writes its CAD mark into the parameter chosen on the
-    # Structure tab (Mark stays the fallback when a family lacks it)
+    # Build > General sub-tab (Mark stays the fallback when a family lacks it)
     compat.set_name_parameter(selections.get("name_parameter"))
     # every auto-created family type is named from the Naming tab's templates
     naming.apply(selections.get("naming"))
@@ -542,7 +618,8 @@ def main():
             revit_result.records, dxf_result.texts,
             marker_records=dxf_result.records,
             boundary_layer=selections.get("boundary_layer"),
-            origin_layer=selections.get("origin_layer"))
+            origin_layer=selections.get("origin_layer"),
+            hatches=dxf_result.regions)
         for note in floor_notes:
             _say("  storey: {0}".format(note))
         regions = floor_plans.apply_storey_settings(
@@ -582,7 +659,8 @@ def main():
                 doc, storey_result, region.texts, storey_selections,
                 schedule_source=dxf_result.texts, path=path,
                 comparison=comparison, transform_method=transform_method,
-                storey_label=label, collect=storey_payloads)
+                storey_label=label, collect=storey_payloads,
+                hatches=region.regions)
             all_outcomes["{0}".format(label)] = outcomes
         if storey_payloads:
             _export_storeys(storey_payloads, revit_result.source_name,
@@ -594,7 +672,8 @@ def main():
     outcomes = _build_one_storey(doc, revit_result, dxf_result.texts, selections,
                                  schedule_source=dxf_result.texts, path=path,
                                  comparison=comparison,
-                                 transform_method=transform_method)
+                                 transform_method=transform_method,
+                                 hatches=dxf_result.regions)
     _colour_open_views(doc, uidoc, selections)
     _OUT.finish(outcomes)
 
@@ -686,7 +765,7 @@ def _storey_level_pairs(doc, selections, built):
 
 def _build_one_storey(doc, revit_result, texts, selections, schedule_source=None,
                       path=None, comparison=None, transform_method=None,
-                      storey_label=None, collect=None):
+                      storey_label=None, collect=None, hatches=None):
     """Build ONE storey: columns, beams, slabs and stairs from its records.
 
     `collect` is the multi-storey accumulator: when it is a list this storey
@@ -730,6 +809,13 @@ def _build_one_storey(doc, revit_result, texts, selections, schedule_source=None
     else:
         _say("slabs: reading notes from {0} routed label(s)".format(
             len(slab_texts)))
+    # Foundation notes are NOT found by content the way slab notes are: a bare
+    # "1200MM THK" is a raft on the foundation layer and a slab note anywhere
+    # else, and only the routing says which. So no fall back to every text --
+    # an unrouted drawing simply has no drawn foundations.
+    foundation_texts = [t for t in dxf_texts
+                        if text_mapping.get(t.layer_key)
+                        == layers.CATEGORY_FOUNDATION_TEXT]
 
     # The schedule (mark -> size) sizes MARK-ONLY plan labels (columns AND beams). The
     # table is authoritative; any sized plan label supplements a mark the table omits.
@@ -763,7 +849,8 @@ def _build_one_storey(doc, revit_result, texts, selections, schedule_source=None
     # merge grid-crossing-split pieces (E9), snapped to the grid intersection.
     mark_radius_ft = config.mm_to_ft(tolerances.get("mark_radius_mm",
                                                     config.DEFAULTS["mark_radius_mm"]))
-    grid_snap_ft = config.mm_to_ft(config.DEFAULTS["grid_snap_mm"])
+    grid_snap_ft = config.mm_to_ft(tolerances.get("grid_snap_mm",
+                                                  config.DEFAULTS["grid_snap_mm"]))
 
     # A fused lift/stair core (loose wall lines blobbed + greedily decomposed) mis-cuts
     # its shared corners, so each wall is the right thickness but offset along its length.
@@ -887,12 +974,26 @@ def _build_one_storey(doc, revit_result, texts, selections, schedule_source=None
                                             slab_beam_segments, dxf_texts,
                                             selections,
                                             column_rects=column_footprints)
-    # FOOTINGS: one per column, on the columns' BASE level. In a multi-storey
-    # run only the lowest storey builds them -- a building has one set of
-    # foundations, not one per floor.
-    _progress(8, _BUILD_STEPS, "create footings")
+    # WALLS: the centrelines wall_plan read off the routed wall layers, both
+    # kinds in one pass. Structural walls rise base-to-top like columns; arch
+    # walls run base to the level above; either stands at the storey height,
+    # unconnected, when the run has no top level. Per storey like everything
+    # vertical -- each plan's walls belong to the storey it was drawn on.
+    _progress(8, _BUILD_STEPS, "create walls")
+    if (selections.get("create_struct_walls")
+            or selections.get("create_arch_walls")):
+        outcomes["walls"] = _create_walls(doc, revit_result.records,
+                                          selections)
+    # FOOTINGS: the outlines the drawing carries, else one pad per column. Both
+    # go on the columns' BASE level, and in a multi-storey run only the lowest
+    # storey builds them -- a building has one set of foundations, not one per
+    # floor.
+    _progress(9, _BUILD_STEPS, "create footings")
     if selections.get("create_footings") and selections.get("build_footings", True):
-        outcomes["footings"] = _create_footings(doc, sections, selections)
+        outcomes["footings"] = _create_footings(doc, sections, selections,
+                                                records=revit_result.records,
+                                                texts=foundation_texts,
+                                                regions=hatches)
     _progress(_BUILD_STEPS, _BUILD_STEPS, "materials")
     applied = _apply_materials(doc, outcomes, selections)
     if applied:
@@ -941,7 +1042,10 @@ def _export_name(cad_path, selections, storey_label=None):
     """Default export file name (user convention):
     [version]_[main element]_[testN from the CAD name]_[textmode].json
     e.g. "0.44.0_slab_test1_with_textmode.json"."""
-    element = ("stair" if selections.get("create_stairs")
+    element = ("footing" if selections.get("create_footings")
+               else "stair" if selections.get("create_stairs")
+               else "wall" if (selections.get("create_struct_walls")
+                               or selections.get("create_arch_walls"))
                else "slab" if selections.get("create_slabs")
                else "beam" if selections.get("create_beams")
                else "column" if selections.get("create_columns")

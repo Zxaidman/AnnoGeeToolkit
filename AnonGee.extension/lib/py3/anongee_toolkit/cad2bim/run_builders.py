@@ -25,14 +25,15 @@ from Autodesk.Revit.DB import Transaction, TransactionGroup
 
 import re
 
-from . import config, naming, report, slab_outlines
+from . import (config, fold_plan, foundation_plan, naming, report,
+               slab_outlines, wall_plan)
 from .builders import (columns, beams, footings, grids, materials, slabs,
-                       txn_failures, view_filters)
+                       txn_failures, view_filters, walls)
 from . import stair_layout
 from .classify import layers
 from .builders import stairs
 from .run_picking import _pick_stair_regions
-from .run_console import _say, _progress
+from .run_console import _say, _say_error, _progress
 from .ui_dialogs import _alert, _error, _persisted, _rollback_alert
 
 
@@ -120,7 +121,7 @@ def _create_grids(doc, records, grid_texts=None):
     _say("Grids -- created: {0}, skipped: {1}, errors: {2}".format(
         len(result["created"]), len(result["skipped"]), len(result["errors"])))
     for message in result["errors"]:
-        _say("  grid: {0}".format(message))
+        _say_error("  grid: {0}".format(message))
     return {"created": len(result["created"]), "skipped": len(result["skipped"]),
             "errors": len(result["errors"]),
             "error_details": [str(e)[:220] for e in result["errors"][:8]],
@@ -174,7 +175,10 @@ def _create_columns(doc, sections, selections):
     _say("Columns -- rect created: {0}, circular: {1}, skipped: {2}, errors: {3}".format(
         len(result["created"]), len(circular["created"]),
         len(result["skipped"]), len(result["errors"]) + len(circular["errors"])))
-    for message in result["errors"] + circular["errors"] + result["skipped"]:
+    for message in result["errors"] + circular["errors"]:
+        _say_error("  column: {0}".format(message))
+    for message in (result["skipped"] + result.get("notes", [])
+                    + circular.get("notes", [])):
         _say("  column: {0}".format(message))
     return {"rect": len(result["created"]), "circular": len(circular["created"]),
             _IDS: result["created"] + circular["created"],
@@ -228,7 +232,9 @@ def _create_beams(doc, beam_segments, selections):
 
     _say("Beams -- created: {0}, skipped: {1}, errors: {2}".format(
         len(result["created"]), len(result["skipped"]), len(result["errors"])))
-    for message in result["errors"] + result["skipped"]:
+    for message in result["errors"]:
+        _say_error("  beam: {0}".format(message))
+    for message in result["skipped"] + result.get("notes", []):
         _say("  beam: {0}".format(message))
     return {"created": len(result["created"]), "skipped": len(result["skipped"]),
             "errors": len(result["errors"]),
@@ -241,14 +247,43 @@ def _create_beams(doc, beam_segments, selections):
             "skip_details": _skip_details(result["skipped"])}
 
 
-def _create_footings(doc, sections, selections):
-    """Isolated foundations under the columns, on their BASE level."""
+def _create_footings(doc, sections, selections, records=None, texts=None,
+                     regions=None):
+    """The foundations, on the columns' BASE level.
+
+    `records` and `texts` are this storey's geometry and its routed foundation
+    notes. When they carry the foundation convention the outlines come from the
+    drawing; when they do not, the pass derives pads from the columns exactly as
+    it always has.
+
+    `regions` are the storey's hatches. A fold or sunk hatch inside an outline
+    steps it: the outline is cut, a dropped slab goes in at the step depth, and
+    the vertical face between the two soffits is filled.
+    """
     from Autodesk.Revit.DB import Transaction, TransactionGroup
     type_id = selections.get("footing_symbol_id")
     level_id = selections.get("base_level_id")
     if type_id is None or level_id is None:
         _say("Footings -- no foundation type or base level chosen.")
         return {"created": 0, "skipped": 0, "errors": 0}
+
+    # The regions ride along so a hatch the dialog routed to "cutout" (the
+    # legend proposal, or a hand pick) holes the plan containing it -- the
+    # region-category cousin of the X-marked faces.
+    outlines = foundation_plan.plan_foundations(records or [], texts or [],
+                                                regions=regions or [])
+    if outlines:
+        _say("Footings -- {0} outline(s) read from the drawing; the "
+             "column-offset derivation is not used.".format(len(outlines)))
+    steps = fold_plan.plan_steps(
+        outlines, regions or [],
+        max_step_mm=(selections.get("tolerances") or {}).get("max_step_mm"))
+    for message in steps["skipped"]:
+        _say("  step: {0}".format(message))
+    if steps["steps"]:
+        _say("Footings -- {0} fold/sunk step(s): {1} support(s) between the "
+             "soffits.".format(len(steps["steps"]),
+                               sum(len(s["supports"]) for s in steps["steps"])))
 
     group = TransactionGroup(doc, "CAD to BIM: Footings")
     transaction = Transaction(doc, "Create footings")
@@ -260,8 +295,12 @@ def _create_footings(doc, sections, selections):
             doc, sections, type_id, level_id,
             projection_mm=selections.get("footing_projection_mm") or 0.0,
             thickness_mm=selections.get("footing_thickness_mm") or 0.0,
-            region_max_side_mm=(selections.get("limits") or {}).get(
-                "col_region_max_side_mm"))
+            # The dialog files this under TOLERANCES, which is where the column
+            # pass reads it from; looking in "limits" always found nothing, so
+            # the user's setting never reached the footings.
+            region_max_side_mm=(selections.get("tolerances") or {}).get(
+                "col_region_max_side_mm"),
+            outlines=outlines, steps=steps["steps"])
         transaction.Commit()
         group.Assimilate()
     except Exception as creation_error:
@@ -275,7 +314,9 @@ def _create_footings(doc, sections, selections):
 
     _say("Footings -- created: {0}, skipped: {1}, errors: {2}".format(
         len(result["created"]), len(result["skipped"]), len(result["errors"])))
-    for message in result["errors"] + result["skipped"]:
+    for message in result["errors"]:
+        _say_error("  footing: {0}".format(message))
+    for message in result["skipped"] + result.get("notes", []):
         _say("  footing: {0}".format(message))
     return {"created": len(result["created"]),
             "skipped": len(result["skipped"]),
@@ -283,6 +324,103 @@ def _create_footings(doc, sections, selections):
             _IDS: result["created"],
             "error_details": [str(e)[:220] for e in result["errors"][:8]],
             "skip_details": _skip_details(result["skipped"])}
+
+
+def _create_walls(doc, records, selections):
+    """The walls, from the centrelines the offline planner reads per storey.
+
+    ONE planning pass feeds BOTH kinds: `wall_plan.plan_walls` is Revit-free,
+    splits its segments into "structural" and "arch" by the layer routing, and
+    reports everything it declines (door-cutout quads, end caps, faces with no
+    partner), so the console can say why a drawn line built nothing. Each kind
+    then places against its OWN base type -- a shear wall and a brick
+    partition are different assemblies with different names.
+
+    Where the drawing carries the SAME wall on both conventions (test8's 250
+    S-RCC-WALL quad with a 150 arch trace 50 mm off its centreline, findings
+    #12), both still build: which convention wins is a decision recorded in
+    task_plan.md against the user's Revit run of this pass, not guessed here.
+    """
+    from Autodesk.Revit.DB import Transaction, TransactionGroup
+    want = {"structural": bool(selections.get("create_struct_walls")),
+            "arch": bool(selections.get("create_arch_walls"))}
+    type_ids = {"structural": selections.get("struct_wall_type_id"),
+                "arch": selections.get("arch_wall_type_id")}
+    base_id = selections.get("base_level_id")
+    if base_id is None:
+        _say("Walls -- skipped (no base level chosen).")
+        return {"created": 0, "skipped": 0, "errors": 0}
+
+    plan = wall_plan.plan_walls(records or [],
+                                tolerances=selections.get("tolerances"))
+    pools = {"structural": [], "arch": []}
+    for segment in plan["segments"]:
+        if segment["kind"] in pools:
+            pools[segment["kind"]].append(segment)
+    # the planner's refusals, grouped the way the export groups skips -- a
+    # drawing with 27 doors declines 27 jamb pairs for one reason, not 27
+    planner_skips = ["{0} [{1}]".format(entry.get("reason"),
+                                        entry.get("layer"))
+                     for entry in plan["skipped"]]
+    for detail in _skip_details(planner_skips):
+        _say("  wall: {0} x {1}".format(detail["count"], detail["reason"]))
+    build = [(kind, pools[kind]) for kind in ("structural", "arch")
+             if want[kind] and pools[kind]]
+    if not build:
+        _say("Walls -- no wall segments planned on the routed wall layers.")
+        return {"created": 0, "skipped": len(plan["skipped"]), "errors": 0,
+                "skip_details": _skip_details(planner_skips)}
+
+    group = TransactionGroup(doc, "CAD to BIM: Walls")
+    transaction = Transaction(doc, "Create walls")
+    group.Start()
+    transaction.Start()
+    try:
+        txn_failures.attach_warning_swallower(transaction)
+        result = {"created": [], "skipped": [], "errors": [], "notes": []}
+        for kind, segments in build:
+            if type_ids[kind] is None:
+                _say("  {0} walls skipped: no base wall type selected".format(
+                    kind))
+                continue
+            outcome = walls.place_walls(
+                doc, segments, type_ids[kind], base_id,
+                top_level_id=selections.get("top_level_id"),
+                height_mm=selections.get("storey_height_mm"),
+                structural=(kind == "structural"))
+            for key in ("created", "skipped", "errors", "notes"):
+                result[key] = result[key] + outcome[key]
+        tstatus = transaction.Commit()
+        gstatus = group.Assimilate()
+    except Exception as creation_error:
+        if transaction.HasStarted() and not transaction.HasEnded():
+            transaction.RollBack()
+        if group.HasStarted() and not group.HasEnded():
+            group.RollBack()
+        _error("Wall creation failed", "Wall creation failed.",
+               str(creation_error))
+        return {"created": 0, "skipped": 0, "errors": 1}
+
+    if not _persisted(tstatus, gstatus):
+        _rollback_alert("Walls", tstatus, gstatus)
+        return {"created": 0, "skipped": 0, "errors": 0, "rolled_back": True}
+
+    _say("Walls -- planned: {0} structural + {1} arch, created: {2}, "
+         "skipped: {3}, errors: {4}".format(
+             len(pools["structural"]), len(pools["arch"]),
+             len(result["created"]),
+             len(result["skipped"]) + len(plan["skipped"]),
+             len(result["errors"])))
+    for message in result["errors"]:
+        _say_error("  wall: {0}".format(message))
+    for message in result["skipped"] + result.get("notes", []):
+        _say("  wall: {0}".format(message))
+    return {"created": len(result["created"]),
+            "skipped": len(result["skipped"]) + len(plan["skipped"]),
+            "errors": len(result["errors"]),
+            _IDS: result["created"],
+            "error_details": [str(e)[:220] for e in result["errors"][:8]],
+            "skip_details": _skip_details(result["skipped"] + planner_skips)}
 
 
 def _colour_open_views(doc, uidoc, selections):
@@ -459,7 +597,9 @@ def _create_slabs(doc, records, beam_segments, texts, selections, schedule=None,
          "created: {3}, skipped: {4}, errors: {5}".format(
              source, len(slab_defs), sized, len(result["created"]),
              len(result["skipped"]), len(result["errors"])))
-    for message in result["errors"] + result["skipped"]:
+    for message in result["errors"]:
+        _say_error("  slab: {0}".format(message))
+    for message in result["skipped"] + result.get("notes", []):
         _say("  slab: {0}".format(message))
     return {"created": len(result["created"]), "skipped": len(result["skipped"]),
             "errors": len(result["errors"]), "source": source, "loops": len(slab_defs),
@@ -518,7 +658,9 @@ def _create_stairs(doc, records, beam_segments, texts, selections,
              len(result["created"]), len(result["skipped"]),
              len(result["errors"]), int(storey_mm), plans[0]["risers_total"],
              plans[0]["riser_mm"]))
-    for message in result["errors"] + result["skipped"]:
+    for message in result["errors"]:
+        _say_error("  stair: {0}".format(message))
+    for message in result["skipped"] + result.get("notes", []):
         _say("  stair: {0}".format(message))
     return {"created": len(result["created"]), "skipped": len(result["skipped"]),
             "errors": len(result["errors"]), "planned": len(plans),

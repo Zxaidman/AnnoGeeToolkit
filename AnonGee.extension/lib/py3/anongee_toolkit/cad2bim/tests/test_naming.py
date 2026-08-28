@@ -40,6 +40,9 @@ class DefaultNames(unittest.TestCase):
                          "CAD Level 2")
         self.assertEqual(naming.grid_name("A"), "A")
         self.assertEqual(naming.footing_type_name(600), "PAD 600 THK")
+        self.assertEqual(naming.raft_type_name(750), "RAFT 750 THK")
+        self.assertEqual(naming.struct_wall_type_name(250), "RCC WALL 250 THK")
+        self.assertEqual(naming.arch_wall_type_name(150), "BRICK WALL 150 THK")
 
     def test_sizes_are_whole_millimetres(self):
         # a float size must never leak "400.0" into a type name
@@ -80,6 +83,26 @@ class CustomTemplates(unittest.TestCase):
         self.assertIsNotNone(naming.validate("floor", "   "))
         self.assertIsNotNone(naming.validate("no_such_key", "{b}"))
 
+    def test_a_template_that_drops_a_SIZE_is_refused(self):
+        # "{b}" names a 300x900 and a 300x450 alike. The second one Revit sees
+        # raises "The name is already in use for this element type", so the
+        # template is caught on the Naming tab instead of mid-build.
+        problem = naming.validate("column_rect", "{b}")
+        self.assertIsNotNone(problem)
+        self.assertIn("{h}", problem)
+        self.assertIn("{d}", naming.validate("beam_sized", "{w}"))
+        self.assertIn("{k}", naming.validate("stair", "{r} {t} {w}"))
+
+    def test_a_size_written_with_a_format_spec_still_counts_as_used(self):
+        self.assertIsNone(naming.validate("column_rect", "{b:04d} X {h:04d}"))
+
+    def test_decoration_fields_are_not_required(self):
+        # a level is unique by its number alone; {o}/{e}/{label} are trimmings,
+        # and the SHIPPED template uses only {n}
+        self.assertIsNone(naming.validate("level", "CAD Level {n}"))
+        self.assertIsNone(naming.validate("beam_width", "{w}"))
+        self.assertIsNone(naming.validate("floor", "{t} THK"))
+
     def test_levels_and_grids_take_a_convention_too(self):
         naming.apply({"level": "{label} (L{n} @{e})", "grid": "G-{name}"})
         self.assertEqual(naming.level_name(2, 3000, "First Floor"),
@@ -107,6 +130,46 @@ class CustomTemplates(unittest.TestCase):
     def test_a_template_may_ignore_the_sizes_entirely(self):
         naming.apply({"floor": "GENERIC SLAB"})
         self.assertEqual(naming.floor_type_name(200), "GENERIC SLAB")
+
+    def test_rafts_take_a_convention_of_their_own(self):
+        # a raft is the same Revit shape as a pad; the SEPARATE template is
+        # the whole feature -- offices name the two apart
+        naming.apply({"raft": "MAT-{t}", "footing": "PCC-{t}"})
+        self.assertEqual(naming.raft_type_name(750), "MAT-750")
+        self.assertEqual(naming.footing_type_name(600), "PCC-600")
+
+    def test_a_raft_template_that_drops_the_thickness_is_refused(self):
+        # since v0.68.1 a name collision is a silent REUSE: two rafts noted
+        # 500 and 750 rendering one name would cast the second at the first
+        # one's depth with nothing said, so the tab refuses the template
+        problem = naming.validate("raft", "RAFT")
+        self.assertIsNotNone(problem)
+        self.assertIn("{t}", problem)
+        self.assertIsNone(naming.validate("raft", "RAFT {t} THK"))
+        self.assertIsNone(naming.validate("raft", "MAT-{t:04d}"))
+
+    def test_walls_take_a_convention_per_kind(self):
+        # the user's standing rule from the footing/raft pair: SEPARATE
+        # templates per element kind -- a shear wall and a brick partition
+        # are named apart, whatever their widths
+        naming.apply({"wall_struct": "SW {t}", "wall_arch": "BWK {t}"})
+        self.assertEqual(naming.struct_wall_type_name(230), "SW 230")
+        self.assertEqual(naming.arch_wall_type_name(115), "BWK 115")
+        # untouched siblings keep their defaults
+        naming.apply({"wall_struct": "SW {t}"})
+        self.assertEqual(naming.arch_wall_type_name(150), "BRICK WALL 150 THK")
+
+    def test_a_wall_template_that_drops_the_width_is_refused(self):
+        # a wall's width is MEASURED off the drawing and several widths per
+        # drawing is the normal case (test8 draws 100/150/250 on one plan);
+        # a collision being a silent reuse, dropping {t} would cast every
+        # 250 wall at 150 -- both templates are new, so the trap is closed
+        # from day one exactly as the raft's was
+        for key in ("wall_struct", "wall_arch"):
+            problem = naming.validate(key, "RCC WALL")
+            self.assertIsNotNone(problem, key)
+            self.assertIn("{t}", problem)
+            self.assertIsNone(naming.validate(key, "W-{t:04d}"))
 
 
 class LevelNames(unittest.TestCase):

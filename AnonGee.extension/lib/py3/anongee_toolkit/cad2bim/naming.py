@@ -16,6 +16,9 @@ A template is a plain format string over the sizes that type carries:
     stair         {r} {t} {w} {k}  riser/tread/width/waist
     stair_waist   {k}              the stair's waist type
     footing       {t}              600 thick foundation pad
+    raft          {t}              750 thick raft foundation
+    wall_struct   {t}              250 wide structural (RCC/shear) wall
+    wall_arch     {t}              150 wide brick/partition wall
     level         {n} {o} {e} {label}  a storey level ({o} = 1st/2nd/3rd)
     grid          {name}           a grid line (its CAD bubble, or A/B/1/2)
 
@@ -28,6 +31,7 @@ Revit-free, so the templates can be unit-tested outside Revit.
 """
 
 import re
+import string
 
 from . import prefs
 
@@ -40,6 +44,9 @@ DEFAULTS = {
     "stair": "cad2bim {r}R x {t}T x {w}W x {k}wst",
     "stair_waist": "cad2bim waist {k}",
     "footing": "PAD {t} THK",
+    "raft": "RAFT {t} THK",
+    "wall_struct": "RCC WALL {t} THK",
+    "wall_arch": "BRICK WALL {t} THK",
     "level": "CAD Level {n}",
     "grid": "{name}",
 }
@@ -54,6 +61,9 @@ FIELDS = {
     "stair": ("r", "t", "w", "k"),
     "stair_waist": ("k",),
     "footing": ("t",),
+    "raft": ("t",),
+    "wall_struct": ("t",),
+    "wall_arch": ("t",),
     "level": ("n", "o", "e", "label"),
     "grid": ("name",),
 }
@@ -88,6 +98,47 @@ def problems():
 # fields that are TEXT, not a size, so validation feeds them something readable
 _TEXT_FIELDS = ("label", "name")
 
+# Templates whose fields TOGETHER identify the type. Drop one and two different
+# members render the same name -- the second one Revit is asked for raises "The
+# name is already in use for this element type" and that member is lost. The
+# templates left out are unique on the field they do use ({t} thickness, {n}
+# level number) or name something the drawing already made unique ({name}).
+#
+# `raft` requires its one field even so. A raft's thickness comes from the
+# ENGINEER's note, not a formula, and since v0.68.1 a name collision is not an
+# error but a silent reuse -- two rafts noted 500 and 750 rendering the same
+# name would cast the second at the first one's depth with nothing said. The
+# older single-field templates keep their latitude ("GENERIC SLAB" is a choice
+# offices have already saved); the raft template is new, so the trap is closed
+# from day one.
+#
+# The two wall templates require {t} for the raft's reason: a wall's width is
+# MEASURED off the drawing (wall_plan), several widths per drawing is the
+# normal case (test8 draws 100/150/250 on one plan), and a collision is a
+# silent reuse -- a 150 and a 250 rendering one name would cast every 250 wall
+# at 150. New with P3b, so closed from day one like the raft's.
+_MUST_USE = {
+    "column_rect": ("b", "h"),
+    "beam_sized": ("w", "d"),
+    "stair": ("r", "t", "w", "k"),
+    "raft": ("t",),
+    "wall_struct": ("t",),
+    "wall_arch": ("t",),
+}
+
+
+def _fields_used(template):
+    """The field names a template refers to, format specs and all ({b:04d} -> b)."""
+    used = set()
+    try:
+        parsed = list(string.Formatter().parse(template))
+    except ValueError:
+        return used                 # malformed; the format() check reports it
+    for _literal, field, _spec, _conversion in parsed:
+        if field:
+            used.add(field.split(".")[0].split("[")[0])
+    return used
+
 
 def validate(key, template):
     """None when `template` is a usable name for `key`, else why it is not."""
@@ -102,6 +153,12 @@ def validate(key, template):
         return "{0} (use {1})".format(error, allowed)
     if not text.strip():
         return "gives an empty name"
+    used = _fields_used(template)
+    missing = [field for field in _MUST_USE.get(key, ()) if field not in used]
+    if missing:
+        return ("drops {0}, so two different sizes would get the same type "
+                "name -- Revit refuses the second one".format(
+                    ", ".join("{" + field + "}" for field in missing)))
     return None
 
 
@@ -158,6 +215,42 @@ def footing_type_name(thickness_mm):
     telling us.
     """
     return _render("footing", {"t": _mm(thickness_mm)})
+
+
+def raft_type_name(thickness_mm):
+    """The name for a RAFT foundation type.
+
+    A raft is the same Revit shape as a pad -- a foundation-slab floor whose
+    type carries only a thickness -- but offices name the two differently
+    ("RAFT 750 THK" beside "PAD 600 THK"), so it gets a template of its own.
+    Which template a placed outline takes is decided in the Revit-free layer
+    (foundation_plan's "kind"), never guessed here.
+    """
+    return _render("raft", {"t": _mm(thickness_mm)})
+
+
+def struct_wall_type_name(width_mm):
+    """The name for a STRUCTURAL wall type.
+
+    A wall's width lives in its type's compound structure -- there is no
+    instance parameter to set -- so one type serves every wall of a width,
+    exactly as one floor type serves a thickness. The width is measured off
+    the drawing (wall_plan's pairing), not read from a note, which is why the
+    template's {t} is required: two widths rendering one name would cast the
+    second at the first one's width in silence.
+    """
+    return _render("wall_struct", {"t": _mm(width_mm)})
+
+
+def arch_wall_type_name(width_mm):
+    """The name for an ARCHITECTURAL wall type, apart from the structural one.
+
+    The same Revit shape -- a width in a compound structure -- but offices
+    name the two apart ("BRICK WALL 150 THK" beside "RCC WALL 250 THK"), the
+    raft-beside-pad precedent. Which template a segment takes is decided in
+    the Revit-free layer (wall_plan's "kind"), never guessed here.
+    """
+    return _render("wall_arch", {"t": _mm(width_mm)})
 
 
 def level_name(index, elevation_mm=0.0, label=None):

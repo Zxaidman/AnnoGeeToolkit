@@ -31,6 +31,23 @@ CATEGORY_STAIR = "stair"
 # convention below is only a proposal -- the dialog's layer table overrides it.
 CATEGORY_FLOOR_BOUNDARY = "floor boundary"
 CATEGORY_FLOOR_ORIGIN = "floor origin"
+# FOUNDATIONS from the drawing rather than invented from column offsets. The
+# outline layer carries footings AND rafts; the step layers carry the hatched
+# regions where the foundation drops (test10: S-FND, S-FND-FOLD, S-FND-SUNK).
+CATEGORY_FOUNDATION = "foundation"
+CATEGORY_FOLD = "fold"
+CATEGORY_SUNK = "sunk"
+# A CUTOUT region is a hole: no concrete where it sits, never an element of
+# its own -- the hatch-region cousin of the X-marked face (foundation_plan).
+# No GEOMETRY convention pattern routes here on purpose: a name rule would
+# re-route test9's shear-wall-named layers away from the wall passes behind
+# the user's back. Linework reaches it only through an explicit pick in the
+# dialog. HATCHES are different -- they have a mapping of their own
+# (_HATCH_CONVENTION below), where a cutout token is safe because routing a
+# hatch layer never moves linework -- and the LEGEND proposal (test9's
+# ASPHALT hatches, "HATCH INDICATE CUTOUT FOR DOOR ABOVE", all on
+# PI_SHEAR WALL CUTOUT) seeds that hatch mapping too.
+CATEGORY_CUTOUT = "cutout"
 CATEGORY_UNMAPPED = "unmapped"
 
 # Identification / annotation layers must NEVER inherit a structural category,
@@ -53,20 +70,36 @@ EXCLUSION_PATTERNS = (
 # a slab edge alone never becomes a beam).
 DEFAULT_CONVENTION = (
     (r"grid|axis", CATEGORY_GRID),
+    # The two STEP layers before the foundation one: "S-FND-FOLD" contains
+    # "fnd", so a foundation-first ordering would swallow both of them.
+    (r"fold", CATEGORY_FOLD),
+    (r"sunk|sink", CATEGORY_SUNK),
+    # Foundation before "col": a footing layer never carries a column token, but
+    # keeping it early means a "S-FND-COL-PAD" style name reads as foundation.
+    # Deliberately NOT matching "step"/"thk"/"drop" -- those live on stair and
+    # wall layers in this corpus ("A-STAIR-Steps", "JW_ 150 thk NON-STRU. WALL").
+    (r"fnd|found|footing|raft|pcc|pile", CATEGORY_FOUNDATION),
     (r"col", CATEGORY_COLUMN),
     (r"beam|girder|joist", CATEGORY_BEAM),
     (r"slab|flor|floor", CATEGORY_SLAB_EDGE),
     (r"stair|strs|step", CATEGORY_STAIR),
     (r"boundar|bound|extent|sheet.?box", CATEGORY_FLOOR_BOUNDARY),
     (r"origin|basept|base.?point|datum", CATEGORY_FLOOR_ORIGIN),
-    (r"shear|retain", CATEGORY_STRUCT_WALL),   # structural walls before plain "wall"
+    # "rcc" = reinforced cement concrete: a wall so named is structural, and
+    # test8's S-RCC-WALL used to fall through to the arch row on its "wall"
+    # token. Safe at this position -- the corpus's other rcc layers (PI_RCC
+    # BEAM, S-RCC-COL) are claimed by the beam and column rows above, and the
+    # full 72-layer dump moved exactly one layer when this token was added.
+    (r"shear|retain|rcc", CATEGORY_STRUCT_WALL),   # structural walls before plain "wall"
     (r"wall|parapet", CATEGORY_ARCH_WALL),
 )
 
 ALL_CATEGORIES = (
     CATEGORY_GRID, CATEGORY_COLUMN, CATEGORY_BEAM,
     CATEGORY_SLAB_EDGE, CATEGORY_STRUCT_WALL, CATEGORY_ARCH_WALL,
-    CATEGORY_STAIR, CATEGORY_FLOOR_BOUNDARY, CATEGORY_FLOOR_ORIGIN,
+    CATEGORY_STAIR, CATEGORY_FOUNDATION, CATEGORY_FOLD, CATEGORY_SUNK,
+    CATEGORY_CUTOUT,
+    CATEGORY_FLOOR_BOUNDARY, CATEGORY_FLOOR_ORIGIN,
     CATEGORY_UNMAPPED,
 )
 
@@ -86,9 +119,13 @@ CATEGORY_COLUMN_SCHEDULE = "schedule (column/beam/slab)"
 # notes are on THIS layer" -- which narrows the search on a drawing whose other
 # text happens to read like a thickness.
 CATEGORY_SLAB_TEXT = "slab text"
+# Foundation notes name, size and STEP a footing or raft in one label:
+# "F3_1500MM THK" and, where it drops, a second paragraph "2000MM FOLD".
+CATEGORY_FOUNDATION_TEXT = "foundation text"
 CATEGORY_TEXT_IGNORE = "ignore"
 TEXT_CATEGORIES = (CATEGORY_COLUMN_TEXT, CATEGORY_BEAM_TEXT,
                    CATEGORY_GRID_TEXT, CATEGORY_SLAB_TEXT,
+                   CATEGORY_FOUNDATION_TEXT,
                    CATEGORY_COLUMN_SCHEDULE, CATEGORY_TEXT_IGNORE)
 
 
@@ -103,6 +140,9 @@ def classify_text_layer(layer_name):
     # so a "S-COLS-SCHEDULE" layer routes to the table, not to plan column text.
     if "sched" in text or "schd" in text or "table" in text:
         return CATEGORY_COLUMN_SCHEDULE
+    # Before "col": a foundation note layer may well be named "S-FND-COL-IDEN".
+    if re.search(r"fnd|found|footing|raft|pcc|pile", text):
+        return CATEGORY_FOUNDATION_TEXT
     if "col" in text:
         return CATEGORY_COLUMN_TEXT
     if "beam" in text or "girder" in text or "joist" in text:
@@ -115,6 +155,59 @@ def classify_text_layer(layer_name):
 def build_default_text_mapping(layer_keys):
     """Pre-fill {text_layer: text_category} from the convention for the dialog."""
     return dict((key, classify_text_layer(key)) for key in layer_keys)
+
+
+# HATCH layers get a mapping OF THEIR OWN, apart from geometry and text (the
+# user's explicit instruction). A hatch is a REGION -- a meaning painted over
+# an area -- so its categories are the region meanings only: the column fill
+# (test10's S-COLS carries 330 of them, test9's PI_COLUMN HATCH 106), the
+# fold/sunk step regions, and the cutout hole. Everything else is unmapped.
+# Keeping the list this short is the point: routing a hatch layer can never
+# re-route the LINEWORK on a like-named layer, which is exactly what the
+# geometry table's cutout comment feared -- and why the hatch convention MAY
+# carry a cutout token where the geometry convention deliberately does not
+# (test9's PI_SHEAR WALL CUTOUT hatches route to cutout by name without
+# touching the shear-wall linework passes).
+HATCH_CATEGORIES = (
+    CATEGORY_COLUMN, CATEGORY_FOLD, CATEGORY_SUNK, CATEGORY_CUTOUT,
+    CATEGORY_UNMAPPED,
+)
+
+# Order matters, like DEFAULT_CONVENTION: the step tokens go before the
+# column-fill token so "S-FND-FOLD"-style names can never be swallowed by a
+# broader pattern, and cutout goes before "col" so a "COLUMN CUTOUT" style
+# name reads as the hole it marks.
+_HATCH_CONVENTION = (
+    (r"fold", CATEGORY_FOLD),
+    (r"sunk|sink", CATEGORY_SUNK),
+    (r"cut[\s_-]*out", CATEGORY_CUTOUT),
+    (r"col", CATEGORY_COLUMN),
+)
+
+
+def classify_hatch_layer(layer_name):
+    """Default routing for a HATCH layer: column fill / fold / sunk / cutout,
+    or unmapped.
+
+    Same precedence stance as classify_layer: the annotation exclusions run
+    first (a hatch on an -IDEN or -ANNO layer is decoration, not a region
+    meaning), then the hatch convention, then unmapped.
+    """
+    if not layer_name:
+        return CATEGORY_UNMAPPED
+    text = layer_name.lower()
+    for pattern in EXCLUSION_PATTERNS:
+        if re.search(pattern, text):
+            return CATEGORY_UNMAPPED
+    for pattern, category in _HATCH_CONVENTION:
+        if re.search(pattern, text):
+            return category
+    return CATEGORY_UNMAPPED
+
+
+def build_default_hatch_mapping(layer_keys):
+    """Pre-fill {hatch_layer: region meaning} from the convention for the dialog."""
+    return dict((key, classify_hatch_layer(key)) for key in layer_keys)
 
 
 def classify_layer(layer_name, overrides=None):

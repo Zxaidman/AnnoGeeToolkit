@@ -9,6 +9,8 @@ sibling anongee_toolkit packages):
     model.py             plain data holders (CurveRecord, TextRecord, results)
     compat.py            Revit 2024/2025 version-robustness helpers
     unit_convert.py      mm <-> Revit internal feet (the ONLY place units convert)
+    type_names.py        match a type name the way Revit matches it, and
+                         duplicate through one guarded helper
     report.py            human summary + JSON export; column/beam sectioning
 
     geom/        Revit-free geometry
@@ -35,7 +37,79 @@ with XamlReader.Load and uses System.Windows dialogs directly. The pure modules
 statically inspected and unit-tested outside Revit.
 """
 
-__version__ = "0.68.0"  # Same behaviour, twenty modules instead of four.
+# The version moves with EVERY commit that changes this package -- it is a
+# tracking number, not a release or a tag. A user reporting "0.69.2 did X"
+# names one commit; three commits all answering "0.68.1" name nothing.
+__version__ = "0.76.0"  # P3b: walls place as real DB.Wall -- builder, dialog rows, per-storey wiring.
+#
+#                         P1: the DXF reader keeps HATCH regions; the foundation
+#                         layers classify; foundation_plan reads the outlines
+#                         off S-FND (closed polylines, planar faces of the loose
+#                         linework -- shared edges, T-junctions and overshoots
+#                         included -- completed through the step layers and
+#                         dissolved back), sizes each from the note inside it,
+#                         and refuses a drawing that never labels an outline
+#                         (Test0). Rafts are possible for the first time; the
+#                         column-offset derivation is the fallback, and its
+#                         size discard reports instead of dropping in silence.
+#
+#                         P2: a fold or sunk hatch steps its outline: the parent
+#                         is cast with the region cut out, the dropped slab goes
+#                         in at the step depth, and ONE support slab fills the
+#                         vertical face between the soffits -- a closed collar
+#                         with the region as its hollow mid-footing, an L at a
+#                         corner, a strip along a lone edge. Support arithmetic
+#                         (per edge, from whichever outline abuts it):
+#                         offset = -T_parent, depth = d + T_dropped - T_parent,
+#                         width = T_parent. Nested outlines cut their parent and
+#                         cast as their own slab. Steps deeper than 3000 mm are
+#                         storeys and are refused by name.
+#
+#                         541 tests (was 440). The sweep gains foundation and
+#                         step counts; the Revit-side wiring is pinned by AST
+#                         checks because every link in it degrades silently.
+#
+# 0.68.1                  "The name is already in use for this element type."
+#
+#                         Reported against columns. A family already carrying
+#                         Revit's own "400 x 600" was asked for the toolkit's
+#                         default "400 X 600"; the "does this type exist?" check
+#                         compared names with a plain ==, Revit compares them
+#                         case- and whitespace-insensitively, so the check said
+#                         no, Duplicate() said yes, and every column of that size
+#                         was lost.
+#
+#                         type_names.py is the fix: key() reduces a name to what
+#                         Revit compares, so a clash becomes a REUSE, and
+#                         resolve_type() wraps the duplication -- a name that
+#                         still cannot be had returns a sentence for the console
+#                         instead of a .NET stack trace, and a `created` flag so
+#                         a type the MODEL owns is never silently resized.
+#
+#                         The same shape sat in six more places. Beams and slabs
+#                         would have thrown identically. Footings, stairs and the
+#                         stair WAIST swallowed it and built the wrong thing in
+#                         silence -- a pad cast at the picked type's depth rather
+#                         than the computed one, a stair at stock riser/tread.
+#                         Those still fall back, but they say so now.
+#
+#                         Also: floor-type lookup was scoped to EVERY FloorType
+#                         in the document. Floors and Foundation Slabs are
+#                         different system families, so a Floor named "PAD 600
+#                         THK" could be handed back for a foundation pad. Scoped
+#                         to the base type's own system family.
+#
+#                         Also: the Naming tab accepted "{b}", which names a
+#                         300x900 and a 300x450 alike and guarantees this same
+#                         exception mid-build. Refused up front now.
+#
+#                         440 tests (was 419): type_names is Revit-free and unit
+#                         tested, plus two AST checks over the whole package --
+#                         no bare .Duplicate( outside the helper, no element name
+#                         compared with ==. The crash cannot be reintroduced by
+#                         the next builder without failing the suite.
+#
+# 0.68.0                  Same behaviour, twenty modules instead of four.
 #
 #                         No feature and no fix: every commit in this release is a
 #                         MOVE, made because four files had grown past the point where
