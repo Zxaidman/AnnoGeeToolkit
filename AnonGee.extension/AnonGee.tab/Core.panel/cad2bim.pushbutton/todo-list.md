@@ -125,7 +125,39 @@ wrong. **No genuinely rotated column exists in test14** — every failure is noi
 band the measurement leaves empty, then decompose as a composite. `_snapped` in `fold_plan` is the
 donor. Tolerance to be set from the corpus-wide drift measurement, not chosen.
 
-### BUG-5 — The legend reader is blind to test14's whole legend · `pending`
+### BUG-6 — A hatch's meaning is per PATTERN, but the mapping is per LAYER · `pending`
+
+**How found:** reading test14's legend (BUG-5). **Reproduced, and measured:** layer `HAT` carries
+four patterns and three different meanings — `ANGLE` 198 regions (sunk 150), `ANSI37` 63 (sunk 75),
+`HONEY` 21 (sunk 50) and `GOST_GLASS` 75 (**SLAB AT BEAM BOTTOM**, which is not a step at all). The
+hatch table maps a LAYER to one meaning, so the honest proposal `HAT → sunk` sweeps all 357 regions
+into one bucket: it cannot keep the three depths apart, and it mislabels the 75 that mean something
+else entirely.
+
+The depths themselves are safe — `legend_steps()` is keyed by pattern and returns exactly
+`{ANSI37: -75, ANGLE: -150, HONEY: -50}` — so a stepping pass that routes by PATTERN is correct
+today. It is the layer-keyed table and its override row that are too coarse, and the legend reader
+names the coarseness in `notes` rather than hiding it.
+
+**Decision needed:** whether the hatch table gains (layer, pattern) rows wherever a legend
+distinguishes them — which is the honest model but a visible dialog change — or whether pattern
+routing stays internal to the legend path with the table left per-layer. Recorded rather than
+guessed.
+
+### BUG-5 — The legend reader is blind to test14's whole legend · `testing`
+
+**Fixed, awaiting the owner's Revit run.** The row rule is now the verb alone (`INDICATES?`) and the
+SWATCH decides what a legend row is, which is what the convention always was. Measured: real rows
+pair mutually at 657–947 mm (test9) and 751 mm (test14); test9's camber sentence has no swatch of
+its own (nearest is 1697 mm away, and that swatch's own row sits 782 mm from it), so mutual-nearest
+refuses it — and the reach was tightened 2500 → 1250 mm as a second, independent refusal. A step
+depth is read only off the word SUNK with MM attached, never a bare number, or
+`INDICATES 150MM THK. RC PARDI` would route 132 parapet hatches as a 150 mm step.
+
+**Verified independently:** test9 unchanged at 14 entries and one proposal; test14 now reads 24
+entries, proposes `HAT → sunk`, carries 5 report-only meanings (the RC PARDI thicknesses, slab at
+beam bottom, floating column — real meanings with no pass behind them yet) and yields the three step
+depths. The three-plan repetition reads as agreement, not ambiguity.
 
 **How found:** measuring the owner's report that the legend's SUNK rows do not reach Revit.
 **Reproduced:** `legend.read()` returns **0 entries** on test14. `_LEGEND_TEXT` requires the words

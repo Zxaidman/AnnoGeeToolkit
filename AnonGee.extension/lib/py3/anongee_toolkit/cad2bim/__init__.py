@@ -40,7 +40,7 @@ statically inspected and unit-tested outside Revit.
 # The version moves with EVERY commit that changes this package -- it is a
 # tracking number, not a release or a tag. A user reporting "0.69.2 did X"
 # names one commit; three commits all answering "0.68.1" name nothing.
-__version__ = "0.77.0"  # BUG-4: drafting noise is not an angle -- L-shaped columns place as Ls again.
+__version__ = "0.78.0"  # BUG-5: the swatch decides what a legend row is, not the wording.
 #
 #                         P1: the DXF reader keeps HATCH regions; the foundation
 #                         layers classify; foundation_plan reads the outlines

@@ -125,12 +125,16 @@ def _measure(path):
     regions = _regions_by_category(result.regions)
     # THE LEGEND, read the way the pushbutton reads it before the dialog:
     # swatch pattern -> legend text -> meaning, translated into per-layer
-    # proposals. test9 is the only fixture that carries one -- 14 rows across
-    # its three tower legends -- and its ambiguity (the same pattern meaning
-    # different things per tower) plus the one-layer rule leave exactly ONE
-    # proposal standing (ASPHALT -> cutout on PI_SHEAR WALL CUTOUT).
+    # proposals. Two fixtures carry one. test9 has 14 rows across three tower
+    # legends, and its ambiguity (the same pattern meaning different things
+    # per tower) plus the one-layer rule leave exactly ONE proposal standing
+    # (ASPHALT -> cutout on PI_SHEAR WALL CUTOUT). test14 has 8 rows drawn
+    # three times, agreeing, and leaves one too (HAT -> sunk) plus the three
+    # SUNK depths -- which is the number `legend_steps` pins: a row read but
+    # stripped of its depth would still show 24 entries and 1 proposal.
     legend_entries = legend.read(result.regions, result.texts)
     legend_proposals = legend.propose(legend_entries, result.regions)
+    legend_depths, _legend_depth_notes = legend.legend_steps(legend_entries)
     # FOLDS AND SUNK BAYS. The hatches are classified the way the pipeline
     # classifies them -- through the HATCH mapping's own default, apart from
     # geometry and text -- then stepped against the outlines they sit in.
@@ -208,6 +212,9 @@ def _measure(path):
         "sunk_regions": regions.get(layers.CATEGORY_SUNK, 0),
         "legend_entries": len(legend_entries),
         "legend_proposals": len(legend_proposals["mapping"]),
+        "legend_reports": len(legend_proposals["reports"]),
+        "legend_steps": len(legend_depths),
+        "legend_step_depth_mm_total": round(sum(legend_depths.values()), 1),
         "steps_planned": len(steps["steps"]),
         "steps_skipped": len(steps["skipped"]),
         "step_supports": sum(len(s["supports"]) for s in steps["steps"]),
