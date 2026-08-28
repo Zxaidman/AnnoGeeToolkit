@@ -5,6 +5,18 @@ Mirrors the column/beam builders: a base floor type is duplicated per thickness
 ("150 THK") and cached; a loop with no thickness inherits the picked type. A loop
 lying fully INSIDE another becomes that floor's OPENING (a hole), not its own slab.
 Runs inside a caller-owned Transaction; one bad loop never fails the batch.
+
+A STEPPED loop arrives already worked out, from `fold_plan.slab_defs_with_steps`
+in the Revit-free layer, as three extra keys on the same dicts:
+
+    holes       rings to cut out of this loop -- a sunk bay taken out of the
+                slab it steps down from
+    offset_mm   how far BELOW the level this floor hangs (0 sits it on the
+                level); the only thing telling a step's three floors apart
+    part        set on the dropped slab and its support, and read here for one
+                reason: they lie inside their parent's outline, which is the
+                shape of a stair void, and the opening nesting below would
+                otherwise turn the floor at the bottom of a step into a hole
 """
 
 from System.Collections.Generic import List
@@ -34,6 +46,11 @@ def place_slabs(doc, slabs, base_type_id, level_id):
     whose ring lies fully inside another slab's ring is treated as an OPENING of
     the enclosing slab (stair/lift void) and appended as an inner CurveLoop.
 
+    A slab carrying `part` is a piece of a STEP -- the floor at the bottom of a
+    sunk bay, or the support between the two soffits. Those are kept out of the
+    nesting entirely (module docstring) and placed with the `offset_mm` that
+    puts them where the step is; everything else is nested exactly as before.
+
     Floor.Create requires a .NET IList<CurveLoop> -- a Python list does not
     convert under CPython3/pythonnet ("No method matches given arguments"), so
     the loops are packed into System.Collections.Generic.List[CurveLoop].
@@ -43,10 +60,21 @@ def place_slabs(doc, slabs, base_type_id, level_id):
     if base_type is None or level is None:
         raise ValueError("floor type or level could not be resolved")
 
-    outers, openings = _nest_openings(slabs)
+    outers, openings = _nest_openings([s for s in slabs if not s.get("part")])
+    placements = []
+    for index, slab in enumerate(outers):
+        holes = [(hole["ring"], hole.get("arcs"))
+                 for hole in openings.get(index, [])]
+        holes += [(hole, None) for hole in (slab.get("holes") or [])]
+        placements.append((slab, holes))
+    for slab in slabs:
+        if slab.get("part"):
+            placements.append(
+                (slab, [(hole, None) for hole in (slab.get("holes") or [])]))
+
     cache = {}
     result = {"created": [], "skipped": [], "errors": [], "notes": []}
-    for index, slab in enumerate(outers):
+    for slab, holes in placements:
         try:
             ring = slab["ring"]
             if len(ring) < 3:
@@ -57,8 +85,8 @@ def place_slabs(doc, slabs, base_type_id, level_id):
                 continue
             loops = List[CurveLoop]()
             loops.Add(_curve_loop(ring, slab.get("arcs")))
-            for hole in openings.get(index, []):
-                loops.Add(_curve_loop(hole["ring"], hole.get("arcs")))
+            for hole_ring, hole_arcs in holes:
+                loops.Add(_curve_loop(hole_ring, hole_arcs))
             floor_type, note = _resolve_type(doc, base_type,
                                              slab.get("thickness_mm"), cache)
             type_names.record(result, note)
@@ -69,10 +97,41 @@ def place_slabs(doc, slabs, base_type_id, level_id):
             instance = Floor.Create(doc, loops, floor_type.Id, level.Id)
             _set_structural(instance)
             _set_mark(instance, slab.get("mark"))
+            problem = _offset(instance, slab.get("offset_mm"))
+            if problem:
+                result["skipped"].append(problem)
             result["created"].append(instance.Id)
         except Exception as placement_error:
             result["errors"].append(str(placement_error))
     return result
+
+
+def _offset(instance, offset_mm):
+    """Hang the floor `offset_mm` BELOW its level (0 or None sits it on it).
+
+    A step's three floors are told apart by nothing but this number, so a
+    parameter that will not take it is REPORTED rather than swallowed: an
+    unmoved dropped slab sits flush with the slab it is meant to have stepped
+    down from, which looks built and is wrong. The same reasoning, and the same
+    single parameter, as `builders/footings._offset` -- HEIGHTABOVELEVEL
+    positions the floor's TOP, and the bottom-elevation parameter it might
+    otherwise fall back to would place it one thickness out in silence.
+    """
+    if not offset_mm:
+        return None
+    try:
+        parameter = instance.get_Parameter(
+            BuiltInParameter.FLOOR_HEIGHTABOVELEVEL_PARAM)
+    except Exception:
+        parameter = None
+    if parameter is not None and not parameter.IsReadOnly:
+        try:
+            parameter.Set(mm_to_internal(offset_mm))
+            return None
+        except Exception:
+            pass
+    return ("could not offset a floor to {0:.0f} mm: it is flush with its "
+            "level".format(offset_mm))
 
 
 _MIN_EDGE_FT = 15.0 / 304.8       # skip sub-tolerance slivers (Revit rejects them)

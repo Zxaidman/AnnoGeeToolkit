@@ -53,6 +53,21 @@ hollows are the three folds -- the concrete between them is part of the same
 cast. Separate collars would overlap each other in the gaps, which Revit takes
 as three intersecting floors.
 
+TWO THINGS ARE STEPPED, NOT ONE, AND THE DRAWING DOES NOT SAY WHICH IN WORDS.
+A sheet that hatches everything sunk hatches BAYS of floor, which step by the
+three floors above, and STRIPS the width of a beam, which mean that beam hangs
+lower -- test14 writes both with one legend line, "INDICATES SLAB/BEAM SUNK BY
+150MM.", and one routed layer. `sunk_split` tells them apart on the hatch's
+narrow side and `beam_drops` decides which member a strip claims; both
+thresholds sit in deserts measured on that drawing and recorded beside them.
+
+A SUNK BEAM KEEPS ITS DEPTH AND ITS WHOLE BODY DROPS -- the user's decision.
+Top and soffit move down together with the slab beside them, which is the usual
+sunken-slab detail. The beam is not deepened to reach back up to its level, and
+it is not cut in two where the strip ends, so a strip covering part of a
+member still drops all of it. That makes a dropped beam ONE NUMBER, and there
+is no geometry for it here beyond deciding whose number it is.
+
 Revit-free, so all of it is unit-testable and replayable offline. Compare
 `footing_plan.py`, which does the same job for the pads.
 """
@@ -88,6 +103,40 @@ _PROBE_MM = 10.0
 # arithmetic, not for drafting slop.
 _SAME_AREA = 0.01
 
+# THE NARROW SIDE THAT TELLS A SUNK BAY FROM A SUNK STRIP. A drawing that
+# hatches everything sunk hatches two different things with one pattern: BAYS
+# of floor, which step, and STRIPS the width of a beam, which mean that beam
+# hangs lower. Measured on test14's 273 plan sunk hatches, the short side of
+# the bounding box runs 99.9 .. 350.0 and then NOTHING until 1007.4, from where
+# it runs on to 1665 -- a 657 mm desert, four times the widest gap anywhere
+# else in that histogram, with 144 hatches below it and 129 above. The
+# threshold is the geometric mean of the two rims (593.7), rounded to 600, the
+# way legend's `_REACH_MM` was drawn. It is also comfortably above every beam
+# width the drawing carries (150..400, with one 685 that no strip sits on).
+_SUNK_BAY_MIN_SIDE_MM = 600.0
+
+# WHEN A STRIP CLAIMS A BEAM, asked from both ends because one end alone has a
+# blind spot. Measured over every (strip, beam) pair on test14:
+#
+#   share of the STRIP lying inside the beam  0.0000..0.1270, then 0.8685..1.0
+#   share of the BEAM lying inside the strip  0.0000..0.1933, then 0.4964..1.0
+#
+# Both histograms are two clusters and a desert, and both deserts mean the same
+# thing: below is a junction clip -- a strip running along one beam grazing the
+# one it tees into -- and above is a strip drawn along the beam it means. 0.5
+# sits in the first desert; the geometric mean of the second's rims is 0.31,
+# rounded to 0.3.
+#
+# The strip's share alone would be blind to ONE case the corpus does not draw
+# and a drawing may: a strip running over a member the segmentation cut into
+# pieces at its columns. Each piece would then hold half the strip, or a third,
+# and the run would drop in parts or not at all -- a beam at two levels, which
+# is the failure this whole pass exists to avoid. The beam's own share answers
+# that case (each piece is covered end to end) and, on test14, claims not one
+# pair the strip's share did not already claim.
+_STRIP_CLAIM_SHARE = 0.5
+_BEAM_CLAIM_SHARE = 0.3
+
 
 def step_regions(regions):
     """[(ring, kind)] for the hatched fold/sunk regions, in reading order.
@@ -96,6 +145,16 @@ def step_regions(regions):
     area, not a curve). Only the two step categories are taken; a column fill
     or a legend swatch on some other layer is not a step.
     """
+    return [(ring, kind) for ring, kind, _region in _step_rows(regions)]
+
+
+def _step_rows(regions):
+    """[(ring, kind, region)] -- `step_regions` with the record kept.
+
+    The record is what carries the hatch PATTERN, and a legend prices a step by
+    pattern, never by layer: test14 routes ONE layer, HAT, and that layer holds
+    three different sunk depths plus a fourth meaning that is not a step at all.
+    """
     out = []
     for region in (regions or []):
         kind = _CATEGORY_KIND.get(getattr(region, "category", None))
@@ -103,11 +162,11 @@ def step_regions(regions):
             continue
         ring = _dedup_ring([(p[0], p[1]) for p in region.points])
         if len(ring) >= 3:
-            out.append((ring, kind))
+            out.append((ring, kind, region))
     return out
 
 
-def plan_steps(plans, regions, max_step_mm=None):
+def plan_steps(plans, regions, max_step_mm=None, depths=None, skip_ids=None):
     """The three parts of every step, plus what was refused and why.
 
     `plans` are the outlines `foundation_plan.plan_foundations` read (or any
@@ -130,20 +189,46 @@ def plan_steps(plans, regions, max_step_mm=None):
     `opening` is the hole the PARENT needs cut in it, and it is None exactly
     when the region IS its host outline -- test10's sunk strip is its own F6
     foundation, so there is nothing to cut and the host itself is what drops.
+
+    THE DEPTH COMES FROM ONE OF TWO PLACES. Without `depths` it comes from the
+    host's own step NOTE, which is how the foundation drawings say it
+    ("F6_SUNK 1000"). With `depths` -- {hatch pattern: depth_mm}, the legend's
+    table -- it comes from the region's PATTERN, which is how test14 says it:
+    one routed layer, ANGLE meaning -150, ANSI37 -75, HONEY -50, and 72
+    plan GOST_GLASS hatches on that same layer meaning "SLAB AT BEAM BOTTOM",
+    which is no depth at all and is refused by name rather than inheriting a
+    neighbour's. The sign is dropped here: fold_plan's depth is a magnitude
+    downward, and which way a signed T.O.S. value points is legend.py's open
+    question, not this module's.
+
+    `skip_ids` are id()s of regions never to route -- the legend's own
+    demonstration swatches, which are hatches like every other one and would
+    otherwise be read as a step in the middle of the legend block.
     """
     limit = _MAX_STEP_MM if max_step_mm is None else float(max_step_mm)
     out = {"steps": [], "skipped": [], "notes": []}
     rings = [(index, plan) for index, plan in enumerate(plans or [])
              if plan.get("ring") and len(plan["ring"]) >= 3]
-    for ring, kind in step_regions(regions):
+    unpriced = {}
+    for ring, kind, region in _step_rows(regions):
+        if skip_ids and id(region) in skip_ids:
+            continue
+        depth = None
+        if depths is not None:
+            depth = _pattern_depth(region, depths)
+            if depth is None:
+                _count_by_pattern(region, unpriced)
+                continue
         host_index, host = _host_for(ring, rings)
         if host is None:
             out["skipped"].append(
                 "a {0} region of {1:.1f} m2 sits inside no outline: nothing to "
                 "step".format(kind, area_m2(ring)))
             continue
-        note = _note_for(ring, host, kind)
-        depth = None if note is None else float(note["step_mm"])
+        note = None
+        if depths is None:
+            note = _note_for(ring, host, kind)
+            depth = None if note is None else float(note["step_mm"])
         if depth is None:
             out["skipped"].append(
                 "a {0} region in {1} carries no depth: the note that would "
@@ -160,8 +245,341 @@ def plan_steps(plans, regions, max_step_mm=None):
             continue
         out["steps"].append(_parts(ring, kind, depth, note, host, host_index,
                                    rings))
+    _report_unpriced(unpriced, out["skipped"])
     _pool_collars(out["steps"], out["notes"])
     return out
+
+
+def _pattern_depth(region, depths):
+    """The depth `depths` prices this region's hatch PATTERN at, a magnitude.
+
+    None means the table says nothing about this pattern, which is a refusal to
+    be reported and never a reason to reach for some other region's number.
+    """
+    value = (depths or {}).get(getattr(region, "pattern", None))
+    if value is None:
+        return None
+    try:
+        return abs(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _count_by_pattern(region, counts):
+    """Tally a refused hatch under its PATTERN, for a one-line report."""
+    pattern = getattr(region, "pattern", None) or "an unnamed pattern"
+    counts[pattern] = counts.get(pattern, 0) + 1
+
+
+def _report_unpriced(unpriced, skipped):
+    """One line per PATTERN nothing priced, not one per hatch.
+
+    test14 routes 72 GOST_GLASS hatches on the sunk layer and none of them is a
+    step; seventy-two identical sentences would bury the eight lines that
+    matter, which is the same reason run_builders masks its skip numbers.
+    """
+    for pattern in sorted(unpriced):
+        skipped.append(
+            "{0} hatch(es) of pattern {1} carry no depth: the legend prices "
+            "the pattern, and this one it does not -- left flat".format(
+                unpriced[pattern], pattern))
+
+
+def sunk_split(regions, depths, swatch_ids=None):
+    """Which sunk hatches step a BAY, which drop a BEAM, and which do neither.
+
+    Returns {"bays": [region], "strips": [(region, depth_mm)], "skipped":
+    [reasons]}. The split is the narrow side of the hatch against
+    `_SUNK_BAY_MIN_SIDE_MM`, whose measured desert is recorded beside it: a
+    strip no wider than a beam is a statement about that beam, and a bay of
+    floor is a statement about the slab.
+
+    Both sides are priced by PATTERN through `depths`, so a hatch the legend
+    says nothing about routes nowhere and is named -- and the legend's own
+    demonstration swatches, whose ids arrive in `swatch_ids`, are dropped
+    before anything else looks at them. A swatch is 1050x500 on test14, which
+    the narrow-side rule would happily call a strip; excluding it by identity
+    is the same lock `legend._plan_layers` uses, and it is the first of two.
+    The second is arithmetic: a swatch sits inside the legend block, where
+    there is no slab loop to host it and no beam to claim, so even an
+    unrecognised one builds nothing.
+    """
+    out = {"bays": [], "strips": [], "skipped": []}
+    unpriced = {}
+    for ring, _kind, region in _step_rows(regions):
+        if swatch_ids and id(region) in swatch_ids:
+            continue
+        depth = _pattern_depth(region, depths)
+        if depth is None:
+            _count_by_pattern(region, unpriced)
+            continue
+        if _narrow_side_mm(ring) > _SUNK_BAY_MIN_SIDE_MM:
+            out["bays"].append(region)
+        else:
+            out["strips"].append((region, depth))
+    _report_unpriced(unpriced, out["skipped"])
+    return out
+
+
+def beam_drops(segments, strips):
+    """{"drops": {segment index: depth_mm}, "skipped": [reasons]}.
+
+    A SUNK BEAM KEEPS ITS DEPTH AND ITS WHOLE BODY DROPS -- the user's
+    decision, and the usual sunken-slab detail: top and soffit move down
+    together with the slab beside them. So there is one number per beam here
+    and no geometry: nothing is deepened, and nothing is cut in two at the
+    strip's ends. A strip covering PART of a beam still drops all of it,
+    because the alternative is splitting the member, which the user ruled out.
+
+    A strip claims a beam when half of the STRIP lies inside that beam's body
+    (centreline widened by its width), or three tenths of the BEAM lies inside
+    the strip -- the two measured rules recorded beside their constants. It may
+    claim several: a member the segmentation cut at its columns is several
+    segments under one strip, and all of them drop.
+
+    A strip that claims nothing is REPORTED, grouped by pattern. On test14 that
+    is half of them: little 150x100 and 250x435 patches of sunk floor left over
+    where a strip meets a column, too small to be a bay and lying beside a beam
+    rather than on one. Building a floor out of a 150x100 patch is worse than
+    saying it was left alone.
+
+    `segments` are the STRAIGHT beams only -- a curved member is driven by an
+    arc and placed by a different call. No strip in the corpus lies on one, and
+    one that did would report here as claiming nothing rather than silently
+    leaving a curved beam up where it was.
+    """
+    out = {"drops": {}, "skipped": []}
+    bodies = []
+    for index, segment in enumerate(segments or []):
+        body = _beam_body(segment)
+        if body:
+            bodies.append((index, body))
+    orphans = {}
+    conflicts = 0
+    for region, depth in (strips or []):
+        points = getattr(region, "points", None) or []
+        ring = _dedup_ring([(p[0], p[1]) for p in points])
+        if len(ring) < 3:
+            continue
+        claimed = _claimed_beams(ring, bodies)
+        if not claimed:
+            _count_by_pattern(region, orphans)
+            continue
+        for index in claimed:
+            standing = out["drops"].get(index)
+            if standing is not None and abs(standing - depth) > 1e-6:
+                conflicts += 1
+            out["drops"][index] = depth if standing is None else max(standing,
+                                                                     depth)
+    for pattern in sorted(orphans):
+        out["skipped"].append(
+            "{0} sunk strip(s) of pattern {1} lie on no beam: too narrow to "
+            "be a bay and not over a member, so nothing is dropped for "
+            "them".format(orphans[pattern], pattern))
+    if conflicts:
+        out["skipped"].append(
+            "{0} beam(s) are covered by sunk strips of two depths: each takes "
+            "the deeper, since one member cannot sit at two levels".format(
+                conflicts))
+    return out
+
+
+def slab_defs_with_steps(slab_defs, steps):
+    """(defs, notes) -- the slab loops with their steps built into them.
+
+    The parent loop gains the stepped region as a HOLE, and is DIVIDED when
+    that hole reaches its boundary, exactly as a footing outline is (a profile
+    whose hole shares two edges with its outer ring is one Floor.Create
+    refuses). A loop the drawing marks sunk in its entirety is not placed flat
+    at all: there the dropped slab IS that loop, so the flat one would be a
+    second floor in the same place. Every dropped slab and support then follows
+    as a def of its own, carrying the offset that is the only thing telling the
+    three floors of a step apart.
+
+    Revit-free, and deliberately so: what comes back is the same list of dicts
+    `slab_labels.apply_slab_labels` produced, three keys richer -- `holes`,
+    `offset_mm` and `part` -- so the builder has three things to learn and the
+    arithmetic stays testable offline.
+    """
+    notes = []
+    openings = {}
+    whole = set()
+    for step in (steps or []):
+        if step.get("opening") is None:
+            whole.add(step["host_index"])
+        else:
+            openings.setdefault(step["host_index"], []).append(step["opening"])
+    out = []
+    for index, slab in enumerate(slab_defs or []):
+        ring = slab.get("ring")
+        if not ring or len(ring) < 3:
+            out.append(slab)
+            continue
+        if index in whole:
+            continue
+        holes = list(slab.get("holes") or []) + openings.get(index, [])
+        if not holes:
+            out.append(slab)
+            continue
+        pieces = split_profile([(p[0], p[1]) for p in ring], holes)
+        if not pieces:
+            # The bay covers the loop end to end -- drawn a shade wider than
+            # the outline the beam faces gave it, so `_is_host_itself` read
+            # them as two shapes rather than one. Nothing of the parent
+            # survives the subtraction, and the dropped slab IS the floor
+            # there; the alternative, placing a flat slab of nothing, is not
+            # one. Said out loud because a loop that quietly stops being
+            # placed is the hardest kind of missing floor to find.
+            notes.append(
+                "{0} slab loop is wholly covered by its sunk bay: nothing is "
+                "placed flat there, the dropped slab is the floor".format(
+                    slab.get("mark") or "an unnamed"))
+        if len(pieces) > 1:
+            notes.append(
+                "{0} slab loop divided into {1} piece(s): a sunk bay reaches "
+                "its edge".format(slab.get("mark") or "an unnamed",
+                                  len(pieces)))
+        for piece_ring, piece_holes in pieces:
+            piece = dict(slab)
+            piece["ring"] = piece_ring
+            piece["holes"] = piece_holes
+            if len(pieces) > 1:
+                # the pieces are not the ring that was drawn, so the arc
+                # triples recorded against that ring no longer describe them
+                piece["arcs"] = []
+            out.append(piece)
+    for step in (steps or []):
+        out.extend(_step_defs(step))
+    return out, notes
+
+
+def _step_defs(step):
+    """[def] -- one step's dropped slab and support(s), as slab loops.
+
+    `part` is what keeps them out of the builder's opening nesting. A dropped
+    slab lies wholly inside its parent's outline, which is precisely the shape
+    of a stair void, and without the key the floor at the bottom of the step
+    would be read as a hole in the floor above it.
+    """
+    mark = step.get("mark")
+    kind = step.get("kind") or "step"
+    defs = []
+    dropped = step.get("dropped") or {}
+    if dropped.get("ring"):
+        defs.append({"ring": [(p[0], p[1]) for p in dropped["ring"]],
+                     "holes": [], "arcs": [],
+                     "thickness_mm": dropped.get("thickness_mm"),
+                     "offset_mm": dropped.get("offset_mm"),
+                     "mark": _part_mark(mark, kind),
+                     "part": kind})
+    for support in (step.get("supports") or []):
+        defs.append({"ring": [(p[0], p[1]) for p in support["ring"]],
+                     "holes": [[(p[0], p[1]) for p in hole]
+                               for hole in (support.get("holes") or [])],
+                     "arcs": [],
+                     "thickness_mm": support.get("thickness_mm"),
+                     "offset_mm": support.get("offset_mm"),
+                     "mark": _part_mark(mark, "support"),
+                     "part": "support"})
+    return defs
+
+
+def _part_mark(mark, part):
+    return "{0}-{1}".format(mark, part.upper()) if mark else None
+
+
+def _narrow_side_mm(ring):
+    """The SHORT side of the ring's bounding box, in millimetres."""
+    xs = [point[0] for point in ring]
+    ys = [point[1] for point in ring]
+    return min(max(xs) - min(xs), max(ys) - min(ys)) * _MM
+
+
+def _beam_body(segment):
+    """A beam segment's plan footprint: its centreline widened by its width.
+
+    None for a segment with no length -- a beam collapsed onto a column centre
+    has no body to cover, and dividing by its length would be the only thing
+    this function ever raised on.
+    """
+    start = segment.get("start")
+    end = segment.get("end")
+    if not start or not end:
+        return None
+    dx, dy = end[0] - start[0], end[1] - start[1]
+    length = math.sqrt(dx * dx + dy * dy)
+    if length <= 0:
+        return None
+    half = config.mm_to_ft(segment.get("width_mm") or 0.0) / 2.0
+    if half <= 0:
+        return None
+    nx, ny = -dy / length * half, dx / length * half
+    return [(start[0] + nx, start[1] + ny), (end[0] + nx, end[1] + ny),
+            (end[0] - nx, end[1] - ny), (start[0] - nx, start[1] - ny)]
+
+
+def _claimed_beams(ring, bodies):
+    """[index] of the beams this strip covers, by the two measured shares."""
+    strip = abs(_signed_area(ring))
+    if strip <= 0:
+        return []
+    claimed = []
+    for index, body in bodies:
+        piece = _clipped(ring, body)
+        if len(piece) < 3:
+            continue
+        overlap = abs(_signed_area(piece))
+        beam = abs(_signed_area(body))
+        if (overlap / strip >= _STRIP_CLAIM_SHARE
+                or (beam > 0 and overlap / beam >= _BEAM_CLAIM_SHARE)):
+            claimed.append(index)
+    return claimed
+
+
+def _clipped(subject, window):
+    """`subject` clipped to the CONVEX `window` (Sutherland-Hodgman).
+
+    Both shapes here are rectangles -- a hatch as drawn and a beam's body -- so
+    a convex clip is exact, and a general polygon intersection would be a
+    library this module does not need.
+    """
+    out = _counter_clockwise(subject)
+    window = _counter_clockwise(window)
+    count = len(window)
+    for index in range(count):
+        a = window[index]
+        b = window[(index + 1) % count]
+        ex, ey = b[0] - a[0], b[1] - a[1]
+        source, out = out, []
+        for position in range(len(source)):
+            p = source[position - 1]
+            q = source[position]
+            p_in = (ex * (p[1] - a[1]) - ey * (p[0] - a[0])) >= 0.0
+            q_in = (ex * (q[1] - a[1]) - ey * (q[0] - a[0])) >= 0.0
+            if q_in:
+                if not p_in:
+                    out.append(_edge_crossing(p, q, a, b))
+                out.append(q)
+            elif p_in:
+                out.append(_edge_crossing(p, q, a, b))
+        if not out:
+            return []
+    return out
+
+
+def _edge_crossing(p, q, a, b):
+    """Where segment p-q crosses the infinite line a-b."""
+    rx, ry = q[0] - p[0], q[1] - p[1]
+    sx, sy = b[0] - a[0], b[1] - a[1]
+    denominator = rx * sy - ry * sx
+    if abs(denominator) < 1e-15:
+        return q
+    t = ((a[0] - p[0]) * sy - (a[1] - p[1]) * sx) / denominator
+    return (p[0] + t * rx, p[1] + t * ry)
+
+
+def _counter_clockwise(ring):
+    return list(ring) if _signed_area(ring) > 0 else list(reversed(ring))
 
 
 def _pool_collars(steps, notes):

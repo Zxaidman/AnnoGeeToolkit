@@ -1038,15 +1038,23 @@ def _build_one_storey(doc, revit_result, texts, selections, schedule_source=None
         outcomes["columns"] = _create_columns(doc, sections, selections)
     _progress(5, _BUILD_STEPS, "create beams")
     if selections["create_beams"]:
-        outcomes["beams"] = _create_beams(doc, beam_segments, selections)
+        # The hatches and the SHEET's texts ride along so a beam covered by a
+        # sunk strip can be dropped: the legend prices the pattern, and the
+        # strip says which member the price belongs to.
+        outcomes["beams"] = _create_beams(doc, beam_segments, selections,
+                                          regions=hatches, texts=dxf_texts)
     # SLABS: outlines from the slab-edge (A-FLOR) rings, falling back to the
     # PLACED beams + column footprints when the DWG has no slab layer;
     # thickness/mark from "S1 150 THK" / "150 THK." notes anywhere in the text.
     _progress(6, _BUILD_STEPS, "create slabs")
     if selections["create_slabs"]:
+        # `sheet_texts` is deliberately NOT `slab_texts`: that list is narrowed
+        # by routing and cannot be trusted to still hold the legend block, which
+        # is what prices a sunk bay.
         outcomes["slabs"] = _create_slabs(doc, revit_result.records, slab_beam_segments,
                                           slab_texts, selections, schedule,
-                                          column_rects=column_footprints)
+                                          column_rects=column_footprints,
+                                          regions=hatches, sheet_texts=dxf_texts)
     # STAIRS (option 1, parametric): a STAIRCASE / ST-n text marks the bay; a
     # generic dog-leg from the Staircase tab numbers is laid out inside it.
     _progress(7, _BUILD_STEPS, "create stairs")

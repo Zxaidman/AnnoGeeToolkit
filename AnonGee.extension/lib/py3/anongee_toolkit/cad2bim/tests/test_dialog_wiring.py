@@ -1100,6 +1100,33 @@ class TheBlanketNoteReachesTheBuilders(unittest.TestCase):
                       "apply_slab_labels is called without the blanket "
                       "thickness")
 
+    def test_the_hatches_and_the_sheet_reach_both_sunk_passes(self):
+        # The whole sunk pass is inert without these four keywords, and inert
+        # silently: every creator has a `regions=None` default, so a missing
+        # argument reads as "this drawing has no hatches" rather than as a bug.
+        # The legend prices a pattern and the hatch says which member is priced,
+        # so a pass handed one without the other can do nothing either.
+        storey = self._function(_script_source(), "_build_one_storey")
+        beams = self._call(storey, "_create_beams")
+        self.assertIsNotNone(beams, "_build_one_storey never creates beams")
+        beam_kwargs = [k.arg for k in beams.keywords]
+        self.assertIn("regions", beam_kwargs,
+                      "the beam pass is not handed the hatches: a beam under a "
+                      "sunk strip can never be dropped")
+        self.assertIn("texts", beam_kwargs,
+                      "the beam pass is not handed the sheet's texts, so the "
+                      "legend that prices the strip cannot be read")
+        slabs = self._call(storey, "_create_slabs")
+        self.assertIsNotNone(slabs, "_build_one_storey never creates slabs")
+        slab_kwargs = [k.arg for k in slabs.keywords]
+        self.assertIn("regions", slab_kwargs,
+                      "the slab pass is not handed the hatches: no bay can step")
+        # NOT `texts`: slab_texts is narrowed by routing and may no longer hold
+        # the legend block, which is exactly what prices the bay.
+        self.assertIn("sheet_texts", slab_kwargs,
+                      "the slab pass is handed only its routed texts, which "
+                      "cannot be trusted to still carry the legend")
+
     def test_one_function_turns_the_tick_and_the_boxes_into_one_number(self):
         # the dialog cannot send None, so the (tick, box) -> tri-state mapping
         # has to live in ONE place both passes call, or the two kinds drift

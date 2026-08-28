@@ -25,7 +25,7 @@ from Autodesk.Revit.DB import Transaction, TransactionGroup
 
 import re
 
-from . import (config, fold_plan, foundation_plan, naming, report,
+from . import (config, fold_plan, foundation_plan, legend, naming, report,
                slab_outlines, wall_plan)
 from .builders import (columns, beams, footings, grids, materials, slabs,
                        txn_failures, view_filters, walls)
@@ -101,6 +101,104 @@ def blanket_mm(selections, key):
     if not selections.get("blanket_notes", True):
         return 0.0
     return selections.get(key) or None
+
+
+def _sunk_depths(selections, regions, texts):
+    """({pattern: depth_mm}, {swatch id}, [notes]) -- how deep each hatch sinks.
+
+    THE DIALOG'S HATCH TABLE IS THE AUTHORITY. It is the user's own editable
+    view of what the legend proposed, so a figure they corrected there must
+    beat the drawing. When there is no table -- an older preset, a run whose
+    dialog never offered one -- the legend is read again here, so this pass
+    works whether or not the dialog half of it is in place.
+
+    Either way the legend is read for its SWATCHES. The demonstration
+    rectangles beside each legend line are hatches like every other one, on the
+    routed layer and carrying the routed pattern, and nothing may build a floor
+    or drop a beam out of one.
+    """
+    notes = []
+    entries = legend.read(regions or [], texts or [])
+    swatch_ids = set(id(entry["swatch"]) for entry in entries)
+    table = selections.get("hatch_step_depths")
+    if table:
+        return dict(table), swatch_ids, notes
+    depths, legend_notes = legend.legend_steps(
+        entries,
+        max_step_mm=(selections.get("tolerances") or {}).get("max_step_mm"))
+    notes.extend(legend_notes)
+    if depths:
+        notes.append(
+            "depths read from the drawing's own legend ({0}): {1}".format(
+                len(entries),
+                ", ".join("{0} {1:+.0f}mm".format(pattern, depths[pattern])
+                          for pattern in sorted(depths))))
+    return depths, swatch_ids, notes
+
+
+def _tally(values):
+    """{value: count} -- so a console line reads "150mm x31", not x31 lines."""
+    counts = {}
+    for value in values:
+        counts[value] = counts.get(value, 0) + 1
+    return counts
+
+
+def _sunk_beam_drops(selections, regions, texts, segments):
+    """{segment index: depth_mm} for the beams a sunk strip covers.
+
+    Nothing here is silent. Refusals come back from `sunk_split` (a pattern the
+    legend prices at nothing) and from `beam_drops` (a strip lying on no
+    member), and both are said before a single beam is placed -- a strip the
+    run ignored is a beam sitting a step too high, and that is invisible in
+    plan.
+    """
+    if not regions:
+        return {}
+    depths, swatch_ids, notes = _sunk_depths(selections, regions, texts)
+    for message in notes:
+        _say("  sunk (beams): {0}".format(message))
+    if not depths:
+        _say("  sunk (beams): no hatch depth is known, from the dialog or the "
+             "legend: no beam is dropped")
+        return {}
+    split = fold_plan.sunk_split(regions, depths, swatch_ids)
+    drops = fold_plan.beam_drops(segments, split["strips"])
+    for message in split["skipped"] + drops["skipped"]:
+        _say("  sunk (beams): {0}".format(message))
+    return drops["drops"]
+
+
+def _sunk_slab_steps(selections, regions, texts, slab_defs):
+    """(slab_defs with their steps built in, [step]) for the hatched sunk bays.
+
+    The same three-floor arithmetic the footings use, against slab loops
+    instead of foundation outlines -- which is what `fold_plan.plan_steps`
+    docstring always claimed it could serve, and this is the pass that asks it
+    to. Depths come from the PATTERN, so the one routed layer's three sunk
+    values stay apart and the meaning on it that is no step at all is refused
+    by name.
+
+    Every refusal is said before anything is placed: a bay that stepped
+    nowhere is a floor left flat, which the model shows as correct.
+    """
+    if not regions:
+        return slab_defs, []
+    depths, swatch_ids, notes = _sunk_depths(selections, regions, texts)
+    for message in notes:
+        _say("  sunk (slabs): {0}".format(message))
+    if not depths:
+        _say("  sunk (slabs): no hatch depth is known, from the dialog or the "
+             "legend: no bay is stepped")
+        return slab_defs, []
+    split = fold_plan.sunk_split(regions, depths, swatch_ids)
+    steps = fold_plan.plan_steps(
+        slab_defs, split["bays"], depths=depths, skip_ids=swatch_ids,
+        max_step_mm=(selections.get("tolerances") or {}).get("max_step_mm"))
+    stepped, cut = fold_plan.slab_defs_with_steps(slab_defs, steps["steps"])
+    for message in split["skipped"] + steps["skipped"] + steps["notes"] + cut:
+        _say("  sunk (slabs): {0}".format(message))
+    return stepped, steps["steps"]
 
 
 def _create_grids(doc, records, grid_texts=None):
@@ -212,8 +310,15 @@ def _create_columns(doc, sections, selections):
                                           + circular.get("skipped", []))}
 
 
-def _create_beams(doc, beam_segments, selections):
-    """Place beams along derived centerlines at the columns' top level, in a group."""
+def _create_beams(doc, beam_segments, selections, regions=None, texts=None):
+    """Place beams along derived centerlines at the columns' top level, in a group.
+
+    `regions` are the storey's hatches and `texts` the sheet's own, together
+    the sunk half: a hatched strip no wider than a beam, lying on that beam,
+    means the whole member hangs lower by the legend's depth -- same section,
+    same length, top and soffit down together. Every strip that lands on no
+    beam is named rather than dropped quietly.
+    """
     from Autodesk.Revit.DB import Transaction, TransactionGroup, TransactionStatus
     beam_id = selections.get("beam_family_id")
     level_id = selections.get("top_level_id")
@@ -226,13 +331,15 @@ def _create_beams(doc, beam_segments, selections):
         _say("Beams -- no beam segments to place.")
         return {"created": 0, "skipped": 0, "errors": 0}
 
+    drops = _sunk_beam_drops(selections, regions, texts, segments)
+
     group = TransactionGroup(doc, "CAD to BIM: Beams")
     transaction = Transaction(doc, "Create beams")
     group.Start()
     transaction.Start()
     try:
         txn_failures.attach_warning_swallower(transaction)
-        result = beams.place_beams(doc, segments, beam_id, level_id)
+        result = beams.place_beams(doc, segments, beam_id, level_id, drops=drops)
         # Curved beams (concentric arc pairs, e.g. a curved perimeter member) are placed
         # along an Arc; fold their outcome into the same result tallies.
         curved_result = beams.place_curved_beams(doc, curved, beam_id, level_id)
@@ -254,12 +361,19 @@ def _create_beams(doc, beam_segments, selections):
 
     _say("Beams -- created: {0}, skipped: {1}, errors: {2}".format(
         len(result["created"]), len(result["skipped"]), len(result["errors"])))
+    if drops:
+        _say("Beams -- {0} of {1} dropped by a sunk strip ({2}), depth "
+             "unchanged.".format(
+                 len(drops), len(segments),
+                 ", ".join("{0:.0f}mm x{1}".format(depth, count) for depth,
+                           count in sorted(_tally(drops.values()).items()))))
     for message in result["errors"]:
         _say_error("  beam: {0}".format(message))
     for message in result["skipped"] + result.get("notes", []):
         _say("  beam: {0}".format(message))
     return {"created": len(result["created"]), "skipped": len(result["skipped"]),
             "errors": len(result["errors"]),
+            "dropped_by_sunk": len(drops),
             # the placed instances (straight and curved -- the curved tallies
             # were folded in above), so the material pass can reach them:
             # without this the beams outcome carried counts only and every run
@@ -533,7 +647,7 @@ def _apply_materials(doc, outcomes, selections):
 
 
 def _create_slabs(doc, records, beam_segments, texts, selections, schedule=None,
-                  column_rects=None):
+                  column_rects=None, regions=None, sheet_texts=None):
     """Place floor slabs after the beams, in a transaction group.
 
     Outline sources, in order: (1) closed rings on the slab-edge (A-FLOR) layer;
@@ -544,6 +658,13 @@ def _create_slabs(doc, records, beam_segments, texts, selections, schedule=None,
     reached, from the SHEET's blanket note ("ALL SALB ARE 125MM U.N.O."), which
     the dialog settled before the run. The floor type is the one picked in the
     window, duplicated per thickness; the level is the beams' level.
+
+    `regions` are the storey's hatches and `sheet_texts` the whole sheet's own
+    -- the legend lives outside any routed text layer, so the narrowed `texts`
+    this pass reads slab notes from cannot be trusted to hold it. A hatched BAY
+    steps the slab it sits in: the parent is cut, a floor goes in at the
+    legend's depth, and the vertical face between the two soffits is filled
+    where -- and only where -- the drop is deeper than the parent is thick.
     """
     from Autodesk.Revit.DB import Transaction, TransactionGroup
     level_id = selections.get("top_level_id")
@@ -600,6 +721,13 @@ def _create_slabs(doc, records, beam_segments, texts, selections, schedule=None,
         loops, texts, schedule=slab_schedule,
         blanket_thickness_mm=blanket_mm(selections,
                                         "blanket_slab_thickness_mm"))
+    # Counted BEFORE the steps go in: "loops" and "thickness-noted" are about
+    # the bays the drawing shows, and a dropped slab or a support is neither.
+    loop_count = len(slab_defs)
+    sized = sum(1 for sd in slab_defs if sd.get("thickness_mm") is not None)
+    blanket = [sd for sd in slab_defs if sd.get("blanket")]
+    slab_defs, steps = _sunk_slab_steps(selections, regions,
+                                        sheet_texts or texts, slab_defs)
 
     group = TransactionGroup(doc, "CAD to BIM: Slabs")
     transaction = Transaction(doc, "Create slabs")
@@ -623,24 +751,32 @@ def _create_slabs(doc, records, beam_segments, texts, selections, schedule=None,
         return {"created": 0, "skipped": 0, "errors": 0, "rolled_back": True,
                 "source": source}
 
-    sized = sum(1 for sd in slab_defs if sd.get("thickness_mm") is not None)
-    blanket = [sd for sd in slab_defs if sd.get("blanket")]
     _say("Slabs -- source: {0}, loops: {1}, thickness-noted: {2}, "
          "created: {3}, skipped: {4}, errors: {5}".format(
-             source, len(slab_defs), sized, len(result["created"]),
+             source, loop_count, sized, len(result["created"]),
              len(result["skipped"]), len(result["errors"])))
     # A default the run applied SILENTLY is a default nobody can check: say how
     # many bays took the sheet's word and what that word was.
     if blanket:
         _say("slabs: {0} of {1} bay(s) took the sheet's blanket thickness of "
              "{2:g}mm (no note of their own)".format(
-                 len(blanket), len(slab_defs), blanket[0]["thickness_mm"]))
+                 len(blanket), loop_count, blanket[0]["thickness_mm"]))
+    if steps:
+        _say("Slabs -- {0} sunk bay(s) stepped ({1}): {2} support(s) between "
+             "the soffits.".format(
+                 len(steps),
+                 ", ".join("{0:.0f}mm x{1}".format(depth, count)
+                           for depth, count in sorted(
+                               _tally([s["depth_mm"] for s in steps]).items())),
+                 sum(len(s["supports"]) for s in steps)))
     for message in result["errors"]:
         _say_error("  slab: {0}".format(message))
     for message in result["skipped"] + result.get("notes", []):
         _say("  slab: {0}".format(message))
     return {"created": len(result["created"]), "skipped": len(result["skipped"]),
-            "errors": len(result["errors"]), "source": source, "loops": len(slab_defs),
+            "errors": len(result["errors"]), "source": source, "loops": loop_count,
+            "sunk_steps": len(steps),
+            "sunk_supports": sum(len(s["supports"]) for s in steps),
             _IDS: result["created"],
             "error_details": [str(e)[:220] for e in result["errors"][:8]],
             "skip_details": _skip_details(result["skipped"])}

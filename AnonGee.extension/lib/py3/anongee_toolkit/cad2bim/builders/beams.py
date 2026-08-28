@@ -61,8 +61,16 @@ def structural_framing_symbols(doc):
     return sorted(rows, key=lambda pair: pair[0])
 
 
-def place_beams(doc, segments, base_symbol_id, level_id):
+def place_beams(doc, segments, base_symbol_id, level_id, drops=None):
     """Place a beam for each segment along its centerline at level_id.
+
+    `drops` is {segment index: depth_mm} from `fold_plan.beam_drops` -- the
+    beams a sunk strip covers. A SUNK BEAM KEEPS ITS DEPTH AND ITS WHOLE BODY
+    DROPS: the driving line is placed that far below the level and nothing else
+    changes, so top and soffit move down together the way the sunken-slab
+    detail shows. The beam is not deepened to reach back up to the level, and
+    it is not cut in two where the strip ends -- both were considered and ruled
+    out, so this is one number per beam and no geometry.
 
     Runs inside a caller-owned Transaction. One bad segment never fails the batch.
     """
@@ -75,10 +83,12 @@ def place_beams(doc, segments, base_symbol_id, level_id):
     cache = {}
     result = {"created": [], "skipped": [], "errors": [], "notes": []}
 
-    for segment in segments:
+    for index, segment in enumerate(segments):
         try:
             sx, sy, _sz = segment["start"]
             ex, ey, _ez = segment["end"]
+            drop_mm = (drops or {}).get(index) or 0.0
+            z = elevation - mm_to_internal(drop_mm)
             # Recompute length from the LIVE endpoints: snap_beam_ends_to_columns may pull an
             # end onto a column centre AFTER length_mm was stored, so the cached length is
             # stale. A beam whose ends collapsed onto one column would slip past a stale-length
@@ -101,7 +111,7 @@ def place_beams(doc, segments, base_symbol_id, level_id):
             if not symbol.IsActive:
                 symbol.Activate()
                 doc.Regenerate()
-            curve = Line.CreateBound(XYZ(sx, sy, elevation), XYZ(ex, ey, elevation))
+            curve = Line.CreateBound(XYZ(sx, sy, z), XYZ(ex, ey, z))
             instance = doc.Create.NewFamilyInstance(
                 curve, symbol, level, StructuralType.Beam)
             _set_mark(instance, segment.get("mark"))

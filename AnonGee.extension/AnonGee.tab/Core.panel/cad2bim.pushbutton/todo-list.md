@@ -125,7 +125,39 @@ wrong. **No genuinely rotated column exists in test14** — every failure is noi
 band the measurement leaves empty, then decompose as a composite. `_snapped` in `fold_plan` is the
 donor. Tolerance to be set from the corpus-wide drift measurement, not chosen.
 
-### BUG-6 — A hatch's meaning is per PATTERN, but the mapping is per LAYER · `pending`
+### BUG-6 — A hatch's meaning is per PATTERN, but the mapping is per LAYER · `testing`
+
+**Decided by the owner and shipped in v0.80.0:** the hatch table gains a row per (layer, pattern)
+wherever the drawing's own legend gives a layer's patterns more than one meaning; a layer whose
+patterns agree keeps its single row. Measured, not assumed — over the corpus the rule moves only the
+two drawings that carry a legend, 36 → 42 rows, where splitting every layer would have gone to 61
+and inflated three drawings that gain nothing. test14 8 → 11, test9 5 → 8 (all four still column),
+**test10 3 → 3**, so the Revit-validated foundation path cannot be disturbed. Keys are
+`<layer_key>|<PATTERN>`, composed and never parsed; lookup falls back to the plain layer key, so old
+mappings and the offline harnesses still route. It also closes half of CRIT-3 for split rows: a
+stale `HAT → sunk` can no longer put "sunk" back onto GOST_GLASS.
+
+### BUG-7 — The legend's sunk depths reach neither slab nor beam · `testing`
+
+**How found:** the owner's Revit run — "see the legend with sunk mention not apply to the hatch
+region in revit to neither slab or beam". Root cause was BUG-5 (the legend was never read at all);
+once it could be read, nothing consumed the depths.
+
+**Fixed in v0.81.0, awaiting the owner's Revit run.** A sunk hatch is split by the narrow side of
+its box at 600 mm — a threshold in a measured desert: test14's 273 plan hatches run 99.9–350.0, then
+**nothing until 1007.4**, then on to 1665, so 144 strips and 129 bays separate cleanly. A strip
+claims a beam when it covers half the strip's own area, with a second leg (30% of the beam) for a
+member the segmentation cut at its columns; both thresholds sit in measured deserts, and on test14
+the second leg claims no pair the first did not.
+
+**Built on test14:** 108 bays step (12 × 50 mm, 36 × 75 mm, 60 × 150 mm) and **93 beams drop**
+(12 × 75, 81 × 150), whole body down at unchanged depth, which is the owner's own decision. The void
+rule holds exactly as they stated it for folds: only the 150 mm bays clear the 125 mm slab, so they
+carry all **72 supports**, each 150 mm thick at −125 (`d + T_dropped - T_parent` at `-T_parent`),
+while every 75 and 50 mm bay drops with no support at all. 72 GOST_GLASS regions are refused by
+name in one line, 21 bays that sit in no slab loop are reported, and a loop wholly covered by its
+own bay is not placed flat — named in a note, because a floor that quietly stops being placed is the
+hardest kind to find.
 
 **How found:** reading test14's legend (BUG-5). **Reproduced, and measured:** layer `HAT` carries
 four patterns and three different meanings — `ANGLE` 198 regions (sunk 150), `ANSI37` 63 (sunk 75),

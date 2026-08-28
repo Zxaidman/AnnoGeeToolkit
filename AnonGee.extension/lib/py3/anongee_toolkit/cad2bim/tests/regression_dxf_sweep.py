@@ -171,6 +171,9 @@ def _measure(path):
         if len(pieces) > 1:
             outlines_divided += 1
 
+    sunk = _sunk_pass(result, legend_entries, legend_proposals, legend_depths,
+                      labelled, beams)
+
     return {
         "records": len(result.records),
         "texts": len(result.texts),
@@ -223,6 +226,17 @@ def _measure(path):
         "step_depth_mm_total": round(sum(s["depth_mm"] for s in steps["steps"]), 1),
         "foundation_profiles": profile_count,
         "foundation_outlines_divided": outlines_divided,
+        "sunk_bays": sunk["bays"],
+        "sunk_strips": sunk["strips"],
+        "sunk_unpriced_patterns": sunk["unpriced"],
+        "sunk_slab_steps": sunk["steps"],
+        "sunk_slab_step_supports": sunk["supports"],
+        "sunk_slab_steps_skipped": sunk["steps_skipped"],
+        "sunk_slab_step_depth_mm_total": sunk["depth_total"],
+        "sunk_slab_defs": sunk["defs"],
+        "sunk_beams_dropped": sunk["dropped"],
+        "sunk_beam_drop_mm_total": sunk["drop_total"],
+        "sunk_strips_on_no_beam": sunk["strips_skipped"],
         "wall_records": sum(
             1 for r in result.records
             if r.category in (layers.CATEGORY_STRUCT_WALL,
@@ -235,6 +249,44 @@ def _measure(path):
         "wall_skipped": len(walls["skipped"]),
         "wall_length_m": round(sum(s["length_mm"]
                                    for s in walls["segments"]) / 1000.0, 1),
+    }
+
+
+def _sunk_pass(result, entries, proposals, depths, slab_defs, beams):
+    """What the legend's SUNK depths would build, the way the run builds it.
+
+    The hatch routing the dialog carries is the name convention with the
+    LEGEND'S proposal laid over it -- that is how the pushbutton seeds the
+    window -- so the mapping is rebuilt here that way before anything is
+    split. Only then does the pattern price each hatch: test14's one routed
+    layer holds three sunk depths and a fourth meaning that is no step at all.
+
+    Applied AFTER the foundation step measurement above, deliberately: that one
+    pins what the name convention alone routes, and re-categorising the regions
+    first would quietly change the number it reports.
+    """
+    mapping = layers.build_default_hatch_mapping(
+        [region.layer_key for region in result.regions])
+    mapping.update(proposals["mapping"])
+    layers.apply_mapping(result.regions, mapping)
+    swatch_ids = set(id(entry["swatch"]) for entry in entries)
+    split = fold_plan.sunk_split(result.regions, depths, swatch_ids)
+    drops = fold_plan.beam_drops(beams, split["strips"])
+    steps = fold_plan.plan_steps(slab_defs, split["bays"], depths=depths,
+                                 skip_ids=swatch_ids)
+    defs, _notes = fold_plan.slab_defs_with_steps(slab_defs, steps["steps"])
+    return {
+        "bays": len(split["bays"]),
+        "strips": len(split["strips"]),
+        "unpriced": len(split["skipped"]),
+        "steps": len(steps["steps"]),
+        "supports": sum(len(s["supports"]) for s in steps["steps"]),
+        "steps_skipped": len(steps["skipped"]),
+        "depth_total": round(sum(s["depth_mm"] for s in steps["steps"]), 1),
+        "defs": len(defs),
+        "dropped": len(drops["drops"]),
+        "drop_total": round(sum(drops["drops"].values()), 1),
+        "strips_skipped": len(drops["skipped"]),
     }
 
 
