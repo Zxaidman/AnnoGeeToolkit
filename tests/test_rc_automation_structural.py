@@ -927,3 +927,215 @@ class TypeReuseTests(unittest.TestCase):
                 return None
 
         self.assertFalse(maker.fits(Blank(), ((("b",), 230.0),)))
+
+
+class DuplicateDefinitionTests(unittest.TestCase):
+    """No module may define the same top-level name twice.
+
+    ``footings.py`` carried **two** ``ensure_named_type`` definitions for a
+    release: an edit spliced the new one in and left the old one below it.
+    Python takes the last, so every call reached the stale function, and the
+    whole suite passed — a thousand and twenty-two tests, none of which called
+    it with the argument the new one had gained.
+
+    The failure only appeared in a live model, as
+    ``ensure_named_type() got an unexpected keyword argument 'name'``, and it
+    cost fifteen footings and a round trip.
+
+    Nothing about that is specific to footings, so this walks the lot.
+    """
+
+    #: Names a module is allowed to bind twice, because the second is a
+    #: deliberate alias or a version-guarded fallback rather than a leftover.
+    ALLOWED = ()
+
+    def files(self):
+        found = []
+        base = os.path.join(_ROOT, "AnonGee.extension", "lib", "py3",
+                            "anongee_toolkit")
+        for folder in ("structural", "commands", "rc_automation", "bridge",
+                       "revit"):
+            directory = os.path.join(base, folder)
+            if not os.path.isdir(directory):
+                continue
+            for name in sorted(os.listdir(directory)):
+                if name.endswith(".py"):
+                    found.append(os.path.join(directory, name))
+        return found
+
+    def test_no_module_defines_the_same_name_twice(self):
+        offenders = []
+        for path in self.files():
+            with io.open(path, encoding="utf-8") as handle:
+                tree = ast.parse(handle.read())
+            seen = {}
+            for node in tree.body:
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef,
+                                     ast.ClassDef)):
+                    if node.name in self.ALLOWED:
+                        continue
+                    if node.name in seen:
+                        offenders.append(
+                            "{0}: {1} defined at lines {2} and {3}".format(
+                                os.path.basename(path), node.name,
+                                seen[node.name], node.lineno))
+                    seen[node.name] = node.lineno
+        self.assertEqual(offenders, [], "\n".join(offenders))
+
+    def test_no_module_assigns_the_same_constant_twice(self):
+        """The same failure one level down: a module-level constant redefined
+        below its first use reads as the first value everywhere above and the
+        second everywhere below, which is not a thing anybody intends."""
+        offenders = []
+        for path in self.files():
+            with io.open(path, encoding="utf-8") as handle:
+                tree = ast.parse(handle.read())
+            seen = {}
+            for node in tree.body:
+                if not isinstance(node, ast.Assign):
+                    continue
+                for target in node.targets:
+                    if not isinstance(target, ast.Name):
+                        continue
+                    if not target.id.isupper():
+                        continue
+                    if target.id in seen:
+                        offenders.append(
+                            "{0}: {1} assigned at lines {2} and {3}".format(
+                                os.path.basename(path), target.id,
+                                seen[target.id], node.lineno))
+                    seen[target.id] = node.lineno
+        self.assertEqual(offenders, [], "\n".join(offenders))
+
+
+class CallSignatureTests(unittest.TestCase):
+    """Every keyword a toolkit module passes to another must be accepted.
+
+    ``commands/footings.py`` started passing ``name=`` to
+    ``structural.footings.ensure_named_type``. The function had gained that
+    parameter — and a stale duplicate definition below it had not, so Python
+    bound the stale one and fifteen footings died in a live model with
+    ``got an unexpected keyword argument 'name'``.
+
+    The duplicate is guarded above. **This guards the shape of the call
+    itself**, which is the thing that actually broke, and would have caught it
+    even with only one definition — because no test calls these functions: they
+    take a Revit ``Document``, so they cannot be called here at all. A static
+    check is the only check available, which makes it worth having.
+    """
+
+    def modules(self):
+        """``{module name: {function: (parameters, takes **kwargs)}}``."""
+        found = {}
+        base = os.path.join(_ROOT, "AnonGee.extension", "lib", "py3",
+                            "anongee_toolkit")
+        for folder in ("structural", "commands", "rc_automation", "bridge"):
+            directory = os.path.join(base, folder)
+            if not os.path.isdir(directory):
+                continue
+            for name in sorted(os.listdir(directory)):
+                if not name.endswith(".py"):
+                    continue
+                with io.open(os.path.join(directory, name),
+                             encoding="utf-8") as handle:
+                    tree = ast.parse(handle.read())
+                functions = {}
+                for node in tree.body:
+                    if not isinstance(node, (ast.FunctionDef,
+                                             ast.AsyncFunctionDef)):
+                        continue
+                    arguments = node.args
+                    names = set()
+                    for group in (getattr(arguments, "posonlyargs", []),
+                                  arguments.args, arguments.kwonlyargs):
+                        for argument in group:
+                            names.add(argument.arg)
+                    functions[node.name] = (names,
+                                            arguments.kwarg is not None)
+                # Keyed by package **and** module: `commands/footings.py` and
+                # `structural/footings.py` are both "footings", and letting one
+                # overwrite the other made this check look at the wrong file.
+                found["{0}.{1}".format(folder, name[:-3])] = functions
+        return found
+
+    def imported(self, tree):
+        """``{local name: module name}`` for ``from anongee_toolkit.x import y``."""
+        found = {}
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom):
+                continue
+            module = node.module or ""
+            if not module.startswith("anongee_toolkit."):
+                continue
+            package = module.split(".")[-1]
+            for alias in node.names:
+                found[alias.asname or alias.name] = "{0}.{1}".format(
+                    package, alias.name)
+        return found
+
+    def test_every_keyword_is_one_the_callee_accepts(self):
+        known = self.modules()
+        offenders = []
+        base = os.path.join(_ROOT, "AnonGee.extension", "lib", "py3",
+                            "anongee_toolkit")
+        for folder in ("structural", "commands"):
+            directory = os.path.join(base, folder)
+            for name in sorted(os.listdir(directory)):
+                if not name.endswith(".py"):
+                    continue
+                path = os.path.join(directory, name)
+                with io.open(path, encoding="utf-8") as handle:
+                    tree = ast.parse(handle.read())
+                bindings = self.imported(tree)
+
+                for node in ast.walk(tree):
+                    if not isinstance(node, ast.Call):
+                        continue
+                    target = node.func
+                    if not isinstance(target, ast.Attribute):
+                        continue
+                    owner = target.value
+                    if not isinstance(owner, ast.Name):
+                        continue
+                    module = bindings.get(owner.id)
+                    if module is None or module not in known:
+                        continue
+                    signature = known[module].get(target.attr)
+                    if signature is None:
+                        continue
+                    parameters, takes_kwargs = signature
+                    if takes_kwargs:
+                        continue
+                    for keyword in node.keywords:
+                        if keyword.arg is None:      # **something
+                            continue
+                        if keyword.arg not in parameters:
+                            offenders.append(
+                                "{0}:{1} {2}.{3}() has no {4!r}".format(
+                                    name, node.lineno, module, target.attr,
+                                    keyword.arg))
+        self.assertEqual(sorted(set(offenders)), [],
+                         "\n".join(sorted(set(offenders))))
+
+    def test_the_check_can_see_the_call_that_broke(self):
+        """A check that silently matches nothing is worse than no check.
+
+        ``commands/footings.py`` must really be passing ``name=`` to
+        ``structural.footings.ensure_named_type`` — if that call ever stops
+        being visible to the walk above, the walk has stopped working.
+        """
+        path = os.path.join(_ROOT, "AnonGee.extension", "lib", "py3",
+                            "anongee_toolkit", "commands", "footings.py")
+        with io.open(path, encoding="utf-8") as handle:
+            tree = ast.parse(handle.read())
+        found = False
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "ensure_named_type"
+                    and any(keyword.arg == "name"
+                            for keyword in node.keywords)):
+                found = True
+        self.assertTrue(found)
+        self.assertIn("ensure_named_type",
+                      self.modules().get("structural.footings", {}))

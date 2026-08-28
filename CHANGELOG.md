@@ -35,6 +35,32 @@ of view of someone using the thing rather than someone reading the diff:
 
 ---
 
+## 1.26.1
+
+**Fixed**
+
+- **Two definitions of one function, and Python took the stale one.**
+  `structural/footings.py` carried two top-level `ensure_named_type`
+  definitions — 1.26.0's edit spliced the new one in and left the old one
+  below it — so every call reached the version that had never heard of the
+  `name` argument, and fifteen footings died with
+  `got an unexpected keyword argument 'name'`. `_set_thickness` was duplicated
+  the same way by the same edit. Both are gone. (BUG-43)
+
+**Added**
+
+- **No module may define a top-level name twice**, or assign a module-level
+  constant twice. Mutation-checked, and it found the second duplicate
+  immediately.
+- **A static call-signature check.** Every keyword one toolkit module passes to
+  another must be one the callee accepts. These functions take a Revit
+  `Document`, so no test can call them — a thousand tests could not have caught
+  this. Re-removing the `name` parameter now names both call sites at the desk.
+
+  Second time a repository-wide static check has been the right answer to a bug
+  found in a live model. Where a function cannot be called by a test, its shape
+  still can be.
+
 ## 1.26.0
 
 **Fixed**

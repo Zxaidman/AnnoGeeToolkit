@@ -137,6 +137,36 @@ are held to the same three names by a test, because that is exactly the contract
 
 ## 2. Errors and bugs
 
+### BUG-43 — two definitions of one function, and Python took the stale one · `testing`
+
+**How it was found.** The owner's run, fifteen identical errors:
+
+> `F3': ensure_named_type() got an unexpected keyword argument 'name'`
+
+`created=15  written=0`. Reproduced here in seconds once the message was read.
+
+**Cause.** `structural/footings.py` carried **two** top-level `ensure_named_type` definitions. The
+edit that added the `name` parameter spliced the new function in above and left the old one below —
+and Python binds the last one, so every call reached the version that had never heard of `name`.
+
+`_set_thickness` was duplicated the same way, in the same file, by the same edit. The guard below
+found that one; nothing else had.
+
+**Why the suite did not catch it.** These functions take a Revit `Document`, so no test calls them —
+a thousand and twenty-two tests, none of which could have exercised the signature. The duplicate was
+invisible to every one of them.
+
+**Fix, in three parts.** The duplicates are gone. **No module may define a top-level name twice**, or
+assign a module-level constant twice — mutation-checked. And a static **call-signature check**: every
+keyword one toolkit module passes to another must be one the callee accepts. Re-removing the `name`
+parameter now names both call sites, `commands/footings.py:114` and `commands/slabs.py:111`, which
+is the failure the owner hit, caught at the desk.
+
+**The lesson worth keeping.** This is the second time a repository-wide static check has been the
+right answer to a bug found in a live model — the first was the parameter-shadowing guard for
+`BUG-31`. Where a function cannot be called by a test, its *shape* still can be checked, and that is
+most of what goes wrong here.
+
 ### BUG-39 — a reused type was resized, and the plinth beams went with it · `testing`
 
 **How it was found.** The project owner, after a run: *"it was using the PB-230 X 450 without
