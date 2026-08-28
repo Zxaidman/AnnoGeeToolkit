@@ -180,18 +180,18 @@
     "storey": "GROUND FLOOR LVL."
   },
   "test14": {
-    "beams": 682,
+    "beams": 387,
     "column_circles": 0,
-    "column_footprints": 360,
-    "column_rectangles": 360,
-    "loops_from_beam_graph": 266,
-    "loops_from_beam_graph_area_m2": 3120.5,
+    "column_footprints": 122,
+    "column_rectangles": 122,
+    "loops_from_beam_graph": 75,
+    "loops_from_beam_graph_area_m2": 3082.9,
     "loops_from_edges": 0,
     "loops_from_edges_area_m2": 0,
-    "loops_from_placed_members": 98,
-    "loops_from_placed_members_area_m2": 2511.2,
-    "records": 1027,
-    "sized_beams": 19,
+    "loops_from_placed_members": 109,
+    "loops_from_placed_members_area_m2": 788.7,
+    "records": 506,
+    "sized_beams": 251,
     "storey": "single"
   },
   "test15": {
