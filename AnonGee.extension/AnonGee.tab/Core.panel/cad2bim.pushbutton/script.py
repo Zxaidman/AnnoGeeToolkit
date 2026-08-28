@@ -443,13 +443,7 @@ def main():
     # merge of hatch-only layers into the GEOMETRY rows meant routing a hatch
     # could re-route linework on the same layer. The rows come ONLY from
     # dxf_result.regions (the Revit API cannot read a hatch inside a link).
-    region_counts = {}
-    for region in dxf_result.regions:
-        region_counts[region.layer_key] = region_counts.get(region.layer_key,
-                                                            0) + 1
-    hatch_names = sorted(region_counts)
-    hatch_rows = [(name, region_counts[name]) for name in hatch_names]
-    default_hatch_mapping = layers.build_default_hatch_mapping(hatch_names)
+    #
     # The LEGEND, if the drawing carries one (test9's convention): swatch
     # pattern -> legend text -> meaning, inherited by every plan hatch of the
     # pattern. The result is a PROPOSAL into the dialog, never a silent
@@ -458,21 +452,65 @@ def main():
     # the geometry one), the rows are marked, and the user can still change
     # them. Regions and texts are already through the affine here, so the
     # pairing distances are real millimetres.
-    legend_notes = {}
     legend_entries = legend.read(dxf_result.regions, dxf_result.texts)
+    # ...and the legend is also what decides the SHAPE of the table. A layer
+    # it gives several meanings to becomes one row per pattern (test14's HAT:
+    # three sunk depths and a beam-bottom slab, four rows); every other layer
+    # keeps its single row (layers.hatch_rows carries the measurement).
+    hatch_table = layers.hatch_rows(dxf_result.regions,
+                                    layers.hatch_meanings(legend_entries))
+    hatch_rows = [(row["key"], row["count"]) for row in hatch_table]
+    hatch_row_patterns = dict((row["key"], row["patterns"])
+                              for row in hatch_table)
+    default_hatch_mapping = layers.default_hatch_row_mapping(hatch_table)
+    split_layers = sorted(set(row["layer"] for row in hatch_table
+                              if row["pattern"]))
+    legend_notes = {}
+    hatch_step_depths = {}
     if legend_entries:
         proposal = legend.propose(legend_entries, dxf_result.regions)
         _say("Legend: {0} entr{1} read from the drawing.".format(
             len(legend_entries),
             "y" if len(legend_entries) == 1 else "ies"))
+        for layer_name in split_layers:
+            _say("  legend: {0} carries more than one meaning -- one row per "
+                 "pattern ({1})".format(
+                     layer_name, ", ".join(row["pattern"] for row in hatch_table
+                                           if row["layer"] == layer_name)))
         for layer_name in sorted(proposal["mapping"]):
+            if layer_name in split_layers:
+                continue      # its rows are proposed one pattern at a time
             default_hatch_mapping[layer_name] = proposal["mapping"][layer_name]
             legend_notes[layer_name] = proposal["rows"][layer_name]
             _say("  legend: {0} {1}".format(layer_name,
                                             proposal["rows"][layer_name]))
+        # A SPLIT layer's rows get the SAME translation, one pattern at a
+        # time: propose() re-run over that pattern's legend rows alone. It is
+        # the per-layer proposal without the coarseness -- test14's ANGLE,
+        # ANSI37 and HONEY rows each land on sunk with their own evidence,
+        # and GOST_GLASS ("SLAB AT BEAM BOTTOM", report-only) lands on
+        # nothing and keeps the convention's guess.
+        for row in hatch_table:
+            if not row["pattern"]:
+                continue
+            own = legend.propose([entry for entry in legend_entries
+                                  if entry["pattern"] == row["pattern"]],
+                                 dxf_result.regions)
+            category = own["mapping"].get(row["layer"])
+            if not category:
+                continue
+            default_hatch_mapping[row["key"]] = category
+            legend_notes[row["key"]] = own["rows"][row["layer"]]
+            _say("  legend: {0} {1}".format(row["key"],
+                                            own["rows"][row["layer"]]))
+        # The step DEPTHS the legend states, keyed by PATTERN -- which is the
+        # grain they are stated at ({ANSI37: -75, ANGLE: -150, HONEY: -50} on
+        # test14) and the grain the dialog now shows them at. Negative is
+        # down; the boxes are a proposal like everything else here.
+        hatch_step_depths, depth_notes = legend.legend_steps(legend_entries)
         for line in proposal["reports"]:
             _say("  legend: {0}".format(line))
-        for line in proposal["notes"]:
+        for line in list(proposal["notes"]) + list(depth_notes):
             _say("  legend: {0}".format(line))
     column_symbols = columns.structural_column_symbols(doc)
     level_options = columns.levels(doc)
@@ -571,6 +609,8 @@ def main():
                                     layers.HATCH_CATEGORIES),
                                 default_hatch_mapping=default_hatch_mapping,
                                 hatch_notes=legend_notes,
+                                hatch_row_patterns=hatch_row_patterns,
+                                hatch_step_depths=hatch_step_depths,
                                 blanket_note=blanket_note)
         window.show()
         if not window.result:
@@ -592,8 +632,12 @@ def main():
     # ...and the hatches take THEIR OWN mapping -- the third table on the
     # Layers tab -- which is what tells a fold region from a sunk one and
     # both from the column fill, without ever consulting (or disturbing) the
-    # geometry mapping for the layer of the same name.
-    layers.apply_mapping(dxf_result.regions, selections["hatch_mapping"])
+    # geometry mapping for the layer of the same name. It is applied by
+    # apply_hatch_mapping, not apply_mapping, because a hatch row may be
+    # keyed by (layer, pattern): "HAT|ANGLE" answers for the pattern and
+    # plain "HAT" for the whole layer, the narrower answer first.
+    layers.apply_hatch_mapping(dxf_result.regions,
+                               selections["hatch_mapping"])
     # The Multi-storey tab picks the boundary/origin layers BY NAME (they differ
     # per drawing), so route them here -- after the layer table, so an explicit
     # pick always wins over the naming convention.

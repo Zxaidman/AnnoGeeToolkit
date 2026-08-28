@@ -532,8 +532,8 @@ class TheHatchLayersHaveTheirOwnTable(unittest.TestCase):
 
     def test_the_rows_are_built_from_the_regions_only(self):
         script = _script_source()
-        self.assertIn("layers.build_default_hatch_mapping(hatch_names)",
-                      script)
+        self.assertIn("layers.hatch_rows(dxf_result.regions,", script)
+        self.assertIn("layers.default_hatch_row_mapping(hatch_table)", script)
         self.assertIn("layers.HATCH_CATEGORIES", script)
         # ...and the geometry rows are records-only again: the v0.69.7 merge
         # of region counts into the geometry table is gone
@@ -541,9 +541,12 @@ class TheHatchLayersHaveTheirOwnTable(unittest.TestCase):
 
     def test_the_regions_never_consult_the_geometry_mapping(self):
         script = _script_source()
-        self.assertIn('layers.apply_mapping(dxf_result.regions, '
-                      'selections["hatch_mapping"])', script)
+        self.assertRegex(script, r'layers\.apply_hatch_mapping\('
+                                 r'dxf_result\.regions,\s*'
+                                 r'selections\["hatch_mapping"\]\)')
         self.assertNotIn('apply_mapping(dxf_result.regions, '
+                         'selections["mapping"])', script)
+        self.assertNotIn('apply_hatch_mapping(dxf_result.regions, '
                          'selections["mapping"])', script)
 
     def test_the_mapping_is_persisted_and_restored(self):
@@ -556,6 +559,131 @@ class TheHatchLayersHaveTheirOwnTable(unittest.TestCase):
             "\n    def ", 1)[0]
         self.assertIn("settings.hatch_mappings(data)", restore)
         self.assertIn("self._hatch_combos", restore)
+
+
+class TheHatchTableSplitsWhereTheLegendDoes(unittest.TestCase):
+    """One row per layer, until the drawing's own legend gives it several.
+
+    BUG-6: test14's HAT carries ANGLE, ANSI37 and HONEY (three sunk depths --
+    150, 75 and 50 mm) plus GOST_GLASS ("SLAB AT BEAM BOTTOM", not a step at
+    all), and a per-layer row can only say HAT -> sunk. The rule and its
+    measured corpus effect are unit-tested in test_hatch_rows.py; what no
+    offline harness can reach is the WPF window, so every wire from the split
+    to the row, the mark and the depth box is pinned as text here. Each of
+    them degrades SILENTLY if cut: the dialog opens with a coarser table and
+    nobody is told.
+    """
+
+    def test_the_pushbutton_shapes_the_table_from_the_legend(self):
+        script = _script_source()
+        self.assertIn("layers.hatch_meanings(legend_entries)", script)
+        self.assertIn("layers.hatch_rows(dxf_result.regions,", script)
+        # the rows the window is handed are the SPLIT rows, keyed by row
+        self.assertIn('hatch_rows = [(row["key"], row["count"])', script)
+        self.assertIn("layers.default_hatch_row_mapping(hatch_table)", script)
+        # ...and the legend is read before any of it
+        self.assertLess(script.index("legend.read(dxf_result.regions"),
+                        script.index("layers.hatch_rows(dxf_result.regions"))
+
+    def test_a_split_layer_is_proposed_one_pattern_at_a_time(self):
+        script = _script_source()
+        # the whole-sheet per-layer proposal skips a layer that split...
+        self.assertIn("if layer_name in split_layers:", script)
+        # ...and each split row gets the same translation over its own
+        # pattern's legend rows alone, marked with its own evidence
+        self.assertRegex(script, r'legend\.propose\(\[entry for entry in '
+                                 r'legend_entries\s*if entry\["pattern"\] == '
+                                 r'row\["pattern"\]\]')
+        self.assertIn('default_hatch_mapping[row["key"]] = category', script)
+        self.assertIn('legend_notes[row["key"]] = own["rows"][row["layer"]]',
+                      script)
+
+    def test_the_depths_are_read_and_handed_over_by_pattern(self):
+        script = _script_source()
+        self.assertIn("legend.legend_steps(legend_entries)", script)
+        self.assertIn("hatch_step_depths=hatch_step_depths", script)
+        self.assertIn("hatch_row_patterns=hatch_row_patterns", script)
+
+    def test_the_window_takes_the_patterns_and_the_depths(self):
+        window = _window_source()
+        self.assertIn("hatch_row_patterns=None, hatch_step_depths=None",
+                      window)
+        self.assertIn("self._hatch_step_depths = dict(hatch_step_depths or {})",
+                      window)
+        block = window.split("class CadToBimWindow", 1)[1].split(
+            "def __init__(", 1)[1].split("\n    def ", 1)[0]
+        self.assertIn("row_patterns=hatch_row_patterns", block)
+        self.assertIn("depth_store=self._hatch_depth_boxes", block)
+
+    def test_the_row_builder_grows_a_fourth_column_for_the_depths(self):
+        block = _window_source().split("def _build_rows(", 1)[1].split(
+            "\n    def ", 1)[0]
+        # three columns as before for the geometry and text tables, four when
+        # a depth store is handed in (the hatch table only)
+        self.assertIn("(None, 70, 180) if depth_store is None "
+                      "else (None, 70, 180, 70)", block)
+        self.assertIn("self._depth_box(", block)
+
+    def test_the_depth_box_belongs_to_the_pattern_not_the_row(self):
+        block = _window_source().split("def _depth_box(", 1)[1].split(
+            "\n    def ", 1)[0]
+        self.assertIn("if pattern in self._hatch_step_depths", block)
+        self.assertIn("depth_store.append((tuple(carried), box)", block)
+        # a row whose patterns carry no legend depth shows no box at all
+        self.assertIn("return None", block)
+
+    def test_the_depths_ride_collect_under_their_own_key(self):
+        window = _window_source()
+        collect = window.split("def _collect(", 1)[1].split("\n    def ",
+                                                            1)[0]
+        # the key the fold machinery reads: {pattern: depth mm}
+        self.assertIn('"hatch_step_depths": self._read_hatch_depths()',
+                      collect)
+        block = window.split("def _read_hatch_depths(", 1)[1].split(
+            "\n    def ", 1)[0]
+        self.assertIn("depths = dict(self._hatch_step_depths)", block)
+        self.assertIn("for patterns, box in self._hatch_depth_boxes:", block)
+        # an unreadable box keeps the legend's own figure
+        self.assertIn("self._read_float(box, depths.get(pattern))", block)
+
+    def test_an_edited_depth_survives_the_draw_stairs_round_trip(self):
+        # the depths are NOT in the settings snapshot (they are this
+        # drawing's, not the office's) -- so the preset has to carry them
+        # itself, or a trip out to the view to draw stair outlines silently
+        # resets every depth the user changed
+        block = _window_source().split("def _apply_preset(", 1)[1].split(
+            "\n    def ", 1)[0]
+        self.assertIn('preset.get("hatch_step_depths")', block)
+        restore = _window_source().split("def _restore_hatch_depths(",
+                                         1)[1].split("\n    def ", 1)[0]
+        self.assertIn("for patterns, box in self._hatch_depth_boxes:",
+                      restore)
+
+    def test_the_table_says_what_a_split_row_is(self):
+        with open(_XAML, "rb") as handle:
+            source = handle.read().decode("utf-8")
+        self.assertIn('Text="Depth mm"', source)
+        prose = [element.get("Text") for element in _body_iter(_XAML)
+                 if "layer|PATTERN" in (element.get("Text") or "")]
+        self.assertEqual(len(prose), 1, "the split is unexplained on the tab")
+        self.assertIn("legend", prose[0])
+        self.assertIn("negative", prose[0])
+
+    def test_the_hatch_header_row_matches_the_rows_beneath_it(self):
+        # the built rows are (name, count, meaning, depth); a header grid
+        # that still had three columns would sit over the wrong cells
+        header = None
+        for element in _body_iter(_XAML):
+            if element.tag.endswith("Grid"):
+                captions = [child.get("Text") for child in element.iter()
+                            if child.get("Text")]
+                if "Hatch layer" in captions:
+                    header = element
+        self.assertIsNotNone(header, "the hatch table has no header row")
+        columns = [child for child in header.iter()
+                   if child.tag.endswith("ColumnDefinition")]
+        self.assertEqual([child.get("Width") for child in columns],
+                         ["*", "70", "180", "70"])
 
 
 class TheDrawStairsRoundTripKeepsTheWholeDialog(unittest.TestCase):
@@ -718,7 +846,9 @@ class TheDrawnFoundationsReachTheBuilder(unittest.TestCase):
         source = _script_source()
         self.assertIn("transform.apply_to_records(text_affine, dxf_result.regions)",
                       source, "hatches are never moved into model coordinates")
-        self.assertIn("layers.apply_mapping(dxf_result.regions", source,
+        # apply_HATCH_mapping, not apply_mapping: a hatch row may be keyed by
+        # (layer, pattern), and only the hatch version looks there
+        self.assertIn("layers.apply_hatch_mapping(dxf_result.regions", source,
                       "hatches are never classified, so no fold is a fold")
 
     def test_each_storey_keeps_the_hatches_drawn_on_it(self):

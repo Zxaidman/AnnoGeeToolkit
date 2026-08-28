@@ -199,6 +199,51 @@ class PayloadShape(unittest.TestCase):
         self.assertEqual(settings.advanced_overrides(old),
                          {"beam_heal_mm": 400.0})
 
+    def test_the_hatch_section_carries_a_split_row_key(self):
+        # schema 4: where a drawing's legend gives one layer several
+        # meanings the table splits it into "<layer>|<PATTERN>" rows, and
+        # the file keys them the same way -- test14's HAT, four rows, three
+        # of them sunk and GOST_GLASS ("SLAB AT BEAM BOTTOM") not
+        data = settings.payload({"a": 1}, hatches={"HAT|ANGLE": "sunk",
+                                                   "HAT|ANSI37": "sunk",
+                                                   "HAT|HONEY": "sunk",
+                                                   "HAT|GOST_GLASS": "unmapped",
+                                                   "S-FND-FOLD": "fold"})
+        self.assertEqual(data["schema"], 4)
+        reloaded = settings.hatch_mappings(json.loads(json.dumps(data)))
+        self.assertEqual(reloaded["HAT|ANGLE"], "sunk")
+        self.assertEqual(reloaded["HAT|GOST_GLASS"], "unmapped")
+        # a plain layer key rides the same section, unchanged
+        self.assertEqual(reloaded["S-FND-FOLD"], "fold")
+
+    def test_a_key_is_never_taken_apart_on_its_separator(self):
+        # an xref layer is legitimately named "PLAN|HAT": the accessor hands
+        # keys back verbatim, and the dialog matches a row against the key it
+        # wrote for that row, so nothing has to guess where a layer ends
+        data = settings.payload({}, hatches={"PLAN|HAT": "sunk",
+                                             "PLAN|HAT|ANGLE": "fold"})
+        self.assertEqual(settings.hatch_mappings(data),
+                         {"PLAN|HAT": "sunk", "PLAN|HAT|ANGLE": "fold"})
+
+    def test_a_schema_3_file_of_plain_layer_keys_loads_unchanged(self):
+        # the file every v0.73..0.79 run wrote: all its keys are layers, and
+        # they still restore the rows that were not split. The split rows are
+        # keyed differently ON PURPOSE -- a stale "HAT -> sunk" is the coarse
+        # answer the split exists to replace, and letting it reach the split
+        # rows would put "sunk" back on GOST_GLASS
+        old = {"schema": 3, "version": "0.79.0",
+               "controls": {"chk_beams": True},
+               "layers": {"S-COLS": "column"}, "texts": {},
+               "hatches": {"S-FND-FOLD": "fold", "HAT": "sunk"},
+               "advanced": {}}
+        controls, layer_map, texts = settings.sections(old)
+        self.assertEqual(controls, {"chk_beams": True})
+        self.assertEqual(layer_map, {"S-COLS": "column"})
+        self.assertEqual(texts, {})
+        saved = settings.hatch_mappings(old)
+        self.assertEqual(saved, {"S-FND-FOLD": "fold", "HAT": "sunk"})
+        self.assertEqual(saved.get("HAT|ANGLE"), None)
+
     def test_hatch_mappings_of_rubbish_is_an_empty_dict(self):
         for junk in (None, [], "text", {"hatches": "not a dict"},
                      {"hatches": None}, {"hatches": [1, 2]}):

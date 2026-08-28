@@ -210,6 +210,178 @@ def build_default_hatch_mapping(layer_keys):
     return dict((key, classify_hatch_layer(key)) for key in layer_keys)
 
 
+# A HATCH LAYER CAN CARRY MORE THAN ONE MEANING, and test14 is the drawing
+# that says so: layer HAT holds ANGLE (198 regions), ANSI37 (63) and HONEY
+# (21) -- three sunk depths, 150, 75 and 50 mm -- and GOST_GLASS (75), which
+# the same legend calls "SLAB AT BEAM BOTTOM" and is not a step at all. One
+# row per layer cannot say that: the honest proposal HAT -> sunk sweeps all
+# 357 regions into one bucket, loses the three depths and mislabels 75
+# (BUG-6, findings #13).
+#
+# So the table splits a layer into one row per PATTERN -- keyed
+# "<layer_key>|<PATTERN>" -- WHERE THE LEGEND ITSELF GIVES THAT LAYER SEVERAL
+# MEANINGS, and nowhere else. Splitting every layer by pattern was the
+# alternative and it is measurably worse: over the corpus it turns 36 rows
+# into 61 (test3, test4 and test5 alone gain three each) for drawings whose
+# patterns all mean the same thing. The legend-justified rule moves exactly
+# the two drawings that carry a legend -- test14 8 -> 11 rows, test9 5 -> 8 --
+# and leaves the other seventeen, test10's three step layers included,
+# untouched.
+HATCH_KEY_SEPARATOR = "|"
+
+# The kinds legend.py reads a VALUE for (legend.KIND_STEP, KIND_CUTOUT).
+# Named here because the meaning key below has to agree with
+# legend._meaning_key and this module cannot ask: legend imports THIS file,
+# so the dependency only ever runs one way and the entries arrive as plain
+# dicts instead.
+_VALUED_KINDS = ("step", "cutout")
+
+
+def hatch_row_key(layer_key, pattern=None):
+    """The hatch table's row identity: the layer, or "<layer>|<PATTERN>".
+
+    Composed, never parsed. An xref layer is legitimately named "PLAN|HAT",
+    so splitting a key back apart guesses; every reader here is handed the
+    layer and the pattern it already has and composes the same key instead.
+    """
+    if not pattern:
+        return layer_key
+    return "{0}{1}{2}".format(layer_key, HATCH_KEY_SEPARATOR, pattern)
+
+
+def _meaning_key(entry):
+    """What one legend entry MEANS, for comparison only.
+
+    legend._meaning_key's rule restated: (kind, value) where the kind
+    carries a number, else the text itself normalised for case, spacing and
+    the trailing full stop -- because for a report-only row the text IS the
+    meaning ("INDICATES SLAB AT BEAM BOTTOM").
+    """
+    kind = entry.get("kind")
+    if kind in _VALUED_KINDS:
+        return (kind, entry.get("value_mm"))
+    return (kind, " ".join((entry.get("meaning") or "").upper().split())
+            .rstrip("."))
+
+
+def hatch_meanings(legend_entries):
+    """{pattern: meaning} for every pattern the legend says ONE thing about.
+
+    `legend_entries` is legend.read's output -- plain dicts carrying
+    "pattern", "kind", "value_mm" and "meaning". A pattern whose rows
+    disagree says nothing at all rather than one of them: test9's ZIGZAG
+    means three different things across its three tower legends, and a
+    pattern nobody can pin cannot justify splitting a layer either.
+
+    The result is what `hatch_rows` compares. It is deliberately NOT a
+    category -- translating a meaning into fold/sunk/cutout is legend.propose's
+    job, and this only has to know when two patterns differ.
+    """
+    by_pattern = {}
+    for entry in (legend_entries or []):
+        pattern = entry.get("pattern")
+        if not pattern:
+            continue
+        by_pattern.setdefault(pattern, set()).add(_meaning_key(entry))
+    return dict((pattern, sorted(keys)[0])
+                for pattern, keys in by_pattern.items() if len(keys) == 1)
+
+
+def hatch_patterns(regions):
+    """{layer_key: {pattern: region count}} -- the hatch table's raw material."""
+    counts = {}
+    for region in (regions or []):
+        patterns = counts.setdefault(region.layer_key, {})
+        pattern = getattr(region, "pattern", None)
+        patterns[pattern] = patterns.get(pattern, 0) + 1
+    return counts
+
+
+def hatch_rows(regions, pattern_meanings=None):
+    """The hatch table's rows: [{key, layer, pattern, patterns, count}].
+
+    One row per layer, as it always was -- except where `pattern_meanings`
+    ({pattern: meaning}, from `hatch_meanings`) shows the drawing's own
+    legend giving one layer more than one meaning. That layer becomes one
+    row per pattern, so each meaning can be seen, marked and overruled on
+    its own (test14's HAT, four rows).
+
+    `pattern` is None on an unsplit row and `patterns` always names every
+    pattern the row covers -- which is what lets the depth boxes hang off a
+    row without anyone parsing a key apart.
+    """
+    rows = []
+    counts = hatch_patterns(regions)
+    for layer in sorted(counts):
+        patterns = counts[layer]
+        ordered = sorted(patterns, key=lambda name: name or "")
+        if _splits(patterns, pattern_meanings):
+            for pattern in ordered:
+                rows.append({"key": hatch_row_key(layer, pattern),
+                             "layer": layer, "pattern": pattern,
+                             "patterns": (pattern,),
+                             "count": patterns[pattern]})
+        else:
+            rows.append({"key": layer, "layer": layer, "pattern": None,
+                         "patterns": tuple(ordered),
+                         "count": sum(patterns.values())})
+    return rows
+
+
+def _splits(patterns, pattern_meanings):
+    """True when the legend gives one layer's patterns two meanings or more."""
+    if not pattern_meanings or len(patterns) < 2:
+        return False
+    meanings = set(pattern_meanings[pattern] for pattern in patterns
+                   if pattern in pattern_meanings)
+    return len(meanings) > 1
+
+
+def default_hatch_row_mapping(rows):
+    """Pre-fill {row key: region meaning} from the convention, for the dialog.
+
+    The CONVENTION still reads the LAYER: a pattern name (ANGLE, GOST_GLASS)
+    says nothing about what the region means, so a split layer's rows all
+    start on the one guess its name earns, and the legend -- or the user --
+    is what tells them apart afterwards.
+    """
+    return dict((row["key"], classify_hatch_layer(row["layer"]))
+                for row in (rows or []))
+
+
+def hatch_category(mapping, layer_key, pattern=None):
+    """The meaning a hatch mapping gives ONE region.
+
+    The split row wins over the layer row: "HAT|ANGLE -> sunk" is an answer
+    about this pattern and "HAT -> sunk" an answer about the whole layer, so
+    the narrower one is the one to take. Neither present is unmapped, which
+    is how a mapping saved before the split (every key a plain layer) still
+    routes every region it recognises.
+    """
+    if mapping:
+        if pattern:
+            category = mapping.get(hatch_row_key(layer_key, pattern))
+            if category:
+                return category
+        category = mapping.get(layer_key)
+        if category:
+            return category
+    return CATEGORY_UNMAPPED
+
+
+def apply_hatch_mapping(regions, mapping):
+    """Stamp each region's .category from the hatch table's own mapping.
+
+    The region cousin of `apply_mapping`, kept apart because only a hatch
+    has a pattern: a mapping keyed by layer alone still works here, which is
+    what the offline harnesses hand in.
+    """
+    for region in (regions or []):
+        region.category = hatch_category(mapping, region.layer_key,
+                                         getattr(region, "pattern", None))
+    return regions
+
+
 def classify_layer(layer_name, overrides=None):
     """Return a category for one layer.
 

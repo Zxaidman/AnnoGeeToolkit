@@ -11,7 +11,7 @@ module snapshots every named control in the window instead:
                   "cb_floor_type": "Generic 150mm"},
      "layers": {"S-COLS": "Column", ...},
      "texts":  {"S-TEXT": "Column mark", ...},
-     "hatches": {"S-FND-FOLD": "fold", ...},
+     "hatches": {"S-FND-FOLD": "fold", "HAT|ANGLE": "sunk", ...},
      "advanced": {"beam_heal_mm": 400.0, ...}}
 
 Two rules make the snapshot safe to reload into a DIFFERENT model:
@@ -32,12 +32,15 @@ import os
 
 # 2 added the OPTIONAL "advanced" section (module-constant overrides);
 # 3 added the OPTIONAL "hatches" section (the hatch layers' own mapping,
-# apart from geometry and text). The number is a statement of what a file may
-# carry, not a gate: every reader here takes what it recognises and ignores
-# the rest, so a schema-1 or -2 file loads unchanged (its hatch mapping
-# simply reads as empty) and a schema-3 file in old hands restores
-# everything but the sections it does not know.
-SCHEMA = 3
+# apart from geometry and text); 4 says a "hatches" KEY may now be a
+# (layer, pattern) one -- "HAT|ANGLE" -- where the drawing's legend gave one
+# layer several meanings and the table split it into a row per pattern. The
+# number is a statement of what a file may carry, not a gate: every reader
+# here takes what it recognises and ignores the rest, so a schema-1, -2 or
+# -3 file loads unchanged (an older hatch mapping is all plain layer keys,
+# which still restore the rows that were not split) and a schema-4 file in
+# old hands restores everything but the keys it has no row for.
+SCHEMA = 4
 
 # Controls the dialog OWNS: read-only text it computes, or a list whose contents
 # come from the drawing. Restoring these would either be a no-op or a lie.
@@ -110,8 +113,9 @@ def payload(controls, layers=None, texts=None, version="", advanced=None,
     `advanced` is the Advanced window's overrides ({key: number}); it rides
     the file so a settings file is the WHOLE run, not the whole run minus the
     values that bite hardest when they silently differ. `hatches` is the
-    hatch layers' own mapping ({hatch_layer: region meaning}) -- the third
-    table on the Layers tab, apart from geometry and text.
+    hatch layers' own mapping ({hatch row: region meaning}) -- the third
+    table on the Layers tab, apart from geometry and text, where a row is a
+    layer or the "<layer>|<PATTERN>" of a split one (see `hatch_mappings`).
     """
     return {"schema": SCHEMA,
             "version": version or "",
@@ -150,10 +154,15 @@ def advanced_overrides(data):
 
 
 def hatch_mappings(data):
-    """The saved hatch-layer mapping, or {} -- a file older than schema 3
+    """The saved hatch-row mapping, or {} -- a file older than schema 3
     has none and loads unchanged (its hatch table keeps the convention's
     guess). Kept OUT of `sections()` for the same reason the advanced
     section is: the three-tuple callers keep their shape.
+
+    A key is a hatch LAYER, or since schema 4 a "<layer>|<PATTERN>" row the
+    legend split. Both are plain strings and neither is parsed here: the
+    dialog matches a row against the key it wrote for that row, so a file
+    from either side of the split loads without a conversion step.
     """
     if not isinstance(data, dict):
         return {}
