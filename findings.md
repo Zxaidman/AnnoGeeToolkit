@@ -592,3 +592,35 @@ walls `recover_core_walls` still emits as thin columns move over — is the
 builder's call, recorded in task_plan.md under P3b. The only same-kind
 coincidences in the corpus are three drawn nibs (100..151 wide, 250..410
 long closed rings sitting on longer wall runs) — drawn geometry, kept.
+
+## 13. Where test14's sunk hatches actually sit (measured 2026-08-28)
+
+The owner reported that the legend's SUNK rows reach neither slab nor beam. Once
+the legend could be read at all (BUG-5, v0.78.0), the 282 sunk regions sort by
+SHAPE rather than by layer -- they are on one layer (`HAT`) and tell their depth
+by pattern:
+
+| Pattern | Depth | Sits on | Count | Narrow side (mm) |
+|---------|-------|---------|-------|------------------|
+| ANGLE   | -150  | a beam only | 102 | 100..1225, median 200 |
+| ANGLE   | -150  | a bay and its beams | 84 | 200..1665, median 1249 |
+| ANGLE   | -150  | neither | 12 | 100..500, median 100 |
+| ANSI37  | -75   | a bay and its beams | 60 | 149..1550, median 1375 |
+| HONEY   | -50   | a bay and its beams | 18 | 180..1022, median 1021 |
+| (each)  |       | neither, exactly 500 wide | 3 each | the legend SWATCHES |
+
+**144 of the 282 have a narrow side of 400 mm or less** -- beam-width strips, not
+bays. So the drawing carries both kinds the legend names: sunk BAYS (a slab
+region dropping, which the fold machinery already models) and sunk BEAMS (a strip
+following one member), and the count of each is large enough that neither can be
+treated as noise.
+
+The overlap test is bbox-against-bbox, so "a bay and its beams" is the coarse
+bucket -- a bay's box necessarily touches the beams that bound it. The narrow
+side is the sharp discriminator, and it is bimodal: a median of 200 mm for the
+beam-only group against 1021-1375 mm for the others.
+
+Two consequences already recorded elsewhere: the swatches must be excluded from
+any routing (they are hatches of the same pattern, sitting in the legend block --
+`_plan_layers` does this), and a layer-keyed mapping cannot carry three depths on
+one layer (BUG-6).
