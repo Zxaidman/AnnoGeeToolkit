@@ -6,6 +6,12 @@ cannot give: the member's intended size (and, for a beam, its DEPTH). This modul
 turns those strings into (name, b_mm, h_mm) and finds the nearest sized label to a
 member's centroid so column/beam sizing can be refined from the drawing's own text.
 
+The sheet's own BLANKET NOTE ("ALL BEAMS ARE 750MM IN DEPTH U.N.O.") is read here
+too, by `parse_blanket_note` / `sheet_defaults`. It is the other half of the same
+question: a label sizes the member it stands beside, the blanket note sizes every
+member no label reached. It is a DEFAULT and never an override -- "unless noted
+otherwise" says so in the drawing's own words.
+
 Revit-free and 2D (internal feet), so it is unit-testable outside Revit.
 """
 
@@ -88,6 +94,134 @@ def sized_texts(texts):
     """The subset of texts that carry a usable BxH size and an internal point."""
     return [t for t in texts
             if t.b_mm is not None and t.h_mm is not None and t.point_internal]
+
+
+# ------------------------------------------------------- the sheet's blanket note
+# "NOTE - 1) ALL BEAMS ARE 750MM IN DEPTH U.N.O." is not a label: it names no
+# member and sits nowhere near one. It is the sheet speaking about EVERY member
+# the plan did not size individually -- the DEFAULT, never an override. Four
+# drawings in the corpus carry one, and no two write it the same way:
+#
+#   test14  NOTE - 1) ALL BEAMS ARE 750MM IN DEPTH U.N.O.
+#           2) ALL SALB ARE 125MM  U.N.O.
+#   test12  NOTE:-1) ALL BEAMS 650 DEEP U.N.O.
+#   test9   * ALL BEAM SIZE SHALL BE 240x600 (U.N.O.)
+#           * ALL SLAB THICKNESS SHALL BE 150MM THK. (U.N.O.)
+#           *ALL SLAB SHALL BE 175MM THICK (UNLESS MENTIONED)
+#
+# So each CLAUSE is read on its own, one text record at a time. test14 writes
+# its two clauses as two separate records -- the second ("2) ALL SALB...") does
+# not repeat the word NOTE -- and nothing here needs them joined: the clause
+# carries its own subject and its own number. The word NOTE is never required.
+#
+# Two gates decide whether a string is a blanket note at all, and each was
+# written for a drawing that would otherwise be read wrong:
+#
+#   * the subject must be UNQUALIFIED -- "ALL" immediately followed by the
+#     element word. test12's "2) ALL INVETED BEAM FOR ELEVATION JALI ARE 800
+#     DEEP." names a SUBSET of the beams, so it sets no sheet default; test9's
+#     "ALL BKT SIZE ..." is brackets, not beams. Both fail this gate.
+#   * the clause must carry an UNLESS marker (U.N.O. / UNO / "unless ..."),
+#     which is what makes it a default rather than a statement of fact. The
+#     inverted-beam clause carries none, and so fails this one too.
+#
+# "SALB" is the drawing's own misspelling of SLAB and is accepted as written:
+# the parser reads the sheet as drawn, not as it should have been drawn.
+_BLANKET_SUBJECT_RE = re.compile(r"\bALL\s+(BEAM|SLAB|SALB)S?\b", re.IGNORECASE)
+# "U.N.O." / "U.N.O" / "UNO" / "(U.N.O.)" / "UNLESS NOTED OTHERWISE" /
+# "(UNLESS MENTIONED)". The trailing \b keeps "UNOCCUPIED" out.
+_BLANKET_UNO_RE = re.compile(r"\bU\.?N\.?O\.?\b|\bUNLESS\b", re.IGNORECASE)
+# the figure, read from what follows the subject -- which is what keeps the
+# CLAUSE NUMBER out of it ("1)" and "2)" always sit BEFORE the word ALL)
+_BLANKET_NUM_RE = re.compile(r"(\d{2,4})")
+
+# A blanket figure below this is not a structural member (the thinnest slab in
+# the corpus is 125), and one above it is a storey, not a member -- the same
+# line max_step_mm draws between a step and a level. A number outside the band
+# is something else the clause happened to mention, so the clause sets nothing.
+_BLANKET_MIN_MM = 50.0
+_BLANKET_MAX_MM = 3000.0
+
+BLANKET_KEYS = ("beam_depth_mm", "slab_thickness_mm")
+
+
+def parse_blanket_note(text):
+    """{"beam_depth_mm": 750.0} / {"slab_thickness_mm": 125.0} / {} for ONE clause.
+
+    A beam clause yields its DEPTH only. Where the sheet writes a whole section
+    ("ALL BEAM SIZE SHALL BE 240x600") the width is dropped on purpose: a plan
+    MEASURES a beam's width from the pair of drawn edges, so the drawing already
+    knows it, and a blanket width would overwrite a measurement with an
+    assumption. Depth is the one dimension a 2D plan cannot give, which is the
+    whole reason the sheet writes the note.
+    """
+    flat = _blanket_text(text)
+    if not flat or not _BLANKET_UNO_RE.search(flat):
+        return {}
+    subject = _BLANKET_SUBJECT_RE.search(flat)
+    if not subject:
+        return {}
+    beams = subject.group(1).upper() == "BEAM"
+    rest = flat[subject.end():]
+    value = None
+    if beams:
+        size = _SIZE_RE.search(rest)
+        if size:
+            try:
+                # "240x600" -- depth is the LARGER, exactly as a beam label is
+                # read (_apply_beam_marks: width = smaller, depth = larger)
+                value = max(float(size.group(1)), float(size.group(2)))
+            except (ValueError, TypeError):
+                value = None
+    if value is None:
+        number = _BLANKET_NUM_RE.search(rest)
+        if not number:
+            return {}
+        value = float(number.group(1))
+    if not (_BLANKET_MIN_MM <= value <= _BLANKET_MAX_MM):
+        return {}
+    return {"beam_depth_mm" if beams else "slab_thickness_mm": value}
+
+
+def sheet_defaults(texts):
+    """What the sheet's blanket notes say, as {beam_depth_mm, slab_thickness_mm,
+    conflicts}. Either figure is None when the sheet did not settle it.
+
+    CONFLICTS ARE REFUSED, NOT RESOLVED. A sheet holding several plans can carry
+    several notes, and they need not agree: test12 says 650 DEEP on twelve of
+    its fifteen note blocks and 600 DEEP on the other three, and test9's three
+    towers say 150 THK and 175 THICK. There is no way to tell from the text
+    which beam belongs to which note, and a majority vote on a structural depth
+    is exactly the kind of silent guess that puts a wrong member in the model --
+    so a kind whose notes disagree yields None and the disagreement is listed in
+    `conflicts` for the caller to say out loud. The user can still settle it by
+    typing a figure into the dialog.
+
+    `conflicts` is [(key, [values...]), ...], sorted, so the message can name
+    every figure the sheet offered.
+    """
+    seen = dict((key, set()) for key in BLANKET_KEYS)
+    for record in (texts or []):
+        for key, value in parse_blanket_note(record).items():
+            seen[key].add(value)
+    found = {"conflicts": []}
+    for key in BLANKET_KEYS:
+        values = sorted(seen[key])
+        found[key] = values[0] if len(values) == 1 else None
+        if len(values) > 1:
+            found["conflicts"].append((key, values))
+    return found
+
+
+def _blanket_text(record):
+    """The string of a note, whether it arrives as a TextRecord or as plain text.
+
+    The pushbutton and the harnesses hand over TextRecords; the unit tests pin
+    the drawings' own strings, and reading those directly keeps the pin honest.
+    """
+    if isinstance(record, str):
+        return record.replace("\n", " ")
+    return (getattr(record, "text", "") or "").replace("\n", " ")
 
 
 def parse_schedule(texts, allow_split=True):

@@ -136,7 +136,7 @@ try:
     from anongee_toolkit.cad2bim.run_builders import (   # noqa: F401
         _create_grids, _create_columns, _create_beams, _create_footings,
         _create_slabs, _create_stairs, _create_walls, _apply_materials,
-        _colour_open_views, _strip_ids)
+        _colour_open_views, _strip_ids, blanket_mm)
     # builders.walls is new with v0.76.0, so it rides the guard: a stale
     # library reports through _library_mismatch instead of raw-tracebacking
     # on the module-level import below
@@ -146,14 +146,17 @@ try:
                                                    LinkOptionsDialog)
     from anongee_toolkit.cad2bim.ui_dialogs import _alert, _error, _save_json
     from anongee_toolkit.cad2bim.run_console import (      # noqa: F401
-        _OUT, _say, _progress, _open_progress, _close_progress, _storey_span,
-        _READ_STEPS, _BUILD_STEPS)
+        _OUT, _say, _say_error, _progress, _open_progress, _close_progress,
+        _storey_span, _READ_STEPS, _BUILD_STEPS)
 except ImportError as import_error:
     _MISSING_MODULE = str(import_error)
 
     # Fallbacks, so the run can still SAY what went wrong: every one of these
     # names is used before -- and by -- the mismatch report itself.
     def _say(message=""):
+        print(message)
+
+    def _say_error(message=""):
         print(message)
 
     def _alert(title, message):
@@ -201,6 +204,7 @@ if _MISSING_MODULE is None:
 # a build with "module has no attribute" (0.67.1, mid multi-storey run).
 _REQUIRED = ((naming, ("level_name", "next_level_names", "ordinal")),
              (report, ("recover_face_columns", "build_beam_segments")),
+             (marks, ("sheet_defaults",)),
              (slab_outlines, ("loops_for_unclaimed_notes",)),
              (settings, ("payload", "restorable")),
              (materials, ("apply", "apply_grade")))
@@ -516,6 +520,29 @@ def main():
     for note in storey_detection.notes:
         _say("  storey: {0}".format(note))
 
+    # The sheet's own blanket note ("ALL BEAMS ARE 750MM IN DEPTH U.N.O.") sets
+    # the default for every member the plan did not size. Read from the WHOLE
+    # drawing's text, before any routing: a general note sits on a general-notes
+    # layer, which is routed to nothing, so reading it out of the routed beam or
+    # slab labels would find it in the offline harnesses and never here. Read
+    # once for the sheet -- it is a sheet fact, not a per-storey one -- and
+    # handed to the dialog as a PROPOSAL the user can overrule or refuse.
+    blanket_note = marks.sheet_defaults(dxf_result.texts)
+    for key, value in (("beam_depth_mm", "beam depth"),
+                       ("slab_thickness_mm", "slab thickness")):
+        if blanket_note[key] is not None:
+            _say("sheet note: {0} {1:g}mm unless noted otherwise".format(
+                value, blanket_note[key]))
+    for key, values in blanket_note["conflicts"]:
+        # two sources disagreeing is refused out loud, never averaged or voted
+        # on: nothing in the text says which member each note was written for
+        _say_error("sheet note: this drawing's {0} notes disagree ({1}) -- "
+                   "no blanket default is applied; set one on Build > "
+                   "Structure to settle it".format(
+                       "beam depth" if key == "beam_depth_mm"
+                       else "slab thickness",
+                       ", ".join("{0:g}mm".format(v) for v in values)))
+
     # The dialog can hand the view back so the user DRAWS the stair outlines:
     # it closes, the outlines are picked in the model, and it reopens with every
     # setting restored. Anything else falls straight through to the build.
@@ -543,7 +570,8 @@ def main():
                                 hatch_categories=list(
                                     layers.HATCH_CATEGORIES),
                                 default_hatch_mapping=default_hatch_mapping,
-                                hatch_notes=legend_notes)
+                                hatch_notes=legend_notes,
+                                blanket_note=blanket_note)
         window.show()
         if not window.result:
             return   # cancelled -- nothing was flushed, console stays closed
@@ -832,14 +860,23 @@ def _build_one_storey(doc, revit_result, texts, selections, schedule_source=None
     # beam is sized from its label -- an inline "B1 300x600" OR a mark-only "B1" via the
     # schedule. Pass beam labels + the schedule so each segment gets its width/depth + mark.
     _progress(2, _BUILD_STEPS, "build beams")
-    beam_segments = report.build_beam_segments(revit_result.records,
-                                               sections.get("circles"),
-                                               limits, standards,
-                                               texts=beam_texts, tolerances=tolerances,
-                                               schedule=schedule)
+    # The blanket depth rides in as a NUMBER, not as text to search: `beam_texts`
+    # is the routed beam-label subset and the sheet's general note is not in it,
+    # so leaving the planner to find the note would quietly find nothing here.
+    beam_segments = report.build_beam_segments(
+        revit_result.records, sections.get("circles"), limits, standards,
+        texts=beam_texts, tolerances=tolerances, schedule=schedule,
+        blanket_depth_mm=blanket_mm(selections, "blanket_beam_depth_mm"))
     sized_beams = beam_segments["status_counts"].get("text_sized", 0)
     if sized_beams:
         _say("beams: sized {0} segment(s) from labels (width + depth)".format(sized_beams))
+    # ...and the ones no label reached, which took the sheet's word instead.
+    # Said out loud: a depth applied silently is a depth nobody can check.
+    blanket_beams = beam_segments["status_counts"].get("blanket_depth", 0)
+    if blanket_beams:
+        _say("beams: {0} unlabelled segment(s) took the sheet's blanket depth "
+             "of {1:g}mm".format(blanket_beams,
+                                 beam_segments["blanket_depth_mm"]))
 
     # Grid-line axis positions (internal feet) -> snap text-corrected column
     # centres onto the grid (columns sit on grid intersections).

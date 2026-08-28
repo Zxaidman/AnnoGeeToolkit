@@ -889,6 +889,129 @@ class TheWallsReachTheBuilder(unittest.TestCase):
         self.assertIn("naming.arch_wall_type_name(", source)
 
 
+class TheBlanketNoteReachesTheBuilders(unittest.TestCase):
+    """The sheet's "ALL BEAMS ARE 750MM IN DEPTH U.N.O." wiring, pinned as text.
+
+    The parser and both planners are unit-tested offline (test_blanket_notes)
+    and the sweep counts what they size, but the wiring between them is
+    Revit-side and every link in it fails QUIETLY:
+
+      * read the note out of the ROUTED beam labels instead of the whole
+        sheet, and it is found in every offline harness and never once in
+        Revit -- a general note sits on a general-notes layer, which is routed
+        to nothing;
+      * drop `blanket_depth_mm` / `blanket_thickness_mm` at a call and the
+        dialog's box and tick become decoration while the planners quietly
+        keep reading the sheet;
+      * drop the two report lines and hundreds of members take a depth nobody
+        was told about -- the same class of silent wrong answer as the
+        invented pads in v0.68.1.
+    """
+
+    def _function(self, source, name):
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.FunctionDef) and node.name == name:
+                return node
+        self.fail("no %s" % name)
+
+    def _call(self, node, name):
+        """The call to `name` (plain or dotted) inside `node`."""
+        for inner in ast.walk(node):
+            if not isinstance(inner, ast.Call):
+                continue
+            func = inner.func
+            called = (func.id if isinstance(func, ast.Name)
+                      else getattr(func, "attr", None))
+            if called == name:
+                return inner
+        return None
+
+    def test_the_controls_live_with_the_beams_and_slabs_they_govern(self):
+        homes = _tab_homes()
+        for control in ("chk_blanket_note", "tb_blanket_beam_depth",
+                        "tb_blanket_slab_thk", "lbl_blanket_note"):
+            self.assertEqual(homes.get(control), "Build > Structure",
+                             "%s sits on %r" % (control, homes.get(control)))
+
+    def test_the_window_binds_all_four_and_emits_the_three_keys(self):
+        window = _window_source()
+        for control in ("chk_blanket_note", "tb_blanket_beam_depth",
+                        "tb_blanket_slab_thk", "lbl_blanket_note"):
+            self.assertIn('find("%s")' % control, window,
+                          "%s is in the XAML but never bound" % control)
+        collect = window.split("def _collect(", 1)[1].split("\n    def ", 1)[0]
+        for key in ('"blanket_notes"', '"blanket_beam_depth_mm"',
+                    '"blanket_slab_thickness_mm"'):
+            self.assertIn(key, collect, "%s never leaves the dialog" % key)
+
+    def test_the_note_is_read_from_the_whole_sheet_before_any_routing(self):
+        # THE bug this pin exists for: beam_texts is the routed beam-label
+        # subset and the sheet's general note is not in it, so reading the
+        # note from there would find it in the sweep and never in Revit
+        script = _script_source()
+        self.assertIn("marks.sheet_defaults(dxf_result.texts)", script,
+                      "the blanket note is not read from the whole drawing")
+        self.assertIn("blanket_note=blanket_note", script,
+                      "the dialog is never shown what the sheet proposed")
+
+    def test_the_beam_pass_is_handed_the_figure_not_left_to_find_it(self):
+        call = self._call(self._function(_script_source(), "_build_one_storey"),
+                          "build_beam_segments")
+        self.assertIsNotNone(call, "_build_one_storey never builds beams")
+        self.assertIn("blanket_depth_mm", [k.arg for k in call.keywords],
+                      "build_beam_segments is called without the blanket "
+                      "depth: the dialog's box and tick reach nothing")
+
+    def test_the_slab_pass_is_handed_the_figure_too(self):
+        call = self._call(self._function(_builders_source(), "_create_slabs"),
+                          "apply_slab_labels")
+        self.assertIsNotNone(call, "the slab pass never labels its loops")
+        self.assertIn("blanket_thickness_mm", [k.arg for k in call.keywords],
+                      "apply_slab_labels is called without the blanket "
+                      "thickness")
+
+    def test_one_function_turns_the_tick_and_the_boxes_into_one_number(self):
+        # the dialog cannot send None, so the (tick, box) -> tri-state mapping
+        # has to live in ONE place both passes call, or the two kinds drift
+        self.assertIn("def blanket_mm(selections, key):", _builders_source())
+        self.assertIn('blanket_mm(selections,', _builders_source())
+        self.assertIn('"blanket_slab_thickness_mm")', _builders_source())
+        self.assertIn('blanket_mm(selections, "blanket_beam_depth_mm")',
+                      _script_source())
+
+    def test_both_counts_are_said_out_loud(self):
+        # a default applied silently is a default nobody can check
+        self.assertIn('.get("blanket_depth", 0)', _script_source())
+        self.assertIn("took the sheet's blanket depth", _script_source())
+        self.assertIn("took the sheet's blanket thickness", _builders_source())
+
+    def test_a_sheet_that_contradicts_itself_is_refused_in_red(self):
+        # two sources disagreeing is this project's loud-refusal case, and
+        # errors go through _say_error (the v0.69.3 convention)
+        script = _script_source()
+        self.assertIn('for key, values in blanket_note["conflicts"]:', script)
+        block = script.split('blanket_note["conflicts"]', 1)[1][:600]
+        self.assertIn("_say_error(", block,
+                      "a contradictory sheet is reported in the ordinary "
+                      "channel, not as the refusal it is")
+
+    def test_the_figures_come_from_this_drawing_not_from_the_last_run(self):
+        # restoring last week's 750 onto a sheet that says 600 would put a
+        # wrong depth on every unlabelled beam and say nothing -- so the two
+        # boxes join the storey-detection controls: saved, never restored.
+        # The TICK is a preference and restores normally.
+        with open(os.path.normpath(os.path.join(_HERE, "..", "settings.py")),
+                  "rb") as handle:
+            settings_source = handle.read().decode("utf-8")
+        block = settings_source.split("DETECTED_NAMES = frozenset(", 1)[1]
+        block = block.split("))", 1)[0]
+        for name in ("tb_blanket_beam_depth", "tb_blanket_slab_thk"):
+            self.assertIn(name, block,
+                          "%s would be restored from another drawing" % name)
+        self.assertNotIn("chk_blanket_note", block,
+                         "the tick is a preference, not a drawing fact")
+
+
 class StoreyTableIsSelectable(unittest.TestCase):
     """The storey stack has to be pickable, and visibly so.
 

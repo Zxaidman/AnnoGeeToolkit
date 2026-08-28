@@ -81,6 +81,28 @@ def _skip_details(messages):
     return out
 
 
+def blanket_mm(selections, key):
+    """The blanket-note figure the dialog settled on, in the planners' tri-state.
+
+    `build_beam_segments` and `apply_slab_labels` both read one number:
+
+        None  -- nobody settled it, so read the sheet's own U.N.O. note
+        > 0   -- this figure, whatever the sheet says (the user typed it, or
+                 the dialog seeded it from the sheet's proposal)
+        0     -- no blanket default at all (the tick is off)
+
+    The dialog cannot send None -- an empty box reads as 0 -- so an empty box
+    with the tick ON becomes None here, which hands the question back to the
+    sheet. That matters for the case the dialog leaves empty ON PURPOSE: a sheet
+    whose notes disagree seeds nothing, and the planners must then refuse it
+    again rather than inherit a stale figure from somewhere else.
+    """
+    selections = selections or {}
+    if not selections.get("blanket_notes", True):
+        return 0.0
+    return selections.get(key) or None
+
+
 def _create_grids(doc, records, grid_texts=None):
     """Create grids from classified grid lines, inside a transaction group.
 
@@ -518,8 +540,10 @@ def _create_slabs(doc, records, beam_segments, texts, selections, schedule=None,
     (2) faces of the PLACED beam edge lines with the placed column footprints
     trimming the corners (exact boundary, re-derived onto the carrier lines).
     Thickness and mark come from slab notes ("S1 150 THK", "150 THK.") lying
-    INSIDE the loop -- content-driven, any text layer. The floor type is the one
-    picked in the window, duplicated per thickness; the level is the beams' level.
+    INSIDE the loop -- content-driven, any text layer -- and, for a bay no note
+    reached, from the SHEET's blanket note ("ALL SALB ARE 125MM U.N.O."), which
+    the dialog settled before the run. The floor type is the one picked in the
+    window, duplicated per thickness; the level is the beams' level.
     """
     from Autodesk.Revit.DB import Transaction, TransactionGroup
     level_id = selections.get("top_level_id")
@@ -568,7 +592,14 @@ def _create_slabs(doc, records, beam_segments, texts, selections, schedule=None,
         return {"created": 0, "skipped": 0, "errors": 0, "source": source}
     slab_schedule = {m: v for m, v in (schedule or {}).items()
                      if str(m)[:1].upper() == "S" and str(m)[1:2].isdigit()}
-    slab_defs = slab_outlines.apply_slab_labels(loops, texts, schedule=slab_schedule)
+    # The sheet's blanket note fills the bays nothing else sized. `texts` here
+    # is the SLAB text routing, which falls back to every text in the drawing --
+    # so the note is reachable through it; the figure still comes from the
+    # dialog, which read it off the whole sheet before any routing narrowed it.
+    slab_defs = slab_outlines.apply_slab_labels(
+        loops, texts, schedule=slab_schedule,
+        blanket_thickness_mm=blanket_mm(selections,
+                                        "blanket_slab_thickness_mm"))
 
     group = TransactionGroup(doc, "CAD to BIM: Slabs")
     transaction = Transaction(doc, "Create slabs")
@@ -593,10 +624,17 @@ def _create_slabs(doc, records, beam_segments, texts, selections, schedule=None,
                 "source": source}
 
     sized = sum(1 for sd in slab_defs if sd.get("thickness_mm") is not None)
+    blanket = [sd for sd in slab_defs if sd.get("blanket")]
     _say("Slabs -- source: {0}, loops: {1}, thickness-noted: {2}, "
          "created: {3}, skipped: {4}, errors: {5}".format(
              source, len(slab_defs), sized, len(result["created"]),
              len(result["skipped"]), len(result["errors"])))
+    # A default the run applied SILENTLY is a default nobody can check: say how
+    # many bays took the sheet's word and what that word was.
+    if blanket:
+        _say("slabs: {0} of {1} bay(s) took the sheet's blanket thickness of "
+             "{2:g}mm (no note of their own)".format(
+                 len(blanket), len(slab_defs), blanket[0]["thickness_mm"]))
     for message in result["errors"]:
         _say_error("  slab: {0}".format(message))
     for message in result["skipped"] + result.get("notes", []):

@@ -57,6 +57,16 @@ DEFAULTS = {
     "stair_landing_mm": 0.0,      # landing depth along the runs; 0 = run width
     "stair_waist_mm": 200.0,      # waist (structural depth) of runs + landings
 
+    # --- the sheet's blanket note (Build > Structure) ------------------------
+    # "ALL BEAMS ARE 750MM IN DEPTH U.N.O." sets the DEFAULT for every member
+    # the plan did not size on its own. The figure belongs to the DRAWING, not
+    # to this file, so 0 here means "whatever this sheet's note says" -- the
+    # same 0-is-not-a-number convention stair_landing_mm uses. The dialog seeds
+    # its boxes with what the sheet proposed; typing a figure overrides the
+    # sheet, and unticking the box turns blanket notes off altogether.
+    "blanket_beam_depth_mm": 0.0,
+    "blanket_slab_thickness_mm": 0.0,
+
     # --- multi-storey (several floor plans in ONE dxf) ----------------------
     "storey_height_mm": 3000.0,   # level spacing when the model has no level yet
 

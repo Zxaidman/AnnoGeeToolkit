@@ -902,6 +902,35 @@
                         </StackPanel>
                         </GroupBox>
 
+                        <!-- The SHEET's own blanket note, above the two groups
+                             it feeds. It is one note governing beams and slabs
+                             together, so it gets one tick rather than a copy in
+                             each group; the figures are seeded from what this
+                             drawing proposed. -->
+                        <GroupBox Header="Sheet note (unless noted otherwise)" Margin="0,0,0,8">
+                        <StackPanel Orientation="Vertical">
+                        <CheckBox x:Name="chk_blanket_note" Content="Use the sheet's blanket note as the default size" IsChecked="True"/>
+                        <Grid Margin="24,4,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="140"/>
+                                <ColumnDefinition Width="70"/>
+                                <ColumnDefinition Width="140"/>
+                                <ColumnDefinition Width="70"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Beam depth" Style="{StaticResource TextLabel}" VerticalAlignment="Center"/>
+                            <TextBox   Grid.Row="0" Grid.Column="1" x:Name="tb_blanket_beam_depth" Style="{StaticResource InputTextBox}" Margin="0,2,8,2"/>
+                            <TextBlock Grid.Row="0" Grid.Column="2" Text="Slab thickness" Style="{StaticResource TextLabel}" VerticalAlignment="Center"/>
+                            <TextBox   Grid.Row="0" Grid.Column="3" x:Name="tb_blanket_slab_thk" Style="{StaticResource InputTextBox}" Margin="0,2"/>
+                        </Grid>
+                        <TextBlock x:Name="lbl_blanket_note" Text="-" Style="{StaticResource HelpText}" Margin="24,4,0,0"/>
+                        <TextBlock Text="A drawing that writes &quot;ALL BEAMS ARE 750MM IN DEPTH U.N.O.&quot; is giving a DEFAULT, not an instruction: a beam or bay the plan sized on its own keeps that size, and only one the plan left silent takes the figure here. The boxes arrive filled with what this sheet's own notes say -- type over them to overrule the sheet, leave a box empty to let the sheet speak, or untick above to ignore blanket notes entirely. Where a sheet carries notes that DISAGREE (several plans, several notes) nothing is applied and the line above names every figure it offered, because there is no way to tell from the text which member each note meant."
+                                   Style="{StaticResource HelpText}" Margin="24,4,0,0"/>
+                        </StackPanel>
+                        </GroupBox>
+
                         <GroupBox Header="Beams" Margin="0,0,0,8">
                         <StackPanel Orientation="Vertical">
                         <CheckBox x:Name="chk_beams" Content="Create beams (from beam outlines)" IsChecked="True"/>
@@ -916,7 +945,7 @@
                             </Grid.RowDefinitions>
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="Beam family" Style="{StaticResource TextLabel}" VerticalAlignment="Center"/>
                             <ComboBox  Grid.Row="0" Grid.Column="1" x:Name="cb_beam_family" Style="{StaticResource InputComboBox}" Margin="0,2"/>
-                            <TextBlock Grid.Row="1" Grid.Column="1" Text="Placed at the columns' top level. Depth from text marks where found, else from the chosen type."
+                            <TextBlock Grid.Row="1" Grid.Column="1" Text="Placed at the columns' top level. Depth from text marks where found, then from the sheet note above, else from the chosen type."
                                        Style="{StaticResource HelpText}" Margin="0,4,0,0"/>
                         </Grid>
                         </StackPanel>
@@ -936,7 +965,7 @@
                             </Grid.RowDefinitions>
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="Floor type" Style="{StaticResource TextLabel}" VerticalAlignment="Center"/>
                             <ComboBox  Grid.Row="0" Grid.Column="1" x:Name="cb_floor_type" Style="{StaticResource InputComboBox}" Margin="0,2"/>
-                            <TextBlock Grid.Row="1" Grid.Column="1" Text="Outline from the slab-edge layer, else from closed beam bays. Thickness from THK notes duplicates the type; placed at the top level."
+                            <TextBlock Grid.Row="1" Grid.Column="1" Text="Outline from the slab-edge layer, else from closed beam bays. Thickness from THK notes, then from the sheet note above, duplicates the type; placed at the top level."
                                        Style="{StaticResource HelpText}" Margin="0,4,0,0"/>
                         </Grid>
                         </StackPanel>

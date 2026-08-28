@@ -56,8 +56,15 @@ SKIP_PREFIXES = ("lbl_", "btn_")
 # storey layers and decides whether the CAD is multi-storey at all, so a saved
 # tick from a different plan must not talk over it. Saved, so the file is a full
 # record; simply not restored.
+#
+# The two blanket-note figures belong here for the same reason and it bites
+# harder: they are read off the sheet's own "ALL BEAMS ARE 750MM IN DEPTH
+# U.N.O." note, so restoring last week's 750 onto a drawing that says 600 would
+# put a wrong depth on every unlabelled beam in the model and say nothing about
+# it. The TICK is a preference, not a drawing fact, and restores normally.
 DETECTED_NAMES = frozenset(("chk_multistorey", "cb_boundary_layer",
-                            "cb_origin_layer"))
+                            "cb_origin_layer",
+                            "tb_blanket_beam_depth", "tb_blanket_slab_thk"))
 
 
 def saveable(name):

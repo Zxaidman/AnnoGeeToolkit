@@ -43,6 +43,39 @@ class WhatGetsSaved(unittest.TestCase):
             self.assertTrue(settings.saveable(name), name)
             self.assertFalse(settings.restorable(name), name)
 
+    def test_the_blanket_note_figures_are_saved_but_never_restored(self):
+        # they are read off THIS sheet's "ALL BEAMS ARE 750MM IN DEPTH U.N.O."
+        # note, so putting last week's 750 back on a drawing that says 600
+        # would give every unlabelled beam a wrong depth and say nothing --
+        # exactly what DETECTED_NAMES exists to stop
+        for name in ("tb_blanket_beam_depth", "tb_blanket_slab_thk"):
+            self.assertTrue(settings.saveable(name), name)
+            self.assertFalse(settings.restorable(name), name)
+
+    def test_the_blanket_note_tick_is_a_preference_and_comes_back(self):
+        # whether to honour blanket notes AT ALL is the user's habit, not a
+        # fact about the drawing in front of them
+        self.assertTrue(settings.saveable("chk_blanket_note"))
+        self.assertTrue(settings.restorable("chk_blanket_note"))
+
+    def test_the_blanket_note_preview_is_never_captured(self):
+        # lbl_* is what the dialog computed from the drawing; restoring it
+        # would put another sheet's words on this one
+        self.assertFalse(settings.saveable("lbl_blanket_note"))
+
+    def test_a_settings_file_carries_the_blanket_figures_as_a_record(self):
+        # saved but not restored: the file is still a COMPLETE record of the
+        # run, which is what makes it worth reading back after a bad build
+        data = settings.payload({"tb_blanket_beam_depth": "750",
+                                 "tb_blanket_slab_thk": "125",
+                                 "chk_blanket_note": True},
+                                version="0.0.0")
+        reloaded = json.loads(json.dumps(data))
+        controls, _layers, _texts = settings.sections(reloaded)
+        self.assertEqual(controls["tb_blanket_beam_depth"], "750")
+        self.assertEqual(controls["tb_blanket_slab_thk"], "125")
+        self.assertIs(controls["chk_blanket_note"], True)
+
     def test_a_missing_name_is_neither(self):
         self.assertFalse(settings.saveable(""))
         self.assertFalse(settings.saveable(None))

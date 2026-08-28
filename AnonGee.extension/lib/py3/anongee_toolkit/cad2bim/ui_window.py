@@ -298,7 +298,7 @@ class CadToBimWindow(object):
                  saved_settings=None, layer_notes=None,
                  hatch_layer_rows=None, hatch_categories=None,
                  default_hatch_mapping=None, hatch_notes=None,
-                 wall_type_options=None):
+                 wall_type_options=None, blanket_note=None):
         self.result = None
         self._combos = []
         self._text_combos = []
@@ -357,6 +357,15 @@ class CadToBimWindow(object):
         self.chk_slabs = find("chk_slabs")
         self.chk_stairs = find("chk_stairs")
         self.chk_export = find("chk_export")
+        # The sheet's blanket note ("ALL BEAMS ARE 750MM IN DEPTH U.N.O."),
+        # already read off this drawing's text by the pushbutton. The boxes are
+        # a PROPOSAL the user can overrule, the way the legend proposes a hatch
+        # mapping rather than applying one.
+        self.chk_blanket_note = find("chk_blanket_note")
+        self.tb_blanket_beam_depth = find("tb_blanket_beam_depth")
+        self.tb_blanket_slab_thk = find("tb_blanket_slab_thk")
+        self.lbl_blanket_note = find("lbl_blanket_note")
+        self._show_blanket_note(blanket_note)
         self.tb_stair_count = find("tb_stair_count")
         self.tb_stair_waist = find("tb_stair_waist")
         self.cb_stair_source = find("cb_stair_source")
@@ -804,6 +813,40 @@ class CadToBimWindow(object):
                                                        d["stair_arrival_merge_mm"]),
         }
 
+    def _show_blanket_note(self, blanket_note):
+        """Seed the blanket-note boxes and preview from what THIS sheet said.
+
+        `blanket_note` is `marks.sheet_defaults` run over the whole drawing:
+        {"beam_depth_mm": .., "slab_thickness_mm": .., "conflicts": [...]}. A
+        figure the sheet settled fills its box, so the user sees the proposal
+        before it is used and can type over it. A figure the sheet did NOT
+        settle -- no note, or notes that disagree -- leaves its box empty, and
+        an empty box applies no blanket default at all. That is the whole
+        refusal made visible: on a sheet whose notes disagree the preview names
+        every figure it offered and nothing is applied until the user picks one.
+        """
+        found = blanket_note or {}
+        depth = found.get("beam_depth_mm")
+        thickness = found.get("slab_thickness_mm")
+        self.tb_blanket_beam_depth.Text = ("" if depth is None
+                                           else "{0:g}".format(depth))
+        self.tb_blanket_slab_thk.Text = ("" if thickness is None
+                                         else "{0:g}".format(thickness))
+        said = []
+        if depth is not None:
+            said.append("beams {0:g}mm deep".format(depth))
+        if thickness is not None:
+            said.append("slabs {0:g}mm thick".format(thickness))
+        lines = ["this sheet says: " + ", ".join(said)] if said else []
+        for key, values in found.get("conflicts") or []:
+            lines.append(
+                "this sheet's {0} notes DISAGREE ({1}) -- none of them is "
+                "applied; type the one you want".format(
+                    "beam depth" if key == "beam_depth_mm" else "slab thickness",
+                    ", ".join("{0:g}mm".format(value) for value in values)))
+        self.lbl_blanket_note.Text = "\n".join(
+            lines or ["this sheet carries no blanket note."])
+
     def _storey_mm(self):
         """Top minus base level elevation in mm, or None before both are picked."""
         base = self._level_elevations.get(self.cb_base_level.SelectedItem)
@@ -982,6 +1025,16 @@ class CadToBimWindow(object):
                 self.cb_struct_wall_type.SelectedItem),
             "arch_wall_type_id": self._wall_ids.get(
                 self.cb_arch_wall_type.SelectedItem),
+            # the sheet's blanket note: the tick is the off switch, and each
+            # box is 0 ("the sheet did not settle this, so apply nothing")
+            # until either the drawing's own proposal or the user fills it
+            "blanket_notes": bool(self.chk_blanket_note.IsChecked),
+            "blanket_beam_depth_mm": self._read_float(
+                self.tb_blanket_beam_depth,
+                config.DEFAULTS["blanket_beam_depth_mm"]),
+            "blanket_slab_thickness_mm": self._read_float(
+                self.tb_blanket_slab_thk,
+                config.DEFAULTS["blanket_slab_thickness_mm"]),
             "create_footings": bool(self.chk_footings.IsChecked),
             "footing_symbol_id": self._footing_ids.get(
                 self.cb_footing_family.SelectedItem),

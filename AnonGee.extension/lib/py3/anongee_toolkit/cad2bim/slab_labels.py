@@ -4,8 +4,10 @@
 An outline is geometry; a slab is geometry plus a thickness. Both come from the
 same place columns and beams get their sizes: a note sitting inside the loop.
 "S1 150 THK", "150 THK.", or a bare mark "S3" whose thickness the schedule
-carries. A loop with no note keeps thickness None and the builder falls back to
-the floor type the user picked.
+carries. Failing all three, the SHEET's blanket note ("ALL SALB ARE 125MM
+U.N.O.") sets the default for every bay the plan left silent. A loop that not
+even the sheet reaches keeps thickness None and the builder falls back to the
+floor type the user picked.
 
 `loops_for_unclaimed_notes` is the other direction, and it earns its keep on
 test10's roof: a note with no outline under it means a bay whose slab edge was
@@ -17,6 +19,7 @@ import re
 
 from . import config
 from . import slab_outlines
+from .classify import marks
 from .slab_graph import _centroid, _point_in_ring, _signed_area
 
 _MM = config.MM_PER_FT
@@ -111,14 +114,28 @@ def _overlaps_any(ring, loops):
     return False
 
 
-def apply_slab_labels(loops, texts, schedule=None):
-    """[{ring, z, mark, thickness_mm}] -- name/size each loop like columns/beams.
+def apply_slab_labels(loops, texts, schedule=None, blanket_thickness_mm=None):
+    """[{ring, z, mark, thickness_mm, blanket}] -- name/size each loop like columns/beams.
 
     A label INSIDE the loop wins (nearest to the loop centroid when several);
-    a mark-only label resolves thickness via schedule[mark]. Unlabelled loops
-    keep thickness None (builder falls back to the picked floor type).
+    a mark-only label resolves thickness via schedule[mark]. A loop neither
+    reached takes the sheet's blanket note ("ALL SALB ARE 125MM U.N.O."), and
+    `blanket` records that that is where its thickness came from. A loop with no
+    thickness from any of the three keeps None and the builder falls back to the
+    picked floor type, exactly as before.
+
+    `blanket_thickness_mm` carries the same three states the beam pass uses:
+
+        None  -- read the note out of `texts`
+        > 0   -- use this figure whatever the sheet says (the dialog's box)
+        0     -- no blanket default at all (the dialog's tick, off)
+
+    The note is applied LAST because "unless noted otherwise" makes it the
+    fallback by definition: a bay the plan sized keeps its own figure, and only
+    a bay the plan left silent takes the sheet's.
     """
     schedule = schedule or {}
+    blanket = _blanket_thickness(blanket_thickness_mm, texts)
     out = []
     for loop in loops:
         ring, z = loop[0], loop[1]
@@ -140,6 +157,23 @@ def apply_slab_labels(loops, texts, schedule=None):
         if thk is None and mark is not None and mark in schedule:
             entry = schedule[mark]
             thk = entry[0] if isinstance(entry, (tuple, list)) else entry
+        from_blanket = thk is None and bool(blanket)
+        if from_blanket:
+            thk = blanket
         out.append({"ring": ring, "z": z, "mark": mark, "thickness_mm": thk,
-                    "arcs": arcs})
+                    "arcs": arcs, "blanket": from_blanket})
     return out
+
+
+def _blanket_thickness(blanket_thickness_mm, texts):
+    """The blanket thickness to apply: the caller's figure, or the sheet's note.
+
+    None means "nobody has read the note yet, so read it here"; any number the
+    caller gives is final, INCLUDING 0, which is how the dialog turns it off. A
+    sheet whose slab notes disagree (test9 says both 150 THK and 175 THICK)
+    settles nothing, and refusing is the point -- that None becomes no blanket
+    thickness rather than a guess.
+    """
+    if blanket_thickness_mm is not None:
+        return float(blanket_thickness_mm) if blanket_thickness_mm > 0 else 0.0
+    return marks.sheet_defaults(texts)["slab_thickness_mm"] or 0.0
