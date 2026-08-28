@@ -92,6 +92,56 @@ for every other pre-P1 file.
 
 ## 2. Errors and bugs
 
+### BUG-4 — An L-shaped column is placed as a big tilted rectangle · `testing`
+
+**Fixed in v0.77.0, awaiting the owner's Revit run.** `parse_column_polyline` now closes the
+drafting noise before it believes a ring is angled: coordinates within `_AXIS_SNAP_MM = 1.0`
+collapse onto one value, the ring is simplified again, and only a ring still not rectilinear gets
+the oriented box. The tolerance sits inside a measured empty band — corpus-wide, 620 column rings
+drift under 1 mm, **nothing at all lies between 1 and 2 mm**, and genuinely angled columns start at
+2 mm and run to metres. Measured after the fix: test14's `oriented_rect` **51 → 0** (21 become
+composite L/T shapes, 30 plain rectangles), test12 recovers **565** columns the same way, and
+Project1 (89) and test10 (165) are **untouched** — every angled column keeps its oriented box. The
+run reports how many rings it straightened (`axis_snapped`) rather than doing it silently.
+
+**How found:** the owner's v0.76.0 Revit run on test14, with the drawing beside it — the placed
+column is a rotated block where the drawing shows an L; six such cases on every level, and it
+repeats on all three levels.
+
+**Reproduced offline, and the mechanism is exact.** `shapes.parse_column_polyline` tests
+`is_rectilinear` at `_TOL = 1e-4 ft` (~0.03 mm). test14's column rings miss that by drafting noise
+— **51 rings fail the test and every one of them drifts by less than 1 mm** (9 under 0.1 mm, 42
+between 0.1 and 1 mm, worst 0.7 mm; e.g. an edge wandering 0.39 mm sideways over 1747 mm, 0.013°).
+Failing the test sends the ring down the non-rectilinear branch, which fits a **minimum-area**
+enclosing box — and for an L or T ring that box is both TILTED and vastly bigger than the column:
+`1166 x 3905` and `1084 x 3879` mm of solid concrete in the export, six per storey, exactly the
+count the owner reports.
+
+The four-corner rings (30 of the 51) come out nearly right, because a rectangle's min-area box is
+the rectangle; it is the 21 multi-corner rings (18 with ten corners, 3 with six) that are visibly
+wrong. **No genuinely rotated column exists in test14** — every failure is noise.
+
+**Fix direction:** snap coordinates onto shared axes before the rectilinear test, in the millimetre
+band the measurement leaves empty, then decompose as a composite. `_snapped` in `fold_plan` is the
+donor. Tolerance to be set from the corpus-wide drift measurement, not chosen.
+
+### BUG-5 — The legend reader is blind to test14's whole legend · `pending`
+
+**How found:** measuring the owner's report that the legend's SUNK rows do not reach Revit.
+**Reproduced:** `legend.read()` returns **0 entries** on test14. `_LEGEND_TEXT` requires the words
+`HATCH INDICATE`; test14's rows read `INDICATES SLAB/BEAM SUNK BY 75MM.` — no HATCH, and the verb
+carries an S. Nothing is read, so nothing can be proposed, so no hatch region is ever routed.
+
+Everything else about that legend is machine-readable, measured: eight rows, every text exactly
+**751 mm** from its swatch, every swatch **1050 x 500**, and each meaning carried by a distinct
+pattern — SUNK 75 → `ANSI37` (63 plan hatches), SUNK 150 → `ANGLE` (198), SUNK 50 → `HONEY` (21),
+SLAB AT BEAM BOTTOM → `GOST_GLASS` (75), 150 RC PARDI → `AR-HBONE` (135), 100 RC PARDI → `EARTH`
+(51), 200 RC PARDI → `TRIANG` (12), floating column → `FC/SOLID` (27).
+
+**Care needed:** the prefix rule exists to reject test9's `*A- INDICATE 20mm CAMBER TO BE PROVIDED
+IN BEAM`, which is not a legend row. Loosening it must keep that rejection — the swatch pairing is
+the stronger test and should carry the weight.
+
 ### BUG-1 — Placed footings' Width/Length: fixed, unconfirmed · `testing`
 
 **How found:** the owner compared a placed footing against a hand-sketched twin — the placed one

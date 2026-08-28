@@ -216,6 +216,12 @@ def build_column_sections(records, limits=None, standards=None, texts=None,
                 fragments.append(record.points)
             continue   # whole shape was a circle-drawing artifact
         status_counts[result["status"]] += 1
+        if result.get("axis_snapped"):
+            # The ring only became rectilinear after its drafting noise was
+            # closed. It is a real composite column, not an approximation -- but
+            # the run says how many it had to straighten rather than doing it
+            # silently, because a count that jumps is how a wrong tolerance shows.
+            status_counts["axis_snapped"] += 1
         total_rectangles += len(kept)
         leg_rectangles.extend(kept)
         entries.append({

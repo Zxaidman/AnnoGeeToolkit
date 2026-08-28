@@ -805,6 +805,44 @@ def is_rectilinear(ring):
     return True
 
 
+# A ring that MEANT to be rectilinear can miss it by drafting noise: an edge
+# wandering a fraction of a millimetre sideways over a metre or two. Measured
+# across the corpus, every column ring that fails is_rectilinear falls in one of
+# two populations with nothing whatever between them:
+#
+#     620 rings   drift under 1 mm      test12 565, test14 51, test9 4
+#       0 rings   drift 1 mm to 2 mm    <- empty
+#     240 rings   drift 2 mm upward     genuinely angled columns, out to metres
+#
+# So a snap radius inside that empty band recovers every noisy ring and cannot
+# reach a real one. It matters because the non-rectilinear branch fits a
+# MINIMUM-AREA box, and for an L or T ring that box is tilted and far bigger
+# than the column -- test14 placed six 1166x3905 blocks per storey where the
+# drawing has L-shaped columns of 300 mm legs.
+_AXIS_SNAP_MM = 1.0
+_AXIS_SNAP_FT = _AXIS_SNAP_MM / 304.8
+
+
+def _axis_snapped(ring):
+    """The ring with near-equal x's (and y's) collapsed onto one value each.
+
+    Returns None when nothing moved, so the caller can tell a snap apart from a
+    ring that was already exact.
+    """
+    def clusters(values):
+        mapping, anchor = {}, None
+        for value in sorted(set(values)):
+            if anchor is None or value - anchor > _AXIS_SNAP_FT:
+                anchor = value
+            mapping[value] = anchor
+        return mapping
+
+    snap_x = clusters(p[0] for p in ring)
+    snap_y = clusters(p[1] for p in ring)
+    moved = [(snap_x[p[0]], snap_y[p[1]]) for p in ring]
+    return None if moved == [(p[0], p[1]) for p in ring] else moved
+
+
 def decompose_to_rectangles(ring, z=0.0):
     """Partition a rectilinear ring into axis-aligned Rectangles (exact cover).
 
@@ -868,6 +906,19 @@ def parse_column_polyline(points):
     if len(ring) < 3:
         return {"status": "degenerate", "rectangles": []}
 
+    snapped = False
+    if not is_rectilinear(ring):
+        # Before believing a ring is angled, close the drafting noise: coordinates
+        # within _AXIS_SNAP_MM collapse onto one value, which straightens an edge
+        # that wandered a fraction of a millimetre and leaves a real angle alone
+        # (see the measurement beside _AXIS_SNAP_MM). Snapping can make two corners
+        # coincide or three fall in line, so the ring is simplified again.
+        candidate = _axis_snapped(ring)
+        if candidate is not None:
+            candidate = simplify_ring(candidate)
+            if len(candidate) >= 4 and is_rectilinear(candidate):
+                ring, snapped = candidate, True
+
     if not is_rectilinear(ring):
         # Not axis-aligned: a rotated rectangular column, OR a genuinely irregular
         # profile (triangle / trapezoid / model-in-place footprint -- is_rectilinear
@@ -881,7 +932,8 @@ def parse_column_polyline(points):
 
     rects = decompose_to_rectangles(ring, z)
     status = "rectangle" if len(rects) <= 1 else "composite"
-    return {"status": status, "rectangles": rects, "approx": False}
+    return {"status": status, "rectangles": rects, "approx": False,
+            "axis_snapped": snapped}
 
 
 def bounding_rectangle(ring, z=0.0):
