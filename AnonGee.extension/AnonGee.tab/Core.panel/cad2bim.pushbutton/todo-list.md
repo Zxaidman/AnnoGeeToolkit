@@ -125,7 +125,25 @@ wrong. **No genuinely rotated column exists in test14** — every failure is noi
 band the measurement leaves empty, then decompose as a composite. `_snapped` in `fold_plan` is the
 donor. Tolerance to be set from the corpus-wide drift measurement, not chosen.
 
-### BUG-13 — A whole bay crossed by an X still gets a floor · `pending`
+### BUG-13 — A whole bay crossed by an X still gets a floor · `testing`
+
+**Fixed, awaiting the owner's Revit run.** `slab_stops.cutout_bays` asks the existing
+`slab_graph.crossed` of the BAY, and a crossed bay is withdrawn exactly as a staircase bay is —
+counted and named on its own console line, area included. Corpus-wide it withdraws **test14 6 bays
+/ 63.5 m², test12 21 / 121.3, test13 4 / 0.1**, and **no bay is both crossed and a staircase**
+anywhere in the corpus (the pass is handed the stair set anyway, so one that is would be withdrawn
+once and counted once, and the overlap named). test10's foundation numbers do not move —
+`foundation_planned` 9, `steps_planned` 7, `step_supports` 2, `foundation_profiles` 9,
+`foundation_cutouts` 2, all unchanged.
+
+**One thing the measurement forced, and it is the only new judgement here.** `cross_strokes` casts
+a deliberately wide net — any two-point record, whatever layer — because a COVER ring 0.03..0.23 m²
+across is not a shape two members happen to span. A BAY is exactly that shape: **test11 draws four
+2000x2500 bays with a pair of 3200 mm diagonals across each, on `ING-BEAM`** — diagonal BEAMS,
+which the run places as beams, and reading them as an X would delete **20.0 m² of real floor**.
+So the BAY reading, and only the bay reading, drops strokes drawn on a beam or column layer.
+Measured: that takes test11's four out and moves nothing else — test12 still 21, test13 4,
+test14 6, identical either way. The COVER-ring reading is untouched.
 
 **How found:** the owner's v0.83.0 run — "cutout are still not working in large portion while, smaller
 is working now". **Reproduced and measured, and the small/large split is exactly right:**
@@ -140,7 +158,48 @@ is working now". **Reproduced and measured, and the small/large split is exactly
 no concrete there*. It is applied to `COVER` rings only. A bay carrying the X is the same statement
 about a bigger piece, and should be withdrawn exactly as a staircase bay is.
 
-### BUG-14 — A hatch is shaping the slab, when it should only inform it · `pending`
+### BUG-14 — A hatch is shaping the slab, when it should only inform it · `testing`
+
+**Fixed by DELETING the pass that shaped it, awaiting the owner's Revit run.** The sunk slab pass
+no longer produces any geometry of its own: `fold_plan.sunk_bay_steps` asks which BAY each hatch
+covers and at what depth — `beam_drops`' twin, and deliberately the same shape of question — and
+the **bay's own ring**, already bounded by its beams, is the dropped slab. What came out with it:
+`_trimmed_drop` (the beam-bodies-as-holes trim), `_report_trims`, `plan_steps`' `beams` parameter
+and its `bodies` plumbing, and the `drops`/`trimmed` keys every step used to carry. `plan_steps` is
+now purely the FOUNDATION reading, where the drawing does draw its steps to size. The support
+arithmetic (`d > T_parent`, `offset = -T_parent`, `depth = d + T_dropped - T_parent`) is untouched
+and reached through the same `_parts`.
+
+**The threshold, set from the measured desert.** Asked as a share of the BAY, never of the hatch —
+the hatch's own area says nothing, since it overhangs by the beam half-widths. Measured exactly
+over every overlapping (sunk hatch, bay) pair in the corpus, 174 of them, all on test14:
+
+| cover of the bay | pairs | what it is |
+|---|---|---|
+| 0.0000 .. 0.0088 | 33 | the overhang grazing the bay next door |
+| 0.0809 .. 0.0894 | 3 | a corner of one |
+| 0.2179 | 6 | the 2.56 m² hatch in the 8.66 m² bay |
+| 0.4999 .. 0.5564 | 18 | a hatch over HALF a bay |
+| **nothing at all, 0.3377 wide** | | twice the next widest gap (0.2820) |
+| 0.8941 .. 1.0000 | 114 | the bay, as the drawing means it |
+
+`_BAY_SINK_COVER = 0.7` — the geometric mean of the desert's rims (0.7053), rounded the way
+`_SUNK_BAY_MIN_SIDE_MM` and `_BEAM_CLAIM_SHARE` were. **A hatch below the line sinks nothing and is
+reported by pattern**: 30 of test14's 129, in three grouped lines.
+
+**The two cases the owner asked about.** A hatch across SEVERAL bays sinks each of them — 15 of
+test14's do, drawn straight over the beam between two bays, and the beam itself drops on its own
+strip through `beam_drops`. Two hatches of DIFFERENT depths over one bay is refused loudly and
+never averaged or maxed: the drawing is saying two things about one floor, so the bay is left flat
+and named. (A beam covered twice still takes the deeper — one member must sit somewhere; a bay does
+not have to.) The corpus has no conflict.
+
+**What moved on test14, and why.** 108 steps → 114 (the multi-bay hatches now claim both sides);
+84 supports → **0**, because what lies beyond a bay's edge is a BEAM, not another floor — the old
+84 came from probing outside the overhanging HATCH and finding the bay on the far side, so they
+were collars cast through the beams; `sunk_slab_defs` 498 → 321, one floor per bay exactly; dropped
+area 400.8 m². Where two bays genuinely abut, the support arithmetic still fires, and there is a
+test for it.
 
 **How found:** the owner, stating the principle — "slab boundary still go with hatch pattern and
 overlaps with beam, hatch pattern does should not change the slab geometry it should only carries

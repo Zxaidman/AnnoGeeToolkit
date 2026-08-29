@@ -173,12 +173,13 @@ def _slab_stops(slab_defs, records, texts, regions, sheet_texts, beam_segments,
                 selections, schedule):
     """(slab_defs, [step]) -- what the drawing says STOPS each bay, applied.
 
-    Three readings, all of them the drawing's own marks and all of them
+    Four readings, all of them the drawing's own marks and all of them
     invisible to a beam graph: a crossed-out ring on the slab-stop layer is a
-    HOLE, a bay a staircase stands in is NOT a floor, and a beam-bottom hatch
-    is a CHAJJA at its own level. `slab_outlines.apply_slab_stops` does the
-    work; this says what happened, grouped, before anything is placed -- a
-    hole nobody cut and a stair cast solid both look built and are wrong.
+    HOLE, a bay the X crosses out is NOT a floor either, a bay a staircase
+    stands in is NOT a floor, and a beam-bottom hatch is a CHAJJA at its own
+    level. `slab_outlines.apply_slab_stops` does the work; this says what
+    happened, grouped, before anything is placed -- a hole nobody cut and a
+    stair cast solid both look built and are wrong.
     """
     entries = legend.read(regions or [], sheet_texts or texts or [])
     defs, stopped = slab_outlines.apply_slab_stops(
@@ -193,6 +194,10 @@ def _slab_stops(slab_defs, records, texts, regions, sheet_texts, beam_segments,
              "{2} bay(s)".format(stopped["crossed"], stopped["holes"],
                                  stopped["holes"] - stopped["divided"]
                                  if stopped["divided"] else stopped["holes"]))
+    if stopped["cutout_bays"]:
+        _say("  stops: {0} crossed-out bay(s) withdrawn, {1:.1f} m2 of floor "
+             "the drawing marks absent".format(stopped["cutout_bays"],
+                                               stopped["cutout_bay_area_m2"]))
     if stopped["stair_bays"]:
         _say("  stops: {0} staircase bay(s) withdrawn, {1:.1f} m2 of floor the "
              "stair occupies".format(stopped["stair_bays"],
@@ -205,20 +210,18 @@ def _slab_stops(slab_defs, records, texts, regions, sheet_texts, beam_segments,
     return defs, stopped
 
 
-def _sunk_slab_steps(selections, regions, texts, slab_defs,
-                     beam_segments=None):
+def _sunk_slab_steps(selections, regions, texts, slab_defs):
     """(slab_defs with their steps built in, [step]) for the hatched sunk bays.
 
     The same three-floor arithmetic the footings use, against slab loops
-    instead of foundation outlines -- which is what `fold_plan.plan_steps`
-    docstring always claimed it could serve, and this is the pass that asks it
-    to. Depths come from the PATTERN, so the one routed layer's three sunk
-    values stay apart and the meaning on it that is no step at all is refused
-    by name.
+    instead of foundation outlines. Depths come from the PATTERN, so the one
+    routed layer's three sunk values stay apart and the meaning on it that is
+    no step at all is refused by name.
 
-    `beam_segments` are handed on so a dropped slab STOPS at the beam faces
-    the hatch was drawn across -- the sunk beam drops with the slab, it does
-    not get a floor cast over it.
+    A HATCH ONLY SAYS WHICH BAY AND HOW DEEP. The bay's own ring is the
+    dropped slab -- `fold_plan.sunk_bay_steps` -- so nothing here hands the
+    hatch's outline to Revit and no beam has to be cut back out of it
+    afterwards.
 
     Every refusal is said before anything is placed: a bay that stepped
     nowhere is a floor left flat, which the model shows as correct.
@@ -233,10 +236,9 @@ def _sunk_slab_steps(selections, regions, texts, slab_defs,
              "legend: no bay is stepped")
         return slab_defs, []
     split = fold_plan.sunk_split(regions, depths, swatch_ids)
-    steps = fold_plan.plan_steps(
-        slab_defs, split["bays"], depths=depths, skip_ids=swatch_ids,
-        max_step_mm=(selections.get("tolerances") or {}).get("max_step_mm"),
-        beams=beam_segments)
+    steps = fold_plan.sunk_bay_steps(
+        slab_defs, split["bays"],
+        max_step_mm=(selections.get("tolerances") or {}).get("max_step_mm"))
     stepped, cut = fold_plan.slab_defs_with_steps(slab_defs, steps["steps"])
     for message in split["skipped"] + steps["skipped"] + steps["notes"] + cut:
         _say("  sunk (slabs): {0}".format(message))
@@ -704,15 +706,16 @@ def _create_slabs(doc, records, beam_segments, texts, selections, schedule=None,
     `regions` are the storey's hatches and `sheet_texts` the whole sheet's own
     -- the legend lives outside any routed text layer, so the narrowed `texts`
     this pass reads slab notes from cannot be trusted to hold it. A hatched BAY
-    steps the slab it sits in: the parent is cut, a floor goes in at the
-    legend's depth, and the vertical face between the two soffits is filled
-    where -- and only where -- the drop is deeper than the parent is thick.
+    is sunk: the BAY's own ring drops to the legend's depth -- the hatch says
+    which bay and how deep and nothing about the shape -- and the vertical face
+    between the two soffits is filled where, and only where, the drop is deeper
+    than the parent is thick.
 
     A beam graph knows where a bay BEGINS and nothing about what stops it, so
     `_slab_stops` reads that off the drawing before the steps go in: the
     crossed-out rings on the slab-stop layer become holes, the bays a staircase
-    stands in are withdrawn, and the beam-bottom hatches come back as chajjas
-    at their own level.
+    stands in and the bays an X crosses out are withdrawn, and the beam-bottom
+    hatches come back as chajjas at their own level.
     """
     from Autodesk.Revit.DB import Transaction, TransactionGroup
     level_id = selections.get("top_level_id")
@@ -783,8 +786,7 @@ def _create_slabs(doc, records, beam_segments, texts, selections, schedule=None,
         slab_defs, records, texts, regions, sheet_texts,
         beam_segments.get("segments"), selections, slab_schedule)
     slab_defs, steps = _sunk_slab_steps(selections, regions,
-                                        sheet_texts or texts, slab_defs,
-                                        beam_segments.get("segments"))
+                                        sheet_texts or texts, slab_defs)
 
     group = TransactionGroup(doc, "CAD to BIM: Slabs")
     transaction = Transaction(doc, "Create slabs")
@@ -838,6 +840,8 @@ def _create_slabs(doc, records, beam_segments, texts, selections, schedule=None,
             "slab_cutout_holes": stopped["holes"],
             "stair_bays_withdrawn": stopped["stair_bays"],
             "stair_area_m2": stopped["stair_area_m2"],
+            "cutout_bays_withdrawn": stopped["cutout_bays"],
+            "cutout_bay_area_m2": stopped["cutout_bay_area_m2"],
             "chajjas": stopped["chajjas"],
             _IDS: result["created"],
             "error_details": [str(e)[:220] for e in result["errors"][:8]],

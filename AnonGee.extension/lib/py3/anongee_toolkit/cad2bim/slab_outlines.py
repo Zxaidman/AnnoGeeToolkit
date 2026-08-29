@@ -23,8 +23,9 @@ slab_loops_from_beam_graph (centreline graph, faces inset by half width).
 A bay is where the slab BEGINS; what stops it is a separate question, and one a
 beam graph cannot answer -- so `apply_slab_stops` asks it of the drawing after
 the loops are labelled: the crossed-out rings on the slab-stop layer become
-holes, the bays a staircase stands in are withdrawn, and the beam-bottom
-hatches come back as chajjas. All of that reading lives in slab_stops.py.
+holes, the bays a staircase stands in are withdrawn, the bays an X crosses out
+are withdrawn too, and the beam-bottom hatches come back as chajjas. All of
+that reading lives in slab_stops.py.
 
 Sizing and naming mirror columns/beams exactly:
     - a slab label ("S1 150 THK", "S3", "150 thk") sitting INSIDE a loop names it and
@@ -456,21 +457,27 @@ def apply_slab_stops(slab_defs, records, texts, regions=None,
     """(defs, report) -- the bays with what the drawing says STOPS them applied.
 
     `report` is {"notes", "crossed", "holes", "divided", "stair_bays",
-    "stair_area_m2", "chajjas"} -- the numbers the console line and the sweep
-    both read, so neither has to count the defs back.
+    "stair_area_m2", "cutout_bays", "cutout_bay_area_m2", "chajjas"} -- the
+    numbers the console line and the sweep both read, so neither has to count
+    the defs back.
 
-    Three subtractions and one addition, in the order they have to happen:
+    Four subtractions and one addition, in the order they have to happen:
 
       * the bays a STAIRCASE stands in are withdrawn (a stair and a flat floor
         in the same bay is the model the owner found);
+      * the bays an X CROSSES OUT are withdrawn too -- the same statement about
+        a bigger piece than a slab-stop ring, and on test14 the 63.5 m2 the
+        owner's "large portion" was;
       * every crossed-out slab-stop ring becomes a hole of the bay holding it,
         and a bay whose hole reaches its boundary is DIVIDED by
         `fold_plan.split_profile` -- on test14 all 60 hosted holes do reach it,
         so this is the normal case rather than the exception;
       * the chajjas are added, as their own floors at beam-bottom level.
 
-    Stairs first: a hole cut into a bay that is about to be withdrawn is work
-    thrown away, and worse, it would count in the report.
+    The two withdrawals first: a hole cut into a bay that is about to be
+    withdrawn is work thrown away, and worse, it would count in the report. The
+    crossed-bay pass is handed the stair set so a bay that is both is withdrawn
+    once and counted once.
 
     Every refusal comes back on `notes`, grouped -- see slab_stops.
     """
@@ -481,13 +488,16 @@ def apply_slab_stops(slab_defs, records, texts, regions=None,
 
     stairs = slab_stops.stair_bays(defs, records, texts)
     notes.extend(stairs["notes"])
+    voids = slab_stops.cutout_bays(defs, records, skip=stairs["indexes"])
+    notes.extend(voids["notes"])
+    withdrawn = stairs["indexes"] | voids["indexes"]
     cutouts = slab_stops.slab_cutouts(defs, records)
     notes.extend(cutouts["notes"])
 
     out = []
     divided = 0
     for index, slab in enumerate(defs):
-        if index in stairs["indexes"]:
+        if index in withdrawn:
             continue
         holes = cutouts["holes"].get(index)
         ring = slab.get("ring")
@@ -528,6 +538,8 @@ def apply_slab_stops(slab_defs, records, texts, regions=None,
         "stair_area_m2": round(sum(
             slab_stops.area_m2(defs[i]["ring"]) for i in stairs["indexes"]
             if defs[i].get("ring")), 1),
+        "cutout_bays": len(voids["indexes"]),
+        "cutout_bay_area_m2": voids["area_m2"],
         "chajjas": len(chajjas["defs"]),
     }
 

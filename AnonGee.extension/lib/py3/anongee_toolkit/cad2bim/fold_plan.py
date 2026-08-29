@@ -61,15 +61,20 @@ lower -- test14 writes both with one legend line, "INDICATES SLAB/BEAM SUNK BY
 narrow side and `beam_drops` decides which member a strip claims; both
 thresholds sit in deserts measured on that drawing and recorded beside them.
 
-A SUNK BAY STOPS AT THE BEAM FACE. The hatch is drawn across the beams that
-bound the bay -- 123 of test14's 129 sunk bays lie partly over one, a median
-16.5% of their area -- and that does NOT mean the dropped slab runs over the
-beam. It means the beam is sunk too, and the slab stops at its edge. So the
-placed beam bodies are cut out of the dropped ring before it is a floor
-(`_trimmed_drop`), by the same `split_profile` that divides a parent round its
-step. The SUPPORT is worked out from the region as drawn, deliberately: a
-support is the concrete between two soffits at the step LINE, and the step line
-is where the drawing puts it, not where a beam happens to end.
+A HATCH CARRIES INFORMATION, NEVER GEOMETRY -- the owner's rule, and the
+drawing agrees with it. A sunk hatch on a slab plan is drawn across the bay AND
+the members round it: measured on test14's 108 hosted hatches the hatch is
+BIGGER than its bay, 0.30 to 1.30 of its area with a median of 1.14, and only 9
+of the 108 land within 5% of it. So the hatch says WHICH bay is sunk and BY HOW
+MUCH, and the BAY'S OWN RING -- already bounded by its beams -- is the dropped
+slab. `sunk_bay_steps` is that reading. It replaced a pass that took the hatch
+outline as the geometry and then cut the beam bodies back out of it, which
+treated the symptom: the slab overlapped the beam because the outline was never
+the slab's to begin with.
+
+That leaves `plan_steps` -- this module's other entry -- as the FOUNDATION
+reading, where the drawing does draw its steps to size: test10's fold rects sit
+well inside their raft and mean exactly the concrete they cover.
 
 A SUNK BEAM KEEPS ITS DEPTH AND ITS WHOLE BODY DROPS -- the user's decision.
 Top and soffit move down together with the slab beside them, which is the usual
@@ -147,6 +152,31 @@ _SUNK_BAY_MIN_SIDE_MM = 600.0
 _STRIP_CLAIM_SHARE = 0.5
 _BEAM_CLAIM_SHARE = 0.3
 
+# WHEN A SUNK HATCH SINKS A BAY -- asked as a share of the BAY, never of the
+# hatch. The hatch's own area says nothing here, because it is drawn over the
+# members too: the ratio of the two areas runs 0.30 .. 1.30 across test14's 108
+# hosted hatches, median 1.14, and 9 of them are within 5% of their bay. How
+# much of the BAY it covers does separate. Measured exactly over every (sunk
+# hatch, bay) pair in the corpus that overlaps at all -- 174 of them, every one
+# on test14:
+#
+#     0.0000 .. 0.0088    33   the overhang grazing the bay next door
+#     0.0809 .. 0.0894     3   a corner of one
+#     0.2179               6   the todo-list's 2.56 m2 hatch in an 8.66 m2 bay
+#     0.4999 .. 0.5564    18   a hatch over HALF a bay
+#     ------------------  nothing at all, 0.3377 wide  ---------------------
+#     0.8941 .. 1.0000   114   the bay, as the drawing means it
+#
+# That desert is more than twice the width of the next widest gap in the same
+# histogram (0.2820, between 0.2179 and 0.4999). The threshold is the geometric
+# mean of its two rims (0.7053), rounded to 0.7 -- the way
+# `_SUNK_BAY_MIN_SIDE_MM` and `_BEAM_CLAIM_SHARE` above were drawn.
+#
+# A hatch that covers no bay by this much sinks NOTHING and is reported by
+# pattern. Sinking a whole bay on the strength of half a hatch is the same
+# mistake as the overhang, made in the other direction.
+_BAY_SINK_COVER = 0.7
+
 
 def step_regions(regions):
     """[(ring, kind)] for the hatched fold/sunk regions, in reading order.
@@ -176,9 +206,13 @@ def _step_rows(regions):
     return out
 
 
-def plan_steps(plans, regions, max_step_mm=None, depths=None, skip_ids=None,
-               beams=None):
+def plan_steps(plans, regions, max_step_mm=None, depths=None, skip_ids=None):
     """The three parts of every step, plus what was refused and why.
+
+    THE FOUNDATION READING, where a hatch IS drawn to size -- test10's fold
+    rects sit well inside their raft and mean exactly the concrete they cover.
+    The slab plan's sunk bays are a different statement and have their own
+    entry, `sunk_bay_steps`; see this module's opening note.
 
     `plans` are the outlines `foundation_plan.plan_foundations` read (or any
     dicts shaped {"ring", "thickness_mm", "steps", "mark"} -- slab loops carry
@@ -190,17 +224,9 @@ def plan_steps(plans, regions, max_step_mm=None, depths=None, skip_ids=None,
 
         {"kind", "ring", "depth_mm", "mark",
          "dropped": {"ring", "thickness_mm", "offset_mm"},
-         "drops": [{"ring", "holes", "thickness_mm", "offset_mm"}],
-         "trimmed": bool,
          "supports": [{"ring", "holes", "thickness_mm", "offset_mm"}],
          "opening": ring or None,
          "host_index": i}
-
-    `drops` is the dropped slab as it will be BUILT -- the ring with the beams
-    it was drawn across taken out of it, one piece per surviving part
-    (`_trimmed_drop`). `dropped` stays the whole region, because the opening,
-    the depth and the offset are all statements about the region rather than
-    about its pieces.
 
     Neighbouring collars POOL (`_pool_collars`): one slab per touching group,
     carried by the group's first step, every pooled region in its `holes`.
@@ -211,31 +237,22 @@ def plan_steps(plans, regions, max_step_mm=None, depths=None, skip_ids=None,
 
     THE DEPTH COMES FROM ONE OF TWO PLACES. Without `depths` it comes from the
     host's own step NOTE, which is how the foundation drawings say it
-    ("F6_SUNK 1000"). With `depths` -- {hatch pattern: depth_mm}, the legend's
-    table -- it comes from the region's PATTERN, which is how test14 says it:
-    one routed layer, ANGLE meaning -150, ANSI37 -75, HONEY -50, and 72
-    plan GOST_GLASS hatches on that same layer meaning "SLAB AT BEAM BOTTOM",
-    which is no depth at all and is refused by name rather than inheriting a
-    neighbour's. The sign is dropped here: fold_plan's depth is a magnitude
-    downward, and which way a signed T.O.S. value points is legend.py's open
-    question, not this module's.
+    ("F6_SUNK 1000") and how every caller in the run asks. With `depths` --
+    {hatch pattern: depth_mm}, a legend's table -- it comes from the region's
+    PATTERN instead, so a sheet that prices its steps in a legend rather than
+    in notes is read the same way; a pattern the table says nothing about is
+    refused by name rather than inheriting a neighbour's. The sign is dropped
+    here: fold_plan's depth is a magnitude downward, and which way a signed
+    T.O.S. value points is legend.py's open question, not this module's.
 
     `skip_ids` are id()s of regions never to route -- the legend's own
     demonstration swatches, which are hatches like every other one and would
     otherwise be read as a step in the middle of the legend block.
-
-    `beams` are the PLACED beam segments, and passing them is what makes a
-    sunk bay STOP AT THE BEAM EDGE (`_trimmed_drop`). Leaving them out keeps
-    the dropped slab exactly as the hatch is drawn, which is what the
-    FOUNDATION caller wants -- a raft's sunk region is bounded by the raft, not
-    by beams -- so the default is None and test10's numbers do not move.
     """
     limit = _MAX_STEP_MM if max_step_mm is None else float(max_step_mm)
     out = {"steps": [], "skipped": [], "notes": []}
     rings = [(index, plan) for index, plan in enumerate(plans or [])
              if plan.get("ring") and len(plan["ring"]) >= 3]
-    bodies = [body for body in
-              (_beam_body(segment) for segment in (beams or [])) if body]
     unpriced = {}
     for ring, kind, region in _step_rows(regions):
         if skip_ids and id(region) in skip_ids:
@@ -271,31 +288,10 @@ def plan_steps(plans, regions, max_step_mm=None, depths=None, skip_ids=None,
                     depth, kind, limit, host.get("mark") or "an unnamed outline"))
             continue
         out["steps"].append(_parts(ring, kind, depth, note, host, host_index,
-                                   rings, bodies))
+                                   rings))
     _report_unpriced(unpriced, out["skipped"])
     _pool_collars(out["steps"], out["notes"])
-    _report_trims(out["steps"], out["notes"])
     return out
-
-
-def _report_trims(steps, notes):
-    """One line for every dropped slab the beams cut back, not one per bay.
-
-    test14 trims 78 of its 129 sunk bays and splits 12 of those in two; 129
-    sentences would bury the eight that matter, which is the same reason
-    `_report_unpriced` groups by pattern.
-    """
-    trimmed = sum(1 for step in steps if step.get("trimmed"))
-    split = sum(1 for step in steps if len(step.get("drops") or []) > 1)
-    if not trimmed:
-        return
-    notes.append(
-        "{0} sunk bay(s) stop at the beam faces they were drawn across: the "
-        "beam drops with the slab, the slab does not run over it{1}".format(
-            trimmed,
-            "" if not split else
-            " ({0} of them in two pieces, a beam crossing the bay)".format(
-                split)))
 
 
 def _pattern_depth(region, depths):
@@ -336,8 +332,11 @@ def _report_unpriced(unpriced, skipped):
 def sunk_split(regions, depths, swatch_ids=None):
     """Which sunk hatches step a BAY, which drop a BEAM, and which do neither.
 
-    Returns {"bays": [region], "strips": [(region, depth_mm)], "skipped":
-    [reasons]}. The split is the narrow side of the hatch against
+    Returns {"bays": [(region, depth_mm)], "strips": [(region, depth_mm)],
+    "skipped": [reasons]} -- the two sides shaped alike because they are read
+    alike downstream: `sunk_bay_steps` asks which BAY each bay hatch sinks the
+    way `beam_drops` asks which BEAM each strip drops. The split is the narrow
+    side of the hatch against
     `_SUNK_BAY_MIN_SIDE_MM`, whose measured desert is recorded beside it: a
     strip no wider than a beam is a statement about that beam, and a bay of
     floor is a statement about the slab.
@@ -362,7 +361,7 @@ def sunk_split(regions, depths, swatch_ids=None):
             _count_by_pattern(region, unpriced)
             continue
         if _narrow_side_mm(ring) > _SUNK_BAY_MIN_SIDE_MM:
-            out["bays"].append(region)
+            out["bays"].append((region, depth))
         else:
             out["strips"].append((region, depth))
     _report_unpriced(unpriced, out["skipped"])
@@ -430,6 +429,160 @@ def beam_drops(segments, strips):
             "the deeper, since one member cannot sit at two levels".format(
                 conflicts))
     return out
+
+
+def sunk_bay_steps(loops, bays, max_step_mm=None):
+    """The three parts of every sunk BAY -- the bay's own ring the geometry.
+
+    `beam_drops`' twin, and deliberately the same shape of question: a strip
+    says WHICH BEAM drops and BY HOW MUCH, a bay hatch says WHICH BAY sinks and
+    BY HOW MUCH, and neither hands over any geometry of its own. `loops` are
+    the slab bays as `apply_slab_labels` left them; `bays` are `sunk_split`'s
+    (region, depth_mm) pairs. Returns the same {"steps", "skipped", "notes"}
+    `plan_steps` does, so `slab_defs_with_steps` and the console read both
+    without knowing which produced them.
+
+    A hatch claims every bay it covers by `_BAY_SINK_COVER`, and the measured
+    desert behind that number is recorded beside it. Three consequences, all of
+    them measured on test14's 129 bay hatches:
+
+      * ONE HATCH CAN SINK SEVERAL BAYS, and each of them sinks. 15 hatches are
+        drawn straight across the beam between two bays; both sides are sunk
+        floor, and the beam between them is what the drawing means to drop --
+        which a sunk STRIP on that beam says separately, and `beam_drops`
+        answers. Splitting the hatch at the beam, which is what the old trim
+        did, produced two floors of the hatch's shape rather than two bays.
+      * A HATCH THAT COVERS NO BAY BY ENOUGH SINKS NOTHING, and is reported by
+        pattern. 30 of the 129 -- 6 of them a 2.56 m2 patch in an 8.66 m2 bay,
+        18 covering barely half of one -- and a bay the drawing hatches in part
+        is a question for the drawing, not something to answer by sinking the
+        whole floor. Sinking a bay on half a hatch is the overhang's mistake
+        made in the other direction.
+      * TWO DEPTHS IN ONE BAY IS A CONFLICT, refused loudly and never averaged
+        or maxed. A beam covered twice takes the deeper because one member
+        cannot sit at two levels and something must be built; a BAY covered
+        twice is the drawing saying two different things about one floor, and
+        the honest answer is to leave it flat and say so. The corpus has none.
+
+    Because the ring IS the bay, `opening` is always None: there is no hole to
+    cut in a parent that is entirely the thing that dropped, so the flat floor
+    is never placed and the dropped slab is the floor there. That is the same
+    path test10's F6 sunk strip has always taken, reached through the same
+    `_parts` -- the support arithmetic below it is untouched.
+    """
+    limit = _MAX_STEP_MM if max_step_mm is None else float(max_step_mm)
+    out = {"steps": [], "skipped": [], "notes": []}
+    rings = [(index, plan) for index, plan in enumerate(loops or [])
+             if plan.get("ring") and len(plan["ring"]) >= 3]
+    claims = {}                        # loop index -> {depth: hatch count}
+    homeless = {}
+    spread = 0
+    for region, depth in (bays or []):
+        ring = _dedup_ring([(p[0], p[1]) for p in
+                            (getattr(region, "points", None) or [])])
+        if len(ring) < 3:
+            continue
+        claimed = _covered_loops(ring, rings)
+        if not claimed:
+            _count_by_pattern(region, homeless)
+            continue
+        if len(claimed) > 1:
+            spread += 1
+        for index in claimed:
+            depths = claims.setdefault(index, {})
+            depths[depth] = depths.get(depth, 0) + 1
+    conflicted = 0
+    by_index = dict(rings)
+    for index, depths in sorted(claims.items()):
+        if len(depths) > 1:
+            conflicted += 1
+            continue
+        depth = list(depths)[0]
+        plan = by_index[index]
+        if depth > limit:
+            out["skipped"].append(
+                "{0:.0f} mm is a storey, not a sunk bay (over {1:.0f} mm): "
+                "{2} is left flat".format(
+                    depth, limit, plan.get("mark") or "an unnamed bay"))
+            continue
+        out["steps"].append(_parts(
+            [(p[0], p[1]) for p in plan["ring"]], SUNK, depth, None, plan,
+            index, rings))
+    for pattern in sorted(homeless):
+        out["skipped"].append(
+            "{0} sunk hatch(es) of pattern {1} cover no bay by {2:.0%} of it: "
+            "a hatch says which bay is sunk, and this one does not say a whole "
+            "one -- nothing is dropped for them".format(
+                homeless[pattern], pattern, _BAY_SINK_COVER))
+    if conflicted:
+        out["skipped"].append(
+            "{0} bay(s) are covered by sunk hatches of two DIFFERENT depths: "
+            "the drawing says two things about one floor, so each is left flat "
+            "rather than sunk to a depth nobody wrote".format(conflicted))
+    if spread:
+        out["notes"].append(
+            "{0} sunk hatch(es) are drawn across more than one bay: every bay "
+            "under one sinks, and the beam between them drops on its own "
+            "strip".format(spread))
+    _pool_collars(out["steps"], out["notes"])
+    return out
+
+
+def _covered_loops(ring, rings):
+    """[index] of the loops this hatch covers by `_BAY_SINK_COVER` of THEIRS.
+
+    The bay's share, never the hatch's: the hatch overhangs by the beam half
+    widths it was drawn across, so its own area is a statement about the
+    drafting and not about the floor.
+    """
+    hatch = _bounds(ring)
+    out = []
+    for index, plan in rings:
+        loop = [(p[0], p[1]) for p in plan["ring"]]
+        box = _bounds(loop)
+        if (box[2] <= hatch[0] or hatch[2] <= box[0]
+                or box[3] <= hatch[1] or hatch[3] <= box[1]):
+            continue                   # not even the bounding boxes meet
+        bay = abs(_signed_area(loop))
+        if bay <= 0:
+            continue
+        if _overlap_area(loop, ring) / bay >= _BAY_SINK_COVER:
+            out.append(index)
+    return out
+
+
+def _bounds(ring):
+    xs = [point[0] for point in ring]
+    ys = [point[1] for point in ring]
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def _overlap_area(subject, window):
+    """How much of `subject` lies inside `window`. Either may be re-entrant.
+
+    `_clipped` needs a CONVEX window and half of test14's sunk hatches are not
+    one (48 of 129 are; the rest run to sixteen corners), so the window is
+    taken one triangle at a time, fanned from its own first vertex with each
+    triangle's SIGN carried through. The signed fan of a simple ring covers its
+    interior exactly once and its dents cancel out -- the identity
+    `_signed_area` itself is -- so the sum is exact rather than approximate:
+    checked against an independent triangle-pair intersection over every
+    overlapping (hatch, bay) pair in the corpus, worst disagreement 4e-11 ft2.
+    """
+    total = 0.0
+    origin = window[0]
+    for index in range(1, len(window) - 1):
+        triangle = [origin, window[index], window[index + 1]]
+        signed = _signed_area(triangle)
+        if signed == 0.0:
+            continue
+        if signed < 0.0:
+            triangle = [origin, window[index + 1], window[index]]
+        piece = _clipped(subject, triangle)
+        if len(piece) >= 3:
+            total += ((1.0 if signed > 0.0 else -1.0)
+                      * abs(_signed_area(piece)))
+    return abs(total)
 
 
 def slab_defs_with_steps(slab_defs, steps):
@@ -513,22 +666,12 @@ def _step_defs(step):
     kind = step.get("kind") or "step"
     defs = []
     dropped = step.get("dropped") or {}
-    # `drops` is the dropped slab AFTER the beams are cut out of it -- one
-    # entry where the bay merely stops at the faces, several where a beam runs
-    # across it. `dropped` is still the whole ring, for every reader that only
-    # wants the depth and the offset; a step from before the trim (the
-    # foundation caller, an old replay) carries no `drops` at all and falls
-    # back to it, which is why this is a `or` and not an assert.
-    for piece in (step.get("drops")
-                  or ([dropped] if dropped.get("ring") else [])):
-        if not piece.get("ring"):
-            continue
-        defs.append({"ring": [(p[0], p[1]) for p in piece["ring"]],
-                     "holes": [[(p[0], p[1]) for p in hole]
-                               for hole in (piece.get("holes") or [])],
+    if dropped.get("ring"):
+        defs.append({"ring": [(p[0], p[1]) for p in dropped["ring"]],
+                     "holes": [],
                      "arcs": [],
-                     "thickness_mm": piece.get("thickness_mm"),
-                     "offset_mm": piece.get("offset_mm"),
+                     "thickness_mm": dropped.get("thickness_mm"),
+                     "offset_mm": dropped.get("offset_mm"),
                      "mark": _part_mark(mark, kind),
                      "part": kind})
     for support in (step.get("supports") or []):
@@ -1103,7 +1246,7 @@ def _note_for(ring, host, kind):
     return None
 
 
-def _parts(ring, kind, depth_mm, note, host, host_index, rings, bodies=()):
+def _parts(ring, kind, depth_mm, note, host, host_index, rings):
     """One step's parent opening, support slab(s) and dropped slab.
 
     The parent is read PER EDGE, from whatever outline abuts it, because the two
@@ -1120,6 +1263,18 @@ def _parts(ring, kind, depth_mm, note, host, host_index, rings, bodies=()):
     L-shaped slab round its two inner edges. Separate strips would meet at the
     corners edge-to-edge, which Revit joins as two butting floors rather than
     the one cast collar the detail shows.
+
+    A SUNK BAY ON A SLAB PLAN GETS NO SUPPORT, and that is the arithmetic
+    below answering honestly rather than an omission. What lies beyond a bay's
+    edge is a BEAM -- the bay is bounded by beam faces -- so `_neighbour_beyond`
+    finds no outline there, the edge is open ground, and there is no second
+    slab to step down from. Nor is there anything to fill: the bay's edge bears
+    on that beam's own concrete, 400 mm and more of it against a drop of 150.
+    The 84 supports test14 used to build came from probing outside the HATCH,
+    which overhangs the beam into the bay next door and so found the floor on
+    the far side; they were collars cast through the beams. Where two bays DO
+    share an edge -- a drawn slab-edge layer, a raft -- the probe finds the
+    neighbour and the same arithmetic builds the support it always did.
     """
     # The dropped slab's thickness: its own note's THK first (the sunk bay is
     # a 500 slab dropping out of a 750 raft, and only the note says 500), the
@@ -1146,60 +1301,12 @@ def _parts(ring, kind, depth_mm, note, host, host_index, rings, bodies=()):
             continue
         sides.append((thickness,
                       depth_mm + (dropped_thickness or 0.0) - thickness))
-    drops, trimmed = _trimmed_drop(ring, bodies)
     return {"kind": kind, "ring": ring, "depth_mm": depth_mm,
             "mark": host.get("mark"), "host_index": host_index,
-            "dropped": {"ring": drops[0][0], "thickness_mm": dropped_thickness,
+            "dropped": {"ring": ring, "thickness_mm": dropped_thickness,
                         "offset_mm": -depth_mm},
-            "drops": [{"ring": piece, "holes": holes,
-                       "thickness_mm": dropped_thickness,
-                       "offset_mm": -depth_mm} for piece, holes in drops],
-            "trimmed": trimmed,
             "supports": _support_slabs(edges, sides),
             "opening": None if coincident else ring}
-
-
-def _trimmed_drop(ring, bodies):
-    """([(ring, holes)], trimmed) -- the dropped slab with the BEAMS taken out.
-
-    "SUNK PATTERN GOING ON A BEAM DOES NOT MEAN THE SLAB GOES OVER THE BEAM"
-    -- the owner's own words. A drawing hatches a sunk bay from beam face to
-    beam face, or right across the beams that bound it, and both mean the same
-    thing: the beam is sunk WITH the slab and the slab stops at its edge.
-    Measured on test14's 129 sunk bays, 123 of them lie partly over a placed
-    beam, a median 16.5% of the bay's area and up to 24.6% -- concrete cast
-    through the beams it is supposed to stop against.
-
-    The beams are handed to `split_profile` as HOLES, which is the machinery
-    that already knows the difference between a void inside an outline and one
-    reaching its edge: a beam along a side trims that side, a beam crossing the
-    bay divides it in two. On test14 that leaves 117 bays whole and splits 12,
-    takes 10.6% off the dropped area (562.7 m2 -> 503.0), and leaves a residual
-    beam coverage of at most 0.0001 where it used to be a quarter.
-
-    `bodies` empty is the FOUNDATION caller: nothing is trimmed, the ring comes
-    back exactly as drawn, and `trimmed` is False.
-    """
-    if not bodies:
-        return [(ring, [])], False
-    cuts = []
-    for body in bodies:
-        piece = _clipped(body, ring)
-        if len(piece) >= 3 and abs(_signed_area(piece)) > 1e-12:
-            cuts.append(piece)
-    if not cuts:
-        return [(ring, [])], False
-    pieces = split_profile(ring, cuts)
-    if not pieces:
-        # every scrap of the bay lies under a beam. That is a strip, not a bay
-        # -- `sunk_split` reads it as one -- so it cannot happen with the
-        # measured threshold in place; the ring as drawn is the honest answer
-        # if it ever does.
-        return [(ring, [])], False
-    trimmed = (len(pieces) > 1
-               or abs(_signed_area(pieces[0][0])) < abs(_signed_area(ring))
-               - config.mm_to_ft(1.0) ** 2)
-    return pieces, trimmed
 
 
 def _support_slabs(edges, sides):

@@ -215,14 +215,14 @@
     "column_footprints": 77,
     "column_rectangles": 77,
     "loops_from_beam_graph": 20,
-    "loops_from_beam_graph_area_m2": 121.0,
+    "loops_from_beam_graph_area_m2": 134.2,
     "loops_from_edges": 0,
     "loops_from_edges_area_m2": 0,
-    "loops_from_placed_members": 65,
-    "loops_from_placed_members_area_m2": 655.7,
+    "loops_from_placed_members": 67,
+    "loops_from_placed_members_area_m2": 652.2,
     "records": 391,
     "sized_beams": 0,
-    "storey": "FOUNDATION LEVEL"
+    "storey": "GROUND FLOOR LEVEL"
   },
   "test18_fragmanted": {
     "beams": 21,

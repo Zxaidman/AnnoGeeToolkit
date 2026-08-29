@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """slab_stops -- what the drawing says STOPS the slab.
 
-Three readings and one refusal each, pinned twice over: on SYNTHETIC plans
+Four readings and one refusal each, pinned twice over: on SYNTHETIC plans
 small enough to reason about, and on the REAL coordinates measured out of
 StructuralPlan-Test14.dxf, which is the drawing the whole pass was written
 for. The real ones are the ones that matter -- a synthetic square proves the
@@ -299,8 +299,84 @@ class AStaircaseBayIsNotAFloor(unittest.TestCase):
         self.assertEqual(report["stair_area_m2"], 16.0)
 
 
-class ASunkBayStopsAtTheBeamEdge(unittest.TestCase):
-    """4. The dropped slab of a sunk bay is cut back to the beam faces."""
+class ACrossedBayIsNotAFloorEither(unittest.TestCase):
+    """3b. The X over a whole BAY -- the owner's "large portion" cut-outs.
+
+    The same symbol the slab-stop rings carry, asked of a piece 100 times the
+    size: on test14 the crossed COVER rings run 0.031 .. 0.227 m2 and the
+    crossed BAYS 1.36 .. 19.81, 63.5 m2 in all.
+    """
+
+    def _bays(self):
+        return [_bay(_box(0, 0, 4000, 4000)), _bay(_box(4000, 0, 8000, 4000))]
+
+    def test_an_X_across_a_bay_withdraws_it(self):
+        out = slab_stops.cutout_bays(self._bays(), _cross(0, 0, 4000, 4000))
+        self.assertEqual(out["indexes"], set([0]))
+        self.assertEqual(out["area_m2"], 16.0)
+        self.assertTrue(any("crossed out" in note for note in out["notes"]))
+
+    def test_one_diagonal_alone_is_not_the_symbol(self):
+        half = _cross(0, 0, 4000, 4000)[:1]
+        self.assertEqual(slab_stops.cutout_bays(self._bays(), half)["indexes"],
+                         set())
+
+    def test_two_diagonal_BEAMS_across_a_bay_are_members_not_a_cross(self):
+        # test11 draws four 2000x2500 bays with a pair of 3200 mm diagonals on
+        # ING-BEAM across each. Reading those as an X deletes 20.0 m2 of real
+        # floor; the run places them as beams.
+        beams = [
+            _Record([(0, 0), (4000, 4000)], layers.CATEGORY_BEAM, kind="line"),
+            _Record([(0, 4000), (4000, 0)], layers.CATEGORY_BEAM, kind="line")]
+        self.assertEqual(slab_stops.cutout_bays(self._bays(), beams)["indexes"],
+                         set())
+
+    def test_a_bay_that_is_both_crossed_and_a_stair_is_counted_once(self):
+        stairs = set([0])
+        out = slab_stops.cutout_bays(self._bays(), _cross(0, 0, 4000, 4000),
+                                     skip=stairs)
+        self.assertEqual(out["indexes"], set())
+        self.assertEqual(out["area_m2"], 0.0)
+        self.assertTrue(any("withdrawn once" in note for note in out["notes"]))
+
+    def test_the_withdrawn_bay_leaves_the_defs_and_is_counted(self):
+        defs, report = slab_outlines.apply_slab_stops(
+            self._bays(), _cross(4000, 0, 8000, 4000), [])
+        self.assertEqual(len(defs), 1)
+        self.assertEqual(report["cutout_bays"], 1)
+        self.assertEqual(report["cutout_bay_area_m2"], 16.0)
+        self.assertEqual(report["stair_bays"], 0)
+
+    def test_the_stair_withdrawal_wins_the_count_when_a_bay_is_both(self):
+        defs, report = slab_outlines.apply_slab_stops(
+            self._bays(), _cross(0, 0, 4000, 4000),
+            [_Text("ST-1", 2000, 2000)])
+        self.assertEqual(len(defs), 1)
+        self.assertEqual(report["stair_bays"], 1)
+        self.assertEqual(report["cutout_bays"], 0)
+
+    def test_test14s_own_19_81_m2_bay_and_its_two_CUTOUT_diagonals(self):
+        # the biggest of the six, drawn on every one of the three towers
+        bays = [_bay(_box(30551, 31616, 37101, 34641))]
+        records = [
+            _Record([(30551, 34641), (37101, 31616)],
+                    layers.CATEGORY_CUTOUT, kind="line"),
+            _Record([(30551, 31616), (37101, 34641)],
+                    layers.CATEGORY_CUTOUT, kind="line")]
+        out = slab_stops.cutout_bays(bays, records)
+        self.assertEqual(out["indexes"], set([0]))
+        self.assertEqual(out["area_m2"], 19.8)
+
+
+class ASunkHatchOnlySaysWHICHBayAndHOWDEEP(unittest.TestCase):
+    """4. The hatch informs the slab; the BAY's own ring is the geometry.
+
+    The owner's rule, stated after the v0.83.0 run: "hatch pattern does should
+    not change the slab geometry it should only carries info and details." So
+    the hatch is drawn deliberately WRONG in these -- overhanging the bay by
+    the beam half-widths, exactly as test14 draws it -- and the dropped floor
+    still comes out the bay's own 6 x 4 m.
+    """
 
     def _plan(self):
         return [{"ring": _ft(_box(0, 0, 6000, 4000)), "thickness_mm": 125.0,
@@ -311,71 +387,148 @@ class ASunkBayStopsAtTheBeamEdge(unittest.TestCase):
         region.category = layers.CATEGORY_SUNK
         return region
 
-    def test_without_beams_the_drop_is_the_hatch_as_drawn(self):
-        region = self._region(_box(1000, 1000, 5000, 3000))
-        steps = fold_plan.plan_steps(self._plan(), [region],
-                                     depths={"ANGLE": -150.0})
+    def _steps(self, region, loops=None):
+        return fold_plan.sunk_bay_steps(loops or self._plan(),
+                                        [(region, 150.0)])
+
+    def test_a_hatch_overhanging_the_bay_still_drops_the_BAY(self):
+        # drawn 200 outside the bay on every side: the beam half-widths
+        steps = self._steps(self._region(_box(-200, -200, 6200, 4200)))
         self.assertEqual(len(steps["steps"]), 1)
         step = steps["steps"][0]
-        self.assertFalse(step["trimmed"])
-        self.assertEqual(len(step["drops"]), 1)
-        self.assertAlmostEqual(slab_stops.area_m2(step["drops"][0]["ring"]),
-                               8.0, places=3)
+        self.assertAlmostEqual(slab_stops.area_m2(step["dropped"]["ring"]),
+                               24.0, places=3)
 
-    def test_a_beam_along_one_side_pushes_the_drop_off_it(self):
-        # the hatch is drawn from beam face to beam CENTRE on the right: the
-        # 200-wide beam's body covers x 4900..5100, so the drop stops at 4900.
-        region = self._region(_box(1000, 1000, 5000, 3000))
-        beams = [_beam(5000, 0, 5000, 4000, 200.0, 400.0)]
-        steps = fold_plan.plan_steps(self._plan(), [region],
-                                     depths={"ANGLE": -150.0}, beams=beams)
+    def test_the_whole_bay_drops_so_nothing_is_cut_out_of_a_parent(self):
+        steps = self._steps(self._region(_box(-200, -200, 6200, 4200)))
         step = steps["steps"][0]
-        self.assertTrue(step["trimmed"])
-        self.assertEqual(len(step["drops"]), 1)
-        self.assertAlmostEqual(slab_stops.area_m2(step["drops"][0]["ring"]),
-                               3.9 * 2.0, places=3)
+        self.assertIsNone(step["opening"])
 
-    def test_the_opening_cut_in_the_parent_is_still_the_whole_region(self):
-        region = self._region(_box(1000, 1000, 5000, 3000))
-        beams = [_beam(5000, 0, 5000, 4000, 200.0, 400.0)]
-        steps = fold_plan.plan_steps(self._plan(), [region],
-                                     depths={"ANGLE": -150.0}, beams=beams)
+    def test_the_flat_floor_is_not_placed_where_the_dropped_one_is(self):
+        loops = self._plan()
+        steps = self._steps(self._region(_box(-200, -200, 6200, 4200)), loops)
+        defs, _notes = fold_plan.slab_defs_with_steps(loops, steps["steps"])
+        self.assertEqual([d.get("part") for d in defs], ["sunk"])
+        self.assertEqual(defs[0]["offset_mm"], -150.0)
+        self.assertEqual(defs[0]["holes"], [])
+
+    def test_a_hatch_over_half_a_bay_sinks_nothing_and_says_so(self):
+        # 0.5 of the bay: under _BAY_SINK_COVER, and the measured desert above
+        # it is where the threshold sits
+        steps = self._steps(self._region(_box(0, 0, 3000, 4000)))
+        self.assertEqual(steps["steps"], [])
+        self.assertEqual(len(steps["skipped"]), 1)
+        self.assertIn("cover no bay", steps["skipped"][0])
+        self.assertIn("ANGLE", steps["skipped"][0])
+
+    def test_one_hatch_across_two_bays_sinks_both(self):
+        loops = [{"ring": _ft(_box(0, 0, 6000, 4000)), "thickness_mm": 125.0,
+                  "mark": "S1", "steps": []},
+                 {"ring": _ft(_box(6200, 0, 12200, 4000)),
+                  "thickness_mm": 125.0, "mark": "S2", "steps": []}]
+        steps = self._steps(self._region(_box(-200, -200, 12400, 4200)), loops)
+        self.assertEqual(len(steps["steps"]), 2)
+        self.assertEqual(sorted(s["mark"] for s in steps["steps"]),
+                         ["S1", "S2"])
+        self.assertEqual(len(steps["notes"]), 1)
+        self.assertIn("more than one bay", steps["notes"][0])
+
+    def test_two_depths_over_one_bay_is_refused_not_averaged(self):
+        loops = self._plan()
+        shallow = self._region(_box(-200, -200, 6200, 4200), pattern="HONEY")
+        deep = self._region(_box(-200, -200, 6200, 4200))
+        steps = fold_plan.sunk_bay_steps(loops, [(shallow, 50.0),
+                                                 (deep, 150.0)])
+        self.assertEqual(steps["steps"], [])
+        self.assertEqual(len(steps["skipped"]), 1)
+        self.assertIn("two DIFFERENT depths", steps["skipped"][0])
+
+    def test_the_same_depth_twice_over_one_bay_is_one_step(self):
+        loops = self._plan()
+        steps = fold_plan.sunk_bay_steps(
+            loops, [(self._region(_box(-200, -200, 6200, 4200)), 150.0),
+                    (self._region(_box(-100, -100, 6100, 4100)), 150.0)])
+        self.assertEqual(len(steps["steps"]), 1)
+        self.assertEqual(steps["skipped"], [])
+
+    def test_a_bay_beyond_the_storey_limit_is_left_flat_and_named(self):
+        steps = fold_plan.sunk_bay_steps(
+            self._plan(), [(self._region(_box(-200, -200, 6200, 4200)),
+                            6250.0)])
+        self.assertEqual(steps["steps"], [])
+        self.assertIn("is a storey", steps["skipped"][0])
+
+    def test_a_re_entrant_hatch_is_measured_exactly_not_as_if_convex(self):
+        # 81 of test14's 129 sunk hatches are re-entrant, so this is the normal
+        # case rather than the exotic one. This L covers 18 of the bay's 24 m2
+        # -- 0.75, over the line, it sinks. Clipping the bay to the ring as if
+        # it were CONVEX, which is all `_clipped` alone can do, leaves 6 m2 and
+        # would refuse it; `_overlap_area` takes the ring a triangle at a time.
+        ell = [(-200, -200), (6200, -200), (6200, 2000), (3000, 2000),
+               (3000, 4200), (-200, 4200)]
+        bay = _ft(_box(0, 0, 6000, 4000))
         self.assertAlmostEqual(
-            slab_stops.area_m2(steps["steps"][0]["opening"]), 8.0, places=3)
+            fold_plan.area_m2(_ft(ell)) and
+            fold_plan._overlap_area(bay, _ft(ell)) * (_MM / 1000.0) ** 2,
+            18.0, places=6)
+        naive = fold_plan._clipped(bay, _ft(ell))
+        self.assertAlmostEqual(
+            abs(fold_plan._signed_area(naive)) * (_MM / 1000.0) ** 2,
+            6.0, places=6)
+        self.assertEqual(len(self._steps(self._region(ell))["steps"]), 1)
 
-    def test_a_beam_crossing_the_bay_divides_the_drop_in_two(self):
-        region = self._region(_box(1000, 1000, 5000, 3000))
-        beams = [_beam(3000, 0, 3000, 4000, 200.0, 400.0)]
-        steps = fold_plan.plan_steps(self._plan(), [region],
-                                     depths={"ANGLE": -150.0}, beams=beams)
+    def test_test14s_own_hatch_drops_its_bays_5_77_m2_not_its_own_6_49(self):
+        # the ANGLE hatch at (19451..23226, 42594..44409) over the bay at
+        # (19650..23226, 42594..44209): 6.49 m2 of hatch, 5.77 m2 of bay,
+        # covered 0.9878 -- and 5.77 is what gets cast.
+        hatch = [(23226, 44409), (23226, 42594), (19851, 42594),
+                 (19851, 42944), (19651, 42944), (19650, 44059),
+                 (19450, 44059), (19451, 44409)]
+        bay = [(19650, 42594), (23226, 42594), (23226, 44209),
+               (19650, 44209), (19650, 44085)]
+        loops = [{"ring": _ft(bay), "thickness_mm": 125.0, "mark": "S1",
+                  "steps": []}]
+        self.assertAlmostEqual(fold_plan.area_m2(_ft(hatch)), 6.49, places=2)
+        steps = fold_plan.sunk_bay_steps(loops, [(self._region(hatch), 150.0)])
+        self.assertEqual(len(steps["steps"]), 1)
+        self.assertAlmostEqual(
+            fold_plan.area_m2(steps["steps"][0]["dropped"]["ring"]),
+            5.775, places=3)
+
+    def test_test14s_2_56_m2_hatch_in_an_8_66_m2_bay_sinks_nothing(self):
+        # the measured minimum, 0.2179 of its bay -- the case the threshold
+        # exists for. Reported, never applied.
+        hatch = [(29652, 34991), (31051, 34991), (31051, 37144),
+                 (30851, 37144), (30851, 36766), (29651, 36765)]
+        bay = [(26451, 37144), (26451, 34991), (30851, 34991),
+               (30851, 36566), (29451, 36565), (29451, 37144),
+               (29301, 37144)]
+        loops = [{"ring": _ft(bay), "thickness_mm": 125.0, "mark": "S1",
+                  "steps": []}]
+        steps = fold_plan.sunk_bay_steps(loops, [(self._region(hatch), 150.0)])
+        self.assertEqual(steps["steps"], [])
+        self.assertIn("cover no bay", steps["skipped"][0])
+
+    def test_the_bay_is_open_ground_beyond_its_edges_so_no_support(self):
+        # what lies beyond a bay's edge is a BEAM, not another floor -- the
+        # 84 supports test14 used to build came from probing outside the
+        # overhanging HATCH and finding the bay on the far side
+        steps = self._steps(self._region(_box(-200, -200, 6200, 4200)))
         step = steps["steps"][0]
-        self.assertEqual(len(step["drops"]), 2)
-        self.assertAlmostEqual(
-            sum(slab_stops.area_m2(drop["ring"]) for drop in step["drops"]),
-            8.0 - 0.2 * 2.0, places=3)
+        self.assertEqual(step["supports"], [])
 
-    def test_every_piece_becomes_a_floor_of_its_own(self):
-        region = self._region(_box(1000, 1000, 5000, 3000))
-        beams = [_beam(3000, 0, 3000, 4000, 200.0, 400.0)]
-        steps = fold_plan.plan_steps(self._plan(), [region],
-                                     depths={"ANGLE": -150.0}, beams=beams)
-        defs, _notes = fold_plan.slab_defs_with_steps(self._plan(),
-                                                     steps["steps"])
-        drops = [d for d in defs if d.get("part") == "sunk"]
-        self.assertEqual(len(drops), 2)
-        for drop in drops:
-            self.assertAlmostEqual(drop["offset_mm"], -150.0, places=6)
-            self.assertEqual(drop["thickness_mm"], 125.0)
-
-    def test_the_trim_is_reported_grouped_not_one_line_per_bay(self):
-        regions = [self._region(_box(500 + 100 * i, 1000, 5000, 3000))
-                   for i in range(3)]
-        beams = [_beam(5000, 0, 5000, 4000, 200.0, 400.0)]
-        steps = fold_plan.plan_steps(self._plan(), regions,
-                                     depths={"ANGLE": -150.0}, beams=beams)
-        trims = [n for n in steps["notes"] if "stop at the beam faces" in n]
-        self.assertEqual(len(trims), 1)
-        self.assertIn("3 sunk bay(s)", trims[0])
+    def test_a_neighbouring_bay_that_DOES_abut_still_gets_its_support(self):
+        loops = [{"ring": _ft(_box(0, 0, 6000, 4000)), "thickness_mm": 125.0,
+                  "mark": "S1", "steps": []},
+                 {"ring": _ft(_box(6000, 0, 12000, 4000)),
+                  "thickness_mm": 125.0, "mark": "S2", "steps": []}]
+        steps = self._steps(self._region(_box(-200, -200, 6200, 4200)), loops)
+        step = [s for s in steps["steps"] if s["mark"] == "S1"][0]
+        self.assertEqual(len(step["supports"]), 1)
+        # the owner's arithmetic, unchanged: 150 > 125, so a void exists
+        self.assertEqual(step["supports"][0]["offset_mm"], -125.0)
+        self.assertEqual(step["supports"][0]["thickness_mm"],
+                         150.0 + 125.0 - 125.0)
 
 
 class TheWholePassTogether(unittest.TestCase):

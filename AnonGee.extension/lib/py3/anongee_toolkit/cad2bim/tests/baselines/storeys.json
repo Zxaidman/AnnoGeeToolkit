@@ -272,7 +272,7 @@
   },
   "test16": {
     "beams_per_storey": [
-      235,
+      77,
       235,
       235,
       235,
@@ -282,16 +282,16 @@
     ],
     "labels": [
       "FOUNDATION LEVEL",
-      "GROUND FLOOR LVL.",
-      "TYPICAL FLOOR LVL. (1ST-4TH) (1/4)",
-      "TYPICAL FLOOR LVL. (1ST-4TH) (2/4)",
-      "TYPICAL FLOOR LVL. (1ST-4TH) (3/4)",
-      "TYPICAL FLOOR LVL. (1ST-4TH) (4/4)",
+      "GROUND FLOOR LEVEL",
+      "1ST FLOOR LVL.",
+      "TYPICAL FLOOR LVL. (2ND-4TH) (1/3)",
+      "TYPICAL FLOOR LVL. (2ND-4TH) (2/3)",
+      "TYPICAL FLOOR LVL. (2ND-4TH) (3/3)",
       "TERRACE FLOOR LVL."
     ],
     "loops_from_beam_graph_per_storey": [
+      0,
       20,
-      21,
       21,
       21,
       21,
@@ -308,25 +308,25 @@
       0
     ],
     "loops_from_placed_members_per_storey": [
-      65,
-      66,
-      66,
-      66,
-      66,
-      66,
-      15
+      2,
+      67,
+      68,
+      68,
+      68,
+      68,
+      17
     ],
     "placed_area_m2_per_storey": [
-      655.7,
-      655.2,
-      655.2,
-      655.2,
-      655.2,
-      655.2,
-      179.5
+      12.2,
+      652.2,
+      651.7,
+      651.7,
+      651.7,
+      651.7,
+      176.5
     ],
     "roof_loops_from_edges": 0,
-    "roof_loops_from_placed_members": 15,
+    "roof_loops_from_placed_members": 17,
     "storeys": 7
   },
   "test9": {

@@ -18,6 +18,16 @@ the drawing says about that, each from a mark it already carries.
      `slab_graph.crossed` -- because two readings of one symbol drift apart.
      Measured on test14: 90 of the 153 rings are crossed, 63 are not.
 
+  1b. A CROSSED BAY IS THE SAME STATEMENT ABOUT A BIGGER PIECE. The owner's
+     v0.83.0 run: "cutout are still not working in large portion while,
+     smaller is working now" -- and the split is exact. Every crossed COVER
+     ring is tiny (0.031 .. 0.227 m2 on test14) and not one of them contains or
+     spans a bay; those are the small cutouts that work. The large ones are not
+     COVER rings at all: 6 slab BAYS are crossed corner-to-corner, 1.36 to
+     19.81 m2, 63.5 m2 in all, and nothing ever asked the question, so all of
+     it was cast as floor. A bay carrying the X is withdrawn exactly as a
+     staircase bay is, and counted the same way.
+
   2. A BEAM-BOTTOM HATCH IS A CHAJJA. The legend prices its patterns, and one
      of test14's says no depth at all: GOST_GLASS, "INDICATES SLAB AT BEAM
      BOTTOM", 72 plan regions. That is a cantilever slab -- a chajja -- cast
@@ -42,7 +52,8 @@ import math
 import re
 
 from . import config
-from .classify.layers import CATEGORY_SLAB_STOP, CATEGORY_STAIR
+from .classify.layers import (CATEGORY_BEAM, CATEGORY_COLUMN,
+                              CATEGORY_SLAB_STOP, CATEGORY_STAIR)
 from .slab_graph import (_centroid, _dedup_ring, _point_in_ring,
                          _signed_area, cross_strokes, crossed)
 # The stair pass's OWN thresholds, borrowed rather than re-argued: what counts
@@ -140,6 +151,71 @@ def slab_cutouts(loops, records):
         out["notes"].append(
             "{0} slab-stop ring(s) carry no X: they mark an edge, not a hole, "
             "and cut nothing".format(uncrossed))
+    return out
+
+
+def cutout_bays(loops, records, skip=None):
+    """{"indexes": {i}, "area_m2": a, "notes": [...]} -- the bays an X crosses.
+
+    The same symbol `slab_cutouts` reads over a slab-stop ring, asked of the
+    BAY. It is the same code too -- `slab_graph.crossed` against the same four
+    corners -- because the whole point of BUG-13 is that the rule was already
+    right and was simply never asked about a piece this big.
+
+    THE STROKES ARE FILTERED HERE, AND ONLY HERE, and the measurement is what
+    forced it. `cross_strokes` casts a deliberately wide net: any two-point
+    record, whatever layer it is on, because a COVER ring 0.03 .. 0.23 m2
+    across is not a shape two members happen to span, and restricting that
+    reading by layer was measured to move nothing. A BAY is exactly that shape.
+    test11 draws four 2000x2500 bays with a pair of 3200 mm diagonals across
+    each, on ING-BEAM -- diagonal BEAMS, which the run places as beams, and
+    withdrawing those four bays would delete 20.0 m2 of real floor. Dropping
+    the strokes drawn on a beam or column layer takes those four out and moves
+    nothing else in the corpus: test12 still reads 21 crossed bays (121.3 m2),
+    test13 4 (0.1 m2) and test14 6 (63.5 m2), identical either way.
+
+    `skip` is the set of bays some earlier reading already withdrew -- the
+    staircase bays. A bay in both is withdrawn once and counted once, and the
+    overlap is named rather than being invisible in a total. The corpus has
+    none today; the arithmetic is here because a stair over a cut-out void is a
+    drawing anybody could send next.
+    """
+    out = {"indexes": set(), "area_m2": 0.0, "notes": []}
+    members = set()
+    for record in (records or []):
+        if getattr(record, "category", None) in (CATEGORY_BEAM,
+                                                 CATEGORY_COLUMN):
+            points = getattr(record, "points", None) or []
+            if len(points) == 2:
+                members.add(((points[0][0], points[0][1]),
+                             (points[1][0], points[1][1])))
+    strokes = [stroke for stroke in cross_strokes(records)
+               if stroke not in members]
+    if not strokes:
+        return out
+    skip = skip or set()
+    shared = 0
+    for index, loop in enumerate(loops or []):
+        ring = loop.get("ring") if isinstance(loop, dict) else loop
+        if not ring or len(ring) < 3:
+            continue
+        if not crossed([(p[0], p[1]) for p in ring], strokes):
+            continue
+        if index in skip:
+            shared += 1
+            continue
+        out["indexes"].add(index)
+        out["area_m2"] += area_m2(ring)
+    out["area_m2"] = round(out["area_m2"], 1)
+    if out["indexes"]:
+        out["notes"].append(
+            "{0} slab bay(s) are crossed out corner to corner, {1:.1f} m2 of "
+            "floor the drawing marks absent: no slab is cast there".format(
+                len(out["indexes"]), out["area_m2"]))
+    if shared:
+        out["notes"].append(
+            "{0} of the crossed-out bay(s) are already withdrawn for a "
+            "staircase: each is withdrawn once and counted once".format(shared))
     return out
 
 

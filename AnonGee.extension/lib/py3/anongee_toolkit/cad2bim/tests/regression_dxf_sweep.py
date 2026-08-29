@@ -239,8 +239,8 @@ def _measure(path):
         "sunk_beams_dropped": sunk["dropped"],
         "sunk_beam_drop_mm_total": sunk["drop_total"],
         "sunk_strips_on_no_beam": sunk["strips_skipped"],
-        "sunk_bays_trimmed_to_beams": sunk["trimmed"],
-        "sunk_drop_pieces": sunk["drop_pieces"],
+        "sunk_dropped_area_m2": sunk["dropped_area_m2"],
+        "sunk_slab_step_notes": sunk["notes"],
         "slab_stop_records": sum(
             1 for r in result.records
             if r.category == layers.CATEGORY_SLAB_STOP),
@@ -250,6 +250,8 @@ def _measure(path):
         "slab_bays_divided_by_cutouts": stops["divided"],
         "stair_bays_withdrawn": stops["stair_bays"],
         "stair_area_m2": stops["stair_area_m2"],
+        "cutout_bays_withdrawn": stops["cutout_bays"],
+        "cutout_bay_area_m2": stops["cutout_bay_area_m2"],
         "chajjas": stops["chajjas"],
         "chajja_offset_mm_total": stops["chajja_offset_total"],
         "slab_stop_notes": stops["notes"],
@@ -289,8 +291,7 @@ def _sunk_pass(result, entries, proposals, depths, slab_defs, beams):
     swatch_ids = set(id(entry["swatch"]) for entry in entries)
     split = fold_plan.sunk_split(result.regions, depths, swatch_ids)
     drops = fold_plan.beam_drops(beams, split["strips"])
-    steps = fold_plan.plan_steps(slab_defs, split["bays"], depths=depths,
-                                 skip_ids=swatch_ids, beams=beams)
+    steps = fold_plan.sunk_bay_steps(slab_defs, split["bays"])
     defs, _notes = fold_plan.slab_defs_with_steps(slab_defs, steps["steps"])
     return {
         "bays": len(split["bays"]),
@@ -304,12 +305,14 @@ def _sunk_pass(result, entries, proposals, depths, slab_defs, beams):
         "dropped": len(drops["drops"]),
         "drop_total": round(sum(drops["drops"].values()), 1),
         "strips_skipped": len(drops["skipped"]),
-        # THE TRIM. A sunk bay is hatched across the beams that bound it, and
-        # the dropped slab must stop at their faces -- `trimmed` counts the
-        # bays that lost concrete to a beam, `drop_pieces` the floors the drop
-        # ends up as (more than one where a beam runs across the bay).
-        "trimmed": sum(1 for s in steps["steps"] if s.get("trimmed")),
-        "drop_pieces": sum(len(s.get("drops") or []) for s in steps["steps"]),
+        # THE GEOMETRY IS THE BAY'S, NOT THE HATCH'S, and this is the number
+        # that says so: the concrete the sunk pass actually lays. It is the one
+        # metric a hatch outline creeping back in would move, where the counts
+        # would not -- test14's hatches are within 14% of their bays by area on
+        # the median, so only the total tells them apart.
+        "dropped_area_m2": round(sum(fold_plan.area_m2(s["dropped"]["ring"])
+                                     for s in steps["steps"]), 1),
+        "notes": len(steps["notes"]),
     }
 
 
@@ -331,8 +334,7 @@ def _stops_pass(result, entries, depths, slab_defs, beams):
         slab_defs, result.records, result.texts, regions=result.regions,
         beam_segments=beams, legend_entries=entries, skip_ids=swatch_ids)
     split = fold_plan.sunk_split(result.regions, depths, swatch_ids)
-    steps = fold_plan.plan_steps(stopped, split["bays"], depths=depths,
-                                 skip_ids=swatch_ids, beams=beams)
+    steps = fold_plan.sunk_bay_steps(stopped, split["bays"])
     built, _notes = fold_plan.slab_defs_with_steps(stopped, steps["steps"])
     return {
         "rings": len(slab_stops.slab_stop_rings(result.records)),
@@ -341,6 +343,8 @@ def _stops_pass(result, entries, depths, slab_defs, beams):
         "divided": report["divided"],
         "stair_bays": report["stair_bays"],
         "stair_area_m2": report["stair_area_m2"],
+        "cutout_bays": report["cutout_bays"],
+        "cutout_bay_area_m2": report["cutout_bay_area_m2"],
         "chajjas": report["chajjas"],
         "chajja_offset_total": round(sum(
             d["offset_mm"] for d in stopped if d.get("part") == "chajja"), 1),
