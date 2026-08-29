@@ -85,9 +85,25 @@ def _say_error(msg=""):
     which is the one way to colour a line without importing pyrevit modules
     (those crash the CPython3 engine; see the pushbutton header). The wrapping
     happens at say-time so a buffered error is revealed red too.
+
+    EVERY LINE IS WRAPPED ON ITS OWN. A Revit exception arrives as a paragraph --
+    message, then "Parameter name:", then a stack -- and one span around the
+    whole of it opens on the first line and closes on the last. The view renders
+    each printed line separately, so that span spans nothing and the tag itself
+    is what the user reads. The owner reported exactly that against a
+    Floor.Create failure.
+
+    The message is ESCAPED before it is wrapped: it is a Revit string, data
+    rather than markup, and a stray angle bracket in it would eat the rest of
+    the line.
     """
-    _OUT.say('<span style="color:#c00000;font-weight:bold">{0}</span>'
-             .format(msg))
+    for line in str(msg).split("\n"):
+        if not line.strip():
+            _OUT.say("")
+            continue
+        _OUT.say('<span style="color:#c00000;font-weight:bold">{0}</span>'
+                 .format(line.replace("&", "&amp;")
+                             .replace("<", "&lt;").replace(">", "&gt;")))
 
 
 class _NullProgress(object):

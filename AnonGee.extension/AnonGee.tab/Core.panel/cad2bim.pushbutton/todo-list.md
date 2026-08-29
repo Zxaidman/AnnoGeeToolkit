@@ -125,6 +125,59 @@ wrong. **No genuinely rotated column exists in test14** — every failure is noi
 band the measurement leaves empty, then decompose as a composite. `_snapped` in `fold_plan` is the
 donor. Tolerance to be set from the corpus-wide drift measurement, not chosen.
 
+### BUG-11 — `COVER` and `CUT` are unmapped, so the slab never learns where it stops · `pending`
+
+**How found:** the owner's v0.81.0 Revit run of test14, with four images. **Reproduced and measured**
+— and it explains four of the five symptoms at once. test14 carries two layers the convention does
+not know:
+
+| Layer | Records | Geometry, measured | What it is |
+|-------|---------|--------------------|------------|
+| `CUT` | 480 | **480 lines, every one diagonal, 0 axial** | the X-crosses: 240 crosses |
+| `COVER` | 456 | 351 polylines + 105 lines, **288 closed rings, every segment axial** | the slab edge |
+
+They are drawn as a pair. A `COVER` ring at (83810..84560, 37959..38549) has two `CUT` diagonals
+across exactly that box — the same convention test10 uses for its foundations, with the ring and the
+X on separate layers. **Run through the EXISTING X reader unchanged: 90 COVER rings are crossed and
+243 are not.**
+
+The owner's reading of the three cases, which the geometry matches:
+- a crossed ring → the slab **stops**: a cutout, a hole in the slab;
+- an uncrossed ring → still a slab edge, and where it carries the "SLAB AT BEAM BOTTOM" hatch
+  (`GOST_GLASS`, 75 regions, currently report-only) it is a **chajja** — a cantilever slab at beam
+  bottom;
+- the open `COVER` lines mark where a slab edge runs without closing a ring.
+
+This is also why the console says `source: placed_members`: with no slab-edge layer recognised the
+outlines are inferred from beam faces, which is what puts slab where the drawing shows none.
+
+### BUG-12 — Cutout and staircase areas are still slabbed · `pending`
+**How found:** the owner's images 4 and 5 — an X-crossed area carries a slab anyway, and the
+staircase area is slabbed too. Same root as BUG-11 for the crossed areas (the X is never read for
+slabs; it is read only for foundations today). The staircase case is its own: a bay a stair occupies
+should not also be a flat floor. Both need the slab pass to subtract what the drawing marks absent.
+
+### BUG-10 — A sunk beam gets slab laid over it · `pending`
+**How found:** the owner's image 1. A sunk hatch crossing a beam means **the beam is sunk too** —
+which v0.81.0 now does — but it does **not** mean the slab spans over that beam: the slab must stop
+at the beam's edge. Today the sunk bay is laid across it.
+
+### BUG-9 — `Floor.Create` refuses one slab profile · `pending`
+**How found:** the owner's console, one error against 151 created. **Not reproduced offline:** every
+one of the 474 slab profiles the DXF produces passes a full check — corner count, closure, repeated
+corners, self-intersection, hole-crosses-outer, hole-outside-outer, shared edges, hole-crosses-hole.
+The Revit run builds from the LINK's records, which explode closed polylines into separate lines, so
+its loops are not the DXF's. Until it can be reproduced the honest fix is for the builder to apply
+those same checks before calling `Floor.Create` and report the profile it declines, with
+coordinates, instead of letting Revit throw a stack into the console.
+
+### BUG-8 — An error printed its markup instead of turning red · `testing`
+**How found:** the owner's console showed `<span style="color:#c00000...">` as text. **Reproduced by
+reading:** a Revit exception arrives as a paragraph, and one span wrapped around the whole of it
+opens on the first line and closes on the last; the output view renders each line separately, so the
+span styles nothing and the tag is what you read. **Fixed:** every line is wrapped on its own, and
+the message is HTML-escaped first, being Revit data rather than markup.
+
 ### BUG-6 — A hatch's meaning is per PATTERN, but the mapping is per LAYER · `testing`
 
 **Decided by the owner and shipped in v0.80.0:** the hatch table gains a row per (layer, pattern)
