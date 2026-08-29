@@ -125,6 +125,43 @@ wrong. **No genuinely rotated column exists in test14** — every failure is noi
 band the measurement leaves empty, then decompose as a composite. `_snapped` in `fold_plan` is the
 donor. Tolerance to be set from the corpus-wide drift measurement, not chosen.
 
+### BUG-13 — A whole bay crossed by an X still gets a floor · `pending`
+
+**How found:** the owner's v0.83.0 run — "cutout are still not working in large portion while, smaller
+is working now". **Reproduced and measured, and the small/large split is exactly right:**
+
+- the crossed `COVER` rings, which v0.83.0 does cut, are **all tiny** — 90 of them, 0.031 to
+  0.227 m², and **not one contains or spans a bay**. Those are the small cutouts that now work.
+- the large ones are not `COVER` rings at all. **6 slab BAYS are crossed corner-to-corner by an X,
+  1.36 to 19.81 m², 63.5 m² in all**, and 48 of the cutout layer's strokes are longer than 3000 mm —
+  the big crosses. Nothing looks for an X over a bay, so all 63.5 m² is cast as floor.
+
+**The rule already exists** and is the foundation one, written for test10: *an X across a part means
+no concrete there*. It is applied to `COVER` rings only. A bay carrying the X is the same statement
+about a bigger piece, and should be withdrawn exactly as a staircase bay is.
+
+### BUG-14 — A hatch is shaping the slab, when it should only inform it · `pending`
+
+**How found:** the owner, stating the principle — "slab boundary still go with hatch pattern and
+overlaps with beam, hatch pattern does should not change the slab geometry it should only carries
+info and details."
+
+**Measured, and the drawing agrees with them:** across test14's 108 sunk hatches that sit in a bay,
+the hatch is **larger than the bay it marks** — ratio of areas 0.30 to 1.30, **median 1.14**, and
+only **9 of 108** within 5% of their bay. The overhang is the beam half-widths: the hatch is drawn
+across the bay AND the members around it. Using that outline as the dropped slab's geometry is
+precisely why the slab overlaps the beam, and the v0.83.0 trim (beam bodies as holes of the hatch
+ring) treats the symptom rather than the cause.
+
+**The fix is a simplification, not more machinery:** the hatch says WHICH bay is sunk and BY HOW
+MUCH; the bay's own ring — already bounded by its beams — is the geometry. The trim then has nothing
+left to do.
+
+**Open, and to be decided from the distribution rather than guessed:** a hatch covering only part of
+its bay (the measured minimum is 0.30 — 2.56 m² of hatch in an 8.66 m² bay). Sinking a whole bay on
+a third of a hatch would be as wrong as the present overhang, so the threshold wants the same
+empty-band treatment every other constant here got.
+
 ### BUG-11 — `COVER` and `CUT` are unmapped, so the slab never learns where it stops · `pending`
 
 **How found:** the owner's v0.81.0 Revit run of test14, with four images. **Reproduced and measured**
