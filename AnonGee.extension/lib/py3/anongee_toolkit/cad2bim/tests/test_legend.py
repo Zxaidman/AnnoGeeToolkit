@@ -22,20 +22,29 @@ test9 -- three towers on one sheet, three legend blocks:
     PI_SHEAR WALL CUTOUT (9 plan hatches, all on that one layer) -- and three
     report-only meanings (AR-CONC, ANSI32, ANSI37).
 
-test14 -- three plans of ONE building, the same legend drawn three times:
+test14 -- three plans of ONE building, the same legend drawn three times.
+REDRAWN by the owner 2026-08-29 (commit 901c8f8): same building, simpler
+sheet. The legend lost its three RC PARDI rows and its floating-column row,
+and the layers were renamed towards the conventions this tool reads (CUT ->
+CUTOUT, plus a real S-STRS stair layer). Eight rows became four; the three
+SUNK depths -- the thing the owner reported against -- did not move.
 
-  * 8 rows x 3 = 24, every one "INDICATES ..." with no HATCH prefix and an S
+  * 4 rows x 3 = 12, every one "INDICATES ..." with no HATCH prefix and an S
     on the verb. Swatches are 1050x500; every text anchors 751 mm from its
     own swatch. This is the drawing the "HATCH INDICATE" rule read as empty.
-  * The rows: SUNK BY 75/150/50MM (ANSI37/ANGLE/HONEY, 60+195+18 plan hatches,
-    all on HAT), SLAB AT BEAM BOTTOM (GOST_GLASS, 72, also on HAT), 100/150/
-    200MM THK. RC PARDI (EARTH/AR-HBONE/TRIANG on their own RC PARDI layers)
-    and FLOATING COLUMN (SOLID, on FC + S-Refr-Sect + col solid).
+  * The rows: SUNK BY 75/150/50MM (ANSI37/ANGLE/HONEY, 48+165+18 plan
+    hatches, all on HAT) and SLAB AT BEAM BOTTOM (GOST_GLASS, 72, also HAT).
   * Repetition is not ambiguity: all three plans say the identical thing, so
-    all eight patterns agree and survive `_agreed`.
+    all four patterns agree and survive `_agreed`.
   * What survives on test14: ONE proposal -- HAT -> sunk, from three agreeing
     SUNK patterns -- with the depths (-75/-150/-50) carried per pattern by
-    `legend_steps`, and five report-only meanings.
+    `legend_steps`, and one report-only meaning.
+
+  The rows the redraw removed took two rules' fixture cases with them, and
+  both keep their synthetic pins: a thickness note is not a step value
+  (`SunkMeanings.test_a_wall_thickness_is_not_a_depth`) and a pattern may be
+  demonstrated on one layer and drawn on another
+  (`ProposalTranslation.test_a_swatch_on_the_wrong_layer_is_not_a_plan_layer`).
 
 The sign question is OPEN where the drawing only signs it: test9's values are
 all "+" T.O.S., so fold-up cannot be told from drop and those go to
@@ -628,36 +637,47 @@ class TheTest9Legend(_FixtureLegend):
 
 
 class TheTest14Legend(_FixtureLegend):
-    """The drawing the "HATCH INDICATE" rule was blind to: eight rows, drawn
-    three times, none of them read until the swatch took over from the verb."""
+    """The drawing the "HATCH INDICATE" rule was blind to: four rows, drawn
+    three times, none of them read until the swatch took over from the verb.
+
+    RE-PINNED 2026-08-29. The owner replaced this fixture (commit 901c8f8) with
+    a simpler drawing of the same building: the legend lost its three RC PARDI
+    rows and its floating-column row, and the layers were renamed for the
+    conventions this tool actually reads (CUT -> CUTOUT, and a real S-STRS
+    stair layer). Eight rows became four; the three SUNK depths, which are what
+    the owner reported against, are unchanged.
+
+    Two behaviours this fixture can no longer exercise are NOT lost with it --
+    both were already pinned synthetically, which is why the loss is safe:
+    `test_a_thickness_note_is_not_a_step_value` holds the bare-number trap
+    ("INDICATES 150MM THK. RC PARDI" must never read as a 150 mm step), and
+    `test_a_pattern_demonstrated_on_one_layer_and_drawn_on_another` holds the
+    drafting slip where a pattern's swatches sit on a layer of their own.
+    """
 
     _path = _TEST14
 
-    def test_eight_rows_read_three_times_each(self):
+    def test_four_rows_read_three_times_each(self):
         result = self._read()
         entries = legend.read(result.regions, result.texts)
-        self.assertEqual(len(entries), 24)
+        self.assertEqual(len(entries), 12)
         by_pattern = {}
         for entry in entries:
             by_pattern[entry["pattern"]] = by_pattern.get(entry["pattern"],
                                                           0) + 1
         self.assertEqual(by_pattern,
                          {"ANSI37": 3, "ANGLE": 3, "HONEY": 3,
-                          "GOST_GLASS": 3, "AR-HBONE": 3, "EARTH": 3,
-                          "TRIANG": 3, "SOLID": 3})
+                          "GOST_GLASS": 3})
         meanings = sorted(set(entry["meaning"] for entry in entries))
         self.assertEqual(meanings, [
-            "INDICATES 100MM THK. RC PARDI",
-            "INDICATES 150MM THK. RC PARDI",
-            "INDICATES 200MM THK. RC PARDI",
-            "INDICATES FLOATING COLUMN STARTS FROM 1ST HABITABLE LEVEL.",
             "INDICATES SLAB AT BEAM BOTTOM",
             "INDICATES SLAB/BEAM SUNK BY 150MM.",
             "INDICATES SLAB/BEAM SUNK BY 50MM.",
             "INDICATES SLAB/BEAM SUNK BY 75MM.",
         ])
         # Every text is 751 mm from its own 1050x500 swatch -- one geometry,
-        # eight rows, three plans.
+        # four rows, three plans. Unchanged by the redraw, which is the check
+        # that the pairing reads the same drawing office either way.
         for entry in entries:
             self.assertIn("751 mm from a 1050x500", entry["evidence"])
 
@@ -676,7 +696,7 @@ class TheTest14Legend(_FixtureLegend):
         result = self._read()
         entries = legend.read(result.regions, result.texts)
         proposal = legend.propose(entries, result.regions)
-        # HAT holds all 273 sunk plan hatches (ANSI37 60, ANGLE 195, HONEY
+        # HAT holds all 231 sunk plan hatches (ANGLE 165, ANSI37 48, HONEY
         # 18) and nothing else that proposes, so one layer is routed.
         self.assertEqual(proposal["mapping"], {"HAT": layers.CATEGORY_SUNK})
         # Nothing in the drawing's own names says so -- the convention reads
@@ -688,42 +708,31 @@ class TheTest14Legend(_FixtureLegend):
         # rides on HAT.
         self.assertEqual(len(proposal["notes"]), 1)
         self.assertIn("GOST_GLASS", proposal["notes"][0])
-        # The five meanings this codebase has no pass for: three parapet
-        # thicknesses, the beam-bottom slab, and the floating column.
-        self.assertEqual(len(proposal["reports"]), 5)
-        reported = " ".join(proposal["reports"])
-        for pattern in ("AR-HBONE", "EARTH", "TRIANG", "GOST_GLASS", "SOLID"):
-            self.assertIn(pattern, reported)
+        # The one meaning this codebase has no pass for: the beam-bottom slab.
+        # It was five before the redraw took the parapet and floating-column
+        # rows out; what is left still has to be carried verbatim rather than
+        # invented into an action.
+        self.assertEqual(len(proposal["reports"]), 1)
+        self.assertIn("GOST_GLASS", " ".join(proposal["reports"]))
 
-    def test_the_parapet_rows_never_become_a_step(self):
-        # "150MM THK. RC PARDI" carries the same number as "SUNK BY 150MM."
-        # and must stay report-only: 132 AR-HBONE hatches on RC PARDI 150MM,
-        # 48 EARTH on RC PARDI 100MM, 12 TRIANG on RC PARDI 200MM, none of
-        # them routed anywhere.
+    def test_what_the_redraw_took_away_is_still_pinned(self):
+        # The old fixture carried three RC PARDI rows and a floating-column
+        # row, and with them two rules worth keeping: a thickness note is not
+        # a step value, and a pattern demonstrated on one layer may be drawn
+        # on another. The drawing no longer holds either case, so this test
+        # states where they went rather than letting them lapse unnoticed.
         result = self._read()
         entries = legend.read(result.regions, result.texts)
-        parapets = [e for e in entries if "RC PARDI" in e["meaning"]]
-        self.assertEqual(len(parapets), 9)
-        self.assertEqual(set(e["kind"] for e in parapets), {"other"})
-        proposal = legend.propose(entries, result.regions)
-        for layer in ("RC PARDI 100MM", "RC PARDI 150MM", "RC PARDI 200MM",
-                      "RC PARDI 75MM"):
-            self.assertNotIn(layer, proposal["mapping"])
-
-    def test_the_200mm_swatch_sits_on_the_wrong_layer_and_is_ignored(self):
-        # The drafting slip the one-layer rule has to survive: TRIANG's three
-        # swatches are on RC PARDI 75MM (which carries nothing else at all)
-        # while its twelve plan hatches are on RC PARDI 200MM.
-        result = self._read()
-        entries = legend.read(result.regions, result.texts)
-        triang = [e for e in entries if e["pattern"] == "TRIANG"]
-        self.assertEqual(set(e["layer"] for e in triang), {"RC PARDI 75MM"})
-        swatch_ids = set(id(e["swatch"]) for e in entries)
-        plan = {}
-        for region in result.regions:
-            if region.pattern == "TRIANG" and id(region) not in swatch_ids:
-                plan[region.layer_key] = plan.get(region.layer_key, 0) + 1
-        self.assertEqual(plan, {"RC PARDI 200MM": 12})
+        self.assertEqual([e for e in entries if "PARDI" in e["meaning"]], [],
+                         "the redrawn fixture still carries a parapet row -- "
+                         "re-pin it here instead of relying on the synthetic")
+        for owner, kept in (
+                (SunkMeanings, "test_a_wall_thickness_is_not_a_depth"),
+                (ProposalTranslation,
+                 "test_a_swatch_on_the_wrong_layer_is_not_a_plan_layer")):
+            self.assertIn(kept, dir(owner),
+                          "the synthetic pin standing in for the removed "
+                          "fixture case is gone: " + kept)
 
 
 if __name__ == "__main__":
