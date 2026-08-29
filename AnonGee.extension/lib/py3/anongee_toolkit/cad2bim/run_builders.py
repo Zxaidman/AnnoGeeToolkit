@@ -169,7 +169,44 @@ def _sunk_beam_drops(selections, regions, texts, segments):
     return drops["drops"]
 
 
-def _sunk_slab_steps(selections, regions, texts, slab_defs):
+def _slab_stops(slab_defs, records, texts, regions, sheet_texts, beam_segments,
+                selections, schedule):
+    """(slab_defs, [step]) -- what the drawing says STOPS each bay, applied.
+
+    Three readings, all of them the drawing's own marks and all of them
+    invisible to a beam graph: a crossed-out ring on the slab-stop layer is a
+    HOLE, a bay a staircase stands in is NOT a floor, and a beam-bottom hatch
+    is a CHAJJA at its own level. `slab_outlines.apply_slab_stops` does the
+    work; this says what happened, grouped, before anything is placed -- a
+    hole nobody cut and a stair cast solid both look built and are wrong.
+    """
+    entries = legend.read(regions or [], sheet_texts or texts or [])
+    defs, stopped = slab_outlines.apply_slab_stops(
+        slab_defs, records, texts, regions=regions,
+        beam_segments=beam_segments, legend_entries=entries,
+        skip_ids=set(id(entry["swatch"]) for entry in entries),
+        schedule=schedule,
+        blanket_thickness_mm=blanket_mm(selections,
+                                        "blanket_slab_thickness_mm"))
+    if stopped["crossed"]:
+        _say("  stops: {0} crossed-out ring(s) read, {1} cut as holes in "
+             "{2} bay(s)".format(stopped["crossed"], stopped["holes"],
+                                 stopped["holes"] - stopped["divided"]
+                                 if stopped["divided"] else stopped["holes"]))
+    if stopped["stair_bays"]:
+        _say("  stops: {0} staircase bay(s) withdrawn, {1:.1f} m2 of floor the "
+             "stair occupies".format(stopped["stair_bays"],
+                                     stopped["stair_area_m2"]))
+    if stopped["chajjas"]:
+        _say("  stops: {0} chajja(s) placed at beam bottom".format(
+            stopped["chajjas"]))
+    for message in stopped["notes"]:
+        _say("  stops: {0}".format(message))
+    return defs, stopped
+
+
+def _sunk_slab_steps(selections, regions, texts, slab_defs,
+                     beam_segments=None):
     """(slab_defs with their steps built in, [step]) for the hatched sunk bays.
 
     The same three-floor arithmetic the footings use, against slab loops
@@ -178,6 +215,10 @@ def _sunk_slab_steps(selections, regions, texts, slab_defs):
     to. Depths come from the PATTERN, so the one routed layer's three sunk
     values stay apart and the meaning on it that is no step at all is refused
     by name.
+
+    `beam_segments` are handed on so a dropped slab STOPS at the beam faces
+    the hatch was drawn across -- the sunk beam drops with the slab, it does
+    not get a floor cast over it.
 
     Every refusal is said before anything is placed: a bay that stepped
     nowhere is a floor left flat, which the model shows as correct.
@@ -194,7 +235,8 @@ def _sunk_slab_steps(selections, regions, texts, slab_defs):
     split = fold_plan.sunk_split(regions, depths, swatch_ids)
     steps = fold_plan.plan_steps(
         slab_defs, split["bays"], depths=depths, skip_ids=swatch_ids,
-        max_step_mm=(selections.get("tolerances") or {}).get("max_step_mm"))
+        max_step_mm=(selections.get("tolerances") or {}).get("max_step_mm"),
+        beams=beam_segments)
     stepped, cut = fold_plan.slab_defs_with_steps(slab_defs, steps["steps"])
     for message in split["skipped"] + steps["skipped"] + steps["notes"] + cut:
         _say("  sunk (slabs): {0}".format(message))
@@ -665,6 +707,12 @@ def _create_slabs(doc, records, beam_segments, texts, selections, schedule=None,
     steps the slab it sits in: the parent is cut, a floor goes in at the
     legend's depth, and the vertical face between the two soffits is filled
     where -- and only where -- the drop is deeper than the parent is thick.
+
+    A beam graph knows where a bay BEGINS and nothing about what stops it, so
+    `_slab_stops` reads that off the drawing before the steps go in: the
+    crossed-out rings on the slab-stop layer become holes, the bays a staircase
+    stands in are withdrawn, and the beam-bottom hatches come back as chajjas
+    at their own level.
     """
     from Autodesk.Revit.DB import Transaction, TransactionGroup
     level_id = selections.get("top_level_id")
@@ -726,8 +774,17 @@ def _create_slabs(doc, records, beam_segments, texts, selections, schedule=None,
     loop_count = len(slab_defs)
     sized = sum(1 for sd in slab_defs if sd.get("thickness_mm") is not None)
     blanket = [sd for sd in slab_defs if sd.get("blanket")]
+    # WHAT STOPS THE SLAB, before what STEPS it. A hole cut into a bay that is
+    # about to be withdrawn for a staircase is work thrown away, and a sunk
+    # region hosted in a bay that is not there is a step nobody can build --
+    # so the bays are settled first and the steps are worked out against what
+    # survives.
+    slab_defs, stopped = _slab_stops(
+        slab_defs, records, texts, regions, sheet_texts,
+        beam_segments.get("segments"), selections, slab_schedule)
     slab_defs, steps = _sunk_slab_steps(selections, regions,
-                                        sheet_texts or texts, slab_defs)
+                                        sheet_texts or texts, slab_defs,
+                                        beam_segments.get("segments"))
 
     group = TransactionGroup(doc, "CAD to BIM: Slabs")
     transaction = Transaction(doc, "Create slabs")
@@ -777,6 +834,11 @@ def _create_slabs(doc, records, beam_segments, texts, selections, schedule=None,
             "errors": len(result["errors"]), "source": source, "loops": loop_count,
             "sunk_steps": len(steps),
             "sunk_supports": sum(len(s["supports"]) for s in steps),
+            "slab_cutouts": stopped["crossed"],
+            "slab_cutout_holes": stopped["holes"],
+            "stair_bays_withdrawn": stopped["stair_bays"],
+            "stair_area_m2": stopped["stair_area_m2"],
+            "chajjas": stopped["chajjas"],
             _IDS: result["created"],
             "error_details": [str(e)[:220] for e in result["errors"][:8]],
             "skip_details": _skip_details(result["skipped"])}

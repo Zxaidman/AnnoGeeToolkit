@@ -61,6 +61,16 @@ lower -- test14 writes both with one legend line, "INDICATES SLAB/BEAM SUNK BY
 narrow side and `beam_drops` decides which member a strip claims; both
 thresholds sit in deserts measured on that drawing and recorded beside them.
 
+A SUNK BAY STOPS AT THE BEAM FACE. The hatch is drawn across the beams that
+bound the bay -- 123 of test14's 129 sunk bays lie partly over one, a median
+16.5% of their area -- and that does NOT mean the dropped slab runs over the
+beam. It means the beam is sunk too, and the slab stops at its edge. So the
+placed beam bodies are cut out of the dropped ring before it is a floor
+(`_trimmed_drop`), by the same `split_profile` that divides a parent round its
+step. The SUPPORT is worked out from the region as drawn, deliberately: a
+support is the concrete between two soffits at the step LINE, and the step line
+is where the drawing puts it, not where a beam happens to end.
+
 A SUNK BEAM KEEPS ITS DEPTH AND ITS WHOLE BODY DROPS -- the user's decision.
 Top and soffit move down together with the slab beside them, which is the usual
 sunken-slab detail. The beam is not deepened to reach back up to its level, and
@@ -166,7 +176,8 @@ def _step_rows(regions):
     return out
 
 
-def plan_steps(plans, regions, max_step_mm=None, depths=None, skip_ids=None):
+def plan_steps(plans, regions, max_step_mm=None, depths=None, skip_ids=None,
+               beams=None):
     """The three parts of every step, plus what was refused and why.
 
     `plans` are the outlines `foundation_plan.plan_foundations` read (or any
@@ -179,9 +190,17 @@ def plan_steps(plans, regions, max_step_mm=None, depths=None, skip_ids=None):
 
         {"kind", "ring", "depth_mm", "mark",
          "dropped": {"ring", "thickness_mm", "offset_mm"},
+         "drops": [{"ring", "holes", "thickness_mm", "offset_mm"}],
+         "trimmed": bool,
          "supports": [{"ring", "holes", "thickness_mm", "offset_mm"}],
          "opening": ring or None,
          "host_index": i}
+
+    `drops` is the dropped slab as it will be BUILT -- the ring with the beams
+    it was drawn across taken out of it, one piece per surviving part
+    (`_trimmed_drop`). `dropped` stays the whole region, because the opening,
+    the depth and the offset are all statements about the region rather than
+    about its pieces.
 
     Neighbouring collars POOL (`_pool_collars`): one slab per touching group,
     carried by the group's first step, every pooled region in its `holes`.
@@ -204,11 +223,19 @@ def plan_steps(plans, regions, max_step_mm=None, depths=None, skip_ids=None):
     `skip_ids` are id()s of regions never to route -- the legend's own
     demonstration swatches, which are hatches like every other one and would
     otherwise be read as a step in the middle of the legend block.
+
+    `beams` are the PLACED beam segments, and passing them is what makes a
+    sunk bay STOP AT THE BEAM EDGE (`_trimmed_drop`). Leaving them out keeps
+    the dropped slab exactly as the hatch is drawn, which is what the
+    FOUNDATION caller wants -- a raft's sunk region is bounded by the raft, not
+    by beams -- so the default is None and test10's numbers do not move.
     """
     limit = _MAX_STEP_MM if max_step_mm is None else float(max_step_mm)
     out = {"steps": [], "skipped": [], "notes": []}
     rings = [(index, plan) for index, plan in enumerate(plans or [])
              if plan.get("ring") and len(plan["ring"]) >= 3]
+    bodies = [body for body in
+              (_beam_body(segment) for segment in (beams or [])) if body]
     unpriced = {}
     for ring, kind, region in _step_rows(regions):
         if skip_ids and id(region) in skip_ids:
@@ -244,10 +271,31 @@ def plan_steps(plans, regions, max_step_mm=None, depths=None, skip_ids=None):
                     depth, kind, limit, host.get("mark") or "an unnamed outline"))
             continue
         out["steps"].append(_parts(ring, kind, depth, note, host, host_index,
-                                   rings))
+                                   rings, bodies))
     _report_unpriced(unpriced, out["skipped"])
     _pool_collars(out["steps"], out["notes"])
+    _report_trims(out["steps"], out["notes"])
     return out
+
+
+def _report_trims(steps, notes):
+    """One line for every dropped slab the beams cut back, not one per bay.
+
+    test14 trims 78 of its 129 sunk bays and splits 12 of those in two; 129
+    sentences would bury the eight that matter, which is the same reason
+    `_report_unpriced` groups by pattern.
+    """
+    trimmed = sum(1 for step in steps if step.get("trimmed"))
+    split = sum(1 for step in steps if len(step.get("drops") or []) > 1)
+    if not trimmed:
+        return
+    notes.append(
+        "{0} sunk bay(s) stop at the beam faces they were drawn across: the "
+        "beam drops with the slab, the slab does not run over it{1}".format(
+            trimmed,
+            "" if not split else
+            " ({0} of them in two pieces, a beam crossing the bay)".format(
+                split)))
 
 
 def _pattern_depth(region, depths):
@@ -465,11 +513,22 @@ def _step_defs(step):
     kind = step.get("kind") or "step"
     defs = []
     dropped = step.get("dropped") or {}
-    if dropped.get("ring"):
-        defs.append({"ring": [(p[0], p[1]) for p in dropped["ring"]],
-                     "holes": [], "arcs": [],
-                     "thickness_mm": dropped.get("thickness_mm"),
-                     "offset_mm": dropped.get("offset_mm"),
+    # `drops` is the dropped slab AFTER the beams are cut out of it -- one
+    # entry where the bay merely stops at the faces, several where a beam runs
+    # across it. `dropped` is still the whole ring, for every reader that only
+    # wants the depth and the offset; a step from before the trim (the
+    # foundation caller, an old replay) carries no `drops` at all and falls
+    # back to it, which is why this is a `or` and not an assert.
+    for piece in (step.get("drops")
+                  or ([dropped] if dropped.get("ring") else [])):
+        if not piece.get("ring"):
+            continue
+        defs.append({"ring": [(p[0], p[1]) for p in piece["ring"]],
+                     "holes": [[(p[0], p[1]) for p in hole]
+                               for hole in (piece.get("holes") or [])],
+                     "arcs": [],
+                     "thickness_mm": piece.get("thickness_mm"),
+                     "offset_mm": piece.get("offset_mm"),
                      "mark": _part_mark(mark, kind),
                      "part": kind})
     for support in (step.get("supports") or []):
@@ -1044,7 +1103,7 @@ def _note_for(ring, host, kind):
     return None
 
 
-def _parts(ring, kind, depth_mm, note, host, host_index, rings):
+def _parts(ring, kind, depth_mm, note, host, host_index, rings, bodies=()):
     """One step's parent opening, support slab(s) and dropped slab.
 
     The parent is read PER EDGE, from whatever outline abuts it, because the two
@@ -1087,12 +1146,60 @@ def _parts(ring, kind, depth_mm, note, host, host_index, rings):
             continue
         sides.append((thickness,
                       depth_mm + (dropped_thickness or 0.0) - thickness))
+    drops, trimmed = _trimmed_drop(ring, bodies)
     return {"kind": kind, "ring": ring, "depth_mm": depth_mm,
             "mark": host.get("mark"), "host_index": host_index,
-            "dropped": {"ring": ring, "thickness_mm": dropped_thickness,
+            "dropped": {"ring": drops[0][0], "thickness_mm": dropped_thickness,
                         "offset_mm": -depth_mm},
+            "drops": [{"ring": piece, "holes": holes,
+                       "thickness_mm": dropped_thickness,
+                       "offset_mm": -depth_mm} for piece, holes in drops],
+            "trimmed": trimmed,
             "supports": _support_slabs(edges, sides),
             "opening": None if coincident else ring}
+
+
+def _trimmed_drop(ring, bodies):
+    """([(ring, holes)], trimmed) -- the dropped slab with the BEAMS taken out.
+
+    "SUNK PATTERN GOING ON A BEAM DOES NOT MEAN THE SLAB GOES OVER THE BEAM"
+    -- the owner's own words. A drawing hatches a sunk bay from beam face to
+    beam face, or right across the beams that bound it, and both mean the same
+    thing: the beam is sunk WITH the slab and the slab stops at its edge.
+    Measured on test14's 129 sunk bays, 123 of them lie partly over a placed
+    beam, a median 16.5% of the bay's area and up to 24.6% -- concrete cast
+    through the beams it is supposed to stop against.
+
+    The beams are handed to `split_profile` as HOLES, which is the machinery
+    that already knows the difference between a void inside an outline and one
+    reaching its edge: a beam along a side trims that side, a beam crossing the
+    bay divides it in two. On test14 that leaves 117 bays whole and splits 12,
+    takes 10.6% off the dropped area (562.7 m2 -> 503.0), and leaves a residual
+    beam coverage of at most 0.0001 where it used to be a quarter.
+
+    `bodies` empty is the FOUNDATION caller: nothing is trimmed, the ring comes
+    back exactly as drawn, and `trimmed` is False.
+    """
+    if not bodies:
+        return [(ring, [])], False
+    cuts = []
+    for body in bodies:
+        piece = _clipped(body, ring)
+        if len(piece) >= 3 and abs(_signed_area(piece)) > 1e-12:
+            cuts.append(piece)
+    if not cuts:
+        return [(ring, [])], False
+    pieces = split_profile(ring, cuts)
+    if not pieces:
+        # every scrap of the bay lies under a beam. That is a strip, not a bay
+        # -- `sunk_split` reads it as one -- so it cannot happen with the
+        # measured threshold in place; the ring as drawn is the honest answer
+        # if it ever does.
+        return [(ring, [])], False
+    trimmed = (len(pieces) > 1
+               or abs(_signed_area(pieces[0][0])) < abs(_signed_area(ring))
+               - config.mm_to_ft(1.0) ** 2)
+    return pieces, trimmed
 
 
 def _support_slabs(edges, sides):

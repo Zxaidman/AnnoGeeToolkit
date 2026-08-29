@@ -32,10 +32,11 @@ import _golden
 import _loader
 
 
-(report, layers, marks, dxf_reader, slab_outlines, foundation_plan,
- fold_plan, legend, wall_plan) = _loader.load(
+(report, layers, marks, dxf_reader, slab_outlines, slab_stops,
+ foundation_plan, fold_plan, legend, wall_plan) = _loader.load(
     "report", "classify.layers", "classify.marks", "readers.dxf_reader",
-    "slab_outlines", "foundation_plan", "fold_plan", "legend", "wall_plan")
+    "slab_outlines", "slab_stops", "foundation_plan", "fold_plan", "legend",
+    "wall_plan")
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _CAD = os.path.join(_HERE, "fixtures", "cad")
@@ -173,6 +174,7 @@ def _measure(path):
 
     sunk = _sunk_pass(result, legend_entries, legend_proposals, legend_depths,
                       labelled, beams)
+    stops = _stops_pass(result, legend_entries, legend_depths, labelled, beams)
 
     return {
         "records": len(result.records),
@@ -237,6 +239,21 @@ def _measure(path):
         "sunk_beams_dropped": sunk["dropped"],
         "sunk_beam_drop_mm_total": sunk["drop_total"],
         "sunk_strips_on_no_beam": sunk["strips_skipped"],
+        "sunk_bays_trimmed_to_beams": sunk["trimmed"],
+        "sunk_drop_pieces": sunk["drop_pieces"],
+        "slab_stop_records": sum(
+            1 for r in result.records
+            if r.category == layers.CATEGORY_SLAB_STOP),
+        "slab_stop_rings": stops["rings"],
+        "slab_cutouts_crossed": stops["crossed"],
+        "slab_cutout_holes": stops["holes"],
+        "slab_bays_divided_by_cutouts": stops["divided"],
+        "stair_bays_withdrawn": stops["stair_bays"],
+        "stair_area_m2": stops["stair_area_m2"],
+        "chajjas": stops["chajjas"],
+        "chajja_offset_mm_total": stops["chajja_offset_total"],
+        "slab_stop_notes": stops["notes"],
+        "slab_defs_built": stops["built"],
         "wall_records": sum(
             1 for r in result.records
             if r.category in (layers.CATEGORY_STRUCT_WALL,
@@ -273,7 +290,7 @@ def _sunk_pass(result, entries, proposals, depths, slab_defs, beams):
     split = fold_plan.sunk_split(result.regions, depths, swatch_ids)
     drops = fold_plan.beam_drops(beams, split["strips"])
     steps = fold_plan.plan_steps(slab_defs, split["bays"], depths=depths,
-                                 skip_ids=swatch_ids)
+                                 skip_ids=swatch_ids, beams=beams)
     defs, _notes = fold_plan.slab_defs_with_steps(slab_defs, steps["steps"])
     return {
         "bays": len(split["bays"]),
@@ -287,6 +304,48 @@ def _sunk_pass(result, entries, proposals, depths, slab_defs, beams):
         "dropped": len(drops["drops"]),
         "drop_total": round(sum(drops["drops"].values()), 1),
         "strips_skipped": len(drops["skipped"]),
+        # THE TRIM. A sunk bay is hatched across the beams that bound it, and
+        # the dropped slab must stop at their faces -- `trimmed` counts the
+        # bays that lost concrete to a beam, `drop_pieces` the floors the drop
+        # ends up as (more than one where a beam runs across the bay).
+        "trimmed": sum(1 for s in steps["steps"] if s.get("trimmed")),
+        "drop_pieces": sum(len(s.get("drops") or []) for s in steps["steps"]),
+    }
+
+
+def _stops_pass(result, entries, depths, slab_defs, beams):
+    """What the SLAB-STOP pass makes of the drawing, and what the run builds.
+
+    Measured on the same `slab_defs` the sunk pass above is measured on, so the
+    two halves are pinned apart and a number that moves says which half moved.
+    `built` is the one number that pins the CHAIN the pushbutton runs -- stops
+    first, then the steps against what survives -- because the order is a
+    decision in its own right (a hole cut into a bay a staircase then withdraws
+    is work thrown away, and the console would have reported it).
+
+    The regions arrive already re-categorised by `_sunk_pass`, which is the
+    routing the run uses; nothing here re-maps them.
+    """
+    swatch_ids = set(id(entry["swatch"]) for entry in (entries or []))
+    stopped, report = slab_outlines.apply_slab_stops(
+        slab_defs, result.records, result.texts, regions=result.regions,
+        beam_segments=beams, legend_entries=entries, skip_ids=swatch_ids)
+    split = fold_plan.sunk_split(result.regions, depths, swatch_ids)
+    steps = fold_plan.plan_steps(stopped, split["bays"], depths=depths,
+                                 skip_ids=swatch_ids, beams=beams)
+    built, _notes = fold_plan.slab_defs_with_steps(stopped, steps["steps"])
+    return {
+        "rings": len(slab_stops.slab_stop_rings(result.records)),
+        "crossed": report["crossed"],
+        "holes": report["holes"],
+        "divided": report["divided"],
+        "stair_bays": report["stair_bays"],
+        "stair_area_m2": report["stair_area_m2"],
+        "chajjas": report["chajjas"],
+        "chajja_offset_total": round(sum(
+            d["offset_mm"] for d in stopped if d.get("part") == "chajja"), 1),
+        "notes": len(report["notes"]),
+        "built": len(built),
     }
 
 

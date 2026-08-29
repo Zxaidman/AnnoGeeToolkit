@@ -20,6 +20,12 @@ Two further sources survive for tests and offline replays only:
 slab_loops_from_member_edges (drawn member linework) and
 slab_loops_from_beam_graph (centreline graph, faces inset by half width).
 
+A bay is where the slab BEGINS; what stops it is a separate question, and one a
+beam graph cannot answer -- so `apply_slab_stops` asks it of the drawing after
+the loops are labelled: the crossed-out rings on the slab-stop layer become
+holes, the bays a staircase stands in are withdrawn, and the beam-bottom
+hatches come back as chajjas. All of that reading lives in slab_stops.py.
+
 Sizing and naming mirror columns/beams exactly:
     - a slab label ("S1 150 THK", "S3", "150 thk") sitting INSIDE a loop names it and
       gives its thickness;
@@ -58,13 +64,19 @@ _MM = config.MM_PER_FT
 
 
 # ---------------------------------------------------------------- outline source 1
-def slab_loops_from_edges(records):
+def slab_loops_from_edges(records, category=CATEGORY_SLAB_EDGE):
     """Slab boundary rings straight from the slab-edge layer, [(ring, z, arcs), ...].
 
     A CLOSED polyline is a ring as drawn. Open polylines, loose lines AND boundary
     ARCS (tessellated into chords, with the true start/mid/end triple carried in
     `arcs` so the builder can rebuild a genuine curved edge) are chained end-to-end
     (within _CHAIN_TOL_MM) and kept only if they close into a ring.
+
+    `category` is the layer routing to read, and it exists for ONE caller:
+    `slab_stops` asks the same question of the SLAB-STOP linework (test14's
+    COVER), where a ring means "a hole's rim" rather than "a bay". The
+    assembly is identical either way -- a drawn ring is a drawn ring -- and
+    sharing it is what stops the two readings drifting apart.
     """
     tol_ft = config.mm_to_ft(slab_graph._CHAIN_TOL_MM)
     rings = []
@@ -72,7 +84,7 @@ def slab_loops_from_edges(records):
     arc_triples = []
     seen_pieces = set()               # adjacent panels re-draw shared edges: ONE copy
     for record in records:
-        if record.category != CATEGORY_SLAB_EDGE:
+        if record.category != category:
             continue
         fp = _piece_fingerprint(record.points)
         if fp in seen_pieces:
@@ -436,6 +448,88 @@ def slab_loops_from_placed_members(records, beam_segments, column_rects=None,
     _append_footprint_rings(segs, src, rects, circles, carriers=carriers)
     return _faces_from_edge_graph(segs, src, arc_triples, z, circles, beam_segments,
                                   carriers=carriers, keep_points=keep_points)
+
+
+def apply_slab_stops(slab_defs, records, texts, regions=None,
+                     beam_segments=None, legend_entries=None, skip_ids=None,
+                     schedule=None, blanket_thickness_mm=None):
+    """(defs, report) -- the bays with what the drawing says STOPS them applied.
+
+    `report` is {"notes", "crossed", "holes", "divided", "stair_bays",
+    "stair_area_m2", "chajjas"} -- the numbers the console line and the sweep
+    both read, so neither has to count the defs back.
+
+    Three subtractions and one addition, in the order they have to happen:
+
+      * the bays a STAIRCASE stands in are withdrawn (a stair and a flat floor
+        in the same bay is the model the owner found);
+      * every crossed-out slab-stop ring becomes a hole of the bay holding it,
+        and a bay whose hole reaches its boundary is DIVIDED by
+        `fold_plan.split_profile` -- on test14 all 60 hosted holes do reach it,
+        so this is the normal case rather than the exception;
+      * the chajjas are added, as their own floors at beam-bottom level.
+
+    Stairs first: a hole cut into a bay that is about to be withdrawn is work
+    thrown away, and worse, it would count in the report.
+
+    Every refusal comes back on `notes`, grouped -- see slab_stops.
+    """
+    from . import fold_plan
+    from . import slab_stops
+    defs = list(slab_defs or [])
+    notes = []
+
+    stairs = slab_stops.stair_bays(defs, records, texts)
+    notes.extend(stairs["notes"])
+    cutouts = slab_stops.slab_cutouts(defs, records)
+    notes.extend(cutouts["notes"])
+
+    out = []
+    divided = 0
+    for index, slab in enumerate(defs):
+        if index in stairs["indexes"]:
+            continue
+        holes = cutouts["holes"].get(index)
+        ring = slab.get("ring")
+        if not holes or not ring or len(ring) < 3:
+            out.append(slab)
+            continue
+        pieces = fold_plan.split_profile([(p[0], p[1]) for p in ring],
+                                         list(slab.get("holes") or []) + holes)
+        if len(pieces) > 1:
+            divided += 1
+        for piece_ring, piece_holes in pieces:
+            piece = dict(slab)
+            piece["ring"] = piece_ring
+            piece["holes"] = piece_holes
+            if len(pieces) > 1:
+                # the pieces are not the ring that was drawn, so the arc
+                # triples recorded against that ring no longer describe them
+                piece["arcs"] = []
+            out.append(piece)
+    if divided:
+        notes.append(
+            "{0} slab bay(s) divided: a crossed-out ring reaches the bay's own "
+            "edge, so the concrete is two pieces round it rather than one with "
+            "a hole".format(divided))
+
+    chajjas = slab_stops.chajja_slabs(
+        regions, beam_segments, legend_entries, texts=texts,
+        skip_ids=skip_ids, schedule=schedule,
+        blanket_thickness_mm=blanket_thickness_mm)
+    notes.extend(chajjas["notes"])
+    out.extend(chajjas["defs"])
+    return out, {
+        "notes": notes,
+        "crossed": cutouts["crossed"],
+        "holes": sum(len(rings) for rings in cutouts["holes"].values()),
+        "divided": divided,
+        "stair_bays": len(stairs["indexes"]),
+        "stair_area_m2": round(sum(
+            slab_stops.area_m2(defs[i]["ring"]) for i in stairs["indexes"]
+            if defs[i].get("ring")), 1),
+        "chajjas": len(chajjas["defs"]),
+    }
 
 
 # The labelling half moved to slab_labels.py -- imported at the END because that

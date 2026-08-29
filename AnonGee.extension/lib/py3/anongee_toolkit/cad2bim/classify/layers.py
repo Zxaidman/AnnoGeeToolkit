@@ -39,15 +39,28 @@ CATEGORY_FOLD = "fold"
 CATEGORY_SUNK = "sunk"
 # A CUTOUT region is a hole: no concrete where it sits, never an element of
 # its own -- the hatch-region cousin of the X-marked face (foundation_plan).
-# No GEOMETRY convention pattern routes here on purpose: a name rule would
-# re-route test9's shear-wall-named layers away from the wall passes behind
-# the user's back. Linework reaches it only through an explicit pick in the
-# dialog. HATCHES are different -- they have a mapping of their own
-# (_HATCH_CONVENTION below), where a cutout token is safe because routing a
-# hatch layer never moves linework -- and the LEGEND proposal (test9's
-# ASPHALT hatches, "HATCH INDICATE CUTOUT FOR DOOR ABOVE", all on
+# The GEOMETRY convention DOES route here now, but only from the very LAST
+# row of the table: the fear that put this comment here -- a cutout token
+# stealing test9's shear-wall-named layers from the wall passes -- is a fear
+# about ORDER, and it is answered by position rather than by silence (see the
+# two closing rows of DEFAULT_CONVENTION and the corpus dump recorded beside
+# them). What routes here is the X-STROKE linework itself, drafting marks that
+# are never an outline. HATCHES have a mapping of their own
+# (_HATCH_CONVENTION below), where a cutout token has always been safe because
+# routing a hatch layer never moves linework -- and the LEGEND proposal
+# (test9's ASPHALT hatches, "HATCH INDICATE CUTOUT FOR DOOR ABOVE", all on
 # PI_SHEAR WALL CUTOUT) seeds that hatch mapping too.
 CATEGORY_CUTOUT = "cutout"
+# WHERE THE SLAB STOPS -- not where a bay is. test14 and test12 both carry a
+# COVER layer the user calls "the slab edge", and routing it to
+# CATEGORY_SLAB_EDGE would be a disaster: measured, test14's 303 COVER records
+# close into 153 rings of 0.015 .. 0.227 m2 (the largest 899x250 mm) on a plan
+# 200 m across, so `slab_loops_from_edges` would hand the whole storey those
+# 153 pockets and nothing else. They are LOCAL edges -- the rim of a hole, the
+# free edge of a chajja, a notch at a duct -- and what they say is "the slab
+# ends on this line", which is a different sentence from "this ring is a bay".
+# slab_stops.py reads them; the bays keep coming from the placed members.
+CATEGORY_SLAB_STOP = "slab stop"
 CATEGORY_UNMAPPED = "unmapped"
 
 # Identification / annotation layers must NEVER inherit a structural category,
@@ -92,13 +105,35 @@ DEFAULT_CONVENTION = (
     # full 72-layer dump moved exactly one layer when this token was added.
     (r"shear|retain|rcc", CATEGORY_STRUCT_WALL),   # structural walls before plain "wall"
     (r"wall|parapet", CATEGORY_ARCH_WALL),
+    # THE LAST TWO ROWS, AND WHY THEY ARE LAST. The comment on CATEGORY_CUTOUT
+    # above feared a geometry cutout token: it would pull test9's
+    # "PI_SHEAR WALL CUTOUT" out of the wall passes behind the user's back. It
+    # would -- ABOVE the wall rows. Below them the wall token has already
+    # claimed that layer, and so has "A-WALL-CUT-Brick" (Project1, test8),
+    # which the bare `cut` form would otherwise take. The whole 99-name corpus
+    # dump was run against these two rows and exactly SIX names move, every one
+    # of them from `unmapped`:
+    #   COVER          -> slab stop  (test12 1219 records, test14 303)
+    #   CUT            -> cutout     (test12 1436)
+    #   CUTOUT         -> cutout     (test14 492)
+    #   A-CUTOUT       -> cutout     (test10 44, test13 512, test15 12, test16 54)
+    #   A-CUTOUT-THIN  -> cutout     (test15 1158, test16 276)
+    #   PI_CUTOUT      -> cutout     (test9 174)
+    # "A-WALL-CUT-Brick" stays arch wall and "PI_SHEAR WALL CUTOUT" stays
+    # structural wall, which is the whole point of the position; and
+    # "A-ANNO-Cutline n Arrow" never reaches here at all -- `anno` excludes it.
+    # `cover` is bounded by nothing because nothing else in the corpus contains
+    # it; `cut` is bounded on both sides so a word merely STARTING with it
+    # ("Cutline") is not a cutout.
+    (r"cover", CATEGORY_SLAB_STOP),
+    (r"cut[\s_-]*out|(?<![a-z])cut(?![a-z])", CATEGORY_CUTOUT),
 )
 
 ALL_CATEGORIES = (
     CATEGORY_GRID, CATEGORY_COLUMN, CATEGORY_BEAM,
     CATEGORY_SLAB_EDGE, CATEGORY_STRUCT_WALL, CATEGORY_ARCH_WALL,
     CATEGORY_STAIR, CATEGORY_FOUNDATION, CATEGORY_FOLD, CATEGORY_SUNK,
-    CATEGORY_CUTOUT,
+    CATEGORY_CUTOUT, CATEGORY_SLAB_STOP,
     CATEGORY_FLOOR_BOUNDARY, CATEGORY_FLOOR_ORIGIN,
     CATEGORY_UNMAPPED,
 )

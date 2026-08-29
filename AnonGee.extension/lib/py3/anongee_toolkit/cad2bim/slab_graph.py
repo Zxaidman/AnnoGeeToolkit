@@ -1032,6 +1032,72 @@ def _next_ccw(nodes, adjacency, edge):
     return best if best is not None else u
 
 
+# ------------------------------------------------------------------ the X symbol
+# TWO STRAIGHT STROKES CORNER TO CORNER MEAN "NOTHING HERE". The convention is
+# the drafting standard for a void and this package now reads it in two places:
+# `foundation_plan` voids a crossed-out FACE of the raft with it, and
+# `slab_stops` voids a crossed-out ring on the slab-stop layer. It lives here,
+# in the graph engine both of them already import, so there is ONE reading of
+# the symbol rather than two that can drift apart. foundation_plan re-exports
+# both names, so its own behaviour is unchanged to the byte.
+
+# How close a cross stroke's end must land to the corner it claims. test10's
+# strokes hit their corners exactly; 50 mm forgives an annotator's snap without
+# letting a slash across half the face count as the symbol. It is also what
+# test14's 492 CUTOUT diagonals want: 90 of its 153 slab-stop rings read as
+# crossed with the tolerance at 50, and the same 90 whether the strokes come
+# from the cutout layer alone (492) or from every record in the drawing (2220).
+_CUTOUT_MARK_MM = 50.0
+
+
+def cross_strokes(records):
+    """[(a, b)] -- every straight two-point record, whatever its layer.
+
+    A LINE, or a polyline holding exactly two points. Category is deliberately
+    not consulted: the cross is drawn on an annotation layer (test10's
+    "A-CUTOUT", test14's "CUTOUT") and the strokes prove themselves by landing
+    on a ring's corners, not by where they live. Measured: restricting the
+    search to the cutout layer moves nothing -- test14 reads 90 crossed rings
+    either way, test12 319 -- so the wider net costs no accuracy and needs no
+    layer to be routed before it works.
+    """
+    out = []
+    for record in (records or []):
+        if getattr(record, "kind", None) not in ("line", "polyline"):
+            continue
+        points = getattr(record, "points", None) or []
+        if len(points) != 2:
+            continue
+        a, b = (points[0][0], points[0][1]), (points[1][0], points[1][1])
+        if _dist(a, b) > 1e-9:
+            out.append((a, b))
+    return out
+
+
+def crossed(ring, strokes):
+    """True when two strokes span the ring corner-to-corner -- the X symbol.
+
+    The ring's CORNERS are what the strokes are measured against, not its
+    vertices: a face walk stops wherever the linework was split, so a straight
+    side can carry mid-edge vertices the drawing does not have. Four corners,
+    two diagonals, one stroke per diagonal, each end within `_CUTOUT_MARK_MM`
+    of the corner it claims. One diagonal alone is not the symbol.
+    """
+    corners = shapes.simplify_ring(ring)
+    if len(corners) != 4:
+        return False
+    tol = config.mm_to_ft(_CUTOUT_MARK_MM)
+
+    def lands(stroke, a, b):
+        p, q = stroke
+        return ((_dist(p, a) <= tol and _dist(q, b) <= tol)
+                or (_dist(p, b) <= tol and _dist(q, a) <= tol))
+
+    return all(any(lands(stroke, corners[first], corners[first + 2])
+                   for stroke in strokes)
+               for first in (0, 1))
+
+
 # --------------------------------------------------------------------------- utils
 def _dist(a, b):
     return ((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2) ** 0.5

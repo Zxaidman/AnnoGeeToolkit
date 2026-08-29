@@ -41,11 +41,12 @@ the inner outline is cast as its own slab inside.
 
 A CROSSED-OUT face is the drawing's way of saying "no concrete here at all".
 The convention is the standard opening symbol: two straight strokes spanning
-the face corner-to-corner, an X -- test10 draws them on "A-DETL", a detail
-layer no category claims, over the north and south parts of the corridor
-strip. A nested face carrying the X is a CUTOUT: it is never an element, it
-never completes a neighbour through the step-line dissolve, and its ring
-becomes a hole of the plan that contains it. Read any other way the raft was
+the face corner-to-corner, an X -- test10 draws them on "A-CUTOUT", over the
+north and south parts of the corridor strip. A nested face carrying the X is a
+CUTOUT: it is never an element, it never completes a neighbour through the
+step-line dissolve, and its ring becomes a hole of the plan that contains it.
+The reading itself lives in `slab_graph` now, shared with the slab-stop pass
+that voids a crossed ring on the floor plan. Read any other way the raft was
 cast solid over the crossed-out parts -- the user found the corridor filled in
 Revit against a drawing that crosses it out. Both strokes must reach the
 corners (within `_CUTOUT_MARK_MM`), one per diagonal: a single slash is a
@@ -79,6 +80,12 @@ from .geom import shapes
 from .slab_graph import (_centroid, _cluster_nodes, _dedup_ring, _dist,
                          _is_simple_ring, _next_ccw, _point_in_ring,
                          _signed_area)
+# The X symbol moved to slab_graph so the slab-stop pass reads it the same way
+# (slab_graph, "the X symbol"). Re-exported under the names this module has
+# always used, so nothing here -- or in its tests -- changed by a byte.
+from .slab_graph import (_CUTOUT_MARK_MM,                         # noqa: F401
+                         cross_strokes as _cross_strokes,
+                         crossed as _crossed)
 
 _MM = config.MM_PER_FT
 
@@ -94,11 +101,6 @@ _MIN_AREA_M2 = 0.25
 
 # The categories whose LINES may complete an outline without being one.
 _STEP_CATEGORIES = (CATEGORY_FOLD, CATEGORY_SUNK)
-
-# How close a cross stroke's end must land to the face corner it claims. The
-# fixture's strokes hit their corners exactly; 50 mm forgives an annotator's
-# snap without letting a slash across half the face count as the symbol.
-_CUTOUT_MARK_MM = 50.0
 
 
 def apply_tolerances(tolerances):
@@ -246,27 +248,6 @@ def _faces(segments, flags, strokes=(), drawn=()):
     return out, cutout_rings
 
 
-def _cross_strokes(records):
-    """[(a, b)] -- every straight two-point record, whatever its layer.
-
-    A LINE, or a polyline holding exactly two points. Category is deliberately
-    not consulted: the cross is drawn on an annotation layer ("A-DETL" in the
-    fixture) that maps to nothing, and the strokes prove themselves by landing
-    on a face's corners, not by where they live.
-    """
-    out = []
-    for record in (records or []):
-        if getattr(record, "kind", None) not in ("line", "polyline"):
-            continue
-        points = getattr(record, "points", None) or []
-        if len(points) != 2:
-            continue
-        a, b = (points[0][0], points[0][1]), (points[1][0], points[1][1])
-        if _dist(a, b) > 1e-9:
-            out.append((a, b))
-    return out
-
-
 def _split_off_cutouts(faces, nodes, strokes, drawn):
     """(faces without the crossed-out ones, their rings as holes-to-be).
 
@@ -304,30 +285,6 @@ def _split_off_cutouts(faces, nodes, strokes, drawn):
         simplified = shapes.simplify_ring(rings[index])
         cut.append(simplified if len(simplified) >= 3 else rings[index])
     return keep, cut
-
-
-def _crossed(ring, strokes):
-    """True when two strokes span the face corner-to-corner -- the X symbol.
-
-    The face's CORNERS are what the strokes are measured against, not its
-    vertices: the walk stops wherever the linework was split, so a straight
-    side can carry mid-edge vertices the drawing does not have. Four corners,
-    two diagonals, one stroke per diagonal, each end within `_CUTOUT_MARK_MM`
-    of the corner it claims. One diagonal alone is not the symbol.
-    """
-    corners = shapes.simplify_ring(ring)
-    if len(corners) != 4:
-        return False
-    tol = config.mm_to_ft(_CUTOUT_MARK_MM)
-
-    def lands(stroke, a, b):
-        p, q = stroke
-        return ((_dist(p, a) <= tol and _dist(q, b) <= tol)
-                or (_dist(p, b) <= tol and _dist(q, a) <= tol))
-
-    return all(any(lands(stroke, corners[first], corners[first + 2])
-                   for stroke in strokes)
-               for first in (0, 1))
 
 
 def _split_at_endpoints(segments, flags, tol_ft):
