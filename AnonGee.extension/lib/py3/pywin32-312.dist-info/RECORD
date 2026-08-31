@@ -1,8 +1,8 @@
 ../../bin/__pycache__/pywin32_postinstall.cpython-312.pyc,,
 ../../bin/__pycache__/pywin32_testall.cpython-312.pyc,,
-../../bin/pywin32_postinstall.exe,sha256=z2-xrL3fUyos1eChtSe0NKVDq7z7dF9gUr3Obzzvr9U,108381
+../../bin/pywin32_postinstall.exe,sha256=PNLhvUIRPaLPwo6gaZ3g3aIuSPV2R3GxCWRfL9yU9Z8,108381
 ../../bin/pywin32_postinstall.py,sha256=RT3RogIBArMUhRCFaivWkl2NsVZwr9cNNd2hcsXUBU4,25576
-../../bin/pywin32_testall.exe,sha256=bursaWz-Cw_EHZswOQ3lBX08Z-Pc_stbKUPQXCLOMm8,108377
+../../bin/pywin32_testall.exe,sha256=qgHdsMv8d2tI6UdnFxVxjzhWJ73QjW2-GTRcNAXRIko,108377
 ../../bin/pywin32_testall.py,sha256=FYvjx43thdvbkWaYiLMTX39RxsFL0c-1o-xY2udlBqA,3847
 PyWin32.chm,sha256=X8MAsKaFhJRAzKBn0QR-GEXRoShgndE6NQg6LqhzTVI,2642799
 __pycache__/pythoncom.cpython-312.pyc,,
@@ -296,6 +296,7 @@ pythonwin/win32uiole.pyd,sha256=kbZAEf4a_7xHI7kVYvYllDPZ1axRLpzjQthoLZ0QmTo,7475
 pywin32-312.dist-info/INSTALLER,sha256=zuuue4knoyJ-UwPPXg8fezS7VCrXJQrAP7zeNuwvFQg,4
 pywin32-312.dist-info/METADATA,sha256=d_U-kECN073PX3OiDWVIUEMT3uKtNPizeUsiAlg6hLE,11168
 pywin32-312.dist-info/RECORD,,
+pywin32-312.dist-info/REQUESTED,sha256=47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU,0
 pywin32-312.dist-info/WHEEL,sha256=rR5QfsWcZl3mra5AmSD7Fd0dzQxZ3lHCpDo70IkfDK4,101
 pywin32-312.dist-info/entry_points.txt,sha256=XBq6roRcOC6A4VtWfmKwM82MlypuHrlpg0GT6I-SAKQ,132
 pywin32-312.dist-info/licenses/adodbapi/license.txt,sha256=XqLyPH8AwwBrrPJnGD6BbY1LbclepXpN2w_4HebYcZ4,26925

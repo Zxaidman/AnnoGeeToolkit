@@ -2,6 +2,12 @@
 .env
 __pycache__
 bin
+tools/_runtime_backups/*
+tools/_runtime_work/*
+build/
+.py3_previous_swap/
+installer/output/
+installer/payload/
 
 # --- Extended Python & Caching ---
 *.py[cod]

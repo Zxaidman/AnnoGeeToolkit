@@ -1,7 +1,8 @@
-../../bin/idna.exe,sha256=V7J0XnEZIhPps39LBuoafJ1Fe1h2G2BjI0YSz7zMfeI,108356
+../../bin/idna.exe,sha256=t2Y33286q4wtr3sYSvKwImxaytRH3aUyly4hbSxmavg,108356
 idna-3.19.dist-info/INSTALLER,sha256=zuuue4knoyJ-UwPPXg8fezS7VCrXJQrAP7zeNuwvFQg,4
 idna-3.19.dist-info/METADATA,sha256=TRExYayoWC6NKP3fPqUPGbYHIJwrPkNkN5oWNFRoAIQ,9160
 idna-3.19.dist-info/RECORD,,
+idna-3.19.dist-info/REQUESTED,sha256=47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU,0
 idna-3.19.dist-info/WHEEL,sha256=_yMHPaBV-s6fQMwUoo83NSdTCM3c8xXWFXRhqafN-7Y,81
 idna-3.19.dist-info/entry_points.txt,sha256=7H3nGOHap3jnLE5e7q7Ywr9Vq8axB7WIj5-C_4N2vhw,38
 idna-3.19.dist-info/licenses/LICENSE.md,sha256=GppPDj1HmickDd1ZqRN6ZqtKD539yMphiMwL_YUYfwQ,1541
