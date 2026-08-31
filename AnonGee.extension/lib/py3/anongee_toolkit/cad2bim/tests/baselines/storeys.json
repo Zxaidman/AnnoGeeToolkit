@@ -184,11 +184,11 @@
   },
   "test14": {
     "beams_per_storey": [
-      385,
-      388,
-      388,
-      388,
-      388
+      383,
+      386,
+      386,
+      386,
+      386
     ],
     "labels": [
       "LAYOUT AT 1ST FLOOR LVL. (T1)",
@@ -198,11 +198,11 @@
       "LAYOUT AT REFUGE FLOOR LVL. (T1)"
     ],
     "loops_from_beam_graph_per_storey": [
-      99,
-      101,
-      101,
-      101,
-      101
+      100,
+      102,
+      102,
+      102,
+      102
     ],
     "loops_from_edges_per_storey": [
       0,
@@ -219,11 +219,11 @@
       117
     ],
     "placed_area_m2_per_storey": [
-      807.2,
-      814.9,
-      814.9,
-      814.9,
-      814.9
+      806.6,
+      814.3,
+      814.3,
+      814.3,
+      814.3
     ],
     "roof_loops_from_edges": 0,
     "roof_loops_from_placed_members": 117,

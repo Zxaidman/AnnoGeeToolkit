@@ -886,7 +886,7 @@ class TheWholePassTogether(unittest.TestCase):
         for key in ("crossed", "holes", "divided", "stair_bays",
                     "stair_area_m2", "cutout_bays", "cutout_bays_by_cross",
                     "cutout_bays_by_text", "cutout_bay_area_m2", "chajjas",
-                    "notes"):
+                    "chajja_holes", "notes"):
             self.assertIn(key, report)
 
 

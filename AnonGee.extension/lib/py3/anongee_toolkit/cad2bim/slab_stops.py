@@ -548,14 +548,16 @@ def chajja_cutouts(loops, chajja_defs, skip=None):
     in one cuts nothing, there being nothing left to cut.
     """
     out = {"holes": {}, "hosted": 0, "notes": []}
-    homeless = 0
+    skip = skip or set()
     for slab in (chajja_defs or []):
         ring = [(p[0], p[1]) for p in (slab.get("ring") or [])]
         if len(ring) < 3:
             continue
         host = _host_index(ring, loops)
-        if host is None or host in (skip or set()):
-            homeless += 1
+        if host is None or host in skip:
+            # The ordinary case -- 54 of test14's 72 -- and NOT reported: a
+            # cantilever hanging out past the building line stands in no bay,
+            # and a line saying so every run would bury the ones that do.
             continue
         out["holes"].setdefault(host, []).append(ring)
         out["hosted"] += 1

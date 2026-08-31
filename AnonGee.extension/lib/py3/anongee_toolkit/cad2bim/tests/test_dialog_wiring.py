@@ -503,10 +503,23 @@ class TheLegendProposalReachesTheDialog(unittest.TestCase):
     def test_the_builder_hands_the_regions_to_the_cutout_machinery(self):
         # a hatch the dialog routed to "cutout" must reach plan_foundations,
         # where it holes the plan containing it (test_foundation_plan pins
-        # the behaviour; this pins the hand-over)
-        self.assertIn("foundation_plan.plan_foundations(records or [], "
-                      "texts or [],", _builders_source())
-        self.assertIn("regions=regions or []", _builders_source())
+        # the behaviour; this pins the hand-over). Pinned on the ARGUMENTS
+        # rather than the call's exact text -- the literal broke on a
+        # reformat that changed nothing about what is handed over.
+        call = _builders_source().split(
+            "foundation_plan.plan_foundations(", 1)
+        self.assertEqual(len(call), 2, "the foundation pass is never planned")
+        call = call[1][:400]
+        self.assertIn("records or []", call)
+        self.assertIn("texts or []", call)
+        self.assertIn("regions=regions or []", call)
+
+    def test_the_foundation_schedule_reaches_the_rings(self):
+        # test16 draws an F/RF Mark|Thk block beside its slab one: a ring
+        # labelled only "F2" is sized from it, and by nothing else
+        call = _builders_source().split(
+            "foundation_plan.plan_foundations(", 1)[1][:400]
+        self.assertIn("schedule=marks.parse_thickness_schedule(", call)
 
 
 class TheHatchLayersHaveTheirOwnTable(unittest.TestCase):

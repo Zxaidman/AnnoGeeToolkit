@@ -516,8 +516,11 @@ def _create_footings(doc, sections, selections, records=None, texts=None,
     # The regions ride along so a hatch the dialog routed to "cutout" (the
     # legend proposal, or a hand pick) holes the plan containing it -- the
     # region-category cousin of the X-marked faces.
-    outlines = foundation_plan.plan_foundations(records or [], texts or [],
-                                                regions=regions or [])
+    outlines = foundation_plan.plan_foundations(
+        records or [], texts or [], regions=regions or [],
+        # the drawing's own FOUNDATION schedule, the F/RF block test16 draws
+        # beside its slab one. Asked last, so a note on the ring itself wins.
+        schedule=marks.parse_thickness_schedule(texts or []))
     if outlines:
         _say("Footings -- {0} outline(s) read from the drawing; the "
              "column-offset derivation is not used.".format(len(outlines)))
@@ -610,6 +613,19 @@ def _create_walls(doc, records, selections):
                      for entry in plan["skipped"]]
     for detail in _skip_details(planner_skips):
         _say("  wall: {0} x {1}".format(detail["count"], detail["reason"]))
+    # The CORNERS. A junction the rule could not resolve is left exactly as
+    # drawn -- which is the 150 mm hole the owner photographed -- so it is said
+    # in red rather than counted as a success: nothing about the wall looks
+    # wrong in plan, and only the corner tells you.
+    junctions = plan.get("junctions") or {}
+    if junctions.get("found"):
+        _say("  wall corners: {0} of {1} shaped, one wall through and one on "
+             "its face.".format(junctions["resolved"], junctions["found"]))
+        for rule, count in sorted((junctions.get("by_rule") or {}).items()):
+            _say("    {0}: {1}".format(rule, count))
+        for entry in (junctions.get("unresolved") or []):
+            _say_error("    left as drawn x {0}: {1}".format(
+                entry["count"], entry["reason"]))
     build = [(kind, pools[kind]) for kind in ("structural", "arch")
              if want[kind] and pools[kind]]
     if not build:
