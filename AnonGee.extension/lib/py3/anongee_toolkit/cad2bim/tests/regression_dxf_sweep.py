@@ -107,7 +107,17 @@ def _measure(path):
         loops, result.records, beams, result.texts, column_rects=footprints)
     if recovered:
         loops = list(loops) + list(recovered)
-    labelled = slab_outlines.apply_slab_labels(loops, result.texts)
+    # The drawing's own SLAB SCHEDULE, exactly as _create_slabs reads it: a
+    # Mark|Thk table sizes a bay whose label carries only a mark. test16 is why
+    # this is measured rather than left to the AST pin -- its S1..S6 table sat
+    # unread while 201 labels used those marks, and nothing offline could see it.
+    slab_schedule = dict(
+        (mark, thickness)
+        for mark, thickness in marks.parse_thickness_schedule(
+            result.texts).items()
+        if str(mark)[:1].upper() == "S" and str(mark)[1:2].isdigit())
+    labelled = slab_outlines.apply_slab_labels(loops, result.texts,
+                                               schedule=slab_schedule)
 
     # FOUNDATIONS, read the way run_builders reads them: the outlines off the
     # foundation layer, sized by the notes routed off the foundation TEXT layer.
@@ -197,6 +207,7 @@ def _measure(path):
         "slab_loops_recovered_from_notes": len(recovered or []),
         "slab_loops_total": len(labelled),
         "slab_loops_marked": sum(1 for s in labelled if s.get("mark")),
+        "slab_schedule_rows": len(slab_schedule),
         "slab_loops_sized": sum(1 for s in labelled
                                 if s.get("thickness_mm") is not None),
         "foundation_records": sum(

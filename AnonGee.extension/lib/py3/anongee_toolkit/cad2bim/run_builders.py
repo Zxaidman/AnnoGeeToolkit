@@ -813,6 +813,17 @@ def _create_slabs(doc, records, beam_segments, texts, selections, schedule=None,
         return {"created": 0, "skipped": 0, "errors": 0, "source": source}
     slab_schedule = {m: v for m, v in (schedule or {}).items()
                      if str(m)[:1].upper() == "S" and str(m)[1:2].isdigit()}
+    # A slab schedule is a Mark|Thk table, not a Mark|W|L one, so it is read by
+    # its own pass and it WINS here: a thickness stated against the mark beats
+    # the first dimension of any section that happens to share it. test16 draws
+    # S1 125 .. S6 250 and 201 labels using those marks; until this ran, every
+    # bay fell back to the blanket note and no type was made from the schedule.
+    # Read from the SHEET's texts -- the table sits on its own annotation layer,
+    # which the narrowed slab routing cannot be trusted to still hold.
+    for mark, thickness in marks.parse_thickness_schedule(
+            sheet_texts or texts).items():
+        if str(mark)[:1].upper() == "S" and str(mark)[1:2].isdigit():
+            slab_schedule[mark] = thickness
     # The sheet's blanket note fills the bays nothing else sized. `texts` here
     # is the SLAB text routing, which falls back to every text in the drawing --
     # so the note is reachable through it; the figure still comes from the

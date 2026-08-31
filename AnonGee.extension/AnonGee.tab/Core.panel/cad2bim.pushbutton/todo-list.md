@@ -146,7 +146,22 @@ wrong. **No genuinely rotated column exists in test14** — every failure is noi
 band the measurement leaves empty, then decompose as a composite. `_snapped` in `fold_plan` is the
 donor. Tolerance to be set from the corpus-wide drift measurement, not chosen.
 
-### BUG-17 — A slab schedule with a THK column is not read at all (test16) · `pending`
+### BUG-17 — A slab schedule with a THK column is not read at all (test16) · `testing`
+
+**Fixed in v0.89.0, awaiting the owner's Revit run.** `thk` / `thick` / `thickness` is now a header
+word, `_is_header_row` accepts a Mark + one thickness column, and `parse_thickness_schedule` reads
+such a table into `{mark: thickness_mm}` — kept apart from `parse_schedule`'s `(w, h)` sections,
+because a mapping holding both would hand a thickness to a caller expecting a section and the error
+would be a wrong beam rather than a missing slab. A bare `T` is deliberately NOT a header word:
+measured, `THK` appears in test16 alone (twice, and those two cells ARE its headers) while `T`
+appears in test4, test5 and test9 meaning something else.
+
+**Measured:** test16 now reads S1 125, S2 150, S3 175, S4 200, S5 225, S6 250 plus the foundation
+block beside it (F1 500, F2 550, F3 600, RF1/RF2 1200), and its 220 beam sections still parse
+untouched. The sweep gained `slab_schedule_rows` and test16's **`slab_loops_sized` went 0 → 201** —
+every labelled bay sized from the schedule, where none had been. The F/RF rows are read and
+available; only the S-marks are routed to slabs today, so wiring them to the foundation pass is a
+separate, easy step whenever it is wanted.
 
 **The owner:** "slab schedule reading for type is not working while layout mark label is used for
 parameter but type creation and using proper type as per schedule is not working for slab." Their
