@@ -28,6 +28,17 @@ the drawing says about that, each from a mark it already carries.
      it was cast as floor. A bay carrying the X is withdrawn exactly as a
      staircase bay is, and counted the same way.
 
+  1c. A TEXT NAMING A CUTOUT MARKS ONE, X or no X. The owner's v0.86.0 run:
+     "Few large place still are still taking the Cutout Cross even when now
+     that i have put the `Cutout, Lift Shaft, Duct etc.` text there also." A
+     drafter writes CUTOUT in the middle of a void whether or not anyone drew
+     the diagonals over it, and the word is the same instruction as the X.
+     Measured on test14 -- four bays per plan carry a `CUTOUT` text, three of
+     them crossed as well and ONE, the largest at 29.13 m2, crossed by nothing
+     at all. That is the "large place" the owner is still seeing, and no
+     geometry in the drawing says anything about it. See `_NAMES_A_CUTOUT`
+     for what counts as the word and what the corpus does with it.
+
   2. A BEAM-BOTTOM HATCH IS A CHAJJA. The legend prices its patterns, and one
      of test14's says no depth at all: GOST_GLASS, "INDICATES SLAB AT BEAM
      BOTTOM", 72 plan regions. That is a cantilever slab -- a chajja -- cast
@@ -81,6 +92,48 @@ _BEAM_BOTTOM = re.compile(r"\bSLAB\b.*\bBEAM\b.*\bBOTTOM\b", re.IGNORECASE)
 # calls "drawn to meet" (_TOUCH_TOL_FT); 2 mm here because a hatch boundary is
 # a derived polygon, not a drawn line.
 _CONTACT_TOL_MM = 2.0
+
+# WHAT NAMES A CUTOUT IN WORDS. The owner's list is "Cutout, Lift Shaft, Duct
+# etc.", and the rest of the vocabulary is what an Indian structural drafter
+# writes in a void: OPENING / OPNG, VOID, SHAFT, DUCT, LIFT WELL, OPEN TO
+# BELOW. The shape of the rule is what the measurement forced, and it is not a
+# substring search:
+#
+#   THE TEXT MUST *BE* THE NAME, not merely contain it. test15 carries four
+#   sheet titles on a layer called A-CUTOUT -- "GROUND FLOOR PLAN", "LIFT
+#   MACHINE ROOM FLOOR PLAN" -- and test9 two legend rows, "CUTOUT IN SLAB &
+#   NON STR. WALL" and "HATCH INDICATE CUTOUT FOR DOOR ABOVE...". Every one of
+#   them holds a word from this list, and not one of them marks a void. Read
+#   whole, all six are refused, because a sentence about a cutout is not a
+#   cutout. The layer is not asked either, for the same reason: A-CUTOUT is
+#   where test15 keeps its titles.
+#
+#   A BEAM OR SLAB LABEL CANNOT MATCH IT. Whole-string matching is what
+#   guarantees that: `B111`, `S1`, `MB`, `BKT`, `200X400`, `135 THK.`, `ST-1`
+#   are not names on this list and never become them. Measured over every text
+#   in the corpus -- 13,415 of them across 20 drawings -- the rule catches 80,
+#   on five drawings, and they are listed in the sweep as `cutout_texts` so a
+#   future drawing's false positive shows up as a number that moved:
+#
+#     test14   CUTOUT x15, LIFT SHAFT x15      (the owner's own drawing)
+#     test16   CUTOUT x12, SHAFT x6
+#     test10   SHAFT x20      test1/2/3  SHAFT x4 each
+#
+# WELL is the one word that needs a qualifier in front of it. "LIFT WELL" is a
+# void; a bare "WELL" is an ordinary English word, and no drawing in the corpus
+# writes either. The rest stand alone, because a drafter who writes DUCT in a
+# void means the duct's hole and nothing else.
+_VOID_NOUN = (r"CUT ?OUTS?|OPENINGS?|OPNGS?|VOIDS?|SHAFTS?|DUCTS?")
+_QUALIFIED_NOUN = r"WELLS?"
+_VOID_QUALIFIER = (
+    r"LIFTS?|ELEVATORS?|STAIRS?|STAIRCASE|PLUMBING|SERVICES?|AC|TOILET|"
+    r"ELECT(?:RIC(?:AL)?)?|PIPES?|FIRE|GARBAGE|REFUSE|DRY|WET|WATER|SANITARY|"
+    r"VENT(?:ILATION)?|TYP|SMALL|LARGE")
+_NAMES_A_CUTOUT = re.compile(
+    r"^(?:(?:{q}) )*(?:{n})(?: (?:{n}|{q}|{w}))*$"     # a void noun, on its own
+    r"|^(?:(?:{q}) )+(?:{w})(?: (?:{n}|{q}|{w}))*$"    # WELL, only once named
+    r"|^OPEN TO (?:BELOW|SKY|ABOVE)$".format(
+        n=_VOID_NOUN, q=_VOID_QUALIFIER, w=_QUALIFIED_NOUN))
 
 # A contact shorter than this is a graze, not a bearing. Measured on test14's
 # 72 chajjas the winning beam's contact runs 595 .. 2499 mm and the clips it
@@ -154,8 +207,56 @@ def slab_cutouts(loops, records):
     return out
 
 
-def cutout_bays(loops, records, skip=None):
-    """{"indexes": {i}, "area_m2": a, "notes": [...]} -- the bays an X crosses.
+def names_a_cutout(text):
+    """True when this text IS the name of a void, rather than mentioning one.
+
+    Normalised first: upper case, full stops dropped (so "A.C." is one word and
+    "TYP." is TYP), and every other punctuation mark a space (so "CUT-OUT" and
+    "CUT OUT" and "CUTOUT" are one thing). Then matched WHOLE -- see
+    `_NAMES_A_CUTOUT` for the six sentences in this corpus that hold one of
+    these words and mean nothing of the sort.
+    """
+    words = " ".join(re.findall(
+        r"[A-Z0-9]+", (text or "").upper().replace(".", "")))
+    return bool(words) and bool(_NAMES_A_CUTOUT.match(words))
+
+
+def cutout_texts(texts):
+    """[(x, y, the name)] for every text in the drawing that names a void.
+
+    Any layer, like every other content-driven reading in this package: the
+    word is the instruction, and test15 proves the layer is not (it keeps its
+    sheet titles on one called A-CUTOUT). A text the transform never reached
+    has no point and cannot be inside anything, so it is dropped here rather
+    than crashing a containment test three calls down.
+    """
+    out = []
+    for text in (texts or []):
+        point = getattr(text, "point_internal", None)
+        if point is None or not names_a_cutout(getattr(text, "text", "")):
+            continue
+        out.append((point[0], point[1], " ".join(
+            (getattr(text, "text", "") or "").split())))
+    return out
+
+
+def cutout_bays(loops, records, texts=None, skip=None):
+    """{"indexes": {i}, "area_m2": a, "notes": [...]} -- the bays marked void.
+
+    Two marks, either of which is enough, because the drawing uses them
+    interchangeably and often both at once:
+
+      * an X CROSSED corner to corner over the bay, and
+      * a TEXT NAMING A CUTOUT sitting inside it -- CUTOUT, LIFT SHAFT, DUCT,
+        OPENING, VOID, OPEN TO BELOW (`names_a_cutout`).
+
+    A bay carrying both is withdrawn once and counted once; `by_cross` and
+    `by_text` say how many carry each, so the two readings can be told apart in
+    a console line and in the sweep. Measured over the corpus, the text is not
+    a duplicate of the X in the one place it matters: on test14 nine of the
+    twelve bays a `CUTOUT` text names are crossed as well, and THREE -- one per
+    plan, 29.13 m2 each, 87.4 m2 in all -- carry the word and no diagonals.
+    Those three are the owner's "large place still taking the Cutout Cross".
 
     The same symbol `slab_cutouts` reads over a slab-stop ring, asked of the
     BAY. It is the same code too -- `slab_graph.crossed` against the same four
@@ -180,7 +281,8 @@ def cutout_bays(loops, records, skip=None):
     none today; the arithmetic is here because a stair over a cut-out void is a
     drawing anybody could send next.
     """
-    out = {"indexes": set(), "area_m2": 0.0, "notes": []}
+    out = {"indexes": set(), "by_cross": 0, "by_text": 0, "area_m2": 0.0,
+           "notes": []}
     members = set()
     for record in (records or []):
         if getattr(record, "category", None) in (CATEGORY_BEAM,
@@ -191,31 +293,49 @@ def cutout_bays(loops, records, skip=None):
                              (points[1][0], points[1][1])))
     strokes = [stroke for stroke in cross_strokes(records)
                if stroke not in members]
-    if not strokes:
+    names = cutout_texts(texts)
+    if not strokes and not names:
         return out
     skip = skip or set()
     shared = 0
+    homeless = set(range(len(names)))
     for index, loop in enumerate(loops or []):
         ring = loop.get("ring") if isinstance(loop, dict) else loop
         if not ring or len(ring) < 3:
             continue
-        if not crossed([(p[0], p[1]) for p in ring], strokes):
+        ring = [(p[0], p[1]) for p in ring]
+        named = [n for n, (x, y, _word) in enumerate(names)
+                 if _point_in_ring((x, y), ring)]
+        homeless -= set(named)
+        by_cross = bool(strokes) and crossed(ring, strokes)
+        if not by_cross and not named:
             continue
         if index in skip:
             shared += 1
             continue
         out["indexes"].add(index)
+        out["by_cross"] += 1 if by_cross else 0
+        out["by_text"] += 1 if named else 0
         out["area_m2"] += area_m2(ring)
     out["area_m2"] = round(out["area_m2"], 1)
     if out["indexes"]:
         out["notes"].append(
-            "{0} slab bay(s) are crossed out corner to corner, {1:.1f} m2 of "
-            "floor the drawing marks absent: no slab is cast there".format(
-                len(out["indexes"]), out["area_m2"]))
+            "{0} slab bay(s) are marked void -- {1} crossed out corner to "
+            "corner, {2} named by a text inside them -- {3:.1f} m2 of floor "
+            "the drawing says is absent: no slab is cast there".format(
+                len(out["indexes"]), out["by_cross"], out["by_text"],
+                out["area_m2"]))
+    if homeless:
+        out["notes"].append(
+            "{0} text(s) naming a cutout ({1}) sit inside no slab bay: the "
+            "word marks a void the beams never closed a bay around, so "
+            "nothing is withdrawn for them".format(
+                len(homeless), ", ".join(sorted(set(
+                    names[n][2] for n in homeless)))))
     if shared:
         out["notes"].append(
-            "{0} of the crossed-out bay(s) are already withdrawn for a "
-            "staircase: each is withdrawn once and counted once".format(shared))
+            "{0} of the void bay(s) are already withdrawn for a staircase: "
+            "each is withdrawn once and counted once".format(shared))
     return out
 
 

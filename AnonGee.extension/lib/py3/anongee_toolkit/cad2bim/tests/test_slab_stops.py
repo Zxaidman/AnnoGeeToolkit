@@ -8,8 +8,9 @@ for. The real ones are the ones that matter -- a synthetic square proves the
 arithmetic, and only the fixture proves the convention was read right -- so
 they carry the drawing's own numbers verbatim: the crossed pocket at
 (19651, 42594)-(19851, 42944) with its two CUTOUT diagonals, the chajja at
-(11051, 37959)-(11801, 38549) under its GOST_GLASS hatch, and the beams that
-bound them.
+(11051, 37959)-(11801, 38549) under its GOST_GLASS hatch, the 29.13 m2 bay at
+(29750, 25894)-(37901, 29467) that carries a `CUTOUT` text and NO diagonals,
+and the beams that bound them.
 
 Standalone (no Revit, no DXF): the coordinates are typed in.
 """
@@ -368,6 +369,115 @@ class ACrossedBayIsNotAFloorEither(unittest.TestCase):
         self.assertEqual(out["area_m2"], 19.8)
 
 
+class ATextNamingACutoutMarksOne(unittest.TestCase):
+    """3c. The WORD is the same instruction as the X (BUG-16).
+
+    The owner, after the v0.86.0 run: "Few large place still are still taking
+    the Cutout Cross even when now that i have put the `Cutout, Lift Shaft,
+    Duct etc.` text there also." Measured on test14: four bays per plan carry a
+    `CUTOUT` text, three of them crossed too and ONE -- the largest, 29.13 m2 --
+    crossed by nothing at all.
+
+    The whole risk in this reading is a false positive, so the refusals below
+    are not invented: every one of them is a real text out of this corpus.
+    """
+
+    def _bays(self):
+        return [_bay(_box(0, 0, 4000, 4000)), _bay(_box(4000, 0, 8000, 4000))]
+
+    def test_the_owners_three_words_are_the_vocabulary(self):
+        for word in ("CUTOUT", "CUT OUT", "CUT-OUT", "Cutout", "cutouts",
+                     "LIFT SHAFT", "DUCT", "SHAFT", "A.C. DUCT",
+                     "PLUMBING SHAFT", "OPENING", "OPNG", "VOID",
+                     "OPEN TO BELOW", "LIFT WELL"):
+            self.assertTrue(slab_stops.names_a_cutout(word), word)
+
+    def test_a_beam_or_slab_LABEL_never_matches(self):
+        # every one of these is a text this corpus actually carries
+        for label in ("B111", "S1", "S2", "MB", "BKT", "ST-1", "STB",
+                      "200X400", "300X1050", "135 THK.", "150 THK.", "C42",
+                      "SW4", "DN", "200X675/750"):
+            self.assertFalse(slab_stops.names_a_cutout(label), label)
+
+    def test_a_SENTENCE_about_a_cutout_is_not_one(self):
+        # test15 keeps four sheet titles on a layer called A-CUTOUT, and test9
+        # two legend rows. Read whole, all six are refused; a substring search
+        # would have taken every one of them.
+        for sentence in ("GROUND FLOOR PLAN", "1ST FLOOR PLAN",
+                         "LIFT MACHINE ROOM FLOOR PLAN", "TERRACE FLOOR PLAN",
+                         "CUTOUT IN SLAB & NON STR. WALL",
+                         "HATCH INDICATE CUTOUT FOR DOOR ABOVE"):
+            self.assertFalse(slab_stops.names_a_cutout(sentence), sentence)
+
+    def test_a_bare_WELL_is_an_english_word_and_a_LIFT_WELL_is_not(self):
+        self.assertFalse(slab_stops.names_a_cutout("WELL"))
+        self.assertTrue(slab_stops.names_a_cutout("LIFT WELL"))
+
+    def test_a_text_in_a_bay_withdraws_it_with_no_X_anywhere(self):
+        out = slab_stops.cutout_bays(self._bays(), [],
+                                     texts=[_Text("CUTOUT", 2000, 2000)])
+        self.assertEqual(out["indexes"], set([0]))
+        self.assertEqual(out["by_text"], 1)
+        self.assertEqual(out["by_cross"], 0)
+        self.assertEqual(out["area_m2"], 16.0)
+
+    def test_a_bay_carrying_both_the_word_and_the_X_is_withdrawn_once(self):
+        out = slab_stops.cutout_bays(self._bays(), _cross(0, 0, 4000, 4000),
+                                     texts=[_Text("CUTOUT", 2000, 2000)])
+        self.assertEqual(out["indexes"], set([0]))
+        self.assertEqual(out["by_cross"], 1)
+        self.assertEqual(out["by_text"], 1)
+        self.assertEqual(out["area_m2"], 16.0)
+
+    def test_a_text_the_layer_would_have_hidden_still_counts(self):
+        # test14 writes CUTOUT on a layer called CUTOUT and test16 on
+        # G-ANNO-TEXT; test15 writes its sheet titles on A-CUTOUT. The word is
+        # asked, never the layer.
+        out = slab_stops.cutout_bays(
+            self._bays(), [], texts=[_Text("CUTOUT", 2000, 2000,
+                                           layer="G-ANNO-TEXT")])
+        self.assertEqual(out["indexes"], set([0]))
+
+    def test_a_named_cutout_in_no_bay_is_reported_and_withdraws_nothing(self):
+        # test14's 15 LIFT SHAFT texts and test10's 20 SHAFT texts land in no
+        # bay at all: the beams never close one round a lift well.
+        out = slab_stops.cutout_bays(self._bays(), [],
+                                     texts=[_Text("LIFT SHAFT", 9000, 9000)])
+        self.assertEqual(out["indexes"], set())
+        self.assertTrue(any("inside no slab bay" in note
+                            for note in out["notes"]))
+
+    def test_a_named_bay_that_is_already_a_stair_is_counted_once(self):
+        out = slab_stops.cutout_bays(self._bays(), [],
+                                     texts=[_Text("CUTOUT", 2000, 2000)],
+                                     skip=set([0]))
+        self.assertEqual(out["indexes"], set())
+        self.assertTrue(any("withdrawn once" in note for note in out["notes"]))
+        self.assertFalse(any("inside no slab bay" in note
+                             for note in out["notes"]))
+
+    def test_test14s_own_29_13_m2_bay_carries_the_word_and_no_diagonals(self):
+        # The owner's "large place". Its ring runs along the beam faces in 24
+        # steps; the bounding rectangle has the same area to a centimetre.
+        bays = [_bay(_box(29750.2, 25893.9, 37901.4, 29467.4))]
+        out = slab_stops.cutout_bays(
+            bays, [], texts=[_Text("CUTOUT", 33368.8, 27411.5,
+                                   layer="CUTOUT")])
+        self.assertEqual(out["indexes"], set([0]))
+        self.assertEqual(out["by_text"], 1)
+        self.assertEqual(out["by_cross"], 0)
+        self.assertEqual(out["area_m2"], 29.1)
+
+    def test_the_withdrawn_bay_leaves_the_defs_through_the_sheets_texts(self):
+        defs, report = slab_outlines.apply_slab_stops(
+            self._bays(), [], [], sheet_texts=[_Text("CUTOUT", 2000, 2000)])
+        self.assertEqual(len(defs), 1)
+        self.assertEqual(report["cutout_bays"], 1)
+        self.assertEqual(report["cutout_bays_by_text"], 1)
+        self.assertEqual(report["cutout_bays_by_cross"], 0)
+        self.assertEqual(report["cutout_bay_area_m2"], 16.0)
+
+
 class ASunkHatchOnlySaysWHICHBayAndHOWDEEP(unittest.TestCase):
     """4. The hatch informs the slab; the BAY's own ring is the geometry.
 
@@ -549,7 +659,9 @@ class TheWholePassTogether(unittest.TestCase):
     def test_the_report_carries_a_count_for_every_reading(self):
         defs, report = slab_outlines.apply_slab_stops([], [], [])
         for key in ("crossed", "holes", "divided", "stair_bays",
-                    "stair_area_m2", "chajjas", "notes"):
+                    "stair_area_m2", "cutout_bays", "cutout_bays_by_cross",
+                    "cutout_bays_by_text", "cutout_bay_area_m2", "chajjas",
+                    "notes"):
             self.assertIn(key, report)
 
 

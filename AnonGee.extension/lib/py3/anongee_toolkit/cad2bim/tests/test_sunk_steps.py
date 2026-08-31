@@ -14,7 +14,10 @@ mean the member hangs lower. Everything here is pinned to that drawing:
     beam's centreline and is claimed by area, which is why the rule is areal;
   * the ANSI37 legend swatch at (101558.9, 14567.3), 1050 x 500 on HAT, which
     is a hatch on the routed layer carrying a priced pattern and must still
-    build nothing.
+    build nothing;
+  * the ANSI37 sunk BAY at (11801, 37519)-(14226, 38969), drawn from the far
+    face of one 200-wide beam to the far face of the other, which is how a bay
+    hatch says its beams go down with the floor.
 
 The synthetic cases carry what the fixture cannot show: the void rule either
 side of its own threshold, a member the segmentation cut into pieces under one
@@ -326,6 +329,82 @@ class TheStripThatDropsABeam(unittest.TestCase):
         self.assertEqual(len(drops["skipped"]), 1)
 
 
+class TheBayHatchThatDropsItsBeams(unittest.TestCase):
+    """BUG-15's other half: "SLAB/BEAM SUNK BY 150MM" is one sentence.
+
+    A sunk BAY's hatch is drawn OUT OVER the members bounding the bay rather
+    than stopping at their faces, and since v0.84.0 made the bay's own ring the
+    dropped slab, that overhang informs nothing else. Asked, it drops 249 more
+    of test14's beams -- 12 by strips alone before this, 261 after.
+
+    The bay is asked the BEAM's share only: it is many times any beam's area,
+    so the strip's own share can never be true there.
+    """
+
+    def test_test14s_ANSI37_bay_at_11801_37519_drops_both_its_beams(self):
+        # Verbatim from the fixture: a 2425 x 1450 sunk hatch drawn from the
+        # far face of one 200-wide beam to the far face of the other, so each
+        # beam lies WHOLLY inside it (share 1.0000, both).
+        bay = _Hatch([(14225.8, 38968.9), (14225.8, 37518.9),
+                      (11800.8, 37518.9), (11800.8, 38968.9)], "ANSI37")
+        beams = [_beam(14125.8, 38968.9, 14125.8, 37518.9, 200.0),
+                 _beam(11900.8, 38968.9, 11900.8, 37518.9, 200.0)]
+        drops = fold_plan.beam_drops(beams, [], [(bay, 75.0)])
+        self.assertEqual(drops["drops"], {0: 75.0, 1: 75.0})
+        self.assertEqual(drops["skipped"], [])
+
+    def test_a_bay_hatch_grazing_the_beam_next_door_claims_nothing(self):
+        # 124 of the 385 overlapping (bay, beam) pairs on test14 are this: the
+        # hatch's edge touching a beam's corner, 0.0000 .. 0.0005 of it.
+        bay = _box(0, 0, 4000, 3000, pattern="ANGLE")
+        outside = _beam(-2000, 3000, 6000, 3000, 200.0)   # touching the top
+        drops = fold_plan.beam_drops([outside], [], [(bay, 150.0)])
+        self.assertEqual(drops["drops"], {})
+
+    def test_a_fifth_of_a_beam_under_a_bay_is_below_the_line(self):
+        # The rims of the measured desert: 0.2012 refused, 0.6251 claimed,
+        # with _BEAM_CLAIM_SHARE (0.3) between them.
+        beam = _beam(0, 0, 5000, 0, 200.0)
+        bay = _box(0, -100, 1000, 100, pattern="ANGLE")     # a fifth of it
+        self.assertEqual(fold_plan.beam_drops([beam], [], [(bay, 150.0)])
+                         ["drops"], {})
+        bay = _box(0, -100, 3125, 100, pattern="ANGLE")     # 0.625 of it
+        self.assertEqual(fold_plan.beam_drops([beam], [], [(bay, 150.0)])
+                         ["drops"], {0: 150.0})
+
+    def test_a_bay_that_claims_no_beam_is_not_reported_as_stranded(self):
+        # A strip on no member is a strip nobody read; a bay hatch over no
+        # member is an ordinary bay in the middle of a plate. Only the strip
+        # is named.
+        bay = _box(0, 0, 4000, 3000, pattern="ANGLE")
+        drops = fold_plan.beam_drops([_beam(9000, 9000, 12000, 9000, 200.0)],
+                                     [], [(bay, 150.0)])
+        self.assertEqual(drops["skipped"], [])
+
+    def test_the_strip_and_the_bay_reach_the_same_beam_and_it_drops_once(self):
+        beam = _beam(0, 0, 6000, 0, 200.0)
+        strip = _box(0, -100, 6000, 100, pattern="ANSI37")
+        bay = _box(0, -100, 6000, 3000, pattern="ANSI37")
+        drops = fold_plan.beam_drops([beam], [(strip, 75.0)], [(bay, 75.0)])
+        self.assertEqual(drops["drops"], {0: 75.0})
+        self.assertEqual(drops["skipped"], [])
+
+    def test_a_beam_a_strip_and_a_bay_price_differently_takes_the_deeper(self):
+        beam = _beam(0, 0, 6000, 0, 200.0)
+        strip = _box(0, -100, 6000, 100, pattern="ANSI37")
+        bay = _box(0, -100, 6000, 3000, pattern="ANGLE")
+        drops = fold_plan.beam_drops([beam], [(strip, 75.0)], [(bay, 150.0)])
+        self.assertEqual(drops["drops"], {0: 150.0})
+        self.assertEqual(len(drops["skipped"]), 1)
+        self.assertIn("two depths", drops["skipped"][0])
+
+    def test_no_bays_at_all_is_the_call_the_old_one_made(self):
+        strip = _Hatch(_STRIP_92111, "ANSI37")
+        self.assertEqual(fold_plan.beam_drops([_BEAM_92261], [(strip, 75.0)]),
+                         fold_plan.beam_drops([_BEAM_92261], [(strip, 75.0)],
+                                              None))
+
+
 class TheProfilesTheBuilderGets(unittest.TestCase):
     """`slab_defs_with_steps`: what Floor.Create is finally handed."""
 
@@ -444,18 +523,53 @@ class TheWiringOnTheRevitSide(unittest.TestCase):
     hole, looks exactly like a correct run from out here.
     """
 
-    def test_place_beams_takes_the_drops_and_lowers_the_driving_line(self):
-        node = _function(_source(_BEAMS), "place_beams")
+    def test_place_beams_takes_the_drops_and_sinks_by_z_offset_value(self):
+        source = _source(_BEAMS)
+        node = _function(source, "place_beams")
         self.assertIsNotNone(node)
         self.assertIn("drops", [argument.arg for argument in node.args.args])
-        body = _source(_BEAMS)
-        self.assertIn("z = elevation - mm_to_internal(drop_mm)", body)
-        self.assertIn("Line.CreateBound(XYZ(sx, sy, z), XYZ(ex, ey, z))", body)
+        self.assertIn("problem = _sink(instance, drop_mm)", source)
+
+    def test_the_driving_line_stays_on_the_level(self):
+        # The owner's instruction, verbatim: "its sunk value should use Z
+        # Offset Value only for sunk or rise not the Start/End Level Offset."
+        # A curve laid below the level IS the Start/End Level Offset pair
+        # their properties palette showed at 0.000, so it must not come back.
+        source = _source(_BEAMS)
+        self.assertIn("Line.CreateBound(XYZ(sx, sy, elevation),", source)
+        self.assertNotIn("elevation - mm_to_internal(drop_mm)", source)
+
+    def test_the_sink_is_negative_so_the_beam_goes_DOWN(self):
+        # z Offset Value counts along the model's +Z from whatever datum z
+        # Justification names -- Top in the owner's screenshot -- so down is
+        # negative and a legend row pricing a RISE comes out positive.
+        source = _source(_BEAMS)
+        node = _function(source, "_sink")
+        self.assertIsNotNone(node)
+        self.assertIn("BuiltInParameter.Z_OFFSET_VALUE", source)
+        self.assertIn("parameter.Set(-mm_to_internal(drop_mm))", source)
+
+    def test_a_z_offset_that_will_not_take_is_reported_not_swallowed(self):
+        # A beam left at its level looks placed and is a step too high.
+        source = _source(_BEAMS)
+        self.assertIn('result["skipped"].append(problem)', source)
+        self.assertIn("could not sink a beam by", source)
 
     def test_the_beam_pass_hands_the_drops_to_the_builder(self):
         source = _source(_BUILDERS)
         self.assertIn("beams.place_beams(doc, segments, beam_id, level_id, "
                       "drops=drops)", source)
+
+    def test_the_beam_pass_asks_the_bay_hatches_as_well_as_the_strips(self):
+        source = _source(_BUILDERS)
+        self.assertIn('fold_plan.beam_drops(segments, split["strips"], '
+                      'split["bays"])', source)
+
+    def test_the_slab_stop_pass_is_handed_the_sheets_texts(self):
+        # The CUTOUT label lives on its own layer, and the slab-note routing
+        # cannot be trusted to still hold it (BUG-16).
+        source = _source(_BUILDERS)
+        self.assertIn("sheet_texts=sheet_texts", source)
 
     def test_the_beam_pass_takes_the_hatches_and_the_sheets_texts(self):
         node = _function(_source(_BUILDERS), "_create_beams")

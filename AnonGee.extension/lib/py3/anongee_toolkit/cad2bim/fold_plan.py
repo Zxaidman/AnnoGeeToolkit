@@ -58,8 +58,11 @@ A sheet that hatches everything sunk hatches BAYS of floor, which step by the
 three floors above, and STRIPS the width of a beam, which mean that beam hangs
 lower -- test14 writes both with one legend line, "INDICATES SLAB/BEAM SUNK BY
 150MM.", and one routed layer. `sunk_split` tells them apart on the hatch's
-narrow side and `beam_drops` decides which member a strip claims; both
-thresholds sit in deserts measured on that drawing and recorded beside them.
+narrow side and `beam_drops` decides which member each claims -- BOTH of them,
+because that legend line is one sentence about the slab and the beam together:
+a strip names the beam under it, and a bay's hatch is drawn out over the
+members bounding the bay, which drop with the floor. Every threshold sits in a
+desert measured on that drawing and recorded beside it.
 
 A HATCH CARRIES INFORMATION, NEVER GEOMETRY -- the owner's rule, and the
 drawing agrees with it. A sunk hatch on a slab plan is drawn across the bay AND
@@ -368,7 +371,7 @@ def sunk_split(regions, depths, swatch_ids=None):
     return out
 
 
-def beam_drops(segments, strips):
+def beam_drops(segments, strips, bays=None):
     """{"drops": {segment index: depth_mm}, "skipped": [reasons]}.
 
     A SUNK BEAM KEEPS ITS DEPTH AND ITS WHOLE BODY DROPS -- the user's
@@ -384,11 +387,50 @@ def beam_drops(segments, strips):
     claim several: a member the segmentation cut at its columns is several
     segments under one strip, and all of them drop.
 
+    A BAY HATCH CLAIMS BEAMS TOO, and by the second of those two rules only.
+    The owner's v0.86.0 run: "beams are not getting sunk which has hatch
+    pattern" -- and with only the strips asked, test14 dropped 12 of its 660.
+    The bay hatches are the other half of the same sentence. The legend reads
+    "SLAB/BEAM SUNK BY 150MM", one line for both, and the drafter draws the
+    hatch OUT OVER the members bounding the bay rather than stopping at their
+    faces -- measured, to the far face in 228 of the 249 claims, so the beam
+    lies wholly inside it. Since v0.84.0 made the bay's own ring the dropped
+    slab, that overhang informs nothing else: it is a statement about the beams
+    and only about the beams.
+
+    The strip's own share (`_STRIP_CLAIM_SHARE`) is meaningless for a bay
+    hatch, which is many times any beam's area, so a bay is asked the BEAM's
+    share alone. Measured over every overlapping (bay hatch, beam) pair in the
+    corpus -- 385 of them, all on test14:
+
+        0.0000 .. 0.0005   124   the hatch's edge grazing a beam's corner
+        0.0333               3
+        0.1251               3
+        0.2012               6
+        ---------  nothing at all, 0.4239 wide  -----------------------
+        0.6251               9
+        0.7497               6
+        0.9322 .. 0.9323     6
+        0.9836 .. 1.0000   228   the beam under the hatch, drawn over
+
+    That desert is more than twice the width of the next widest gap in the same
+    histogram (0.1824), and `_BEAM_CLAIM_SHARE` -- 0.3, set from the STRIP
+    measurement's own desert of 0.1933 .. 0.4964 -- sits inside it with room to
+    spare. It is reused rather than re-derived: this is the same question about
+    the same two shapes, and two thresholds for one question drift apart.
+
+    A hatch that sank no bay is not asked separately, and does not need to be:
+    measured on test14, the 12 bay hatches that cover no bay by
+    `_BAY_SINK_COVER` claim NO beam either, so every beam dropped here is under
+    a hatch that also stepped a floor.
+
     A strip that claims nothing is REPORTED, grouped by pattern. On test14 that
     is half of them: little 150x100 and 250x435 patches of sunk floor left over
     where a strip meets a column, too small to be a bay and lying beside a beam
     rather than on one. Building a floor out of a 150x100 patch is worse than
-    saying it was left alone.
+    saying it was left alone. A BAY hatch that claims no beam is NOT reported:
+    it is not stranded, it sinks its bay, and a bay in the middle of a plate
+    with no member under its hatch is an ordinary drawing.
 
     `segments` are the STRAIGHT beams only -- a curved member is driven by an
     arc and placed by a different call. No strip in the corpus lies on one, and
@@ -403,14 +445,17 @@ def beam_drops(segments, strips):
             bodies.append((index, body))
     orphans = {}
     conflicts = 0
-    for region, depth in (strips or []):
+    for region, depth, beam_share_only in (
+            [(r, d, False) for r, d in (strips or [])]
+            + [(r, d, True) for r, d in (bays or [])]):
         points = getattr(region, "points", None) or []
         ring = _dedup_ring([(p[0], p[1]) for p in points])
         if len(ring) < 3:
             continue
-        claimed = _claimed_beams(ring, bodies)
+        claimed = _claimed_beams(ring, bodies, beam_share_only=beam_share_only)
         if not claimed:
-            _count_by_pattern(region, orphans)
+            if not beam_share_only:
+                _count_by_pattern(region, orphans)
             continue
         for index in claimed:
             standing = out["drops"].get(index)
@@ -425,7 +470,7 @@ def beam_drops(segments, strips):
             "them".format(orphans[pattern], pattern))
     if conflicts:
         out["skipped"].append(
-            "{0} beam(s) are covered by sunk strips of two depths: each takes "
+            "{0} beam(s) are covered by sunk hatches of two depths: each takes "
             "the deeper, since one member cannot sit at two levels".format(
                 conflicts))
     return out
@@ -720,8 +765,14 @@ def _beam_body(segment):
             (end[0] - nx, end[1] - ny), (start[0] - nx, start[1] - ny)]
 
 
-def _claimed_beams(ring, bodies):
-    """[index] of the beams this strip covers, by the two measured shares."""
+def _claimed_beams(ring, bodies, beam_share_only=False):
+    """[index] of the beams this hatch covers, by the measured shares.
+
+    `beam_share_only` drops the hatch's own share from the test, which is what
+    a BAY hatch needs: it is many times any beam's area, so "half of the hatch
+    lies in this beam" can only ever be false there, and asking it of a bay
+    would make the rule read as if it had two halves when one is dead.
+    """
     strip = abs(_signed_area(ring))
     if strip <= 0:
         return []
@@ -732,7 +783,7 @@ def _claimed_beams(ring, bodies):
             continue
         overlap = abs(_signed_area(piece))
         beam = abs(_signed_area(body))
-        if (overlap / strip >= _STRIP_CLAIM_SHARE
+        if ((not beam_share_only and overlap / strip >= _STRIP_CLAIM_SHARE)
                 or (beam > 0 and overlap / beam >= _BEAM_CLAIM_SHARE)):
             claimed.append(index)
     return claimed

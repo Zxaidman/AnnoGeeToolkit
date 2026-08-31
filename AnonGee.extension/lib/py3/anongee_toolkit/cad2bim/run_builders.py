@@ -165,7 +165,14 @@ def _tally(values):
 
 
 def _sunk_beam_drops(selections, regions, texts, segments):
-    """{segment index: depth_mm} for the beams a sunk strip covers.
+    """{segment index: depth_mm} for the beams a sunk hatch covers.
+
+    BOTH halves of the hatch reading are asked, because the legend row is one
+    sentence about both: "SLAB/BEAM SUNK BY 150MM". A sunk STRIP names the beam
+    under it, and a sunk BAY's hatch is drawn out over the members bounding the
+    bay rather than stopping at their faces -- which is the drawing saying they
+    go down with the floor. `fold_plan.beam_drops` weighs the two by the same
+    measured share of the BEAM.
 
     Nothing here is silent. Refusals come back from `sunk_split` (a pattern the
     legend prices at nothing) and from `beam_drops` (a strip lying on no
@@ -183,7 +190,7 @@ def _sunk_beam_drops(selections, regions, texts, segments):
              "legend: no beam is dropped")
         return {}
     split = fold_plan.sunk_split(regions, depths, swatch_ids)
-    drops = fold_plan.beam_drops(segments, split["strips"])
+    drops = fold_plan.beam_drops(segments, split["strips"], split["bays"])
     for message in split["skipped"] + drops["skipped"]:
         _say("  sunk (beams): {0}".format(message))
     return drops["drops"]
@@ -195,11 +202,16 @@ def _slab_stops(slab_defs, records, texts, regions, sheet_texts, beam_segments,
 
     Four readings, all of them the drawing's own marks and all of them
     invisible to a beam graph: a crossed-out ring on the slab-stop layer is a
-    HOLE, a bay the X crosses out is NOT a floor either, a bay a staircase
-    stands in is NOT a floor, and a beam-bottom hatch is a CHAJJA at its own
-    level. `slab_outlines.apply_slab_stops` does the work; this says what
-    happened, grouped, before anything is placed -- a hole nobody cut and a
-    stair cast solid both look built and are wrong.
+    HOLE, a bay the drawing MARKS VOID -- an X over it or a CUTOUT / LIFT SHAFT
+    / DUCT text in it -- is NOT a floor either, a bay a staircase stands in is
+    NOT a floor, and a beam-bottom hatch is a CHAJJA at its own level.
+    `slab_outlines.apply_slab_stops` does the work; this says what happened,
+    grouped, before anything is placed -- a hole nobody cut and a stair cast
+    solid both look built and are wrong.
+
+    The SHEET's texts ride along beside the routed ones for the same reason the
+    legend does: a CUTOUT label sits on its own layer, and the slab-note
+    routing cannot be trusted to still hold it.
     """
     entries = legend.read(regions or [], sheet_texts or texts or [])
     defs, stopped = slab_outlines.apply_slab_stops(
@@ -209,16 +221,20 @@ def _slab_stops(slab_defs, records, texts, regions, sheet_texts, beam_segments,
         schedule=schedule,
         blanket_thickness_mm=storey_blanket_mm(
             selections, "blanket_slab_thickness_mm", "slab_thickness_mm",
-            sheet_texts or texts))
+            sheet_texts or texts),
+        sheet_texts=sheet_texts)
     if stopped["crossed"]:
         _say("  stops: {0} crossed-out ring(s) read, {1} cut as holes in "
              "{2} bay(s)".format(stopped["crossed"], stopped["holes"],
                                  stopped["holes"] - stopped["divided"]
                                  if stopped["divided"] else stopped["holes"]))
     if stopped["cutout_bays"]:
-        _say("  stops: {0} crossed-out bay(s) withdrawn, {1:.1f} m2 of floor "
-             "the drawing marks absent".format(stopped["cutout_bays"],
-                                               stopped["cutout_bay_area_m2"]))
+        _say("  stops: {0} bay(s) marked void withdrawn ({1} crossed out, {2} "
+             "named by a text), {3:.1f} m2 of floor the drawing marks "
+             "absent".format(stopped["cutout_bays"],
+                             stopped["cutout_bays_by_cross"],
+                             stopped["cutout_bays_by_text"],
+                             stopped["cutout_bay_area_m2"]))
     if stopped["stair_bays"]:
         _say("  stops: {0} staircase bay(s) withdrawn, {1:.1f} m2 of floor the "
              "stair occupies".format(stopped["stair_bays"],
@@ -388,9 +404,12 @@ def _create_beams(doc, beam_segments, selections, regions=None, texts=None):
     """Place beams along derived centerlines at the columns' top level, in a group.
 
     `regions` are the storey's hatches and `texts` the sheet's own, together
-    the sunk half: a hatched strip no wider than a beam, lying on that beam,
-    means the whole member hangs lower by the legend's depth -- same section,
-    same length, top and soffit down together. Every strip that lands on no
+    the sunk half: a hatched strip no wider than a beam, and a sunk BAY's own
+    hatch drawn out over its beams, both say the member under them hangs lower
+    by the legend's depth -- same section, same length, top and soffit down
+    together.
+    The drop is applied as the beam's `z Offset Value`, never by moving the
+    curve, so Start/End Level Offset stay at zero. Every strip that lands on no
     beam is named rather than dropped quietly.
     """
     from Autodesk.Revit.DB import Transaction, TransactionGroup, TransactionStatus
@@ -436,8 +455,8 @@ def _create_beams(doc, beam_segments, selections, regions=None, texts=None):
     _say("Beams -- created: {0}, skipped: {1}, errors: {2}".format(
         len(result["created"]), len(result["skipped"]), len(result["errors"])))
     if drops:
-        _say("Beams -- {0} of {1} dropped by a sunk strip ({2}), depth "
-             "unchanged.".format(
+        _say("Beams -- {0} of {1} sunk by a hatch ({2}) through z Offset "
+             "Value, depth and level unchanged.".format(
                  len(drops), len(segments),
                  ", ".join("{0:.0f}mm x{1}".format(depth, count) for depth,
                            count in sorted(_tally(drops.values()).items()))))
@@ -872,6 +891,8 @@ def _create_slabs(doc, records, beam_segments, texts, selections, schedule=None,
             "stair_bays_withdrawn": stopped["stair_bays"],
             "stair_area_m2": stopped["stair_area_m2"],
             "cutout_bays_withdrawn": stopped["cutout_bays"],
+            "cutout_bays_by_cross": stopped["cutout_bays_by_cross"],
+            "cutout_bays_by_text": stopped["cutout_bays_by_text"],
             "cutout_bay_area_m2": stopped["cutout_bay_area_m2"],
             "chajjas": stopped["chajjas"],
             _IDS: result["created"],

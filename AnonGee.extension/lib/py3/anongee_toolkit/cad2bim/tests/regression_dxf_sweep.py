@@ -237,6 +237,7 @@ def _measure(path):
         "sunk_slab_step_depth_mm_total": sunk["depth_total"],
         "sunk_slab_defs": sunk["defs"],
         "sunk_beams_dropped": sunk["dropped"],
+        "sunk_beams_dropped_by_strips": sunk["dropped_by_strips"],
         "sunk_beam_drop_mm_total": sunk["drop_total"],
         "sunk_strips_on_no_beam": sunk["strips_skipped"],
         "sunk_dropped_area_m2": sunk["dropped_area_m2"],
@@ -251,7 +252,10 @@ def _measure(path):
         "stair_bays_withdrawn": stops["stair_bays"],
         "stair_area_m2": stops["stair_area_m2"],
         "cutout_bays_withdrawn": stops["cutout_bays"],
+        "cutout_bays_by_cross": stops["cutout_bays_by_cross"],
+        "cutout_bays_by_text": stops["cutout_bays_by_text"],
         "cutout_bay_area_m2": stops["cutout_bay_area_m2"],
+        "cutout_texts": stops["cutout_texts"],
         "chajjas": stops["chajjas"],
         "chajja_offset_mm_total": stops["chajja_offset_total"],
         "slab_stop_notes": stops["notes"],
@@ -290,7 +294,11 @@ def _sunk_pass(result, entries, proposals, depths, slab_defs, beams):
     layers.apply_mapping(result.regions, mapping)
     swatch_ids = set(id(entry["swatch"]) for entry in entries)
     split = fold_plan.sunk_split(result.regions, depths, swatch_ids)
-    drops = fold_plan.beam_drops(beams, split["strips"])
+    # Both halves of the hatch reading, the way the beam pass asks it: a sunk
+    # STRIP names its beam, and a sunk BAY's hatch overhangs the members
+    # bounding the bay by their half widths and sinks those too.
+    drops = fold_plan.beam_drops(beams, split["strips"], split["bays"])
+    strips_only = fold_plan.beam_drops(beams, split["strips"])
     steps = fold_plan.sunk_bay_steps(slab_defs, split["bays"])
     defs, _notes = fold_plan.slab_defs_with_steps(slab_defs, steps["steps"])
     return {
@@ -303,6 +311,10 @@ def _sunk_pass(result, entries, proposals, depths, slab_defs, beams):
         "depth_total": round(sum(s["depth_mm"] for s in steps["steps"]), 1),
         "defs": len(defs),
         "dropped": len(drops["drops"]),
+        # The strips ALONE, kept beside the total: a change to the bay reading
+        # and a change to the strip reading both move `dropped`, and only the
+        # pair says which one did.
+        "dropped_by_strips": len(strips_only["drops"]),
         "drop_total": round(sum(drops["drops"].values()), 1),
         "strips_skipped": len(drops["skipped"]),
         # THE GEOMETRY IS THE BAY'S, NOT THE HATCH'S, and this is the number
@@ -332,7 +344,8 @@ def _stops_pass(result, entries, depths, slab_defs, beams):
     swatch_ids = set(id(entry["swatch"]) for entry in (entries or []))
     stopped, report = slab_outlines.apply_slab_stops(
         slab_defs, result.records, result.texts, regions=result.regions,
-        beam_segments=beams, legend_entries=entries, skip_ids=swatch_ids)
+        beam_segments=beams, legend_entries=entries, skip_ids=swatch_ids,
+        sheet_texts=result.texts)
     split = fold_plan.sunk_split(result.regions, depths, swatch_ids)
     steps = fold_plan.sunk_bay_steps(stopped, split["bays"])
     built, _notes = fold_plan.slab_defs_with_steps(stopped, steps["steps"])
@@ -344,7 +357,15 @@ def _stops_pass(result, entries, depths, slab_defs, beams):
         "stair_bays": report["stair_bays"],
         "stair_area_m2": report["stair_area_m2"],
         "cutout_bays": report["cutout_bays"],
+        "cutout_bays_by_cross": report["cutout_bays_by_cross"],
+        "cutout_bays_by_text": report["cutout_bays_by_text"],
         "cutout_bay_area_m2": report["cutout_bay_area_m2"],
+        # EVERY text in the drawing the cutout vocabulary catches, whether or
+        # not it lands in a bay. This is the number a false positive moves
+        # first -- a beam or slab label the words started matching shows up
+        # here on a drawing that has no cutouts at all, before it ever deletes
+        # a floor.
+        "cutout_texts": len(slab_stops.cutout_texts(result.texts)),
         "chajjas": report["chajjas"],
         "chajja_offset_total": round(sum(
             d["offset_mm"] for d in stopped if d.get("part") == "chajja"), 1),

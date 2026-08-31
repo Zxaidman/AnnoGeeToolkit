@@ -184,12 +184,31 @@ exactly what the owner sees.
 serves the F1/F2/F3/RF1/RF2 block beside it, which is the foundation/roof schedule — worth reading
 in the same pass and filtering by mark at the consumer, as slabs already are.
 
-### BUG-15 — A sunk beam must move by z Offset Value, and a bay's beams must sink too · `pending`
+### BUG-15 — A sunk beam must move by z Offset Value, and a bay's beams must sink too · `testing`
 
 **The owner, twice over:** "beams are not getting sunk which has hatch pattern and its sunk value
 should use Z Offset Value only for sunk or rise not the Start/End Level Offset."
 
-Two separate faults:
+**Both halves fixed, awaiting the owner's Revit run.**
+
+- **The parameter.** `builders/beams._sink` sets `BuiltInParameter.Z_OFFSET_VALUE` to
+  `-mm_to_internal(drop_mm)` and the driving curve is laid ON the level, so Start and End Level
+  Offset stay at 0.000. **The sign:** z Offset Value counts along the model's +Z from whatever datum
+  `z Justification` names — the justification chooses WHICH face sits on the location line, not
+  which way the offset counts — so down is negative whatever it reads. With the owner's `Top`, −150
+  puts the top face and the whole unchanged section 150 below the level, top and soffit together. A
+  legend row pricing a RISE arrives as a negative depth and comes out positive, up. A family whose
+  parameter refuses the number is REPORTED, not swallowed.
+- **The coverage.** `fold_plan.beam_drops` now takes the sunk BAY hatches beside the strips and asks
+  them the BEAM's share only (`_BEAM_CLAIM_SHARE`, 0.3 — the bay-side desert measured 0.2012 ..
+  0.6251 over all 385 overlapping pairs, 0.4239 wide against a next-widest gap of 0.1824, so the
+  strip-side constant is reused rather than a second one invented). **test14 goes from 12 of 660
+  beams dropped to 261**: 90 at 75 mm and 171 at 150 mm, the biggest group being **105 of the
+  200X600 beams at 150 mm** — image2's own size. Not one of the 12 bay hatches that sinks no bay
+  claims a beam either, so every dropped beam is under a hatch that also stepped a floor. Nothing
+  moves on any other fixture.
+
+The two original faults, as found:
 - **The parameter.** The drop is applied by lowering the curve, which Revit records as Start/End
   Level Offset. The owner wants `Z Offset Value` — the parameter meaning "this member sits below its
   level", which leaves the analytical line where the drawing puts it.
@@ -199,19 +218,45 @@ Two separate faults:
   BUG-14 made the bay's own ring the geometry, that overhang now informs nothing; it should inform
   this.
 
-### BUG-16 — A text naming a cutout does not mark one · `pending`
+### BUG-16 — A text naming a cutout does not mark one · `testing`
 
 **The owner:** "Few large place still are still taking the Cutout Cross even when now that i have
 put the `Cutout, Lift Shaft, Duct etc.` text there also."
 
-**Measured:** the fixture in the repository carries **no such text at all** — its only texts are beam
-sizes, `135/150 THK.`, the four legend rows, the U.N.O. note, `ST-1`/`ST-2` and `STB`. The owner's
-screenshots plainly show green `CUTOUT` text, so that edit is still on their machine. The rule can be
-built and pinned synthetically; it cannot be measured on this corpus until they push the drawing.
+**Fixed, awaiting the owner's Revit run, and now measured on the real drawing** — the owner has
+pushed it (`89ba208`), and test14 carries `CUTOUT` ×15 and `LIFT SHAFT` ×15 on layer `CUTOUT`.
+`slab_stops.cutout_bays` asks the WORD beside the X: a bay carrying either is withdrawn, a bay
+carrying both is withdrawn once, and `by_cross` / `by_text` keep the two readings apart in the
+console and the sweep.
+
+**The rule is a WHOLE-STRING match, never a substring, and the corpus is why.** test15 keeps four
+sheet titles on a layer called `A-CUTOUT` — `GROUND FLOOR PLAN`, `LIFT MACHINE ROOM FLOOR PLAN` —
+and test9 two legend rows, `CUTOUT IN SLAB & NON STR. WALL` and `HATCH INDICATE CUTOUT FOR DOOR
+ABOVE…`. Every one holds a word from the list and not one marks a void; read whole, all six are
+refused. The layer is not asked either, for the same reason. `B111`, `S1`, `MB`, `200X400`,
+`135 THK.`, `ST-1` are not names on the list and cannot become them.
+
+**What it catches, corpus-wide — 80 texts of 13,415, on five drawings**, pinned as `cutout_texts` in
+the sweep so a future false positive shows up as a number that moved: test14 `CUTOUT` ×15 +
+`LIFT SHAFT` ×15, test16 `CUTOUT` ×12 + `SHAFT` ×6, test10 `SHAFT` ×20, test1/2/3 `SHAFT` ×4 each.
+
+**What it withdraws:** test14 **+3 bays, 87.3 m²** — one per plan, 29.13 m² each, the largest of the
+four the word names and **the only one no X crosses**, which is the owner's "large place" exactly.
+test16 **+8 bays, 71.0 m²**. Every `SHAFT`-only drawing withdraws NOTHING: those 32 texts sit in no
+closed bay at all (no bay closes round a lift well), and each is now named on a note rather than
+being silently ignored. test12's 21 and test13's 11 crossed bays do not move.
 
 ### BUG-13 — A whole bay crossed by an X still gets a floor · `testing`
 
-**Fixed, awaiting the owner's Revit run.** `slab_stops.cutout_bays` asks the existing
+**Re-measured after v0.86.0 and the owner's re-pushed drawing (image3 — "still not fixed little
+improvement").** The improvement was real and the leftover has a different cause. The beam-pairing
+fix closes bays that never closed, so the X reading now finds **12 crossed bays on test14, not 6
+(105.6 m², was 63.5)** and **11 on test13, not 4 (256.1 m², was 0.1)**; test12 is unmoved at 21.
+What it still did not find was the largest cut-out of the four on each plan — 29.13 m², carrying a
+`CUTOUT` text and **no diagonals at all**, so no reading of the geometry could ever have withdrawn
+it. That one is BUG-16's, and BUG-16 takes it.
+
+`slab_stops.cutout_bays` asks the existing
 `slab_graph.crossed` of the BAY, and a crossed bay is withdrawn exactly as a staircase bay is —
 counted and named on its own console line, area included. Corpus-wide it withdraws **test14 6 bays
 / 63.5 m², test12 21 / 121.3, test13 4 / 0.1**, and **no bay is both crossed and a staircase**
@@ -243,6 +288,16 @@ no concrete there*. It is applied to `COVER` rings only. A bay carrying the X is
 about a bigger piece, and should be withdrawn exactly as a staircase bay is.
 
 ### BUG-14 — A hatch is shaping the slab, when it should only inform it · `testing`
+
+**Re-measured after v0.86.0 and the owner's re-pushed drawing (image2 — "did not see any
+improvement").** The sunk SLAB half is working and the symptom the owner still sees is the BEAM.
+Measured on the current test14: **132 of its 336 bays sink, 458.3 m² of dropped floor**, 60 at 75 mm
+and 72 at 150 mm, from 117 of the 129 bay hatches; the 12 that sink nothing are all pattern `HONEY`
+and are named. So the bay of 200X600 beams under a sunk hatch DOES produce a sunk slab. What did not
+move was the beam under it — 12 of 660 — and that is BUG-15, which takes it: **105 of the 200X600
+beams now drop at 150 mm.** One residual worth its own entry if the owner still sees it: the whole
+`HONEY` / **50 mm** legend row builds nothing at all on test14 — its 12 bay hatches cover no bay by
+70% and its 6 strips lie on no beam. Every one of those is reported by name.
 
 **Fixed by DELETING the pass that shaped it, awaiting the owner's Revit run.** The sunk slab pass
 no longer produces any geometry of its own: `fold_plan.sunk_bay_steps` asks which BAY each hatch
