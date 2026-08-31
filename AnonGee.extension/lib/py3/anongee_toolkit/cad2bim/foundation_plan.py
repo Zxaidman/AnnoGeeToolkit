@@ -430,13 +430,19 @@ def _stitch(face_a, face_b, outline_edges):
 
 
 def plan_foundations(records, texts, category=CATEGORY_FOUNDATION,
-                     regions=None):
+                     regions=None, schedule=None):
     """[{ring, z, mark, thickness_mm, steps, source, labels, holes, kind}] for
     the DRAWN foundations.
 
     `texts` are the foundation notes -- the caller routes them by layer, the
     way slab notes are routed, because that is what tells `foundation_labels`
     a bare "1200MM THK" is a raft rather than a slab.
+
+    `schedule` is {mark: thickness_mm} from the drawing's own FOUNDATION
+    schedule -- test16 draws one beside its slab schedule, F1 500 / F2 550 /
+    F3 600 / RF1 1200 / RF2 1200, in the same Mark|Thk shape. It sizes a ring
+    whose label carries only a mark, and it is asked LAST: a note written on
+    the ring itself is the more specific statement and keeps its figure.
 
     `regions` are the reader's hatches, already classified. A region routed
     to CATEGORY_CUTOUT -- a legend proposal or an explicit dialog pick -- is
@@ -482,6 +488,12 @@ def plan_foundations(records, texts, category=CATEGORY_FOUNDATION,
     for index, (ring, z, source) in enumerate(rings):
         inside = assigned[index]
         mark, thickness = _size_from(inside, ring)
+        if thickness is None and mark is not None:
+            # the schedule speaks only where the ring itself did not
+            entry = (schedule or {}).get(mark)
+            if entry is not None:
+                thickness = (entry[0] if isinstance(entry, (tuple, list))
+                             else entry)
         steps = [{"step_mm": note["step_mm"], "step_kind": note["step_kind"],
                   # The note's THK is the DROPPED slab's own thickness: the
                   # folds repeat their raft's 750, but the sunk bay says 500

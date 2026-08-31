@@ -122,3 +122,55 @@ class TheFixtureItself(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TheFoundationSchedule(unittest.TestCase):
+    """The F/RF block beside the slab one, sizing a ring that carries only a mark.
+
+    test16 draws it in the same Mark|Thk shape -- F1 500, F2 550, F3 600,
+    RF1 1200, RF2 1200 -- and `plan_foundations` reads it exactly as the slab
+    pass reads S1..S6: LAST, so a note written on the ring itself keeps its own
+    figure. A schedule is the sheet's general statement; a note on the outline
+    is the specific one, and the specific wins.
+    """
+
+    def setUp(self):
+        self.plan = _loader.load("foundation_plan")
+
+    def _one(self, label, schedule=None):
+        record = _FndRecord("polyline",
+                            [(0, 0), (4000, 0), (4000, 3000), (0, 3000), (0, 0)])
+        note = _FndText(label, (2000, 1500))
+        return self.plan.plan_foundations([record], [note], schedule=schedule)
+
+    def test_a_mark_only_ring_takes_its_thickness_from_the_schedule(self):
+        found = self._one("F2", schedule={"F2": 550.0})
+        self.assertEqual([(p["mark"], p["thickness_mm"]) for p in found],
+                         [("F2", 550.0)])
+
+    def test_a_note_on_the_ring_beats_the_schedule(self):
+        found = self._one("F2_800MM THK", schedule={"F2": 550.0})
+        self.assertEqual([p["thickness_mm"] for p in found], [800.0])
+
+    def test_no_schedule_leaves_it_exactly_as_before(self):
+        self.assertEqual([p["thickness_mm"] for p in self._one("F2")], [None])
+
+
+_FT = 1.0 / 304.8
+
+
+class _FndRecord(object):
+    """A foundation-layer outline in internal feet, closed as test10 draws one."""
+
+    def __init__(self, kind, corners_mm):
+        self.kind = kind
+        self.points = [(x * _FT, y * _FT, 0.0) for x, y in corners_mm]
+        self.layer = "S-FND"
+        self.layer_key = "s-fnd"
+        self.category = "foundation"
+
+
+class _FndText(object):
+    def __init__(self, text, point_mm):
+        self.text = text
+        self.point_internal = (point_mm[0] * _FT, point_mm[1] * _FT, 0.0)
