@@ -1181,6 +1181,37 @@ class TheColumnOrWallChoiceIsWired(unittest.TestCase):
         self.assertNotIn("columns.place_columns(", block)
 
 
+class TheSlabScheduleReachesTheSlabs(unittest.TestCase):
+    """test16 carries a Mark|Thk slab schedule and the floors kept the default
+    type. The parser is unit-tested in test_thickness_schedule; this pins the
+    two links that make it reach a slab, both of which fail silently -- a
+    schedule nobody reads and a bay nobody sizes look identical in the model.
+    """
+
+    def test_the_slab_pass_reads_the_thickness_table(self):
+        block = _builders_source().split("def _create_slabs(", 1)[1].split(
+            "\ndef ", 1)[0]
+        self.assertIn("marks.parse_thickness_schedule(", block,
+                      "the slab pass never reads a Mark|Thk schedule, so a "
+                      "drawing that has one still falls back to the note")
+
+    def test_it_is_read_from_the_sheet_not_the_routed_labels(self):
+        # the table sits on its own annotation layer; the narrowed slab routing
+        # cannot be trusted to still hold it
+        block = _builders_source().split("def _create_slabs(", 1)[1].split(
+            "\ndef ", 1)[0]
+        call = block.split("marks.parse_thickness_schedule(", 1)[1][:60]
+        self.assertIn("sheet_texts", call)
+
+    def test_the_thickness_wins_over_a_section_sharing_the_mark(self):
+        # a thickness stated against the mark beats the first dimension of any
+        # section that happens to carry it: assignment, not setdefault
+        block = _builders_source().split("def _create_slabs(", 1)[1].split(
+            "\ndef ", 1)[0]
+        tail = block.split("marks.parse_thickness_schedule(", 1)[1][:400]
+        self.assertIn("slab_schedule[mark] = thickness", tail)
+
+
 class TheBlanketNoteReachesTheBuilders(unittest.TestCase):
     """The sheet's "ALL BEAMS ARE 750MM IN DEPTH U.N.O." wiring, pinned as text.
 

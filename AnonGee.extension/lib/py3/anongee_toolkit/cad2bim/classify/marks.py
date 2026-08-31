@@ -298,6 +298,14 @@ _HDR_MARK = ("mark", "ref", "col", "column", "type", "no", "id",
 _HDR_W = ("w", "b", "width", "breadth")
 _HDR_L = ("l", "d", "depth", "length")
 _HDR_H = ("h", "ht", "height", "lvl", "level")
+# A SLAB (or raft) schedule is a two-column Mark|Thk table -- one dimension, not
+# two -- so it needs its own role and its own reader; the value is a scalar, not
+# a (w, l) pair, and cramming it into the same mapping would hand a slab's
+# thickness to something expecting a section. Measured across the corpus before
+# choosing the words: "THK" appears in test16 alone, twice, and those two cells
+# ARE its slab schedule's headers. A bare "T" is deliberately NOT here -- it
+# appears in test4, test5 and test9 meaning something else entirely.
+_HDR_T = ("thk", "thick", "thickness")
 _HDR_SIZE = ("size", "section", "dim", "dimensions", "bxd", "wxl", "wxd")
 
 
@@ -310,6 +318,8 @@ def _header_role(text):
         return "w"
     if t in _HDR_L:
         return "l"
+    if t in _HDR_T:
+        return "t"
     if t in _HDR_H:
         return "h"
     if t in _HDR_SIZE:
@@ -349,9 +359,96 @@ def _is_header_row(cells):
     n_mark = sum(1 for _, r in roles if r == "mark")
     n_dim = sum(1 for _, r in roles if r in ("w", "l"))
     n_size = sum(1 for _, r in roles if r == "size")
-    if n_mark >= 1 and (n_dim >= 2 or n_size >= 1):
+    n_thk = sum(1 for _, r in roles if r == "t")
+    if n_mark >= 1 and (n_dim >= 2 or n_size >= 1 or n_thk >= 1):
         return sorted(roles)
     return None
+
+
+def parse_thickness_schedule(texts):
+    """{mark: thickness_mm} from a Mark|Thk table -- the SLAB (or raft) schedule.
+
+    Kept apart from `parse_schedule` on purpose. That one answers with a SECTION,
+    a (w, h) pair, and a slab schedule answers with one number; a single mapping
+    holding both would hand a thickness to a caller expecting a section, and the
+    error would be a wrong beam rather than a missing slab.
+
+    test16 is the case the owner reported: it draws
+
+        Mark | Thk        Mark | Thk
+        S1   | 125        F1   | ...
+        ...                RF2 | ...
+        S6   | 250
+
+    on G-ANNO-SCHD, with 201 slab labels using those marks, and until `thk` was
+    a header word at all the table was invisible -- so every bay fell back to
+    the blanket note and no type was ever created from the schedule. The second
+    block beside it is the foundation/roof schedule, read by the same pass; the
+    caller filters by mark, exactly as the slab pass already filters `S`-marks
+    out of the beam schedule.
+    """
+    out = {}
+    if not texts:
+        return out
+    placed = [(record.text, _schedule_xy(record)) for record in texts]
+    cells = [(xy[0], xy[1], text) for text, xy in placed if xy]
+    header, data_rows = None, None
+    for _y, row in _cluster_rows(cells):
+        roles = _is_header_row(row)
+        if roles is not None:
+            if header is not None:
+                _read_thickness_table(header, data_rows, out)
+            header, data_rows = roles, []
+        elif header is not None:
+            data_rows.append(row)
+    if header is not None:
+        _read_thickness_table(header, data_rows, out)
+    return out
+
+
+def _read_thickness_table(header, data_rows, out):
+    """Read one Mark|Thk table's rows into `out`, block by block.
+
+    A header with no thickness column contributes nothing -- a column or beam
+    schedule passes through here untouched, which is what keeps the two readings
+    independent.
+    """
+    blocks, current = [], None
+    for x, role in header:
+        if role == "mark":
+            current = {"mark": x}
+            blocks.append(current)
+        elif current is not None and role == "t":
+            current.setdefault("t", x)
+    blocks = [b for b in blocks if "t" in b]
+    if not blocks:
+        return
+
+    xs = sorted(x for x, _ in header)
+    pitch = min((b - a for a, b in zip(xs, xs[1:])), default=0.0)
+    tol = pitch * 0.5 if pitch > 0 else None
+
+    for cells in data_rows:
+        for block in blocks:
+            name, _b, _h = parse_mark(_cell_at(cells, block["mark"], tol) or "")
+            if not name:
+                continue
+            value = _first_number(_cell_at(cells, block["t"], tol) or "")
+            if value is None:
+                continue
+            out.setdefault(name, value)
+
+
+def _first_number(text):
+    """The first plain number in a cell, or None. "175" / "175 THK." / "175mm"."""
+    match = re.search(r"(\d+(?:\.\d+)?)", text or "")
+    if not match:
+        return None
+    try:
+        value = float(match.group(1))
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
 
 
 def _parse_schedule_table(rows):
