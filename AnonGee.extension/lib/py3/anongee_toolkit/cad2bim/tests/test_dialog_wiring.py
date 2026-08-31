@@ -1056,11 +1056,14 @@ class TheBlanketNoteReachesTheBuilders(unittest.TestCase):
                 return inner
         return None
 
-    def test_the_controls_live_with_the_beams_and_slabs_they_govern(self):
+    def test_the_controls_live_with_what_is_shared_by_every_element(self):
+        # Moved off Structure at the owner's word: one note governs beams AND
+        # slabs, so it belongs where the level pair and the grids are, not
+        # inside either element's own group.
         homes = _tab_homes()
         for control in ("chk_blanket_note", "tb_blanket_beam_depth",
                         "tb_blanket_slab_thk", "lbl_blanket_note"):
-            self.assertEqual(homes.get(control), "Build > Structure",
+            self.assertEqual(homes.get(control), "Build > General",
                              "%s sits on %r" % (control, homes.get(control)))
 
     def test_the_window_binds_all_four_and_emits_the_three_keys(self):
@@ -1131,9 +1134,13 @@ class TheBlanketNoteReachesTheBuilders(unittest.TestCase):
         # the dialog cannot send None, so the (tick, box) -> tri-state mapping
         # has to live in ONE place both passes call, or the two kinds drift
         self.assertIn("def blanket_mm(selections, key):", _builders_source())
-        self.assertIn('blanket_mm(selections,', _builders_source())
-        self.assertIn('"blanket_slab_thickness_mm")', _builders_source())
-        self.assertIn('blanket_mm(selections, "blanket_beam_depth_mm")',
+        self.assertIn("def storey_blanket_mm(selections, key, note_key, texts):",
+                      _builders_source())
+        # both kinds go through the per-storey wrapper, so a sheet whose plans
+        # carry different notes builds each plan to its own
+        self.assertIn('"blanket_slab_thickness_mm", "slab_thickness_mm"',
+                      _builders_source())
+        self.assertIn('"blanket_beam_depth_mm", "beam_depth_mm"',
                       _script_source())
 
     def test_both_counts_are_said_out_loud(self):
@@ -1142,15 +1149,19 @@ class TheBlanketNoteReachesTheBuilders(unittest.TestCase):
         self.assertIn("took the sheet's blanket depth", _script_source())
         self.assertIn("took the sheet's blanket thickness", _builders_source())
 
-    def test_a_sheet_that_contradicts_itself_is_refused_in_red(self):
-        # two sources disagreeing is this project's loud-refusal case, and
-        # errors go through _say_error (the v0.69.3 convention)
+    def test_plans_that_differ_are_said_plainly_and_read_one_by_one(self):
+        # Notes that disagree ACROSS PLANS are not a contradiction to refuse:
+        # test14 writes 750/125 on two plans and 600/150 on the third, and the
+        # owner confirmed that is deliberate. Nothing is settled for the SHEET,
+        # which leaves the box empty on purpose, and each storey then reads the
+        # note inside its own plan -- so this is a note, not an error.
         script = _script_source()
         self.assertIn('for key, values in blanket_note["conflicts"]:', script)
-        block = script.split('blanket_note["conflicts"]', 1)[1][:600]
-        self.assertIn("_say_error(", block,
-                      "a contradictory sheet is reported in the ordinary "
-                      "channel, not as the refusal it is")
+        block = script.split('blanket_note["conflicts"]', 1)[1][:900]
+        self.assertNotIn("_say_error(", block,
+                         "plans that legitimately differ are reported as a "
+                         "refusal, which is no longer what happens")
+        self.assertIn("each plan will use the note drawn inside it", block)
 
     def test_the_figures_come_from_this_drawing_not_from_the_last_run(self):
         # restoring last week's 750 onto a sheet that says 600 would put a

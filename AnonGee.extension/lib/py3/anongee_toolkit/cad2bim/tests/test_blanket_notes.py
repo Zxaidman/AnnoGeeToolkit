@@ -258,6 +258,44 @@ class ConflictingNotesAreRefused(unittest.TestCase):
             self.assertEqual(found["conflicts"], [])
 
 
+class EachPlanReadsItsOwnNote(unittest.TestCase):
+    """A sheet's plans need not agree, and disagreeing is not a contradiction.
+
+    test14 as the owner redrew it: 750 deep / 125 thick on the first-floor and
+    refuge plans, 600 / 150 on the typical one, and they confirmed the
+    difference is deliberate. Read whole-sheet that is two conflicts and
+    `sheet_defaults` settles nothing -- which is right, because nothing in the
+    SHEET's text says which plan a note governs. Read per plan each is
+    unambiguous, and the plan boundary is what says so.
+
+    Measured on the fixture: three plans, x 4277..65790, 77037..138550 and
+    157124..218637 mm, and the notes inside them resolve 750/125, 600/150,
+    750/125 with no conflict anywhere.
+    """
+
+    T14_TYPICAL_BEAM = "NOTE - 1) ALL BEAMS ARE 600MM IN DEPTH U.N.O."
+    T14_TYPICAL_SLAB = "2) ALL SALB ARE 150MM  U.N.O."
+
+    def test_the_whole_sheet_settles_nothing_and_names_both_figures(self):
+        found = marks.sheet_defaults(
+            [_Note(T14_BEAM)] * 2 + [_Note(self.T14_TYPICAL_BEAM)]
+            + [_Note(T14_SLAB)] * 2 + [_Note(self.T14_TYPICAL_SLAB)])
+        self.assertIsNone(found["beam_depth_mm"])
+        self.assertIsNone(found["slab_thickness_mm"])
+        self.assertEqual(found["conflicts"],
+                         [("beam_depth_mm", [600.0, 750.0]),
+                          ("slab_thickness_mm", [125.0, 150.0])])
+
+    def test_each_plans_own_texts_settle_it_cleanly(self):
+        for beam, slab, depth, thickness in (
+                (T14_BEAM, T14_SLAB, 750.0, 125.0),
+                (self.T14_TYPICAL_BEAM, self.T14_TYPICAL_SLAB, 600.0, 150.0)):
+            found = marks.sheet_defaults([_Note(beam), _Note(slab)])
+            self.assertEqual(found["beam_depth_mm"], depth)
+            self.assertEqual(found["slab_thickness_mm"], thickness)
+            self.assertEqual(found["conflicts"], [])
+
+
 class TheBeamsTakeItOnlyWhereNothingElseSpoke(unittest.TestCase):
 
     def test_an_unlabelled_beam_takes_the_sheets_depth(self):
