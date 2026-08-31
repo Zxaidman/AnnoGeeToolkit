@@ -146,6 +146,44 @@ wrong. **No genuinely rotated column exists in test14** — every failure is noi
 band the measurement leaves empty, then decompose as a composite. `_snapped` in `fold_plan` is the
 donor. Tolerance to be set from the corpus-wide drift measurement, not chosen.
 
+### BUG-17 — A slab schedule with a THK column is not read at all (test16) · `pending`
+
+**The owner:** "slab schedule reading for type is not working while layout mark label is used for
+parameter but type creation and using proper type as per schedule is not working for slab." Their
+screenshot shows a floor carrying `S-ScheduleMark S3` correctly, and its type still `.Default Floor`.
+
+**Reproduced, and the cause is two lines in `classify/marks.py`:**
+
+test16 draws a real `SLAB SCHEDULE` on `G-ANNO-SCHD`, a clean two-column table —
+
+```
+Mark | Thk        Mark | Thk
+S1   | 125        F1   | ...
+S2   | 150        F2   | ...
+S3   | 175        F3   | ...
+S4   | 200        RF1  | ...
+S5   | 225        RF2  | ...
+S6   | 250
+```
+
+— and 201 slab labels on `A-FLOR-IDEN` using those marks (S1 ×34, S2 ×90, S3 ×46, S4 ×26, S5 ×3,
+S6 ×2). `parse_schedule` returns **220 rows, every one a BEAM mark** (B1, B10 …). The slab table is
+invisible to it because:
+
+1. **`thk` is not a header word.** `_header_role` knows `w/b/width/breadth`, `l/d/depth/length`,
+   `h/ht/height/lvl/level`, `size/section/dim…` — nothing for thickness.
+2. **`_is_header_row` demands two dimension columns or a Size column.** A `Mark | Thk` table has
+   exactly one, so even a recognised `thk` would still fail the gate.
+
+So `run_builders`'s `slab_schedule` filter (marks beginning `S` + digit) finds nothing, every bay
+falls back to the blanket note or the base type, and the type is never created from the schedule —
+exactly what the owner sees.
+
+**Shape note for whoever builds it:** a thickness table's value is a SCALAR, not the `(w, l)` pair
+`parse_schedule` returns, so the two must not be crammed into one mapping. The same table shape
+serves the F1/F2/F3/RF1/RF2 block beside it, which is the foundation/roof schedule — worth reading
+in the same pass and filtering by mark at the consumer, as slabs already are.
+
 ### BUG-15 — A sunk beam must move by z Offset Value, and a bay's beams must sink too · `pending`
 
 **The owner, twice over:** "beams are not getting sunk which has hatch pattern and its sunk value
