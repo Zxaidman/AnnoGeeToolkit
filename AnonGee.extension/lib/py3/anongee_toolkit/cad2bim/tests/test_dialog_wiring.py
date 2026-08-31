@@ -25,6 +25,10 @@ _BUILDERS = os.path.normpath(os.path.join(_HERE, "..", "run_builders.py"))
 # the wall builder itself: imports Revit at module level, so text-only here
 _WALLS_BUILDER = os.path.normpath(os.path.join(_HERE, "..", "builders",
                                                "walls.py"))
+# ...and the column builder, which since the three-way choice is also where a
+# vertical member is routed to one builder or the other
+_COLUMNS_BUILDER = os.path.normpath(os.path.join(_HERE, "..", "builders",
+                                                 "columns.py"))
 _XAML = os.path.join(_BUTTON, "ui.xaml")
 _LINK_XAML = os.path.join(_BUTTON, "link_options.xaml")
 _ADV_XAML = os.path.join(_BUTTON, "advanced.xaml")
@@ -1017,6 +1021,164 @@ class TheWallsReachTheBuilder(unittest.TestCase):
         self.assertIn("key = (kind, int(round(width_mm)))", source)
         self.assertIn("naming.struct_wall_type_name(", source)
         self.assertIn("naming.arch_wall_type_name(", source)
+
+
+class TheColumnOrWallChoiceIsWired(unittest.TestCase):
+    """Build > Structure's three-way: Column, Wall, or Combine (smart).
+
+    "currently vertical members are being made using only Structure Column,
+    but i want one toggle ... to use Structural Wall entire instead" -- the
+    user's words. Column stays the DEFAULT, so a run nobody re-configures is
+    the run it has always been; every link below fails quietly if cut, which
+    is why each is pinned rather than trusted.
+    """
+
+    _WPF = "{http://schemas.microsoft.com/winfx/2006/xaml/presentation}"
+    _KEY = "{http://schemas.microsoft.com/winfx/2006/xaml}Name"
+
+    _BUTTONS = ("rb_vertical_column", "rb_vertical_wall",
+                "rb_vertical_combine")
+
+    def _radios(self):
+        return dict((el.get(self._KEY), el) for el in _body_iter(_XAML)
+                    if el.get(self._KEY) in self._BUTTONS)
+
+    def _columns_source(self):
+        with open(_COLUMNS_BUILDER, "rb") as handle:
+            return handle.read().decode("utf-8")
+
+    def test_all_three_buttons_are_on_the_structure_sub_tab(self):
+        homes = _tab_homes()
+        for control in self._BUTTONS:
+            self.assertEqual(homes.get(control), "Build > Structure",
+                             "%s sits on %r" % (control, homes.get(control)))
+
+    def test_they_are_one_group_so_only_one_can_be_chosen(self):
+        radios = self._radios()
+        self.assertEqual(sorted(radios), sorted(self._BUTTONS))
+        groups = set(el.get("GroupName") for el in radios.values())
+        self.assertEqual(len(groups), 1,
+                         "the three readings are not one group: %s" % groups)
+        self.assertNotIn(None, groups, "a radio with no GroupName is a tick")
+
+    def test_column_is_the_one_checked_in_the_xaml(self):
+        # the whole no-surprise guarantee rests on this line: a user who never
+        # opens the row gets Structural Columns, exactly as before
+        radios = self._radios()
+        checked = [name for name, el in radios.items()
+                   if el.get("IsChecked") == "True"]
+        self.assertEqual(checked, ["rb_vertical_column"])
+
+    def test_the_window_binds_all_three_and_emits_the_mode(self):
+        window = _window_source()
+        for control in self._BUTTONS:
+            self.assertIn('find("%s")' % control, window,
+                          "%s is decoration" % control)
+        collect = window.split("def _collect(", 1)[1].split("\n    def ", 1)[0]
+        self.assertIn('"vertical_member_mode"', collect,
+                      "the choice never leaves the dialog")
+
+    def test_the_dialog_names_the_modes_from_the_planner_not_by_hand(self):
+        # three string literals in the window and a fourth in the planner is
+        # how a renamed mode becomes a silently-ignored one
+        window = _window_source()
+        for constant in ("wall_plan.MODE_COLUMN", "wall_plan.MODE_WALL",
+                         "wall_plan.MODE_COMBINE"):
+            self.assertIn(constant, window, constant)
+
+    def test_the_reader_falls_back_to_column(self):
+        window = _window_source()
+        block = window.split("def _vertical_member_mode(", 1)[1].split(
+            "\n    def ", 1)[0]
+        self.assertIn("return wall_plan.MODE_COLUMN", block,
+                      "no button checked must mean the run it always was")
+
+    def test_the_help_prose_states_both_rules_in_the_users_terms(self):
+        prose = [(el.get("Text") or "") for el in ET.parse(_XAML).iter(
+            self._WPF + "TextBlock")
+            if "length-to-thickness" in (el.get("Text") or "")]
+        self.assertEqual(len(prose), 1, "the L/B note appears once")
+        text = prose[0]
+        # the ratio rule, in the words the user gave (ElementTree hands back
+        # the DECODED text, so the &lt;/&gt; the XAML carries read as < and >)
+        for phrase in ("aspect ratio of the cross-section",
+                       "L/B < 4", "L/B >= 4",
+                       "axial compression",
+                       "in-plane bending and shear",
+                       "IS 456", "IS 13920", "ACI 318"):
+            self.assertIn(phrase, text, phrase)
+        # ...and the mark rule beside it
+        for phrase in ("C1 is a Column", "SW1 or W1 is a Wall"):
+            self.assertIn(phrase, text, phrase)
+
+    def test_the_help_prose_wears_the_help_style(self):
+        for element in ET.parse(_XAML).iter(self._WPF + "TextBlock"):
+            text = element.get("Text") or ""
+            if "length-to-thickness" not in text and (
+                    "no L/B and no long axis" not in text):
+                continue
+            self.assertEqual(element.get("Style"),
+                             "{StaticResource HelpText}", text[:48])
+
+    def test_the_classifier_is_offline_and_carries_its_codes(self):
+        # the rule lives in classify/marks.py, which imports nothing but re --
+        # so it is unit-tested outside Revit (test_vertical_members)
+        with open(os.path.normpath(os.path.join(
+                _HERE, "..", "classify", "marks.py")), "rb") as handle:
+            source = handle.read().decode("utf-8")
+        self.assertIn("WALL_ASPECT_RATIO = 4.0", source)
+        self.assertNotIn("Autodesk.Revit", source)
+
+    def test_the_split_is_offline_too(self):
+        with open(os.path.normpath(os.path.join(_HERE, "..", "wall_plan.py")),
+                  "rb") as handle:
+            source = handle.read().decode("utf-8")
+        self.assertIn("def split_vertical_members(", source)
+        self.assertIn("def rect_wall_segment(", source)
+        self.assertNotIn("Autodesk.Revit", source)
+
+    def test_each_kind_goes_to_its_own_builder(self):
+        # the point of the whole exercise: a member built as a wall is named
+        # by the Naming tab's structural-wall row and sized through a wall
+        # type's compound structure, never by the column template
+        source = self._columns_source()
+        block = source.split("def place_vertical_members(", 1)[1].split(
+            "\ndef ", 1)[0]
+        self.assertIn("wall_plan.split_vertical_members(", block)
+        self.assertIn("place_columns(doc, column_sections", block)
+        self.assertIn("walls.place_walls(", block)
+        self.assertIn("structural=True", block)
+
+    def test_the_walls_ride_apart_from_the_columns(self):
+        # "created" stays the columns: the material pass reads it as the
+        # column ids, and a wall type keeps no structural material parameter
+        block = self._columns_source().split(
+            "def place_vertical_members(", 1)[1].split("\ndef ", 1)[0]
+        self.assertIn('result["wall_ids"] = outcome["created"]', block)
+        self.assertNotIn('result["created"] + outcome["created"]', block)
+
+    def test_a_missing_wall_type_builds_columns_and_says_so(self):
+        # place_walls raises on a base type it cannot resolve; losing a whole
+        # mode to an empty picker on another group would be the silent kind
+        block = self._columns_source().split(
+            "def place_vertical_members(", 1)[1].split("\ndef ", 1)[0]
+        self.assertIn("wall_type_id is None", block)
+        self.assertIn("built as columns instead", block)
+
+    def test_the_split_speaks_every_time(self):
+        block = self._columns_source().split(
+            "def place_vertical_members(", 1)[1].split("\ndef ", 1)[0]
+        self.assertIn('result["notes"]', block)
+        self.assertIn('split["console"]', block)
+
+    def test_the_run_routes_through_the_three_way(self):
+        # The whole feature is inert if _create_columns still calls the column
+        # builder directly: the mode would be collected, persisted, shown, and
+        # never consulted. Wall mode would silently build columns.
+        block = _builders_source().split("def _create_columns(", 1)[1].split(
+            "\ndef ", 1)[0]
+        self.assertIn("columns.place_vertical_members(", block)
+        self.assertNotIn("columns.place_columns(", block)
 
 
 class TheBlanketNoteReachesTheBuilders(unittest.TestCase):

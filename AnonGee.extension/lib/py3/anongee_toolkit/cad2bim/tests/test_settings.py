@@ -93,6 +93,41 @@ class WhatGetsSaved(unittest.TestCase):
             self.assertTrue(settings.saveable(name), name)
             self.assertTrue(settings.restorable(name), name)
 
+    def test_the_column_or_wall_choice_rides_the_snapshot(self):
+        # the Build > Structure three-way is a PREFERENCE (how this office
+        # wants its vertical members built), not something read off the
+        # drawing, so all three buttons save AND restore. A name that drifted
+        # into DETECTED_NAMES would put the run back on Column every session
+        # without saying so.
+        for name in ("rb_vertical_column", "rb_vertical_wall",
+                     "rb_vertical_combine"):
+            self.assertTrue(settings.saveable(name), name)
+            self.assertTrue(settings.restorable(name), name)
+
+    def test_a_file_saved_before_the_choice_existed_restores_column(self):
+        # the round trip a user actually has: last week's settings file has no
+        # rb_vertical_* key at all, so nothing is put back and the XAML's own
+        # IsChecked="True" on Column stands -- today's behaviour, unchanged.
+        controls, _layers, _texts = settings.sections(
+            {"schema": 4, "controls": {"chk_columns": True}})
+        self.assertEqual([name for name in controls
+                          if name.startswith("rb_vertical_")], [])
+
+    def test_the_choice_survives_a_file_on_disk(self):
+        data = settings.payload({"rb_vertical_column": False,
+                                 "rb_vertical_wall": False,
+                                 "rb_vertical_combine": True},
+                                version="0.86.0")
+        folder = tempfile.mkdtemp()
+        try:
+            path = os.path.join(folder, "settings.json")
+            self.assertIsNone(settings.write(path, data))
+            controls, _layers, _texts = settings.sections(settings.read(path))
+            self.assertEqual(controls["rb_vertical_combine"], True)
+            self.assertEqual(controls["rb_vertical_column"], False)
+        finally:
+            shutil.rmtree(folder)
+
 
 class MatchingASavedComboLabel(unittest.TestCase):
     ITEMS = ["(unchanged)", "Concrete - Cast In Situ", "Concrete, Precast"]

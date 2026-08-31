@@ -29,7 +29,7 @@ from System.Windows.Controls import (Grid as WpfGrid, ColumnDefinition, TextBloc
 from System.Windows.Media import Brushes
 
 from . import (advanced, config, floor_plans, naming, prefs, report, settings,
-               stair_layout)
+               stair_layout, wall_plan)
 from .builders import materials
 from .classify import layers
 from .readers import dxf_linker
@@ -364,6 +364,15 @@ class CadToBimWindow(object):
 
         self.chk_grids = find("chk_grids")
         self.chk_columns = find("chk_columns")
+        # WHAT a vertical member is built as (Build > Structure). Column is
+        # first here and IsChecked in the XAML, so a user who never touches the
+        # row -- and a settings file saved before this row existed -- gets
+        # exactly the run every earlier version gave them.
+        self.vertical_member_buttons = [
+            (find("rb_vertical_column"), wall_plan.MODE_COLUMN),
+            (find("rb_vertical_wall"), wall_plan.MODE_WALL),
+            (find("rb_vertical_combine"), wall_plan.MODE_COMBINE),
+        ]
         self.chk_beams = find("chk_beams")
         self.chk_slabs = find("chk_slabs")
         self.chk_stairs = find("chk_stairs")
@@ -951,6 +960,18 @@ class CadToBimWindow(object):
                 return shape
         return stair_layout.SHAPE_U
 
+    def _vertical_member_mode(self):
+        """How Build > Structure builds a vertical member (Column by default).
+
+        The fallback is deliberate rather than defensive: with no button
+        checked -- which is what a settings file written before this row existed
+        restores -- the run must be the one it has always been.
+        """
+        for button, mode in self.vertical_member_buttons:
+            if button.IsChecked:
+                return mode
+        return wall_plan.MODE_COLUMN
+
     def _read_limits(self):
         defaults = report.DEFAULT_LIMITS
         return {
@@ -1060,6 +1081,9 @@ class CadToBimWindow(object):
             "hatch_step_depths": self._read_hatch_depths(),
             "create_grids": bool(self.chk_grids.IsChecked),
             "create_columns": bool(self.chk_columns.IsChecked),
+            # ...and, of the members that tick builds, which of them are
+            # Structural Columns and which Structural Walls
+            "vertical_member_mode": self._vertical_member_mode(),
             "create_beams": bool(self.chk_beams.IsChecked),
             "create_slabs": bool(self.chk_slabs.IsChecked),
             "create_stairs": bool(self.chk_stairs.IsChecked),

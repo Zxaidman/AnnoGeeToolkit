@@ -29,6 +29,8 @@ from ..compat import get_element_name, set_element_mark
 from .. import config
 from .. import naming
 from .. import type_names
+from .. import wall_plan
+from . import walls
 
 _B_PARAM_NAMES = ("b", "width", "w", "Width", "B", "W")
 _H_PARAM_NAMES = ("h", "depth", "d", "Depth", "H", "D")
@@ -129,6 +131,80 @@ def place_columns(doc, sections, base_symbol_id, base_level_id, top_level_id,
                 result["created"].append(instance.Id)
             except Exception as placement_error:
                 result["errors"].append(str(placement_error))
+    return result
+
+
+def place_vertical_members(doc, sections, selections, base_symbol_id,
+                           base_level_id, top_level_id,
+                           region_max_side_mm=None):
+    """Place every recovered vertical member as the KIND the run asked for.
+
+    Build > Structure carries three readings of the same geometry, and this is
+    the one place that acts on them: "column" builds every member as a
+    Structural Column exactly as `place_columns` always has, "wall" builds them
+    all as Structural Walls, and "combine" asks `marks.vertical_kind` member by
+    member -- the drawing's mark first, then the L/B rule.
+
+    The split itself is Revit-free (`wall_plan.split_vertical_members`), so the
+    routing is unit-tested offline and only the placement happens here. Each
+    kind goes to its OWN builder, which means each keeps its own naming template
+    and its own type resolution: a member built as a wall is named by the Naming
+    tab's structural-wall row and sized through a wall type's compound
+    structure, never by the column template.
+
+    Returns the builders' shared result dict with two keys added:
+
+      "wall_ids"  the walls this pass created. Kept OUT of "created" on purpose:
+                  the caller files "created" as the columns for the material
+                  pass, and a wall type keeps no structural material parameter
+                  to write -- exactly as the drawn-wall pass has always left
+                  its own walls out of it.
+      "counts"    what the SPLIT decided, so the run can export what went each
+                  way. `wall_ids` is what was actually built, and the two differ
+                  only in the no-wall-type case below, which says so out loud.
+
+    Runs inside the caller's Transaction, like both builders it calls.
+    """
+    split = wall_plan.split_vertical_members(
+        sections, (selections or {}).get("vertical_member_mode"),
+        region_max_side_mm=region_max_side_mm)
+    segments = split["segments"]
+    column_sections = split["sections"]
+    wall_type_id = (selections or {}).get("struct_wall_type_id")
+    if segments and wall_type_id is None:
+        # Nothing is lost in silence: every member goes back to the column
+        # builder and the console says why, rather than a whole mode quietly
+        # building nothing because a picker on another group was left empty.
+        # The split's own summary is kept above this line, so the console shows
+        # BOTH what the rules decided and what the run could actually place.
+        split["console"].append(
+            "  no structural wall type is selected, so {0} member(s) the "
+            "split sent to walls were built as columns instead.".format(
+                len(segments)))
+        column_sections = sections
+        segments = []
+
+    result = place_columns(doc, column_sections, base_symbol_id,
+                           base_level_id, top_level_id,
+                           region_max_side_mm=region_max_side_mm)
+    result["wall_ids"] = []
+    result["counts"] = split["counts"]
+    if segments:
+        outcome = walls.place_walls(
+            doc, segments, wall_type_id, base_level_id,
+            top_level_id=top_level_id,
+            height_mm=(selections or {}).get("storey_height_mm"),
+            structural=True)
+        result["wall_ids"] = outcome["created"]
+        for key in ("skipped", "errors", "notes"):
+            result[key] = result[key] + outcome[key]
+    # The split speaks last so its summary sits under the per-member lines
+    # rather than above them, and it always speaks -- including in column mode,
+    # where "17 placed as columns" is the sentence that says the toggle is set
+    # where the user left it.
+    result["notes"] = result.get("notes", []) + [
+        "vertical members -- {0}".format(line.strip())
+        for line in split["console"]]
     return result
 
 

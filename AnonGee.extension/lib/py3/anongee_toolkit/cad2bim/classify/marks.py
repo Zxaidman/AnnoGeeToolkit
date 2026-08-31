@@ -519,3 +519,126 @@ def nearest_sized_text(cx, cy, candidates, radius_ft):
             best = text
             best_d2 = d2
     return best
+
+
+# ------------------------------------------- is this member a column or a wall?
+# Every vertical member the run recovers has been placed as a Structural Column
+# since day one. The user asked for the other two readings as well -- all of them
+# as walls, and a SMART one that decides member by member -- and gave the rule
+# the smart one follows, in two parts.
+#
+# THE RATIO. "The aspect ratio of the cross-section -- specifically the
+# length-to-thickness ratio (L/B) -- decides whether a vertical member is
+# classified as a column or a shear wall":
+#
+#   * COLUMN (or wall pier): L/B < 4 -- length less than 4 times its thickness;
+#     designed primarily for axial compression and localised bending.
+#   * SHEAR WALL: L/B >= 4 -- length 4 or more times its thickness; designed to
+#     resist major lateral forces through in-plane bending and shear.
+#
+# IS 456, IS 13920 and ACI 318 all draw the line in the same place, which is why
+# the 4 is a named constant carrying its codes rather than a bare number in a
+# branch: an office that works to a different code edits one line.
+WALL_ASPECT_RATIO = 4.0
+
+KIND_COLUMN = "column"
+KIND_WALL = "wall"
+
+# THE MARK, which is asked FIRST. A drawing that has named a member has already
+# said what it is, and a ratio must not argue with the engineer: test7 marks a
+# 300 x 5300 member C10 -- L/B 17.7, a shear wall by the ratio and a column by
+# the drawing -- and the drawing wins.
+#
+# What a mark's letters mean was MEASURED over the twenty fixture drawings, not
+# assumed. Every alphabetic prefix in the corpus, and what its layer says it is:
+#
+#   C     554 texts   columns (test7's C1..C18 sit on the column outlines)
+#   AC     48         "COLUMN NO._ASC" -- Project1/test8 column numbers
+#   BC     54         the same layer, the other grid direction
+#   ALC    10   BLC 8 the same layer again
+#   SW     18         S-COLS-IDEN / S-WALL-IDEN -- StaircasePlan-Test1's six
+#                     300 x 3300 and 6300 x 300 shear walls, test15/16's SW9..11
+#   B    1088         beams. 289 of them land on a COLUMN rectangle in test5.
+#   S 29, F 7, RF 2, P 2, T 1, BKT 1     slabs, footings, rafts, and one bracket
+#
+# So the noun is the LAST letter of the prefix: C says column (C, AC, BC, ALC,
+# BLC all being column numbers in this corpus), W says wall (SW, and the user's
+# own W1 and CW1 by the same reading). Anything else ABSTAINS and the ratio
+# decides -- which is the whole reason the table is a table and not "starts with
+# C". Read "starts with B" as a vote and test5's 289 bled beam labels would each
+# re-classify the column they happened to land on.
+#
+# The user's warning that "a mark starting with W might be something else
+# entirely" is worth recording: the corpus carries NO bare W mark at all, so
+# nothing here validates or contradicts it. What contains the risk is the
+# routing rather than this table -- a mark only reaches a member from the text
+# layer the Layers tab routed to "column mark", so a window tag W1 on an
+# architectural layer is never offered in the first place.
+_MARK_NOUN = {"C": KIND_COLUMN, "W": KIND_WALL}
+
+
+def mark_kind(mark):
+    """KIND_COLUMN / KIND_WALL for a mark that says which, else None.
+
+    None means the mark abstains -- it is a beam's, a slab's, or a letter this
+    convention has no reading for -- and the caller falls through to the ratio.
+    Separators are forgiven ("C-1" reads as C1, the way a drafter writes it),
+    because `parse_mark` only ever yields the tight C1/SW1 form and a mark
+    arriving from a schedule cell or a settings file need not be that tidy.
+    """
+    letters = _mark_prefix(mark)
+    if not letters:
+        return None
+    return _MARK_NOUN.get(letters[-1])
+
+
+def _mark_prefix(mark):
+    """The letters before a mark's first digit, uppercased ("SW1" -> "SW").
+
+    A mark with no digit ("WALL") is not a mark in this convention and yields
+    "", so it abstains rather than being read on its first letters.
+    """
+    text = "".join(ch for ch in (mark or "") if ch.isalnum()).upper()
+    letters = ""
+    for char in text:
+        if char.isdigit():
+            return letters
+        letters += char
+    return ""
+
+
+def aspect_ratio(width_mm, height_mm):
+    """L/B of a rectangular section -- long side over short side, always >= 1.
+
+    None for a section with no thickness to divide by (a zero or negative side
+    is not a member), so the caller can say "unmeasurable" instead of dividing.
+    """
+    try:
+        sides = (float(width_mm), float(height_mm))
+    except (TypeError, ValueError):
+        return None
+    short, long_side = min(sides), max(sides)
+    if short <= 0.0:
+        return None
+    return long_side / short
+
+
+def vertical_kind(mark, width_mm, height_mm):
+    """(kind, why) for ONE rectangular vertical member: the smart reading.
+
+    `why` is "mark" when the drawing's own label settled it and "ratio" when the
+    L/B rule did, so the console can group the two and the user can see which
+    rule moved which member. A section too degenerate to measure falls back to
+    the column, the reading this project has always used.
+
+    A ROUND column never reaches here: a circle has no L/B and no long axis to
+    lay a wall centreline along, so it can only ever be a column (see
+    `wall_plan.split_vertical_members`).
+    """
+    kind = mark_kind(mark)
+    if kind is not None:
+        return kind, "mark"
+    ratio = aspect_ratio(width_mm, height_mm)
+    if ratio is None:
+        return KIND_COLUMN, "ratio"
+    return (KIND_WALL if ratio >= WALL_ASPECT_RATIO else KIND_COLUMN), "ratio"

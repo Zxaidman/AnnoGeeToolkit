@@ -929,7 +929,15 @@
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="Round family" Style="{StaticResource TextLabel}" VerticalAlignment="Center"/>
                             <ComboBox  Grid.Row="1" Grid.Column="1" x:Name="cb_circular_family" Style="{StaticResource InputComboBox}" Margin="0,2"/>
                         </Grid>
-                        <TextBlock Text="Base and top level for the columns are picked on the General sub-tab; they are shared by every element in the run."
+                        <TextBlock Text="Build each vertical member as" Style="{StaticResource TextLabel}" Margin="24,8,0,2"/>
+                        <StackPanel Orientation="Horizontal" Margin="24,0,0,0">
+                            <RadioButton x:Name="rb_vertical_column" GroupName="vertical_member" IsChecked="True" Content="Column" Margin="0,0,20,0" ToolTip="Every vertical member becomes a Structural Column. This is what every earlier run did."/>
+                            <RadioButton x:Name="rb_vertical_wall" GroupName="vertical_member" Content="Wall" Margin="0,0,20,0" ToolTip="Every vertical member becomes a Structural Wall instead, at the type picked under Structural walls below."/>
+                            <RadioButton x:Name="rb_vertical_combine" GroupName="vertical_member" Content="Combine (smart)" ToolTip="Decide member by member: the mark first, then the length-to-thickness ratio L/B."/>
+                        </StackPanel>
+                        <TextBlock Text="Column is the default and leaves every existing run untouched. Wall builds the same members as structural walls instead. Combine decides one member at a time, on two rules. The MARK comes first, because a drawing that names a member has already said what it is: a mark reading C1 is a Column, SW1 or W1 is a Wall, and a mark that says neither (a beam's B12, a slab's S1) leaves the decision to the ratio. Then the aspect ratio of the cross-section -- the length-to-thickness ratio (L/B): a Column (or wall pier) has L/B &lt; 4, its length less than 4 times its thickness, designed primarily for axial compression and localised bending; a Shear Wall has L/B &gt;= 4, 4 or more times its thickness, designed to resist major lateral forces through in-plane bending and shear (IS 456, IS 13920, ACI 318)."
+                                   Style="{StaticResource HelpText}" Margin="24,4,0,0"/>
+                        <TextBlock Text="A member built as a wall lays its centreline along its LONG axis, at its short side's thickness, and takes the base wall type and the Naming tab's structural-wall row from the Structural walls group below -- so it is named and sized as a wall, not as a column. A round column has no L/B and no long axis to lay a centreline along, so it stays a column in every mode. Base and top level for both are picked on the General sub-tab; they are shared by every element in the run."
                                    Style="{StaticResource HelpText}" Margin="24,4,0,0"/>
                         </StackPanel>
                         </GroupBox>

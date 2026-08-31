@@ -55,6 +55,7 @@ import re
 from collections import Counter
 
 from . import config
+from .classify import marks
 from .classify.layers import CATEGORY_ARCH_WALL, CATEGORY_STRUCT_WALL
 from .geom import shapes
 
@@ -399,3 +400,197 @@ def _wall_segment(start, end, width_ft, z, layer, kind, source):
 
 def _dist(a, b):
     return math.hypot(b[0] - a[0], b[1] - a[1])
+
+
+# ------------------------------------------ the vertical members: column or wall
+# Everything above plans walls from the WALL layers. This last section answers a
+# different question about the COLUMN layers: the user's three-way choice on
+# Build > Structure, where a recovered vertical member may be built as a
+# Structural Column (what the run has always done), as a Structural Wall, or --
+# "Combine" -- as whichever of the two `marks.vertical_kind` says it is.
+#
+# The split is Revit-free on purpose. It reads the section dicts the column pass
+# already produced and hands back the same two shapes the two builders already
+# take: a sections dict for `builders.columns.place_columns`, and the planner's
+# own segment list for `builders.walls.place_walls`. Neither builder learns a
+# new trick; only the routing is new.
+
+MODE_COLUMN = "column"
+MODE_WALL = "wall"
+MODE_COMBINE = "combine"
+
+# Column FIRST and by default: it is what every run before this one did, so a
+# saved settings file with no mode in it, an empty string, or a value from a
+# newer build all land on today's behaviour rather than on a surprise.
+MODES = (MODE_COLUMN, MODE_WALL, MODE_COMBINE)
+
+
+def normalise_mode(mode):
+    """One of MODES, defaulting to MODE_COLUMN for anything unrecognised.
+
+    Anything at all may arrive here -- a hand-edited settings file, a number, a
+    value a newer build writes -- and every one of them has to land on the
+    reading this project has always used rather than raise mid-run.
+    """
+    try:
+        text = str(mode or "").strip().lower()
+    except Exception:
+        return MODE_COLUMN
+    return text if text in MODES else MODE_COLUMN
+
+
+def rect_wall_segment(rect):
+    """One recovered vertical member as a wall centreline, or None.
+
+    A wall is a LINE and a width; a column section is a centre and two sides. The
+    conversion is the one the planner already uses on a drawn wall outline
+    (`beam_centerline_from_rect`), applied to a member instead: the centreline
+    runs along the member's LONG axis through its centre, and the wall's width is
+    the SHORT side -- the thickness B of the L/B rule, which is exactly the
+    dimension a wall type's compound structure carries.
+
+    Direction follows the same convention `builders.columns` places a column
+    with. An OrientedRect brings its own `long_axis_deg` (its dict reports the
+    short side as width and the long side as height, so the angle IS the long
+    axis); a plain axis-aligned Rectangle carries none, and its long axis is X
+    when it is wider than it is deep, else Y.
+
+    None for a member with no length or no thickness to build from.
+    """
+    width_mm = float(rect.get("width_mm") or 0.0)
+    height_mm = float(rect.get("height_mm") or 0.0)
+    thickness_mm = min(width_mm, height_mm)
+    length_mm = max(width_mm, height_mm)
+    if thickness_mm <= 0.0 or length_mm <= 0.0:
+        return None
+    centre = rect.get("center") or [0.0, 0.0, 0.0]
+    cx, cy = centre[0], centre[1]
+    z = centre[2] if len(centre) > 2 else 0.0
+    long_axis_deg = rect.get("long_axis_deg")
+    if long_axis_deg is None:
+        long_axis_deg = 0.0 if width_mm >= height_mm else 90.0
+    half_ft = (length_mm / _MM) / 2.0
+    dx = math.cos(math.radians(long_axis_deg)) * half_ft
+    dy = math.sin(math.radians(long_axis_deg)) * half_ft
+    segment = _wall_segment((cx - dx, cy - dy), (cx + dx, cy + dy),
+                            thickness_mm / _MM, z,
+                            rect.get("layer") or "(column member)",
+                            "structural", "member")
+    # The measured section is authoritative -- the centreline is derived from it,
+    # so rounding it back out of two endpoints would only lose digits.
+    segment["length_mm"] = length_mm
+    segment["mark"] = rect.get("mark")
+    return segment
+
+
+def split_vertical_members(sections, mode, region_max_side_mm=None):
+    """Route the recovered vertical members to the column or the wall builder.
+
+    Returns {"sections": <a sections dict carrying only the COLUMN members>,
+             "segments": [wall centrelines], "counts": {...},
+             "console": [lines]}.
+
+    `sections` is never mutated: the column half is a shallow copy whose entries
+    hold only the rectangles that stayed columns, so `place_columns` sees exactly
+    what it always saw in column mode and a subset of it otherwise.
+
+    Two things are decided BEFORE the kind question, and in every mode:
+
+      * a rectangle whose SMALLER side exceeds `region_max_side_mm` is a
+        lift/stair region rather than a member (2700 x 3300, 5700 x 3300). It
+        stays on the column path so `place_columns` goes on skipping it and
+        saying so, instead of wall mode casting a 2700 mm thick wall out of a
+        stair void;
+      * a ROUND column stays a column, always. A circle has no L/B and no long
+        axis, so there is no ratio to test and no centreline to lay a wall
+        along. It is not counted as a decision because nothing decided it.
+    """
+    chosen = normalise_mode(mode)
+    region_max = (_cfg_region_max() if region_max_side_mm is None
+                  else float(region_max_side_mm))
+    counts = {"column": 0, "wall": 0, "column_mark": 0, "column_ratio": 0,
+              "wall_mark": 0, "wall_ratio": 0, "region": 0,
+              "circles": len(sections.get("circles") or [])}
+    entries = []
+    segments = []
+    for entry in sections.get("entries") or []:
+        kept = []
+        for rect in entry.get("rectangles") or []:
+            kind, why = _member_kind(rect, chosen, region_max, counts)
+            if kind == marks.KIND_WALL:
+                segment = rect_wall_segment(rect)
+                if segment is not None:
+                    segments.append(segment)
+                    counts["wall"] += 1
+                    if why:
+                        counts["wall_" + why] += 1
+                    continue
+                # no length or no thickness: nothing to lay a centreline along,
+                # so it goes back to the builder that can still report it
+                why = ""
+            kept.append(rect)
+            counts["column"] += 1
+            if why:
+                counts["column_" + why] += 1
+        if kept:
+            new_entry = dict(entry)
+            new_entry["rectangles"] = kept
+            entries.append(new_entry)
+    column_sections = dict(sections)
+    column_sections["entries"] = entries
+    return {"sections": column_sections, "segments": segments,
+            "counts": counts, "console": _split_console(chosen, counts)}
+
+
+def _member_kind(rect, mode, region_max, counts):
+    """(kind, why) for one member under `mode`; why is "" when nothing decided."""
+    width_mm = float(rect.get("width_mm") or 0.0)
+    height_mm = float(rect.get("height_mm") or 0.0)
+    if min(width_mm, height_mm) > region_max:
+        counts["region"] += 1
+        return marks.KIND_COLUMN, ""
+    # In the two whole-hearted modes the CHOICE decided, not the drawing, so
+    # neither reason bucket is credited -- the console must not report a member
+    # as "named by its mark" when the mark was never consulted.
+    if mode == MODE_COLUMN:
+        return marks.KIND_COLUMN, ""
+    if mode == MODE_WALL:
+        return marks.KIND_WALL, ""
+    return marks.vertical_kind(rect.get("mark"), width_mm, height_mm)
+
+
+def _split_console(mode, counts):
+    """What the run says out loud about the split -- grouped, never silent."""
+    if mode == MODE_COLUMN:
+        lines = ["Structural Column for every vertical member (the default): "
+                 "{0} placed as columns.".format(counts["column"])]
+    elif mode == MODE_WALL:
+        lines = ["Structural Wall for every vertical member: {0} placed as "
+                 "walls, {1} kept as columns.".format(counts["wall"],
+                                                      counts["column"])]
+    else:
+        lines = ["Combine (smart): {0} column(s) + {1} wall(s) from {2} "
+                 "vertical member(s).".format(
+                     counts["column"], counts["wall"],
+                     counts["column"] + counts["wall"])]
+        lines.append("  columns: {0} named by their mark, {1} by L/B < "
+                     "{2:g}.".format(counts["column_mark"],
+                                     counts["column_ratio"],
+                                     marks.WALL_ASPECT_RATIO))
+        lines.append("  walls: {0} named by their mark, {1} by L/B >= "
+                     "{2:g}.".format(counts["wall_mark"], counts["wall_ratio"],
+                                     marks.WALL_ASPECT_RATIO))
+    if counts["region"]:
+        lines.append("  {0} oversized outline(s) left to the column pass as "
+                     "lift/stair regions, not members.".format(
+                         counts["region"]))
+    if counts["circles"]:
+        lines.append("  {0} round column(s) stay columns: a circle has no L/B "
+                     "and no long axis to lay a wall along.".format(
+                         counts["circles"]))
+    return lines
+
+
+def _cfg_region_max():
+    """The lift/stair region threshold, when the caller passed none."""
+    return float(config.DEFAULTS["col_region_max_side_mm"])

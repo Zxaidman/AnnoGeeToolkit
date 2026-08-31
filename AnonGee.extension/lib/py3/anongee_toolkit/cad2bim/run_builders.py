@@ -333,8 +333,13 @@ def _create_columns(doc, sections, selections):
     transaction.Start()
     try:
         txn_failures.attach_warning_swallower(transaction)
-        result = columns.place_columns(doc, sections, family_id, base_id, top_id,
-                                       region_max_side_mm=region_max)
+        # Not place_columns: the owner's three-way says whether each vertical
+        # member is a column, a wall, or decided per member by its mark and its
+        # L/B ratio. Column mode hands the same rectangles to the same builder
+        # in the same order, so the default run is unchanged.
+        result = columns.place_vertical_members(
+            doc, sections, selections, family_id, base_id, top_id,
+            region_max_side_mm=region_max)
         circles = sections.get("circles", [])
         circular_id = selections.get("circular_family_id")
         circular = {"created": [], "errors": []}
@@ -357,15 +362,19 @@ def _create_columns(doc, sections, selections):
         _rollback_alert("Columns", tstatus, gstatus)
         return {"rect": 0, "circular": 0, "skipped": 0, "errors": 0, "rolled_back": True}
 
-    _say("Columns -- rect created: {0}, circular: {1}, skipped: {2}, errors: {3}".format(
-        len(result["created"]), len(circular["created"]),
-        len(result["skipped"]), len(result["errors"]) + len(circular["errors"])))
+    _say("Columns -- rect created: {0}, walls: {4}, circular: {1}, skipped: {2}, "
+         "errors: {3}".format(
+             len(result["created"]), len(circular["created"]),
+             len(result["skipped"]),
+             len(result["errors"]) + len(circular["errors"]),
+             len(result.get("wall_ids") or [])))
     for message in result["errors"] + circular["errors"]:
         _say_error("  column: {0}".format(message))
     for message in (result["skipped"] + result.get("notes", [])
                     + circular.get("notes", [])):
         _say("  column: {0}".format(message))
     return {"rect": len(result["created"]), "circular": len(circular["created"]),
+            "walls": len(result.get("wall_ids") or []),
             _IDS: result["created"] + circular["created"],
             "skipped": len(result["skipped"]),
             "errors": len(result["errors"]) + len(circular["errors"]),
