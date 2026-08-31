@@ -302,35 +302,37 @@ class _FixtureTable(unittest.TestCase):
 class TheTest14Table(_FixtureTable):
     """BUG-6's own drawing: four patterns, four meanings, one layer.
 
-    Re-pinned 2026-08-29 against the owner's redrawn fixture (commit 901c8f8):
-    the sheet lost its RC PARDI and floating-column legend rows and the layers
-    that carried them, so the table is 7 rows where it was 11. HAT still splits
-    four ways, which is the rule this class exists to hold.
+    Re-pinned twice against the owner's redraws (901c8f8, then 9fe6315): the
+    sheet lost its RC PARDI and floating-column legend rows and the layers that
+    carried them, and then its FC and RC PARDI hatches too, so the table is 5
+    rows where it was 11. HAT still splits four ways, which is the rule this
+    class exists to hold, and the split still keeps GOST_GLASS out of the sunk
+    bucket, which is why it exists at all.
     """
 
     _path = _TEST14
 
     def test_hat_becomes_four_rows_and_the_rest_stay_one(self):
         _result, rows, _default, _notes = self._table()
-        self.assertEqual(len(rows), 7)           # 4 layers, HAT four ways
+        self.assertEqual(len(rows), 5)           # 2 layers, HAT four ways
         # counts are every region on the layer, the legend's own three
         # demonstration swatches per pattern included -- the table has always
         # counted what is drawn, and which of them is a swatch is a question
         # for the pass that builds, not for the row that routes
         self.assertEqual([(row["key"], row["count"]) for row in rows
                           if row["layer"] == "HAT"],
-                         [("HAT|ANGLE", 168), ("HAT|ANSI37", 51),
+                         [("HAT|ANGLE", 84), ("HAT|ANSI37", 51),
                           ("HAT|GOST_GLASS", 75), ("HAT|HONEY", 21)])
         # every other hatch layer on the sheet keeps its single row
         self.assertEqual(sorted(row["key"] for row in rows
                                 if row["layer"] != "HAT"),
-                         ["FC", "RC PARDI 200MM", "col solid"])
+                         ["col solid"])
         # and no region is lost or counted twice by the split
-        self.assertEqual(sum(row["count"] for row in rows), 549)
+        self.assertEqual(sum(row["count"] for row in rows), 447)
 
     def test_the_three_depths_keep_their_own_rows_and_gost_glass_is_not_sunk(self):
         # the whole point of BUG-6: the per-layer proposal HAT -> sunk swept
-        # all 315 regions into one bucket, 75 of them wrongly
+        # all 231 regions into one bucket, 75 of them wrongly
         _result, _rows, default, _notes = self._table()
         self.assertEqual(default["HAT|ANGLE"], layers.CATEGORY_SUNK)
         self.assertEqual(default["HAT|ANSI37"], layers.CATEGORY_SUNK)
@@ -371,7 +373,7 @@ class TheTest14Table(_FixtureTable):
         layers.apply_hatch_mapping(result.regions, default)
         sunk = [region for region in result.regions
                 if region.category == layers.CATEGORY_SUNK]
-        self.assertEqual(len(sunk), 240)         # 168 + 51 + 21
+        self.assertEqual(len(sunk), 156)         # 84 + 51 + 21
         self.assertEqual(set(region.pattern for region in sunk),
                          {"ANGLE", "ANSI37", "HONEY"})
         # the 75 that used to ride along with them

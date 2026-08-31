@@ -874,6 +874,34 @@
                         <TextBlock Text="The level pair is shared by every element in the run, architectural ones included."
                                    Style="{StaticResource HelpText}" Margin="0,4,0,0"/>
                         <Rectangle Style="{StaticResource SectionDivider}" Margin="0,16,0,8"/>
+                        <!-- The sheet's own blanket note. It governs beams AND slabs, so
+                             it belongs with what is shared by every element rather
+                             than inside either one's group. Left empty, each plan
+                             uses the note drawn inside it. -->
+                        <GroupBox Header="Sheet note (unless noted otherwise)" Margin="0,0,0,8">
+                        <StackPanel Orientation="Vertical">
+                        <CheckBox x:Name="chk_blanket_note" Content="Use the sheet's blanket note as the default size" IsChecked="True"/>
+                        <Grid Margin="24,4,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="140"/>
+                                <ColumnDefinition Width="70"/>
+                                <ColumnDefinition Width="140"/>
+                                <ColumnDefinition Width="70"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Beam depth" Style="{StaticResource TextLabel}" VerticalAlignment="Center"/>
+                            <TextBox   Grid.Row="0" Grid.Column="1" x:Name="tb_blanket_beam_depth" Style="{StaticResource InputTextBox}" Margin="0,2,8,2"/>
+                            <TextBlock Grid.Row="0" Grid.Column="2" Text="Slab thickness" Style="{StaticResource TextLabel}" VerticalAlignment="Center"/>
+                            <TextBox   Grid.Row="0" Grid.Column="3" x:Name="tb_blanket_slab_thk" Style="{StaticResource InputTextBox}" Margin="0,2"/>
+                        </Grid>
+                        <TextBlock x:Name="lbl_blanket_note" Text="-" Style="{StaticResource HelpText}" Margin="24,4,0,0"/>
+                        <TextBlock Text="A drawing that writes &quot;ALL BEAMS ARE 750MM IN DEPTH U.N.O.&quot; is giving a DEFAULT, not an instruction: a beam or bay the plan sized on its own keeps that size, and only one the plan left silent takes the figure here. Leave the boxes EMPTY and each plan uses the note drawn inside it, so a sheet whose plans differ -- 750 deep on one floor, 600 on another -- builds each floor to its own. Type a figure to overrule every plan at once, or untick above to ignore blanket notes entirely. The line above says what this drawing proposed."
+                                   Style="{StaticResource HelpText}" Margin="24,4,0,0"/>
+                        </StackPanel>
+                        </GroupBox>
+                        <Rectangle Style="{StaticResource SectionDivider}" Margin="0,16,0,8"/>
                         <CheckBox x:Name="chk_grids" Content="Create grids (from grid lines)" IsChecked="True"/>
                     </StackPanel>
                 </ScrollViewer>
@@ -902,35 +930,6 @@
                             <ComboBox  Grid.Row="1" Grid.Column="1" x:Name="cb_circular_family" Style="{StaticResource InputComboBox}" Margin="0,2"/>
                         </Grid>
                         <TextBlock Text="Base and top level for the columns are picked on the General sub-tab; they are shared by every element in the run."
-                                   Style="{StaticResource HelpText}" Margin="24,4,0,0"/>
-                        </StackPanel>
-                        </GroupBox>
-
-                        <!-- The SHEET's own blanket note, above the two groups
-                             it feeds. It is one note governing beams and slabs
-                             together, so it gets one tick rather than a copy in
-                             each group; the figures are seeded from what this
-                             drawing proposed. -->
-                        <GroupBox Header="Sheet note (unless noted otherwise)" Margin="0,0,0,8">
-                        <StackPanel Orientation="Vertical">
-                        <CheckBox x:Name="chk_blanket_note" Content="Use the sheet's blanket note as the default size" IsChecked="True"/>
-                        <Grid Margin="24,4,0,0">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="140"/>
-                                <ColumnDefinition Width="70"/>
-                                <ColumnDefinition Width="140"/>
-                                <ColumnDefinition Width="70"/>
-                            </Grid.ColumnDefinitions>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
-                            </Grid.RowDefinitions>
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Beam depth" Style="{StaticResource TextLabel}" VerticalAlignment="Center"/>
-                            <TextBox   Grid.Row="0" Grid.Column="1" x:Name="tb_blanket_beam_depth" Style="{StaticResource InputTextBox}" Margin="0,2,8,2"/>
-                            <TextBlock Grid.Row="0" Grid.Column="2" Text="Slab thickness" Style="{StaticResource TextLabel}" VerticalAlignment="Center"/>
-                            <TextBox   Grid.Row="0" Grid.Column="3" x:Name="tb_blanket_slab_thk" Style="{StaticResource InputTextBox}" Margin="0,2"/>
-                        </Grid>
-                        <TextBlock x:Name="lbl_blanket_note" Text="-" Style="{StaticResource HelpText}" Margin="24,4,0,0"/>
-                        <TextBlock Text="A drawing that writes &quot;ALL BEAMS ARE 750MM IN DEPTH U.N.O.&quot; is giving a DEFAULT, not an instruction: a beam or bay the plan sized on its own keeps that size, and only one the plan left silent takes the figure here. The boxes arrive filled with what this sheet's own notes say -- type over them to overrule the sheet, leave a box empty to let the sheet speak, or untick above to ignore blanket notes entirely. Where a sheet carries notes that DISAGREE (several plans, several notes) nothing is applied and the line above names every figure it offered, because there is no way to tell from the text which member each note meant."
                                    Style="{StaticResource HelpText}" Margin="24,4,0,0"/>
                         </StackPanel>
                         </GroupBox>

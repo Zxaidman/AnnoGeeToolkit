@@ -40,7 +40,7 @@ statically inspected and unit-tested outside Revit.
 # The version moves with EVERY commit that changes this package -- it is a
 # tracking number, not a release or a tag. A user reporting "0.69.2 did X"
 # names one commit; three commits all answering "0.68.1" name nothing.
-__version__ = "0.84.0"  # A crossed bay is a cutout; a hatch informs the slab, it does not shape it.
+__version__ = "0.85.0"  # Each plan reads its own sheet note; the note moves to General.
 #
 #                         P1: the DXF reader keeps HATCH regions; the foundation
 #                         layers classify; foundation_plan reads the outlines

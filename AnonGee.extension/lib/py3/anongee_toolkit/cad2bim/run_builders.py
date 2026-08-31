@@ -30,7 +30,7 @@ from . import (config, fold_plan, foundation_plan, legend, naming, report,
 from .builders import (columns, beams, footings, grids, materials, slabs,
                        txn_failures, view_filters, walls)
 from . import stair_layout
-from .classify import layers
+from .classify import layers, marks
 from .builders import stairs
 from .run_picking import _pick_stair_regions
 from .run_console import _say, _say_error, _progress
@@ -101,6 +101,26 @@ def blanket_mm(selections, key):
     if not selections.get("blanket_notes", True):
         return 0.0
     return selections.get(key) or None
+
+
+def storey_blanket_mm(selections, key, note_key, texts):
+    """`blanket_mm`, but a storey that the dialog left unsettled reads its OWN note.
+
+    A sheet holds several plans and they need not agree: test14 writes 750 deep
+    / 125 thick on its first and refuge floors and 600 / 150 on the typical one,
+    and the owner confirmed the difference is deliberate. Read whole-sheet those
+    are two conflicting notes and `sheet_defaults` rightly settles nothing; read
+    PER PLAN each is unambiguous, which is what a plan's own note means.
+
+    So the order is: the dialog's figure if the user typed one, nothing at all
+    if they turned the tick off, and otherwise THIS storey's own note. The
+    dialog still overrules every plan at once, which is what a user typing one
+    number into one box is asking for.
+    """
+    settled = blanket_mm(selections, key)
+    if settled is not None:
+        return settled
+    return marks.sheet_defaults(texts or [])[note_key] or 0.0
 
 
 def _sunk_depths(selections, regions, texts):
@@ -187,8 +207,9 @@ def _slab_stops(slab_defs, records, texts, regions, sheet_texts, beam_segments,
         beam_segments=beam_segments, legend_entries=entries,
         skip_ids=set(id(entry["swatch"]) for entry in entries),
         schedule=schedule,
-        blanket_thickness_mm=blanket_mm(selections,
-                                        "blanket_slab_thickness_mm"))
+        blanket_thickness_mm=storey_blanket_mm(
+            selections, "blanket_slab_thickness_mm", "slab_thickness_mm",
+            sheet_texts or texts))
     if stopped["crossed"]:
         _say("  stops: {0} crossed-out ring(s) read, {1} cut as holes in "
              "{2} bay(s)".format(stopped["crossed"], stopped["holes"],
@@ -770,8 +791,9 @@ def _create_slabs(doc, records, beam_segments, texts, selections, schedule=None,
     # dialog, which read it off the whole sheet before any routing narrowed it.
     slab_defs = slab_outlines.apply_slab_labels(
         loops, texts, schedule=slab_schedule,
-        blanket_thickness_mm=blanket_mm(selections,
-                                        "blanket_slab_thickness_mm"))
+        blanket_thickness_mm=storey_blanket_mm(
+            selections, "blanket_slab_thickness_mm", "slab_thickness_mm",
+            sheet_texts or texts))
     # Counted BEFORE the steps go in: "loops" and "thickness-noted" are about
     # the bays the drawing shows, and a dropped slab or a support is neither.
     loop_count = len(slab_defs)

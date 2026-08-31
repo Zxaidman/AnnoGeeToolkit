@@ -136,7 +136,7 @@ try:
     from anongee_toolkit.cad2bim.run_builders import (   # noqa: F401
         _create_grids, _create_columns, _create_beams, _create_footings,
         _create_slabs, _create_stairs, _create_walls, _apply_materials,
-        _colour_open_views, _strip_ids, blanket_mm)
+        _colour_open_views, _strip_ids, blanket_mm, storey_blanket_mm)
     # builders.walls is new with v0.76.0, so it rides the guard: a stale
     # library reports through _library_mismatch instead of raw-tracebacking
     # on the module-level import below
@@ -572,14 +572,17 @@ def main():
             _say("sheet note: {0} {1:g}mm unless noted otherwise".format(
                 value, blanket_note[key]))
     for key, values in blanket_note["conflicts"]:
-        # two sources disagreeing is refused out loud, never averaged or voted
-        # on: nothing in the text says which member each note was written for
-        _say_error("sheet note: this drawing's {0} notes disagree ({1}) -- "
-                   "no blanket default is applied; set one on Build > "
-                   "Structure to settle it".format(
-                       "beam depth" if key == "beam_depth_mm"
-                       else "slab thickness",
-                       ", ".join("{0:g}mm".format(v) for v in values)))
+        # Notes that disagree ACROSS PLANS are not a conflict, they are three
+        # plans each stating its own: test14 writes 750 deep / 125 thick on its
+        # first and refuge floors and 600 / 150 on the typical one. So nothing
+        # is settled for the SHEET -- which leaves the dialog's box empty on
+        # purpose -- and every storey then reads the note inside its own plan.
+        # A figure typed into the box still overrules all of them at once.
+        _say("sheet note: this drawing's {0} notes differ across its plans "
+             "({1}) -- each plan will use the note drawn inside it; type a "
+             "figure on Build > General to overrule them all".format(
+                 "beam depth" if key == "beam_depth_mm" else "slab thickness",
+                 ", ".join("{0:g}mm".format(v) for v in values)))
 
     # The dialog can hand the view back so the user DRAWS the stair outlines:
     # it closes, the outlines are picked in the model, and it reopens with every
@@ -910,7 +913,8 @@ def _build_one_storey(doc, revit_result, texts, selections, schedule_source=None
     beam_segments = report.build_beam_segments(
         revit_result.records, sections.get("circles"), limits, standards,
         texts=beam_texts, tolerances=tolerances, schedule=schedule,
-        blanket_depth_mm=blanket_mm(selections, "blanket_beam_depth_mm"))
+        blanket_depth_mm=storey_blanket_mm(
+            selections, "blanket_beam_depth_mm", "beam_depth_mm", dxf_texts))
     sized_beams = beam_segments["status_counts"].get("text_sized", 0)
     if sized_beams:
         _say("beams: sized {0} segment(s) from labels (width + depth)".format(sized_beams))
