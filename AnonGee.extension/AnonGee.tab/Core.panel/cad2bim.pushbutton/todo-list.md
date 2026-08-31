@@ -39,6 +39,27 @@ repository root.
 
 ## 1. Critical
 
+### CRIT-4 — Beams are lost in the whole drawing that pair perfectly on their own · `pending`
+
+**How found:** the owner's v0.84.0 run, images 3 and 4 — "two vertical beam is not drawn, one mid
+vertical beam is correct, two horizontals beams are not align properly with layer outline".
+**Reproduced, and isolated to a contradiction:**
+
+The pair at `(204847..207398, 19519)` and `(204847..207398, 19869)` — both plain `line` records on
+layer `BEAM`, 2551 mm long, fully overlapping, **350 mm apart**, a width inside the 80–700 pairing
+band and one the drawing uses 21 times. Handed to `build_beam_segments` **alone it makes one
+350-wide beam**; in the full drawing it makes **none**. So the pairing rule is right and something
+else consumes or discards the pair.
+
+Scale: the run reports **111 bare lines without a parallel partner**, and 114 beam edges have no
+placed beam over their midpoint (300–2551 mm, median 1572).
+
+**Why this is critical rather than cosmetic:** slabs on this drawing come from `placed_members`, so a
+missing beam leaves its bay open. That one fault explains three more of the owner's symptoms — "beam
+did not close column to column which leaks slab into for sunk slab" (images 1, 2), the large cutout
+areas still cast as floor (no closed bay for the X to cross), and the sunk slabs missing entirely in
+that zone (no bay to sink). Everything downstream of it should be judged only after it is fixed.
+
 ### CRIT-1 — One wall is drawn on two conventions, and both now build · `pending`
 
 **Found:** measured in the P3a corpus survey, findings #12. **Reproduced:** offline, in the
@@ -124,6 +145,31 @@ wrong. **No genuinely rotated column exists in test14** — every failure is noi
 **Fix direction:** snap coordinates onto shared axes before the rectilinear test, in the millimetre
 band the measurement leaves empty, then decompose as a composite. `_snapped` in `fold_plan` is the
 donor. Tolerance to be set from the corpus-wide drift measurement, not chosen.
+
+### BUG-15 — A sunk beam must move by z Offset Value, and a bay's beams must sink too · `pending`
+
+**The owner, twice over:** "beams are not getting sunk which has hatch pattern and its sunk value
+should use Z Offset Value only for sunk or rise not the Start/End Level Offset."
+
+Two separate faults:
+- **The parameter.** The drop is applied by lowering the curve, which Revit records as Start/End
+  Level Offset. The owner wants `Z Offset Value` — the parameter meaning "this member sits below its
+  level", which leaves the analytical line where the drawing puts it.
+- **The coverage.** Only beams under a sunk STRIP drop today (20 of 227 on test14). A beam under a
+  sunk BAY does not — and the bay's hatch overhangs onto exactly those beams by the beam
+  half-widths, which is the drawing SAYING they sink with it ("SLAB/BEAM SUNK BY 150MM"). Since
+  BUG-14 made the bay's own ring the geometry, that overhang now informs nothing; it should inform
+  this.
+
+### BUG-16 — A text naming a cutout does not mark one · `pending`
+
+**The owner:** "Few large place still are still taking the Cutout Cross even when now that i have
+put the `Cutout, Lift Shaft, Duct etc.` text there also."
+
+**Measured:** the fixture in the repository carries **no such text at all** — its only texts are beam
+sizes, `135/150 THK.`, the four legend rows, the U.N.O. note, `ST-1`/`ST-2` and `STB`. The owner's
+screenshots plainly show green `CUTOUT` text, so that edit is still on their machine. The rule can be
+built and pinned synthetically; it cannot be measured on this corpus until they push the drawing.
 
 ### BUG-13 — A whole bay crossed by an X still gets a floor · `testing`
 
