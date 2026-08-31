@@ -10,7 +10,7 @@ import sys
 # powers the CAD to BIM button's DXF parsing (run this with a CPython matching the
 # pyRevit CPython3 engine, so the numpy/ezdxf binaries match). The target CPython
 # version is controlled by TARGET_PY_VERSION below - edit that one value to retarget.
-PY3_DEPENDENCIES = "numpy panda openpyxl pythonnet ezdxf shapely xlwings requests"
+PY3_DEPENDENCIES = "numpy pandas openpyxl pythonnet ezdxf shapely xlwings requests"
 PY2_DEPENDENCIES = ""
 
 # 2. Setup folder pathways relative to this script
@@ -227,7 +227,7 @@ if __name__ == "__main__":
         deploy_libraries(PY2_DEPENDENCIES, "py2")
 
         # Keep things clean
-        clean_metadata_clutter()
+        # clean_metadata_clutter()
 
         print("\n====================================================")
         print(" SUCCESS: All requested libraries deployed cleanly! ")
