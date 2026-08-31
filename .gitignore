@@ -10,7 +10,8 @@ installer/output/
 installer/payload/
 
 # --- Extended Python & Caching ---
-*.py[cod]
+*.pyo
+*.pyc
 *$py.class
 .pytest_cache/
 .mypy_cache/
