@@ -146,15 +146,23 @@ _JUNCTION_MIN_REMAINDER_MM = 50.0
 # planner's to move: a wall stops on a column, never the other way about.
 _FIXED_SOURCE = "member"
 
+_SIN_JUNCTION = math.sin(math.radians(_JUNCTION_MIN_ANGLE_DEG))
+
 
 def plan_walls(records, texts=None, tolerances=None):
-    """{"segments": [...], "skipped": [...]} for the wall-category linework.
+    """{"segments": [...], "skipped": [...], "junctions": {...}} for the walls.
 
     Each segment carries `start`/`end` (the centreline, internal feet),
     `width_mm`, `length_mm`, `kind` ("structural" | "arch"), `layer`, and
     `source` ("outline" for a wall read off a closed ring, "pair" for one
     built from two faces). Everything consumed that plans nothing lands in
     `skipped` with a reason -- nothing is dropped in silence.
+
+    The centrelines come back CORNERED (`close_wall_corners`): where two of
+    them meet, one runs through to the other's far face and the other stops on
+    its side, so the L stands solid once the builder disallows the join. No
+    segment is added or dropped by that pass -- only ends move -- and every
+    corner it could not settle is counted in `junctions["unresolved"]`.
 
     `texts` is accepted for parity with the other planners and RESERVED: no
     fixture carries a wall-sizing note today (test9's wall texts are legend
@@ -229,7 +237,9 @@ def plan_walls(records, texts=None, tolerances=None):
                             "kind": kind, "length_mm": length_mm,
                             "start": [a[0], a[1], face["z"]],
                             "end": [b[0], b[1], face["z"]]})
-    return {"segments": segments, "skipped": skipped}
+    cornered = close_wall_corners(segments)
+    return {"segments": cornered["segments"], "skipped": skipped,
+            "junctions": cornered["junctions"]}
 
 
 def _outline_walls(points, z, kind, layer, min_ft, max_ft):
@@ -486,7 +496,7 @@ def _dist(a, b):
 def close_wall_corners(segments):
     """The planner's centrelines, re-cut so every corner reads as drawn.
 
-    Returns {"segments": [...], "junctions": {...}}. The segments are copies:
+    Returns {"segments": [...], "junctions": {...}}. The segments are copies;
     only `start`, `end` and `length_mm` differ, and only where a corner said
     so. The junction report carries `found`, `resolved`, `by_rule` (which rule
     settled how many corners) and `unresolved` ([{reason, count}]) -- a corner
@@ -496,12 +506,12 @@ def close_wall_corners(segments):
     Which member runs through, in order:
 
       * a COLUMN never moves. `split_vertical_members` lays a member's
-        centreline down the rectangle the drawing drew, so that extent is the
+        centreline down the rectangle the drawing drew, so that extent IS the
         drawing's own statement; the wall stops on the column's face.
-      * the DRAWN EXTENT, when it already says so -- exactly one of the two
-        reaching the other's far face is the drafter having already assigned
-        the corner, and re-deciding it would only churn. This is the rule that
-        makes test16 and Project1's parapet a pure no-op.
+      * the DRAWN EXTENT where it already says so -- exactly one of the two
+        reaching the other's far face is the drafter having assigned the corner
+        already, and re-deciding it would only churn. This is the rule that
+        leaves test16 and Project1's parapet untouched to the millimetre.
       * a drawn OUTLINE over a face pair: a closed ring is measured geometry,
         a pair is inferred from two faces.
       * the LONGER RUN, which is what a corner looks like when nothing else
@@ -514,18 +524,18 @@ def close_wall_corners(segments):
     pools = {}
     for index, segment in enumerate(out):
         pools.setdefault(segment.get("kind"), []).append(index)
-    for kind in sorted(pools, key=lambda name: str(name)):
+    for kind in sorted(pools, key=str):
         indices = pools[kind]
         frames = dict((index, _corner_frame(out[index])) for index in indices)
         decisions = []
         for a in range(len(indices)):
             for b in range(a + 1, len(indices)):
                 i, j = indices[a], indices[b]
-                corner = _meeting(out[i], out[j], frames[i], frames[j])
+                corner = _meeting(i, j, out[i], out[j], frames[i], frames[j])
                 if corner is None:
                     continue
                 found += 1
-                rule, outcome = _corner_decision(out, corner)
+                rule, outcome = _corner_decision(corner)
                 if rule is None:
                     unresolved[outcome] += 1
                 else:
@@ -550,42 +560,44 @@ def _corner_frame(segment):
     return (sx, sy, (ex - sx) / length, (ey - sy) / length, length)
 
 
-def _meeting(seg_a, seg_b, frame_a, frame_b):
+def _meeting(i, j, seg_i, seg_j, frame_i, frame_j):
     """What two centrelines do where they cross, or None if they do not meet.
 
-    `reach_a` is how far past the crossing seg_a must run to reach seg_b's far
-    face -- half seg_b's width divided by the sine of the angle between them,
-    so a 79.7-degree corner needs the 1.6% more that it geometrically does.
-    `role` says how each member arrives: by an end (with the overshoot that end
-    currently has past the crossing, signed outward) or straight through.
+    `reach` is how far past the crossing a member must run to clear the OTHER
+    member's far face: half that other's width, divided by the sine of the
+    angle between them, so a 79.7-degree corner gets the 1.6% more that it
+    geometrically needs. `role` says how each member arrives -- by an end, with
+    the overshoot that end currently has past the crossing (signed outward, so
+    -reach is hard against the near face and +reach is out at the far one), or
+    straight through.
     """
-    ax, ay, aux, auy, la = frame_a
-    bx, by, bux, buy, lb = frame_b
-    sin = aux * buy - auy * bux
-    if abs(sin) < _SIN_JUNCTION or la <= 0.0 or lb <= 0.0:
-        return None                     # collinear: one wall continuing, not a corner
-    dx, dy = bx - ax, by - ay
-    t = (dx * buy - dy * bux) / sin
-    u = (dx * auy - dy * aux) / sin
-    reach_a = (seg_b["width_mm"] / _MM / 2.0) / abs(sin)
-    reach_b = (seg_a["width_mm"] / _MM / 2.0) / abs(sin)
-    role_a = _corner_role(t, la, reach_a)
-    role_b = _corner_role(u, lb, reach_b)
-    if role_a is None or role_b is None:
-        return None                     # the crossing is off the end of one of them
-    return {"i": frame_a, "j": frame_b, "t": t, "u": u,
-            "a": seg_a, "b": seg_b, "role_a": role_a, "role_b": role_b,
-            "reach_a": reach_a, "reach_b": reach_b, "la": la, "lb": lb}
+    ix, iy, iux, iuy, li = frame_i
+    jx, jy, jux, juy, lj = frame_j
+    sin = iux * juy - iuy * jux
+    if abs(sin) < _SIN_JUNCTION or li <= 0.0 or lj <= 0.0:
+        return None                 # collinear: one wall continuing, not a corner
+    dx, dy = jx - ix, jy - iy
+    t = (dx * juy - dy * jux) / sin
+    u = (dx * iuy - dy * iux) / sin
+    reach_i = (seg_j["width_mm"] / _MM / 2.0) / abs(sin)
+    reach_j = (seg_i["width_mm"] / _MM / 2.0) / abs(sin)
+    role_i = _corner_role(t, li, reach_i)
+    role_j = _corner_role(u, lj, reach_j)
+    if role_i is None or role_j is None:
+        return None                 # the crossing is off the end of one of them
+    return [{"index": i, "segment": seg_i, "at": t, "role": role_i,
+             "reach": reach_i, "length": li},
+            {"index": j, "segment": seg_j, "at": u, "role": role_j,
+             "reach": reach_j, "length": lj}]
 
 
 def _corner_role(t, length, reach):
     """("start"|"end", overshoot) | ("through", None) | None, for one member.
 
-    `t` is where the crossing sits along the member and `reach` how far past it
-    the member would have to run to clear the other's far face. An end within
-    that band (plus the slack) OWNS the crossing; the crossing further in than
-    the band at both ends means the member runs straight through it; anything
-    else means this member is not at this corner at all.
+    `t` is where the crossing sits along the member. An end within `reach` of
+    it (plus the slack) OWNS the crossing; a crossing further in than that at
+    both ends means the member runs straight through; anything else means this
+    member is not at this corner at all.
     """
     band = reach + config.mm_to_ft(_JUNCTION_SLACK_MM)
     at_start = -band <= t <= band
@@ -603,109 +615,122 @@ def _corner_role(t, length, reach):
     return None
 
 
-def _corner_decision(segments, corner):
-    """(rule, [(end key, parameter)]) for one corner, or (None, why not).
+def _corner_decision(corner):
+    """(rule, [((index, end), parameter)]) for one corner, or (None, why not).
 
-    A parameter is a distance along the member's OWN centreline from its start
-    point, which is where that end has to move to. An end belonging to a column
-    member is never proposed: the drawing drew that rectangle.
+    A parameter is a distance along that member's OWN centreline from its start
+    point: where the end has to move to. An end belonging to a column member is
+    never proposed -- the drawing drew that rectangle.
     """
-    ends_a = corner["role_a"][0] != "through"
-    ends_b = corner["role_b"][0] != "through"
-    if not ends_a and not ends_b:
+    first, second = corner
+    ends = [side for side in corner if side["role"][0] != "through"]
+    if not ends:
         return None, ("two walls cross and neither ends at the crossing: "
-                      "which one is cut is not the drawing's to say")
-    if ends_a != ends_b:
-        # A TEE. The host runs through by construction, so only the stem moves,
+                      "which of them is cut is not the drawing's to say")
+    if len(ends) == 1:
+        # A TEE. The host runs through by construction, so only the STEM moves,
         # onto the host's near face -- which is where 25 of test8's 39 tees
-        # already sit, and where the other 14 are driven into the host's body.
-        stem, other, role, reach = (
-            (corner["a"], corner["b"], corner["role_a"], corner["reach_a"])
-            if ends_a else
-            (corner["b"], corner["a"], corner["role_b"], corner["reach_b"]))
-        which = "a" if ends_a else "b"
+        # already sit and where 14 more are driven into the host's body.
         return ("a tee: the stem stops on the host's face",
-                _corner_targets(corner, [(which, stem, role, -reach)]))
-    source_a = (corner["a"].get("source"), corner["b"].get("source"))
-    fixed_a = source_a[0] == _FIXED_SOURCE
-    fixed_b = source_a[1] == _FIXED_SOURCE
-    if fixed_a and fixed_b:
+                _corner_targets([(ends[0], -ends[0]["reach"])]))
+    fixed = [side for side in corner
+             if side["segment"].get("source") == _FIXED_SOURCE]
+    if len(fixed) == 2:
         return None, ("two column members meet: a member's extent is the "
                       "drawing's own, so neither is the one to cut")
-    tol = config.mm_to_ft(_JUNCTION_AGREE_MM)
-    spans_a = corner["role_a"][1] >= corner["reach_a"] - tol
-    spans_b = corner["role_b"][1] >= corner["reach_b"] - tol
-    if fixed_a or fixed_b:
-        through = "a" if fixed_a else "b"
-        rule = "a column runs through and the wall stops on it"
-    elif spans_a != spans_b:
-        through = "a" if spans_a else "b"
+    agree = config.mm_to_ft(_JUNCTION_AGREE_MM)
+    spans = [side["role"][1] >= side["reach"] - agree for side in corner]
+    sources = [side["segment"].get("source") for side in corner]
+    if fixed:
+        through, rule = fixed[0], "a column runs through and the wall stops on it"
+    elif spans[0] != spans[1]:
+        through = first if spans[0] else second
         rule = "the drawn extent already spans the corner"
-    elif ((source_a[0] == "outline") != (source_a[1] == "outline")):
-        through = "a" if source_a[0] == "outline" else "b"
+    elif (sources[0] == "outline") != (sources[1] == "outline"):
+        through = first if sources[0] == "outline" else second
         rule = "the drawn outline runs through"
-    elif abs(corner["la"] - corner["lb"]) > config.mm_to_ft(_JUNCTION_TIE_MM):
-        through = "a" if corner["la"] > corner["lb"] else "b"
+    elif abs(first["length"] - second["length"]) > config.mm_to_ft(
+            _JUNCTION_TIE_MM):
+        through = first if first["length"] > second["length"] else second
         rule = "the longer run continues"
     else:
         return None, ("two walls of equal length meet: neither of them is "
                       "the longer run")
-    moves = [("a", corner["a"], corner["role_a"],
-              corner["reach_a"] if through == "a" else -corner["reach_a"]),
-             ("b", corner["b"], corner["role_b"],
-              corner["reach_b"] if through == "b" else -corner["reach_b"])]
-    return rule, _corner_targets(corner, moves)
+    return rule, _corner_targets(
+        [(side, side["reach"] if side is through else -side["reach"])
+         for side in corner])
 
 
-def _corner_targets(corner, moves):
-    """[(("a"|"b", "start"|"end"), parameter)] -- where each end must land.
+def _corner_targets(moves):
+    """[((index, end), parameter)] -- where each end of a corner must land.
 
-    Signed `reach` is the whole of it: +reach puts the end past the crossing on
-    the other member's FAR face (it runs through), -reach short of it on the
-    NEAR face (it butts). The 150 mm the user measured is the distance between
-    those two answers for a 150 wall: 75 out to the crossing, 75 more to the
-    far face.
+    The signed reach is the whole of it. +reach puts the end past the crossing
+    on the other member's FAR face, so that member runs through and fills the
+    corner; -reach puts it short of the crossing on the NEAR face, so it butts.
+    The 150 mm the user measured in the hole is the distance between those two
+    answers for a 150 wall: 75 out to the crossing, and 75 more to the far
+    face. A column member is not proposed at all -- it is already the drawing.
     """
     targets = []
-    for which, segment, role, reach in moves:
-        if segment.get("source") == _FIXED_SOURCE:
+    for side, reach in moves:
+        if side["segment"].get("source") == _FIXED_SOURCE:
             continue
-        crossing = corner["t"] if which == "a" else corner["u"]
-        targets.append(((which, role[0]),
-                        crossing + reach if role[0] == "end"
-                        else crossing - reach))
+        end = side["role"][0]
+        targets.append(((side["index"], end),
+                        side["at"] + reach if end == "end"
+                        else side["at"] - reach))
     return targets
 
 
 def _cut_corners(segments, frames, decisions, rules, unresolved):
-    """Apply the decisions every end agrees on; report the ends that do not.
+    """Apply the decisions whose ends agree; report and drop the ones that do not.
 
-    Two decisions may claim the same end -- the same corner reached from both
-    sides agrees to the millimetre, three walls at one point do not. A decision
-    whose ends disagree is dropped WHOLE (half a shaped corner is not a shaped
-    corner), which can free its partner's end, so the check repeats until it
-    settles. The same loop refuses a cut that would leave a wall shorter than
-    the builder's own sliver floor.
+    Two decisions may claim one end -- the same corner reached from both sides
+    agrees to the millimetre, three walls at one point do not. A decision whose
+    end is contested is dropped WHOLE (half a shaped corner is not a shaped
+    corner), and dropping it can free its partner's end, so the check repeats
+    until nothing more breaks. The same loop refuses a cut that would leave
+    less wall than the builder's own sliver floor, which would shape a corner
+    by deleting one of the two walls that make it.
     """
     agree = config.mm_to_ft(_JUNCTION_AGREE_MM)
     floor = config.mm_to_ft(_JUNCTION_MIN_REMAINDER_MM)
-    keyed = []
-    for rule, targets in decisions:
-        keyed.append((rule, [((_index_of(segments, targets, corner_key), end),
-                              parameter)
-                             for (corner_key, end), parameter in targets]))
     alive = [True] * len(decisions)
     for _pass in range(len(decisions) + 1):
         claims = {}
-        for number, (_rule, targets) in enumerate(_pairs(decisions, alive)):
+        for number, (_rule, targets) in enumerate(decisions):
+            if not alive[number]:
+                continue
             for key, parameter in targets:
                 claims.setdefault(key, []).append((number, parameter))
-        broken = _broken_claims(segments, frames, claims, agree, floor)
+        broken = {}
+        for key, entries in claims.items():
+            values = [parameter for _number, parameter in entries]
+            if max(values) - min(values) <= agree:
+                continue
+            for number, _parameter in entries:
+                broken[number] = ("three or more walls meet at one corner: "
+                                  "which of them runs through is not the "
+                                  "drawing's to say")
+        cuts = {}
+        for (index, end), entries in claims.items():
+            cuts.setdefault(index, {})[end] = entries
+        for index, ends in cuts.items():
+            start = ends["start"][0][1] if "start" in ends else 0.0
+            finish = ends["end"][0][1] if "end" in ends else frames[index][4]
+            if finish - start >= floor:
+                continue
+            for entries in ends.values():
+                for number, _parameter in entries:
+                    broken[number] = (
+                        "a corner would leave less wall than the builder "
+                        "places: the two ends are left exactly as drawn")
         if not broken:
             break
         for number in broken:
             alive[number] = False
             unresolved[broken[number]] += 1
+    touched = set()
     for number, (rule, targets) in enumerate(decisions):
         if not alive[number]:
             continue
@@ -714,12 +739,13 @@ def _cut_corners(segments, frames, decisions, rules, unresolved):
             ox, oy, ux, uy, _length = frames[index]
             segments[index][end] = [ox + ux * parameter, oy + uy * parameter,
                                     segments[index][end][2]]
-    for number, (_rule, targets) in enumerate(decisions):
-        if not alive[number]:
-            continue
-        for (index, _end), _parameter in targets:
-            segments[index]["length_mm"] = _dist(
-                segments[index]["start"], segments[index]["end"]) * _MM
+            touched.add(index)
+    for index in touched:
+        segments[index]["length_mm"] = _dist(segments[index]["start"],
+                                             segments[index]["end"]) * _MM
+
+
+# ------------------------------------------ the vertical members: column or wall
 # Everything above plans walls from the WALL layers. This last section answers a
 # different question about the COLUMN layers: the user's three-way choice on
 # Build > Structure, where a recovered vertical member may be built as a
