@@ -2,6 +2,7 @@
   "LayoutPlan-Project1.dxf": {
     "beams": 562,
     "beams_split_at_columns": 219,
+    "chajja_holes": 0,
     "chajja_offset_mm_total": 0,
     "chajjas": 0,
     "column_circles": 0,
@@ -82,6 +83,7 @@
   "MessyPlan-Test0.dxf": {
     "beams": 126,
     "beams_split_at_columns": 0,
+    "chajja_holes": 0,
     "chajja_offset_mm_total": 0,
     "chajjas": 0,
     "column_circles": 1,
@@ -162,6 +164,7 @@
   "StaircasePlan-Test1.dxf": {
     "beams": 4,
     "beams_split_at_columns": 0,
+    "chajja_holes": 0,
     "chajja_offset_mm_total": 0,
     "chajjas": 0,
     "column_circles": 0,
@@ -242,6 +245,7 @@
   "StaircasePlan-Test2.dxf": {
     "beams": 76,
     "beams_split_at_columns": 16,
+    "chajja_holes": 0,
     "chajja_offset_mm_total": 0,
     "chajjas": 0,
     "column_circles": 4,
@@ -322,6 +326,7 @@
   "StructuralPlan-Test1.dxf": {
     "beams": 106,
     "beams_split_at_columns": 35,
+    "chajja_holes": 0,
     "chajja_offset_mm_total": 0,
     "chajjas": 0,
     "column_circles": 2,
@@ -402,6 +407,7 @@
   "StructuralPlan-Test10.dxf": {
     "beams": 411,
     "beams_split_at_columns": 142,
+    "chajja_holes": 0,
     "chajja_offset_mm_total": 0,
     "chajjas": 0,
     "column_circles": 10,
@@ -482,6 +488,7 @@
   "StructuralPlan-Test11.dxf": {
     "beams": 444,
     "beams_split_at_columns": 128,
+    "chajja_holes": 0,
     "chajja_offset_mm_total": 0,
     "chajjas": 0,
     "column_circles": 0,
@@ -562,6 +569,7 @@
   "StructuralPlan-Test12.dxf": {
     "beams": 1935,
     "beams_split_at_columns": 6,
+    "chajja_holes": 0,
     "chajja_offset_mm_total": 0,
     "chajjas": 0,
     "column_circles": 0,
@@ -642,6 +650,7 @@
   "StructuralPlan-Test13.dxf": {
     "beams": 1154,
     "beams_split_at_columns": 4,
+    "chajja_holes": 0,
     "chajja_offset_mm_total": 0,
     "chajjas": 0,
     "column_circles": 0,
@@ -722,7 +731,8 @@
   "StructuralPlan-Test14.dxf": {
     "beams": 660,
     "beams_split_at_columns": 0,
-    "chajja_offset_mm_total": -33300.0,
+    "chajja_holes": 18,
+    "chajja_offset_mm_total": -36900.0,
     "chajjas": 72,
     "column_circles": 0,
     "column_entries": 195,
@@ -754,10 +764,10 @@
     "records": 2484,
     "regions": 447,
     "sized_beams": 660,
-    "slab_bays_divided_by_cutouts": 0,
+    "slab_bays_divided_by_cutouts": 12,
     "slab_cutout_holes": 66,
     "slab_cutouts_crossed": 90,
-    "slab_defs_built": 387,
+    "slab_defs_built": 399,
     "slab_loops_from_beam_graph": 45,
     "slab_loops_from_edges": 0,
     "slab_loops_marked": 0,
@@ -766,7 +776,7 @@
     "slab_loops_total": 336,
     "slab_schedule_rows": 0,
     "slab_source": "placed_members",
-    "slab_stop_notes": 5,
+    "slab_stop_notes": 8,
     "slab_stop_records": 225,
     "slab_stop_rings": 90,
     "stair_area_m2": 85.9,
@@ -802,6 +812,7 @@
   "StructuralPlan-Test15.dxf": {
     "beams": 219,
     "beams_split_at_columns": 0,
+    "chajja_holes": 0,
     "chajja_offset_mm_total": 0,
     "chajjas": 0,
     "column_circles": 10,
@@ -882,6 +893,7 @@
   "StructuralPlan-Test16.dxf": {
     "beams": 444,
     "beams_split_at_columns": 0,
+    "chajja_holes": 0,
     "chajja_offset_mm_total": 0,
     "chajjas": 0,
     "column_circles": 0,
@@ -962,6 +974,7 @@
   "StructuralPlan-Test2.dxf": {
     "beams": 115,
     "beams_split_at_columns": 36,
+    "chajja_holes": 0,
     "chajja_offset_mm_total": 0,
     "chajjas": 0,
     "column_circles": 4,
@@ -1042,6 +1055,7 @@
   "StructuralPlan-Test3.dxf": {
     "beams": 115,
     "beams_split_at_columns": 38,
+    "chajja_holes": 0,
     "chajja_offset_mm_total": 0,
     "chajjas": 0,
     "column_circles": 4,
@@ -1122,6 +1136,7 @@
   "StructuralPlan-Test4.dxf": {
     "beams": 674,
     "beams_split_at_columns": 8,
+    "chajja_holes": 0,
     "chajja_offset_mm_total": 0,
     "chajjas": 0,
     "column_circles": 0,
@@ -1202,6 +1217,7 @@
   "StructuralPlan-Test5.dxf": {
     "beams": 674,
     "beams_split_at_columns": 8,
+    "chajja_holes": 0,
     "chajja_offset_mm_total": 0,
     "chajjas": 0,
     "column_circles": 0,
@@ -1282,6 +1298,7 @@
   "StructuralPlan-Test6.dxf": {
     "beams": 21,
     "beams_split_at_columns": 0,
+    "chajja_holes": 0,
     "chajja_offset_mm_total": 0,
     "chajjas": 0,
     "column_circles": 2,
@@ -1362,6 +1379,7 @@
   "StructuralPlan-Test7.dxf": {
     "beams": 22,
     "beams_split_at_columns": 0,
+    "chajja_holes": 0,
     "chajja_offset_mm_total": 0,
     "chajjas": 0,
     "column_circles": 2,
@@ -1442,6 +1460,7 @@
   "StructuralPlan-Test8.dxf": {
     "beams": 217,
     "beams_split_at_columns": 63,
+    "chajja_holes": 0,
     "chajja_offset_mm_total": 0,
     "chajjas": 0,
     "column_circles": 0,
@@ -1522,6 +1541,7 @@
   "StructuralPlan-Test9.dxf": {
     "beams": 199,
     "beams_split_at_columns": 2,
+    "chajja_holes": 0,
     "chajja_offset_mm_total": 0,
     "chajjas": 0,
     "column_circles": 0,

@@ -249,6 +249,231 @@ class ChajjasHangOffTheirBeam(unittest.TestCase):
         self.assertEqual(out["defs"], [])
 
 
+class AChajjaFollowsItsBeamDown(unittest.TestCase):
+    """2b. A ledge cast off a SUNK beam hangs at the soffit that moved.
+
+    The owner's v0.89.0 run: "most place now have proper slab drawn at beam
+    bottom but now that our beam is also with depth its beam bottom should
+    also increase by sunk value." Since v0.88.0 a beam under a sunk hatch
+    drops by the legend's depth through its `z Offset Value`; a chajja hung at
+    the section depth alone would float clear of the member it is cast off.
+
+    Measured on test14: 36 of the 72 chajjas hang off a dropped beam -- 24 by
+    75 mm and 12 by 150 -- and the drop moves no tie-break at all.
+    """
+
+    def _legend(self):
+        return [{"pattern": "GOST_GLASS", "kind": "other", "value_mm": None,
+                 "meaning": "INDICATES SLAB AT BEAM BOTTOM", "swatch": None}]
+
+    def _region(self):
+        return _Region(_box(11050.8, 37958.9, 11800.8, 38548.9), "GOST_GLASS")
+
+    def _beams(self):
+        # the fixture's own pair: a 200x400 along the north side, a 300x750
+        # edge beam along the west, and the west one carries the ledge
+        return [_beam(11050.8, 39108.9, 11800.8, 39108.9, 200.0, 400.0),
+                _beam(10900.8, 37518.9, 10900.8, 40648.9, 300.0, 750.0)]
+
+    def _chajja(self, drops):
+        out = slab_stops.chajja_slabs(
+            [self._region()], self._beams(), self._legend(), texts=[],
+            blanket_thickness_mm=125.0, beam_drops=drops)
+        self.assertEqual(len(out["defs"]), 1)
+        return out
+
+    def test_a_chajja_on_a_dropped_beam_follows_the_soffit_down(self):
+        # the 750 beam is segment 1 and a sunk hatch drops it 150: the soffit
+        # is 900 below the level, so the ledge's top sits 125 - 900 = -775
+        out = self._chajja({1: 150.0})
+        self.assertAlmostEqual(out["defs"][0]["offset_mm"], 125.0 - 900.0,
+                               places=6)
+
+    def test_a_chajja_on_an_undropped_beam_is_exactly_where_it_was(self):
+        # THE REGRESSION: 36 of test14's 72 hang off a beam nothing drops.
+        for drops in (None, {}, {0: 150.0}):
+            out = self._chajja(drops)
+            self.assertAlmostEqual(out["defs"][0]["offset_mm"],
+                                   125.0 - 750.0, places=6,
+                                   msg="drops={0}".format(drops))
+
+    def test_the_drop_table_is_read_by_the_segments_own_position(self):
+        # `fold_plan.beam_drops` keys by index into the SAME list this pass
+        # walks; a drop against the north beam must not reach the west one.
+        self.assertAlmostEqual(self._chajja({0: 300.0})["defs"][0]["offset_mm"],
+                               125.0 - 750.0, places=6)
+
+    def test_a_tie_takes_the_deeper_SOFFIT_not_the_deeper_section(self):
+        # A ledge spanning two beams in equal measure. The 400 one is dropped
+        # 500 -- soffit 900 -- and the undropped 750 is the deeper SECTION;
+        # what the ledge has to clear is the soffit, so 900 wins.
+        region = _Region(_box(11050.8, 37958.9, 11800.8, 38548.9), "GOST_GLASS")
+        beams = [_beam(11050.8, 37958.9, 11050.8, 38548.9, 0.2, 400.0),
+                 _beam(11800.8, 37958.9, 11800.8, 38548.9, 0.2, 750.0)]
+        out = slab_stops.chajja_slabs([region], beams, self._legend(),
+                                      texts=[], blanket_thickness_mm=125.0,
+                                      beam_drops={0: 500.0})
+        self.assertAlmostEqual(out["defs"][0]["offset_mm"], 125.0 - 900.0,
+                               places=6)
+        self.assertTrue(any("DEEPER" in note for note in out["notes"]))
+
+    def test_two_beams_dropped_to_one_soffit_are_no_longer_a_tie_to_report(self):
+        # 400 dropped 350 and 750 undropped meet at the same soffit: there is
+        # nothing to choose between them and nothing to warn about.
+        region = _Region(_box(11050.8, 37958.9, 11800.8, 38548.9), "GOST_GLASS")
+        beams = [_beam(11050.8, 37958.9, 11050.8, 38548.9, 0.2, 400.0),
+                 _beam(11800.8, 37958.9, 11800.8, 38548.9, 0.2, 750.0)]
+        out = slab_stops.chajja_slabs([region], beams, self._legend(),
+                                      texts=[], blanket_thickness_mm=125.0,
+                                      beam_drops={0: 350.0})
+        self.assertAlmostEqual(out["defs"][0]["offset_mm"], 125.0 - 750.0,
+                               places=6)
+        self.assertFalse(any("DEEPER" in note for note in out["notes"]))
+
+    def test_a_ledge_that_moved_is_said_out_loud(self):
+        self.assertTrue(any("sunk hatch drops" in note
+                            for note in self._chajja({1: 150.0})["notes"]))
+        self.assertFalse(any("sunk hatch drops" in note
+                             for note in self._chajja(None)["notes"]))
+
+
+class AChajjaIsCutOutOfTheBayOverIt(unittest.TestCase):
+    """2c. The bay standing over a ledge is not cast flat as well.
+
+    The owner's v0.89.0 run, verbatim: "image4 and image5 in same place --
+    image5 makes outline sunk slab with proper cutouts but also image4 2nd
+    slab is also made without respecting cutout and hatch, so same place both
+    slab are drawn one is right other is not."
+
+    Measured over the whole corpus at v0.89.0 this is the ONLY pair of floors
+    cast on one another anywhere -- 18 of them, all on test14, every one a bay
+    with a chajja standing in it. The other 54 chajjas sit inside no bay at
+    all, which is the case the pass was written for.
+
+    The synthetic bay below is the fixture's shape reduced to round numbers:
+    test14's is (17976..19351, 35909..36789) with a 600-wide GOST_GLASS hatch
+    down the middle of it and a slab-stop line drawn on either side of that.
+    """
+
+    def _legend(self):
+        return [{"pattern": "GOST_GLASS", "kind": "other", "value_mm": None,
+                 "meaning": "INDICATES SLAB AT BEAM BOTTOM", "swatch": None}]
+
+    def _under(self):
+        """The beam the ledge is cast off: 300x600 along the bay's south."""
+        return [_beam(0, -150, 6000, -150, 300.0, 600.0)]
+
+    def _stops(self, bay, regions, records=None, beams=None, texts=None):
+        return slab_outlines.apply_slab_stops(
+            [bay], records or [], texts or [], regions=regions,
+            beam_segments=beams if beams is not None else self._under(),
+            legend_entries=self._legend(), blanket_thickness_mm=125.0)
+
+    def test_a_chajja_reaching_the_bays_edges_divides_it(self):
+        # the fixture's own shape: the ledge spans the bay top to bottom, so
+        # what is left is a strip of floor either side of it
+        bay = _bay(_box(0, 0, 6000, 4000))
+        ledge = _Region(_box(2000, 0, 3000, 4000), "GOST_GLASS")
+        defs, report = self._stops(bay, [ledge])
+        self.assertEqual(report["chajjas"], 1)
+        self.assertEqual(report["chajja_holes"], 1)
+        self.assertEqual(report["divided"], 1)
+        bays = [d for d in defs if not d.get("part")]
+        self.assertEqual(len(bays), 2)
+        self.assertAlmostEqual(sum(slab_stops.area_m2(d["ring"]) for d in bays),
+                               24.0 - 4.0, places=3)
+        self.assertEqual([d["part"] for d in defs if d.get("part")],
+                         ["chajja"])
+
+    def test_a_chajja_strictly_inside_a_bay_becomes_a_hole_in_it(self):
+        # a ledge clear of every edge -- the re-entrant corner the pass has
+        # always allowed for -- hangs off a beam running under its south side
+        bay = _bay(_box(0, 0, 6000, 4000))
+        ledge = _Region(_box(2000, 1000, 3000, 3000), "GOST_GLASS")
+        defs, report = self._stops(
+            bay, [ledge], beams=[_beam(2000, 850, 3000, 850, 300.0, 600.0)])
+        self.assertEqual(report["chajja_holes"], 1)
+        self.assertEqual(report["divided"], 0)
+        bays = [d for d in defs if not d.get("part")]
+        self.assertEqual(len(bays), 1)
+        self.assertEqual(len(bays[0]["holes"]), 1)
+
+    def test_a_chajja_inside_no_bay_cuts_nothing_and_the_bay_stands(self):
+        # 54 of test14's 72 -- the cantilever hanging out past the building
+        # line, which is what the whole pass was written for.
+        bay = _bay(_box(0, 0, 6000, 4000))
+        ledge = _Region(_box(7000, 0, 8000, 4000), "GOST_GLASS")
+        beams = [_beam(7000, -150, 8000, -150, 300.0, 600.0)]
+        defs, report = self._stops(bay, [ledge], beams=beams)
+        self.assertEqual(report["chajjas"], 1)
+        self.assertEqual(report["chajja_holes"], 0)
+        bays = [d for d in defs if not d.get("part")]
+        self.assertEqual(len(bays), 1)
+        self.assertAlmostEqual(slab_stops.area_m2(bays[0]["ring"]), 24.0,
+                               places=3)
+
+    def test_a_chajja_the_pass_refused_to_level_cuts_nothing(self):
+        # No beam under it, so no ledge is placed; cutting the floor away for
+        # one would leave a hole with nothing in it.
+        bay = _bay(_box(0, 0, 6000, 4000))
+        ledge = _Region(_box(2000, 0, 3000, 4000), "GOST_GLASS")
+        defs, report = self._stops(bay, [ledge], beams=[])
+        self.assertEqual(report["chajjas"], 0)
+        self.assertEqual(report["chajja_holes"], 0)
+        self.assertEqual(len(defs), 1)
+        self.assertAlmostEqual(slab_stops.area_m2(defs[0]["ring"]), 24.0,
+                               places=3)
+
+    def test_a_crossed_ring_and_a_chajja_are_taken_out_together(self):
+        # ONE subtraction, not two: split twice and the second would be judged
+        # against pieces the first invented.
+        bay = _bay(_box(0, 0, 6000, 4000))
+        ledge = _Region(_box(2000, 0, 3000, 4000), "GOST_GLASS")
+        ring = _Record(_box(5000, 0, 6000, 1000), layers.CATEGORY_SLAB_STOP,
+                       closed=True)
+        records = [ring] + _cross(5000, 0, 6000, 1000)
+        defs, report = self._stops(bay, [ledge], records=records)
+        self.assertEqual(report["holes"], 1)
+        self.assertEqual(report["chajja_holes"], 1)
+        bays = [d for d in defs if not d.get("part")]
+        self.assertAlmostEqual(sum(slab_stops.area_m2(d["ring"]) for d in bays),
+                               24.0 - 4.0 - 1.0, places=3)
+
+    def test_a_bay_its_chajja_covers_whole_places_nothing_flat_and_says_so(self):
+        # Not one of test14's 18 does this; the arithmetic is here because a
+        # floor that quietly stops existing is the hardest kind to find.
+        bay = _bay(_box(0, 0, 6000, 4000))
+        ledge = _Region(_box(0, 0, 6000, 4000), "GOST_GLASS")
+        defs, report = self._stops(bay, [ledge])
+        self.assertEqual([d for d in defs if not d.get("part")], [])
+        self.assertEqual(report["chajja_holes"], 1)
+        self.assertTrue(any("wholly taken up" in note
+                            for note in report["notes"]))
+
+    def test_a_chajja_in_a_bay_the_drawing_withdrew_cuts_nothing(self):
+        # The bay is already gone for the X over it; there is nothing to cut.
+        bay = _bay(_box(0, 0, 6000, 4000))
+        ledge = _Region(_box(2000, 0, 3000, 4000), "GOST_GLASS")
+        defs, report = self._stops(bay, [ledge],
+                                   records=_cross(0, 0, 6000, 4000))
+        self.assertEqual(report["cutout_bays"], 1)
+        self.assertEqual(report["chajja_holes"], 0)
+        self.assertEqual([d["part"] for d in defs], ["chajja"])
+
+    def test_the_ledges_still_come_last_so_the_def_order_is_unchanged(self):
+        # `sunk_bay_steps` addresses its hosts by POSITION in this list.
+        bay = _bay(_box(0, 0, 6000, 4000), mark="S1")
+        far = _bay(_box(9000, 0, 15000, 4000), mark="S2")
+        ledge = _Region(_box(2000, 0, 3000, 4000), "GOST_GLASS")
+        defs, _report = slab_outlines.apply_slab_stops(
+            [bay, far], [], [], regions=[ledge], beam_segments=self._under(),
+            legend_entries=self._legend(), blanket_thickness_mm=125.0)
+        self.assertEqual([d.get("part") for d in defs],
+                         [None, None, None, "chajja"])
+        self.assertEqual([d.get("mark") for d in defs],
+                         ["S1", "S1", "S2", None])
+
+
 class AStaircaseBayIsNotAFloor(unittest.TestCase):
     """3. A bay a staircase stands in is withdrawn from the slab pass."""
 

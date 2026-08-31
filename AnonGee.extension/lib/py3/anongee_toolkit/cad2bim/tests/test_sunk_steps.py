@@ -571,6 +571,25 @@ class TheWiringOnTheRevitSide(unittest.TestCase):
         source = _source(_BUILDERS)
         self.assertIn("sheet_texts=sheet_texts", source)
 
+    def test_the_slab_pass_asks_for_the_same_drops_the_beams_sink_by(self):
+        # A chajja hangs at the SOFFIT of the beam it is cast off, and a beam
+        # under a sunk hatch has moved down since v0.88.0. The slab pass asks
+        # the same function, against its own (pre-split) segment list so the
+        # indexes line up, and hands the answer to the stop pass.
+        source = _source(_BUILDERS)
+        self.assertIn("beam_drops = _sunk_beam_drops(selections, regions, "
+                      "sheet_texts or texts,", source)
+        self.assertIn("beam_drops=beam_drops)", source)
+
+    def test_the_second_reading_of_the_drops_is_not_printed_twice(self):
+        # One reading, one paragraph: the beam pass reports it, the slab pass
+        # takes the numbers quietly.
+        source = _source(_BUILDERS)
+        node = _function(source, "_sunk_beam_drops")
+        self.assertIsNotNone(node)
+        self.assertIn("say", [argument.arg for argument in node.args.args])
+        self.assertIn("beam_segments.get(\"segments\"), say=False)", source)
+
     def test_the_beam_pass_takes_the_hatches_and_the_sheets_texts(self):
         node = _function(_source(_BUILDERS), "_create_beams")
         self.assertIsNotNone(node)

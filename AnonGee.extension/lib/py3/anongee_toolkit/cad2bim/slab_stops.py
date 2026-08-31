@@ -46,7 +46,19 @@ the drawing says about that, each from a mark it already carries.
      COVER edge is what draws its free sides (measured: 72 of the 75 hatches
      have COVER on their perimeter, a median half of it), and the hatch region
      is its area. Its level comes from the beam it hangs off: soffit to
-     soffit, top at `thickness - depth` below the level.
+     soffit, top at `thickness - depth` below the level -- and since v0.88.0
+     that beam may itself have been dropped by a sunk hatch, so the soffit it
+     follows is `depth + drop` below the level, not `depth`.
+
+  2b. AND THE BAY UNDER IT IS NOT FLOOR AT LEVEL. A chajja was assumed to lie
+     outside every bay; measured, 18 of test14's 72 sit wholly inside one, and
+     the bay was cast flat over the ledge as well. That is the owner's v0.89.0
+     run: "same place both slab are drawn one is right other is not" -- the
+     ledge at the beam's soffit, correct, and over the top of it the whole bay,
+     respecting neither the hatch nor the slab-stop lines drawn down either
+     side of it. A placed chajja's ring is therefore SUBTRACTED from the bay
+     that holds it, through the same `fold_plan.split_profile` a crossed-out
+     ring goes through (`chajja_cutouts`).
 
   3. A STAIRCASE BAY IS NOT A FLOOR. The stair pass already builds a stair in
      the bay under a STAIRCASE / ST-n text; leaving the same bay in the slab
@@ -376,7 +388,8 @@ def chajja_patterns(legend_entries):
 
 
 def chajja_slabs(regions, beam_segments, legend_entries, texts=None,
-                 skip_ids=None, schedule=None, blanket_thickness_mm=None):
+                 skip_ids=None, schedule=None, blanket_thickness_mm=None,
+                 beam_drops=None):
     """{"defs": [...], "notes": [...]} -- the cantilever ledges as slab defs.
 
     One def per plan region carrying a beam-bottom pattern:
@@ -385,9 +398,10 @@ def chajja_slabs(regions, beam_segments, legend_entries, texts=None,
          "part": "chajja"}
 
     `part` keeps it out of the builder's opening nesting, exactly as a step's
-    dropped slab is kept out: a chajja lies outside every bay, but a ledge in a
-    re-entrant corner can sit inside one, and a floor read as a hole is a floor
-    that never gets placed.
+    dropped slab is kept out: a chajja mostly lies outside every bay, but a
+    ledge in a re-entrant corner can sit inside one, and a floor read as a hole
+    is a floor that never gets placed. What the bay under it must NOT do is
+    stay whole -- see `chajja_cutouts`.
 
     THE LEVEL, and the arithmetic behind it. Take the level as 0 and the beam's
     depth D as measured from it (which is what the "200X400" size note means).
@@ -396,14 +410,30 @@ def chajja_slabs(regions, beam_segments, legend_entries, texts=None,
 
         offset = thickness - D
 
+    AND THE BEAM MAY HAVE MOVED. Since v0.88.0 a beam under a sunk hatch is
+    dropped by the legend's depth through its `z Offset Value`: its soffit is
+    then D + drop below the level, and a ledge hung at the old D would float
+    clear of the beam it is cast off. `beam_drops` is `fold_plan.beam_drops`'
+    own {segment index: depth_mm} -- the SAME table the beam builder sinks by,
+    passed in rather than re-derived, because a chajja and the beam it hangs
+    off disagreeing about that number is precisely the failure this fixes. So
+
+        offset = thickness - (D + drop)
+
+    and a beam nothing dropped contributes drop = 0, which is the arithmetic
+    above unchanged. Measured on test14: 36 of the 72 chajjas hang off a
+    dropped beam -- 24 by 75 mm, 12 by 150 -- and the other 36 do not move.
+
     The beam is the one the ring shares its longest contact with: measured over
     test14's 72 chajjas the winner runs 595 .. 2499 mm of contact against
     runner-up clips of 175 .. 598, and in the four dumped by hand the winner is
     always the long supported side. 12 of the 72 tie within a millimetre
     between beams of different depth -- a ledge spanning between two beams --
-    and there the DEEPER wins: a chajja hung at the shallower soffit would run
-    straight through the deeper beam's web, where one at the deeper soffit
-    clears both. Every tie is named on `notes`.
+    and there the DEEPER SOFFIT wins: a chajja hung at the shallower would run
+    straight through the deeper beam's web, where one at the deeper clears
+    both. Deeper by SOFFIT, not by section, because that is what the ledge has
+    to clear once the drops are in; on test14 the drops move no tie-break at
+    all. Every tie is named on `notes`.
 
     A chajja whose ring touches no beam, or whose thickness nothing gives, is
     REPORTED and not placed. Both are the same refusal in different words --
@@ -428,16 +458,17 @@ def chajja_slabs(regions, beam_segments, legend_entries, texts=None,
     if not rings:
         return out
 
-    bodies = _beam_bodies(beam_segments)
+    bodies = _beam_bodies(beam_segments, beam_drops)
     labelled = slab_outlines.apply_slab_labels(
         [(ring, z, []) for ring, z in rings], texts, schedule=schedule,
         blanket_thickness_mm=blanket_thickness_mm)
     no_beam = 0
     no_thickness = 0
     ties = 0
+    dropped = 0
     for (ring, _z), slab in zip(rings, labelled):
-        depth, tied = _carrying_beam(ring, bodies)
-        if depth is None:
+        soffit, tied, drop = _carrying_beam(ring, bodies)
+        if soffit is None:
             no_beam += 1
             continue
         if tied:
@@ -446,10 +477,12 @@ def chajja_slabs(regions, beam_segments, legend_entries, texts=None,
         if thickness is None:
             no_thickness += 1
             continue
+        if drop:
+            dropped += 1
         out["defs"].append({
             "ring": ring, "holes": [], "arcs": [],
             "thickness_mm": thickness,
-            "offset_mm": thickness - depth,
+            "offset_mm": thickness - soffit,
             "mark": slab.get("mark"), "part": "chajja"})
     if no_beam:
         out["notes"].append(
@@ -465,43 +498,128 @@ def chajja_slabs(regions, beam_segments, legend_entries, texts=None,
             "{0} chajja(s) hang off two beams of different depth in equal "
             "measure: each takes the DEEPER soffit, which clears both"
             .format(ties))
+    if dropped:
+        out["notes"].append(
+            "{0} chajja(s) hang off a beam a sunk hatch drops: each follows "
+            "that soffit down by the beam's own drop, so the ledge stays cast "
+            "off the member and not floating below it".format(dropped))
     return out
 
 
-def _beam_bodies(beam_segments):
-    """[(body ring, depth_mm)] -- each placed beam's plan footprint and depth.
+def chajja_cutouts(loops, chajja_defs, skip=None):
+    """{"holes": {loop index: [ring]}, "hosted": n, "notes": [...]}.
+
+    THE GROUND A CHAJJA COVERS IS NOT FLOOR AT LEVEL, and until this ran the
+    bay holding one was cast flat as well. The owner's v0.89.0 run, verbatim:
+    "same place both slab are drawn one is right other is not" -- the ledge at
+    the beam's soffit, shaped by its hatch and stopping where the slab-stop
+    lines beside it stop, and over the top of it the whole bay, respecting
+    neither. `chajja_slabs` ADDED a floor and nothing SUBTRACTED the ground it
+    took, which is the one withdrawal the pass never had: a sunk bay's flat
+    parent is withdrawn by `fold_plan.slab_defs_with_steps`, a staircase bay
+    and a bay marked void by `apply_slab_stops` itself, and a chajja by
+    nothing at all.
+
+    Measured on test14, the only drawing in the corpus whose legend names a
+    beam-bottom pattern, and the split is total:
+
+        54 of the 72 chajjas sit inside NO bay -- the cantilever hanging out
+           past the building line, which is what the pass was written for
+        18 sit inside one ENTIRELY (share of the chajja inside its host: 1.0,
+           not one of them between)
+
+    and every one of those 18 reaches its host's boundary, while not one covers
+    a host whole. So the subtraction always bites a notch or divides the bay,
+    and never deletes a floor outright.
+
+    The hole is handed back as a RING, exactly as `slab_cutouts` hands back a
+    crossed one, and for the same reason: `fold_plan.split_profile` is what
+    subtracts it, and doing it here would be a second, worse copy of that walk.
+    The two hole sets go into ONE call of it, because a bay carrying both a
+    crossed ring and a chajja has to lose both in one subtraction -- two
+    sequential splits would judge the second against pieces the first invented.
+
+    Only a PLACED chajja cuts. A ledge the pass refused to level -- no beam
+    under it, no thickness for it -- is a ledge the model does not have, and
+    cutting the floor away for one would leave a hole with nothing in it. The
+    addition and the subtraction stay paired.
+
+    `skip` is the bays some earlier reading already withdrew; a chajja hosted
+    in one cuts nothing, there being nothing left to cut.
+    """
+    out = {"holes": {}, "hosted": 0, "notes": []}
+    homeless = 0
+    for slab in (chajja_defs or []):
+        ring = [(p[0], p[1]) for p in (slab.get("ring") or [])]
+        if len(ring) < 3:
+            continue
+        host = _host_index(ring, loops)
+        if host is None or host in (skip or set()):
+            homeless += 1
+            continue
+        out["holes"].setdefault(host, []).append(ring)
+        out["hosted"] += 1
+    if out["hosted"]:
+        out["notes"].append(
+            "{0} chajja(s) stand inside a slab bay: the ledge hangs at its "
+            "beam's soffit and the bay is cut back off it, so the floor is "
+            "not cast twice over the same ground".format(out["hosted"]))
+    return out
+
+
+def _beam_bodies(beam_segments, drops=None):
+    """[(body ring, depth_mm, drop_mm)] -- footprint, section and drop.
+
+    The DROP is carried beside the depth rather than folded into it, because
+    the two answer different questions: depth + drop is where the underside
+    is, and the drop on its own is what says a ledge MOVED. `drops` is keyed
+    by position in `beam_segments` -- `fold_plan.beam_drops`' own table -- and
+    a segment it says nothing about drops nothing, so a drawing with no sunk
+    hatch measures exactly what it always did.
 
     `fold_plan._beam_body` is the one that already widens a centreline by its
     width; imported here rather than copied so a beam has ONE footprint in this
     package.
     """
     from . import fold_plan
+    drops = drops or {}
     out = []
-    for segment in (beam_segments or []):
+    for index, segment in enumerate(beam_segments or []):
         body = fold_plan._beam_body(segment)
         depth = segment.get("depth_mm")
         if body and depth:
-            out.append((body, float(depth)))
+            out.append((body, float(depth),
+                        float(drops.get(index, 0.0) or 0.0)))
     return out
 
 
 def _carrying_beam(ring, bodies):
-    """(depth_mm, tied) of the beam this ring hangs off, else (None, False)."""
+    """(soffit_mm, tied, dropped) of the beam this ring hangs off.
+
+    (None, False, False) when nothing bears it. `soffit_mm` is how far BELOW
+    the level the winning beam's underside sits -- depth plus whatever a sunk
+    hatch dropped it by -- and the tie between equal contacts is settled on
+    that same number, since clearing both beams is what the tie-break is for.
+    `dropped` says the winner was moved, which is what the console line counts.
+    """
     tol = config.mm_to_ft(_CONTACT_TOL_MM)
     floor = config.mm_to_ft(_MIN_CONTACT_MM)
     best = 0.0
-    depths = []
-    for body, depth in bodies:
+    winners = []
+    for body, depth, drop in bodies:
         run = _contact_run(ring, body, tol)
         if run < floor:
             continue
         if run > best + tol:
-            best, depths = run, [depth]
+            best, winners = run, [(depth, drop)]
         elif run > best - tol:
-            depths.append(depth)
-    if not depths:
-        return None, False
-    return max(depths), len(set(depths)) > 1
+            winners.append((depth, drop))
+    if not winners:
+        return None, False, False
+    soffit, drop = max(winners, key=lambda pair: pair[0] + pair[1])
+    return (soffit + drop,
+            len(set(depth + own for depth, own in winners)) > 1,
+            bool(drop))
 
 
 def _contact_run(ring, body, tol):

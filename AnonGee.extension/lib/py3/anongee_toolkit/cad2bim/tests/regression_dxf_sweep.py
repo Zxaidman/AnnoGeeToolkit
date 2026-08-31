@@ -269,6 +269,7 @@ def _measure(path):
         "cutout_texts": stops["cutout_texts"],
         "chajjas": stops["chajjas"],
         "chajja_offset_mm_total": stops["chajja_offset_total"],
+        "chajja_holes": stops["chajja_holes"],
         "slab_stop_notes": stops["notes"],
         "slab_defs_built": stops["built"],
         "wall_records": sum(
@@ -349,15 +350,22 @@ def _stops_pass(result, entries, depths, slab_defs, beams):
     decision in its own right (a hole cut into a bay a staircase then withdraws
     is work thrown away, and the console would have reported it).
 
+    THE BEAM DROPS RIDE IN, the way `_create_slabs` hands them to `_slab_stops`:
+    a chajja hangs at the soffit of the beam it is cast off, and a beam under a
+    sunk hatch has moved down since v0.88.0. Measured here and not only in a
+    unit test because the number that proves it -- `chajja_offset_mm_total` --
+    is a sum over a whole drawing's ledges, and only the fixture has one.
+
     The regions arrive already re-categorised by `_sunk_pass`, which is the
     routing the run uses; nothing here re-maps them.
     """
     swatch_ids = set(id(entry["swatch"]) for entry in (entries or []))
+    split = fold_plan.sunk_split(result.regions, depths, swatch_ids)
+    drops = fold_plan.beam_drops(beams, split["strips"], split["bays"])
     stopped, report = slab_outlines.apply_slab_stops(
         slab_defs, result.records, result.texts, regions=result.regions,
         beam_segments=beams, legend_entries=entries, skip_ids=swatch_ids,
-        sheet_texts=result.texts)
-    split = fold_plan.sunk_split(result.regions, depths, swatch_ids)
+        sheet_texts=result.texts, beam_drops=drops["drops"])
     steps = fold_plan.sunk_bay_steps(stopped, split["bays"])
     built, _notes = fold_plan.slab_defs_with_steps(stopped, steps["steps"])
     return {
@@ -380,6 +388,10 @@ def _stops_pass(result, entries, depths, slab_defs, beams):
         "chajjas": report["chajjas"],
         "chajja_offset_total": round(sum(
             d["offset_mm"] for d in stopped if d.get("part") == "chajja"), 1),
+        # THE SECOND FLOOR THAT USED TO BE CAST OVER EACH LEDGE. A chajja
+        # standing inside a bay is cut out of it; this counts how many, and it
+        # is the number that goes back to zero if the subtraction is ever lost.
+        "chajja_holes": report["chajja_holes"],
         "notes": len(report["notes"]),
         "built": len(built),
     }

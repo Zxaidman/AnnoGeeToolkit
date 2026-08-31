@@ -455,16 +455,16 @@ def slab_loops_from_placed_members(records, beam_segments, column_rects=None,
 def apply_slab_stops(slab_defs, records, texts, regions=None,
                      beam_segments=None, legend_entries=None, skip_ids=None,
                      schedule=None, blanket_thickness_mm=None,
-                     sheet_texts=None):
+                     sheet_texts=None, beam_drops=None):
     """(defs, report) -- the bays with what the drawing says STOPS them applied.
 
     `report` is {"notes", "crossed", "holes", "divided", "stair_bays",
     "stair_area_m2", "cutout_bays", "cutout_bays_by_cross",
-    "cutout_bays_by_text", "cutout_bay_area_m2", "chajjas"} -- the numbers the
-    console line and the sweep both read, so neither has to count the defs
-    back.
+    "cutout_bays_by_text", "cutout_bay_area_m2", "chajjas", "chajja_holes"} --
+    the numbers the console line and the sweep both read, so neither has to
+    count the defs back.
 
-    Four subtractions and one addition, in the order they have to happen:
+    FIVE subtractions and one addition, in the order they have to happen:
 
       * the bays a STAIRCASE stands in are withdrawn (a stair and a flat floor
         in the same bay is the model the owner found);
@@ -474,16 +474,28 @@ def apply_slab_stops(slab_defs, records, texts, regions=None,
         are read off `sheet_texts` when the caller has them, not the narrowed
         `texts` this pass reads slab notes from: a CUTOUT label lives on its
         own layer and the slab routing cannot be trusted to still hold it;
-      * every crossed-out slab-stop ring becomes a hole of the bay holding it,
-        and a bay whose hole reaches its boundary is DIVIDED by
-        `fold_plan.split_profile` -- on test14 all 60 hosted holes do reach it,
-        so this is the normal case rather than the exception;
+      * every crossed-out slab-stop ring becomes a hole of the bay holding it;
+      * SO DOES EVERY PLACED CHAJJA STANDING IN A BAY. The ledge is cast at its
+        beam's soffit, and the bay over it was cast flat as well until this ran
+        -- two floors on the same ground, which is the owner's v0.89.0 report.
+        See `slab_stops.chajja_cutouts` for the 54/18 split that measured it;
+      * a bay whose subtraction reaches its boundary is DIVIDED by
+        `fold_plan.split_profile` -- on test14 all 60 hosted crossed rings and
+        all 18 hosted chajjas do reach it, so this is the normal case rather
+        than the exception;
       * the chajjas are added, as their own floors at beam-bottom level.
+
+    BOTH hole sets go into ONE `split_profile` call. A bay carrying a crossed
+    ring and a chajja has to lose both in the same subtraction; splitting twice
+    would judge the second against pieces the first invented, and hand Revit
+    two loops drawn to one line.
 
     The two withdrawals first: a hole cut into a bay that is about to be
     withdrawn is work thrown away, and worse, it would count in the report. The
     crossed-bay pass is handed the stair set so a bay that is both is withdrawn
-    once and counted once.
+    once and counted once. The chajjas are worked out before the subtraction
+    and appended after it, so the def ORDER is what it always was: the surviving
+    bays in drawing order, then the ledges.
 
     Every refusal comes back on `notes`, grouped -- see slab_stops.
     """
@@ -500,19 +512,35 @@ def apply_slab_stops(slab_defs, records, texts, regions=None,
     withdrawn = stairs["indexes"] | voids["indexes"]
     cutouts = slab_stops.slab_cutouts(defs, records)
     notes.extend(cutouts["notes"])
+    chajjas = slab_stops.chajja_slabs(
+        regions, beam_segments, legend_entries, texts=texts,
+        skip_ids=skip_ids, schedule=schedule,
+        blanket_thickness_mm=blanket_thickness_mm, beam_drops=beam_drops)
+    notes.extend(chajjas["notes"])
+    ledges = slab_stops.chajja_cutouts(defs, chajjas["defs"], skip=withdrawn)
+    notes.extend(ledges["notes"])
 
     out = []
     divided = 0
+    emptied = 0
     for index, slab in enumerate(defs):
         if index in withdrawn:
             continue
-        holes = cutouts["holes"].get(index)
+        holes = ((cutouts["holes"].get(index) or [])
+                 + (ledges["holes"].get(index) or []))
         ring = slab.get("ring")
         if not holes or not ring or len(ring) < 3:
             out.append(slab)
             continue
         pieces = fold_plan.split_profile([(p[0], p[1]) for p in ring],
                                          list(slab.get("holes") or []) + holes)
+        if not pieces:
+            # Nothing of the bay survives what was taken out of it. Said out
+            # loud rather than left as a def that quietly stopped existing:
+            # a floor that vanishes is the hardest kind of missing floor to
+            # find, and the corpus has none -- not one of test14's 18 hosted
+            # chajjas covers its bay whole.
+            emptied += 1
         if len(pieces) > 1:
             divided += 1
         for piece_ring, piece_holes in pieces:
@@ -526,20 +554,20 @@ def apply_slab_stops(slab_defs, records, texts, regions=None,
             out.append(piece)
     if divided:
         notes.append(
-            "{0} slab bay(s) divided: a crossed-out ring reaches the bay's own "
-            "edge, so the concrete is two pieces round it rather than one with "
-            "a hole".format(divided))
+            "{0} slab bay(s) divided: a crossed-out ring or a chajja reaches "
+            "the bay's own edge, so the concrete is two pieces round it rather "
+            "than one with a hole".format(divided))
+    if emptied:
+        notes.append(
+            "{0} slab bay(s) are wholly taken up by what was cut out of them: "
+            "nothing is placed flat there".format(emptied))
 
-    chajjas = slab_stops.chajja_slabs(
-        regions, beam_segments, legend_entries, texts=texts,
-        skip_ids=skip_ids, schedule=schedule,
-        blanket_thickness_mm=blanket_thickness_mm)
-    notes.extend(chajjas["notes"])
     out.extend(chajjas["defs"])
     return out, {
         "notes": notes,
         "crossed": cutouts["crossed"],
         "holes": sum(len(rings) for rings in cutouts["holes"].values()),
+        "chajja_holes": ledges["hosted"],
         "divided": divided,
         "stair_bays": len(stairs["indexes"]),
         "stair_area_m2": round(sum(

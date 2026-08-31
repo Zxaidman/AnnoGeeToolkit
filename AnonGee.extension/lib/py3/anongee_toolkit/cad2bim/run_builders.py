@@ -164,7 +164,7 @@ def _tally(values):
     return counts
 
 
-def _sunk_beam_drops(selections, regions, texts, segments):
+def _sunk_beam_drops(selections, regions, texts, segments, say=True):
     """{segment index: depth_mm} for the beams a sunk hatch covers.
 
     BOTH halves of the hatch reading are asked, because the legend row is one
@@ -179,35 +179,51 @@ def _sunk_beam_drops(selections, regions, texts, segments):
     member), and both are said before a single beam is placed -- a strip the
     run ignored is a beam sitting a step too high, and that is invisible in
     plan.
+
+    `say=False` for the SECOND caller. The slab pass needs the same table -- a
+    chajja hangs at the soffit of a beam this may have moved -- and it asks for
+    it against its own (pre-split) segment list, so the answer has to be worked
+    out twice. Printing it twice would be two identical paragraphs about one
+    reading, so the beam pass keeps the reporting and the slab pass takes the
+    numbers quietly.
     """
     if not regions:
         return {}
     depths, swatch_ids, notes = _sunk_depths(selections, regions, texts)
-    for message in notes:
-        _say("  sunk (beams): {0}".format(message))
+    if say:
+        for message in notes:
+            _say("  sunk (beams): {0}".format(message))
     if not depths:
-        _say("  sunk (beams): no hatch depth is known, from the dialog or the "
-             "legend: no beam is dropped")
+        if say:
+            _say("  sunk (beams): no hatch depth is known, from the dialog or "
+                 "the legend: no beam is dropped")
         return {}
     split = fold_plan.sunk_split(regions, depths, swatch_ids)
     drops = fold_plan.beam_drops(segments, split["strips"], split["bays"])
-    for message in split["skipped"] + drops["skipped"]:
-        _say("  sunk (beams): {0}".format(message))
+    if say:
+        for message in split["skipped"] + drops["skipped"]:
+            _say("  sunk (beams): {0}".format(message))
     return drops["drops"]
 
 
 def _slab_stops(slab_defs, records, texts, regions, sheet_texts, beam_segments,
-                selections, schedule):
+                selections, schedule, beam_drops=None):
     """(slab_defs, [step]) -- what the drawing says STOPS each bay, applied.
 
     Four readings, all of them the drawing's own marks and all of them
     invisible to a beam graph: a crossed-out ring on the slab-stop layer is a
     HOLE, a bay the drawing MARKS VOID -- an X over it or a CUTOUT / LIFT SHAFT
     / DUCT text in it -- is NOT a floor either, a bay a staircase stands in is
-    NOT a floor, and a beam-bottom hatch is a CHAJJA at its own level.
-    `slab_outlines.apply_slab_stops` does the work; this says what happened,
-    grouped, before anything is placed -- a hole nobody cut and a stair cast
-    solid both look built and are wrong.
+    NOT a floor, and a beam-bottom hatch is a CHAJJA at its own level -- which
+    also cuts the bay it stands in back off it, so the ledge and the floor are
+    not cast over one another. `slab_outlines.apply_slab_stops` does the work;
+    this says what happened, grouped, before anything is placed -- a hole
+    nobody cut and a stair cast solid both look built and are wrong.
+
+    `beam_drops` is the beam pass's own {segment index: depth_mm}: a chajja
+    hangs at the SOFFIT of the beam it is cast off, and since v0.88.0 a beam
+    under a sunk hatch has moved down. Passed in rather than re-derived inside
+    the stop pass so the ledge and the member can never disagree about it.
 
     The SHEET's texts ride along beside the routed ones for the same reason the
     legend does: a CUTOUT label sits on its own layer, and the slab-note
@@ -222,7 +238,7 @@ def _slab_stops(slab_defs, records, texts, regions, sheet_texts, beam_segments,
         blanket_thickness_mm=storey_blanket_mm(
             selections, "blanket_slab_thickness_mm", "slab_thickness_mm",
             sheet_texts or texts),
-        sheet_texts=sheet_texts)
+        sheet_texts=sheet_texts, beam_drops=beam_drops)
     if stopped["crossed"]:
         _say("  stops: {0} crossed-out ring(s) read, {1} cut as holes in "
              "{2} bay(s)".format(stopped["crossed"], stopped["holes"],
@@ -240,8 +256,9 @@ def _slab_stops(slab_defs, records, texts, regions, sheet_texts, beam_segments,
              "stair occupies".format(stopped["stair_bays"],
                                      stopped["stair_area_m2"]))
     if stopped["chajjas"]:
-        _say("  stops: {0} chajja(s) placed at beam bottom".format(
-            stopped["chajjas"]))
+        _say("  stops: {0} chajja(s) placed at beam bottom, {1} of them cut "
+             "out of the bay standing over them".format(
+                 stopped["chajjas"], stopped["chajja_holes"]))
     for message in stopped["notes"]:
         _say("  stops: {0}".format(message))
     return defs, stopped
@@ -764,7 +781,8 @@ def _create_slabs(doc, records, beam_segments, texts, selections, schedule=None,
     `_slab_stops` reads that off the drawing before the steps go in: the
     crossed-out rings on the slab-stop layer become holes, the bays a staircase
     stands in and the bays an X crosses out are withdrawn, and the beam-bottom
-    hatches come back as chajjas at their own level.
+    hatches come back as chajjas at their own level -- each cut out of the bay
+    standing over it, so the ledge and the floor are not cast on one another.
     """
     from Autodesk.Revit.DB import Transaction, TransactionGroup
     level_id = selections.get("top_level_id")
@@ -843,9 +861,16 @@ def _create_slabs(doc, records, beam_segments, texts, selections, schedule=None,
     # region hosted in a bay that is not there is a step nobody can build --
     # so the bays are settled first and the steps are worked out against what
     # survives.
+    # The SAME drop table the beam pass sinks its members by, asked again
+    # against THIS pass's (pre-split) segment list so the indexes line up. A
+    # chajja hangs at its beam's soffit, and a beam under a sunk hatch has
+    # moved; asked quietly, because the beam pass has already said all of it.
+    beam_drops = _sunk_beam_drops(selections, regions, sheet_texts or texts,
+                                  beam_segments.get("segments"), say=False)
     slab_defs, stopped = _slab_stops(
         slab_defs, records, texts, regions, sheet_texts,
-        beam_segments.get("segments"), selections, slab_schedule)
+        beam_segments.get("segments"), selections, slab_schedule,
+        beam_drops=beam_drops)
     slab_defs, steps = _sunk_slab_steps(selections, regions,
                                         sheet_texts or texts, slab_defs)
 
@@ -906,6 +931,7 @@ def _create_slabs(doc, records, beam_segments, texts, selections, schedule=None,
             "cutout_bays_by_text": stopped["cutout_bays_by_text"],
             "cutout_bay_area_m2": stopped["cutout_bay_area_m2"],
             "chajjas": stopped["chajjas"],
+            "chajja_holes": stopped["chajja_holes"],
             _IDS: result["created"],
             "error_details": [str(e)[:220] for e in result["errors"][:8]],
             "skip_details": _skip_details(result["skipped"])}
