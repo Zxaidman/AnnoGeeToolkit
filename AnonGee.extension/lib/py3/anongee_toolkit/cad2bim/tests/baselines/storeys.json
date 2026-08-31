@@ -1,16 +1,16 @@
 {
   "test10": {
     "beams_per_storey": [
-      63,
-      215,
-      175,
-      167,
-      141,
-      141,
-      141,
-      141,
-      141,
-      141,
+      71,
+      223,
+      183,
+      177,
+      145,
+      145,
+      145,
+      145,
+      145,
+      151,
       18
     ],
     "labels": [
@@ -28,15 +28,15 @@
     ],
     "loops_from_beam_graph_per_storey": [
       0,
-      23,
+      26,
+      19,
       16,
-      10,
-      16,
-      16,
-      16,
-      16,
-      16,
-      9,
+      17,
+      17,
+      17,
+      17,
+      17,
+      15,
       6
     ],
     "loops_from_edges_per_storey": [
@@ -84,12 +84,12 @@
   },
   "test12": {
     "beams_per_storey": [
-      657,
-      657,
-      700,
-      656,
-      714,
-      383
+      723,
+      723,
+      763,
+      722,
+      778,
+      385
     ],
     "labels": [
       "LAYOUT AT TYPICAL FLOOR LVL. (1/2)",
@@ -100,12 +100,12 @@
       "LAYOUT AT PARAPET & LMR BOTTOM LVL."
     ],
     "loops_from_beam_graph_per_storey": [
-      118,
-      118,
-      122,
-      111,
-      145,
-      105
+      168,
+      168,
+      162,
+      159,
+      164,
+      107
     ],
     "loops_from_edges_per_storey": [
       0,
@@ -116,32 +116,32 @@
       0
     ],
     "loops_from_placed_members_per_storey": [
-      165,
-      165,
-      165,
-      164,
-      165,
-      109
+      213,
+      213,
+      213,
+      212,
+      213,
+      111
     ],
     "placed_area_m2_per_storey": [
-      1382.4,
-      1382.4,
-      1352.7,
-      1351.1,
-      1412.1,
-      372.6
+      1577.3,
+      1577.3,
+      1541.3,
+      1551.6,
+      1609.4,
+      371.8
     ],
     "roof_loops_from_edges": 0,
-    "roof_loops_from_placed_members": 109,
+    "roof_loops_from_placed_members": 111,
     "storeys": 6
   },
   "test13": {
     "beams_per_storey": [
-      370,
-      369,
-      371,
-      369,
-      154
+      433,
+      428,
+      429,
+      429,
+      191
     ],
     "labels": [
       "GROUND FLOOR LVL.",
@@ -151,11 +151,11 @@
       "TERRACE FLOOR LVL."
     ],
     "loops_from_beam_graph_per_storey": [
-      43,
-      42,
-      46,
-      41,
-      16
+      62,
+      60,
+      63,
+      60,
+      22
     ],
     "loops_from_edges_per_storey": [
       8,
@@ -165,26 +165,26 @@
       1
     ],
     "loops_from_placed_members_per_storey": [
-      41,
-      42,
-      41,
-      41,
-      16
+      64,
+      62,
+      62,
+      62,
+      22
     ],
     "placed_area_m2_per_storey": [
-      307.8,
-      312.9,
-      307.8,
-      307.7,
-      93.6
+      655.7,
+      648.0,
+      648.0,
+      648.0,
+      122.5
     ],
     "roof_loops_from_edges": 1,
-    "roof_loops_from_placed_members": 16,
+    "roof_loops_from_placed_members": 22,
     "storeys": 5
   },
   "test14": {
     "beams_per_storey": [
-      386,
+      385,
       388,
       388,
       388,
@@ -198,11 +198,11 @@
       "LAYOUT AT REFUGE FLOOR LVL. (T1)"
     ],
     "loops_from_beam_graph_per_storey": [
-      90,
-      91,
-      91,
-      91,
-      91
+      99,
+      101,
+      101,
+      101,
+      101
     ],
     "loops_from_edges_per_storey": [
       0,
@@ -212,21 +212,21 @@
       0
     ],
     "loops_from_placed_members_per_storey": [
-      103,
-      104,
-      104,
-      104,
-      104
+      115,
+      117,
+      117,
+      117,
+      117
     ],
     "placed_area_m2_per_storey": [
-      816.2,
-      820.1,
-      820.1,
-      820.1,
-      820.1
+      807.2,
+      814.9,
+      814.9,
+      814.9,
+      814.9
     ],
     "roof_loops_from_edges": 0,
-    "roof_loops_from_placed_members": 104,
+    "roof_loops_from_placed_members": 117,
     "storeys": 5
   },
   "test15": {
@@ -331,9 +331,9 @@
   },
   "test9": {
     "beams_per_storey": [
-      123,
-      120,
-      184
+      136,
+      133,
+      197
     ],
     "labels": [
       "UPPER BASEMENT FRAMING PLAN (SCALE 1:75)",
@@ -341,9 +341,9 @@
       "FIRST FLOOR FRAMING PLAN (SCALE 1:75)"
     ],
     "loops_from_beam_graph_per_storey": [
-      20,
-      19,
-      23
+      26,
+      22,
+      24
     ],
     "loops_from_edges_per_storey": [
       0,
@@ -351,17 +351,17 @@
       0
     ],
     "loops_from_placed_members_per_storey": [
-      18,
-      20,
-      35
+      31,
+      28,
+      41
     ],
     "placed_area_m2_per_storey": [
-      289.7,
-      442.7,
-      449.2
+      416.1,
+      452.2,
+      459.6
     ],
     "roof_loops_from_edges": 0,
-    "roof_loops_from_placed_members": 35,
+    "roof_loops_from_placed_members": 41,
     "storeys": 3
   }
 }

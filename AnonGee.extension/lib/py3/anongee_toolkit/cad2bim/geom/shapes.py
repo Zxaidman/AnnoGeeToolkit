@@ -1208,65 +1208,49 @@ _TAPER_TOL_FT = 15.0 / 304.8   # drafting noise between two edges of one beam
 _TAPER_FRACTION = 0.05         # ... or 5% of the gap, for a wide member
 
 
-def pair_parallel_lines(lines, min_width_ft=None, max_width_ft=None,
-                        min_overlap_ft=None, sin_tol=None):
-    """Pair near-parallel lines ~one width apart into straight members.
+def _pair_over_spans(lines, i, j, spans_i, spans_j, min_width_ft, max_width_ft,
+                     min_overlap_ft, sin_tol):
+    """Best pair of line i with line j, confined to the spans both still have free.
 
-    `lines`: list of (p0, p1, z) with p0/p1 = (x, y) in feet. Returns
-    (segments, leftover): each segment is dict(start, end, width_ft) whose
-    centerline lies on the midline over the shared overlap and whose width is the
-    MEAN perpendicular gap. Greedy and order-independent: each line is used at
-    most once, paired with the partner giving the largest genuine overlap. Lines
-    with no parallel partner (junction fragments) are returned as leftover.
-
-    A candidate whose gap TAPERS along the overlap is refused: its two lines
-    belong to different members, however parallel they look at one end. The
-    width band / overlap / parallel-angle tolerances default to config but can
-    be overridden per run.
+    `spans_i` / `spans_j` are each line's UNCLAIMED intervals in its own axial
+    frame (0 .. length). The returned dict is the winning overlap window in i's
+    frame; None when no window survives the width band, the overlap floor or the
+    taper rule.
     """
-    min_width_ft = _PAIR_MIN_WIDTH_FT if min_width_ft is None else min_width_ft
-    max_width_ft = _PAIR_MAX_WIDTH_FT if max_width_ft is None else max_width_ft
-    min_overlap_ft = _PAIR_MIN_OVERLAP_FT if min_overlap_ft is None else min_overlap_ft
-    sin_tol = _PARALLEL_SIN_TOL if sin_tol is None else sin_tol
-    count = len(lines)
-    used = [False] * count
-    segments = []
-    for i in range(count):
-        if used[i]:
-            continue
-        a0, a1, az = lines[i]
-        direction = _vunit(_vsub(a1, a0))
-        if direction == (0.0, 0.0):
-            continue
-        normal = (-direction[1], direction[0])
-        best = None
-        for j in range(count):
-            if j == i or used[j]:
-                continue
-            b0, b1, _bz = lines[j]
-            other = _vunit(_vsub(b1, b0))
-            if abs(_vcross(direction, other)) > sin_tol:
-                continue
-            signed_gap = _vdot(_vsub(b0, a0), normal)
-            gap = abs(signed_gap)
-            if gap < min_width_ft or gap > max_width_ft:
-                continue
-            ta = sorted([0.0, _vdot(_vsub(a1, a0), direction)])
-            tb = sorted([_vdot(_vsub(b0, a0), direction),
-                         _vdot(_vsub(b1, a0), direction)])
-            lo = max(ta[0], tb[0])
-            hi = min(ta[1], tb[1])
+    a0, a1, _az = lines[i]
+    direction = _vunit(_vsub(a1, a0))
+    if direction == (0.0, 0.0):
+        return None
+    normal = (-direction[1], direction[0])
+    b0, b1, _bz = lines[j]
+    other = _vunit(_vsub(b1, b0))
+    if abs(_vcross(direction, other)) > sin_tol:
+        return None
+    signed_gap = _vdot(_vsub(b0, a0), normal)
+    gap = abs(signed_gap)
+    if gap < min_width_ft or gap > max_width_ft:
+        return None
+    along = _vdot(other, direction)
+    if abs(along) < 1e-12:
+        return None
+    slope = _vdot(other, normal) / along
+    t_b0 = _vdot(_vsub(b0, a0), direction)
+    best = None
+    for fa, fb in spans_i:
+        for ga, gb in spans_j:
+            # j's free interval, carried into i's frame
+            pa = (b0[0] + other[0] * ga, b0[1] + other[1] * ga)
+            pb = (b0[0] + other[0] * gb, b0[1] + other[1] * gb)
+            ta = _vdot(_vsub(pa, a0), direction)
+            tb = _vdot(_vsub(pb, a0), direction)
+            lo = max(fa, min(ta, tb))
+            hi = min(fb, max(ta, tb))
             overlap = hi - lo
             if overlap < min_overlap_ft:
                 continue
             # the gap at BOTH ends of the overlap, not just at b0: two edges of
             # one beam stay the same distance apart, edges of two different
             # beams close in on each other
-            along = _vdot(other, direction)
-            if abs(along) < 1e-12:
-                continue
-            slope = _vdot(other, normal) / along
-            t_b0 = _vdot(_vsub(b0, a0), direction)
             off_lo = signed_gap + (lo - t_b0) * slope
             off_hi = signed_gap + (hi - t_b0) * slope
             taper = abs(abs(off_lo) - abs(off_hi))
@@ -1279,7 +1263,89 @@ def pair_parallel_lines(lines, min_width_ft=None, max_width_ft=None,
                 best = {"j": j, "signed_gap": (off_lo + off_hi) / 2.0,
                         "lo": lo, "hi": hi,
                         "overlap": overlap, "gap": mean_gap}
-        if best:
+    return best
+
+
+def _claim_span(spans, lo, hi):
+    """`spans` minus the interval lo..hi -- what is left of a line after a pair."""
+    out = []
+    for a, b in spans:
+        if b <= lo or a >= hi:
+            out.append((a, b))
+            continue
+        if a < lo:
+            out.append((a, lo))
+        if b > hi:
+            out.append((hi, b))
+    return out
+
+
+def pair_parallel_lines(lines, min_width_ft=None, max_width_ft=None,
+                        min_overlap_ft=None, sin_tol=None):
+    """Pair near-parallel lines ~one width apart into straight members.
+
+    `lines`: list of (p0, p1, z) with p0/p1 = (x, y) in feet. Returns
+    (segments, leftover): each segment is dict(start, end, width_ft) whose
+    centerline lies on the midline over the shared overlap and whose width is the
+    MEAN perpendicular gap. Lines with no parallel partner (junction fragments)
+    are returned as leftover.
+
+    Two greedy passes, and the second one is the point. A pair consumes only the
+    stretch of each line the two of them OVERLAP over, but the first pass then
+    retires both lines whole -- so where a beam's facing edge is drawn as several
+    collinear pieces (CAD breaks the line wherever a member frames in) and this
+    edge is drawn as one run, the first piece to reach the long line took all of
+    it and every other piece was orphaned. Test14 lost real beams that way: a
+    3297-long edge was claimed by the 1497 piece facing it, and the 1800 piece
+    above it -- the rest of the SAME beam -- had no partner left and no beam was
+    placed over it. So:
+
+        pass 1   untouched lines pair with untouched lines, exactly as before
+        pass 2   a still-unpaired line may pair with the REMNANT of a line pass 1
+                 retired -- the part of it no member has claimed yet
+
+    Pass 2 can only add members, never move or remove one pass 1 made, which is
+    what keeps the cure from trading a missing beam for a wrong one. Each line is
+    still consumed at most once per stretch of its length.
+
+    A candidate whose gap TAPERS along the overlap is refused: its two lines
+    belong to different members, however parallel they look at one end. The
+    width band / overlap / parallel-angle tolerances default to config but can
+    be overridden per run.
+    """
+    min_width_ft = _PAIR_MIN_WIDTH_FT if min_width_ft is None else min_width_ft
+    max_width_ft = _PAIR_MAX_WIDTH_FT if max_width_ft is None else max_width_ft
+    min_overlap_ft = _PAIR_MIN_OVERLAP_FT if min_overlap_ft is None else min_overlap_ft
+    sin_tol = _PARALLEL_SIN_TOL if sin_tol is None else sin_tol
+    count = len(lines)
+    used = [False] * count
+    free = []
+    for a0, a1, _az in lines:
+        free.append([(0.0, ((a1[0] - a0[0]) ** 2 + (a1[1] - a0[1]) ** 2) ** 0.5)])
+    segments = []
+    for remnants in (False, True):
+        for i in range(count):
+            if used[i]:
+                continue
+            a0, a1, az = lines[i]
+            direction = _vunit(_vsub(a1, a0))
+            if direction == (0.0, 0.0):
+                continue
+            normal = (-direction[1], direction[0])
+            best = None
+            for j in range(count):
+                # pass 1 offers only whole lines, pass 2 only what pass 1 left
+                if j == i or used[j] != remnants:
+                    continue
+                candidate = _pair_over_spans(
+                    lines, i, j, free[i], free[j], min_width_ft, max_width_ft,
+                    min_overlap_ft, sin_tol)
+                if candidate is None:
+                    continue
+                if best is None or candidate["overlap"] > best["overlap"]:
+                    best = candidate
+            if not best:
+                continue
             used[i] = True
             used[best["j"]] = True
             offset = best["signed_gap"] / 2.0
@@ -1291,6 +1357,13 @@ def pair_parallel_lines(lines, min_width_ft=None, max_width_ft=None,
             segments.append({"start": (start[0], start[1], az),
                              "end": (end[0], end[1], az),
                              "width_ft": best["gap"]})
+            free[i] = _claim_span(free[i], lo, hi)
+            # the same stretch, measured along the PARTNER: project the two ends
+            # of the new centreline onto j, so j keeps whatever it has left over
+            b0, b1, _bz = lines[best["j"]]
+            other = _vunit(_vsub(b1, b0))
+            ts = [_vdot(_vsub(p, b0), other) for p in (start, end)]
+            free[best["j"]] = _claim_span(free[best["j"]], min(ts), max(ts))
     leftover = [lines[k] for k in range(count) if not used[k]]
     return segments, leftover
 
