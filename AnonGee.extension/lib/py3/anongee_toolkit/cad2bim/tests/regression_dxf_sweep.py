@@ -259,6 +259,16 @@ def _measure(path):
         "slab_stop_rings": stops["rings"],
         "slab_cutouts_crossed": stops["crossed"],
         "slab_cutout_holes": stops["holes"],
+        # THE X PAIRED WITH NOTHING BUT ITS TWIN. `cutout_cross_marks` is every
+        # X the drawing carries, ring or no ring, and it is the number a change
+        # to the pairing rule moves first -- before any of it reaches a bay.
+        # `free_cutouts_read` is the share of them that no ring and no bay is
+        # drawn around, which is the reading v0.92.0 added, and the difference
+        # between the two is what `slab_cutouts_crossed` and
+        # `cutout_bays_by_cross` were already accounting for.
+        "cutout_cross_marks": stops["cross_marks"],
+        "free_cutouts_read": stops["free_cutouts"],
+        "free_cutout_holes": stops["free_cutout_holes"],
         "slab_bays_divided_by_cutouts": stops["divided"],
         "stair_bays_withdrawn": stops["stair_bays"],
         "stair_area_m2": stops["stair_area_m2"],
@@ -372,6 +382,9 @@ def _stops_pass(result, entries, depths, slab_defs, beams):
         "rings": len(slab_stops.slab_stop_rings(result.records)),
         "crossed": report["crossed"],
         "holes": report["holes"],
+        "cross_marks": report["cross_marks"],
+        "free_cutouts": report["free_cutouts"],
+        "free_cutout_holes": report["free_cutout_holes"],
         "divided": report["divided"],
         "stair_bays": report["stair_bays"],
         "stair_area_m2": report["stair_area_m2"],

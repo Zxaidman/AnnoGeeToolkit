@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """slab_stops -- what the drawing says STOPS the slab.
 
-Four readings and one refusal each, pinned twice over: on SYNTHETIC plans
+Five readings and one refusal each, pinned twice over: on SYNTHETIC plans
 small enough to reason about, and on the REAL coordinates measured out of
 StructuralPlan-Test14.dxf, which is the drawing the whole pass was written
 for. The real ones are the ones that matter -- a synthetic square proves the
@@ -9,8 +9,9 @@ arithmetic, and only the fixture proves the convention was read right -- so
 they carry the drawing's own numbers verbatim: the crossed pocket at
 (19651, 42594)-(19851, 42944) with its two CUTOUT diagonals, the chajja at
 (11051, 37959)-(11801, 38549) under its GOST_GLASS hatch, the 29.13 m2 bay at
-(29750, 25894)-(37901, 29467) that carries a `CUTOUT` text and NO diagonals,
-and the beams that bound them.
+(29750, 25894)-(37901, 29467) that carries a `CUTOUT` text and diagonals
+`crossed` cannot see, the bay at (48301..49676, 35909..36789) that carried
+three floors where the drawing wanted one, and the beams that bound them.
 
 Standalone (no Revit, no DXF): the coordinates are typed in.
 """
@@ -212,18 +213,20 @@ class ChajjasHangOffTheirBeam(unittest.TestCase):
         self.assertAlmostEqual(out["defs"][0]["offset_mm"], 125.0 - 750.0,
                                places=6)
 
-    def test_a_tie_takes_the_deeper_soffit_and_says_so(self):
+    def test_a_tie_takes_the_shallower_soffit_and_says_so(self):
         # A ledge spanning between two beams in equal measure -- 12 of
-        # test14's 72 do. The deeper soffit clears both; the shallower would
-        # run the ledge through the deeper beam's web.
+        # test14's 72 do. The owner's v0.91.0 run: "if there is two beam with
+        # different depth edge attached with Chajja then take lesser depth
+        # one. In this example image chajja has taken 600 depth beam." His
+        # convention, reversing v0.91.0's own reasoning; see chajja_slabs.
         region = _Region(_box(11050.8, 37958.9, 11800.8, 38548.9), "GOST_GLASS")
         beams = [_beam(11050.8, 37958.9, 11050.8, 38548.9, 0.2, 400.0),
                  _beam(11800.8, 37958.9, 11800.8, 38548.9, 0.2, 750.0)]
         out = slab_stops.chajja_slabs([region], beams, self._legend(),
                                       texts=[], blanket_thickness_mm=125.0)
-        self.assertAlmostEqual(out["defs"][0]["offset_mm"], 125.0 - 750.0,
+        self.assertAlmostEqual(out["defs"][0]["offset_mm"], 125.0 - 400.0,
                                places=6)
-        self.assertTrue(any("DEEPER" in note for note in out["notes"]))
+        self.assertTrue(any("SHALLOWER" in note for note in out["notes"]))
 
     def test_a_chajja_touching_no_beam_is_reported_not_guessed(self):
         region = _Region(_box(11050.8, 37958.9, 11800.8, 38548.9), "GOST_GLASS")
@@ -303,19 +306,20 @@ class AChajjaFollowsItsBeamDown(unittest.TestCase):
         self.assertAlmostEqual(self._chajja({0: 300.0})["defs"][0]["offset_mm"],
                                125.0 - 750.0, places=6)
 
-    def test_a_tie_takes_the_deeper_SOFFIT_not_the_deeper_section(self):
+    def test_a_tie_takes_the_shallower_SOFFIT_not_the_shallower_section(self):
         # A ledge spanning two beams in equal measure. The 400 one is dropped
-        # 500 -- soffit 900 -- and the undropped 750 is the deeper SECTION;
-        # what the ledge has to clear is the soffit, so 900 wins.
+        # 500 -- soffit 900 -- and is still the shallower SECTION; what the
+        # ledge meets is the soffit, so the undropped 750 wins on 750. Follow
+        # the section here and the ledge hangs 150 mm clear of both.
         region = _Region(_box(11050.8, 37958.9, 11800.8, 38548.9), "GOST_GLASS")
         beams = [_beam(11050.8, 37958.9, 11050.8, 38548.9, 0.2, 400.0),
                  _beam(11800.8, 37958.9, 11800.8, 38548.9, 0.2, 750.0)]
         out = slab_stops.chajja_slabs([region], beams, self._legend(),
                                       texts=[], blanket_thickness_mm=125.0,
                                       beam_drops={0: 500.0})
-        self.assertAlmostEqual(out["defs"][0]["offset_mm"], 125.0 - 900.0,
+        self.assertAlmostEqual(out["defs"][0]["offset_mm"], 125.0 - 750.0,
                                places=6)
-        self.assertTrue(any("DEEPER" in note for note in out["notes"]))
+        self.assertTrue(any("SHALLOWER" in note for note in out["notes"]))
 
     def test_two_beams_dropped_to_one_soffit_are_no_longer_a_tie_to_report(self):
         # 400 dropped 350 and 750 undropped meet at the same soffit: there is
@@ -328,7 +332,7 @@ class AChajjaFollowsItsBeamDown(unittest.TestCase):
                                       beam_drops={0: 350.0})
         self.assertAlmostEqual(out["defs"][0]["offset_mm"], 125.0 - 750.0,
                                places=6)
-        self.assertFalse(any("DEEPER" in note for note in out["notes"]))
+        self.assertFalse(any("SHALLOWER" in note for note in out["notes"]))
 
     def test_a_ledge_that_moved_is_said_out_loud(self):
         self.assertTrue(any("sunk hatch drops" in note
@@ -447,7 +451,7 @@ class AChajjaIsCutOutOfTheBayOverIt(unittest.TestCase):
         defs, report = self._stops(bay, [ledge])
         self.assertEqual([d for d in defs if not d.get("part")], [])
         self.assertEqual(report["chajja_holes"], 1)
-        self.assertTrue(any("wholly taken up" in note
+        self.assertTrue(any("taken up by what was cut out" in note
                             for note in report["notes"]))
 
     def test_a_chajja_in_a_bay_the_drawing_withdrew_cuts_nothing(self):
@@ -594,6 +598,179 @@ class ACrossedBayIsNotAFloorEither(unittest.TestCase):
         self.assertEqual(out["area_m2"], 19.8)
 
 
+class AFreeStandingCrossIsACutoutToo(unittest.TestCase):
+    """3d. The X with nothing drawn round it (the owner's urgent v0.91.0 run).
+
+    "urgent -- duplicate slab, while it not work now it split two slab in
+    three, one is respecting outline and hatch while two are drawn inside
+    cutout cross." The bay in his screenshots is test14's at
+    (48301..49676, 35909..36789): a 600 mm chajja down the middle of it and,
+    either side, a 387 mm rectangle crossed corner to corner by an X that no
+    COVER ring and no bay was drawn around. The chajja split the bay in two;
+    both halves stood inside a cross, and nothing in the pass had ever looked
+    at one.
+
+    Measured on test14: 210 X's in the drawing, 90 over a COVER ring, 12 over a
+    bay, and 108 -- more than half -- over neither.
+    """
+
+    def _bays(self):
+        return [_bay(_box(0, 0, 4000, 4000))]
+
+    def test_the_two_diagonals_of_a_plain_rectangle_are_one_mark(self):
+        marks = slab_stops.cross_marks(_cross(1000, 1000, 2000, 3000))
+        self.assertEqual(len(marks), 1)
+        self.assertEqual(sorted(marks[0]), sorted(_ft(
+            _box(1000, 1000, 2000, 3000))))
+
+    def test_the_pairing_is_CROSSING_and_not_agreeing_bounding_boxes(self):
+        # test14's own slop: one arm drawn 3 mm long. Boxes that must AGREE
+        # find 130 pairs on that drawing where crossing finds 210, and the 80
+        # it misses include six of the nine biggest free-standing marks.
+        strokes = [
+            _Record([(1000, 1000), (2000, 3000)],
+                    layers.CATEGORY_CUTOUT, kind="line"),
+            _Record([(1000, 3003), (2000, 1000)],
+                    layers.CATEGORY_CUTOUT, kind="line")]
+        self.assertEqual(len(slab_stops.cross_marks(strokes)), 1)
+
+    def test_one_diagonal_alone_is_not_a_mark(self):
+        self.assertEqual(
+            slab_stops.cross_marks(_cross(1000, 1000, 2000, 3000)[:1]), [])
+
+    def test_the_same_diagonal_drawn_twice_is_not_a_mark(self):
+        twice = [_Record([(1000, 1000), (2000, 3000)],
+                         layers.CATEGORY_CUTOUT, kind="line")] * 2
+        self.assertEqual(slab_stops.cross_marks(twice), [])
+
+    def test_two_diagonal_BEAMS_are_members_and_not_a_mark(self):
+        # test11 again, and it matters more here than it does for a bay: a
+        # crossed ring is protected by its ring, where a free mark is nothing
+        # but its own two strokes.
+        beams = [
+            _Record([(0, 0), (4000, 4000)], layers.CATEGORY_BEAM, kind="line"),
+            _Record([(0, 4000), (4000, 0)], layers.CATEGORY_BEAM, kind="line")]
+        self.assertEqual(slab_stops.cross_marks(beams), [])
+
+    def test_a_mark_over_a_slab_stop_ring_is_not_counted_a_second_time(self):
+        ring = _Record(_box(1000, 1000, 2000, 3000),
+                       layers.CATEGORY_SLAB_STOP, closed=True)
+        records = [ring] + _cross(1000, 1000, 2000, 3000)
+        out = slab_stops.free_cutouts(self._bays(), records)
+        self.assertEqual(out["marks"], 1)
+        self.assertEqual(out["free"], 0)
+        self.assertEqual(out["holes"], {})
+
+    def test_a_mark_over_a_whole_bay_is_not_counted_a_second_time(self):
+        out = slab_stops.free_cutouts(self._bays(), _cross(0, 0, 4000, 4000))
+        self.assertEqual(out["marks"], 1)
+        self.assertEqual(out["free"], 0)
+
+    def test_a_free_mark_inside_a_bay_is_cut_out_of_it(self):
+        defs, report = slab_outlines.apply_slab_stops(
+            self._bays(), _cross(1000, 1000, 2000, 3000), [])
+        self.assertEqual(report["cross_marks"], 1)
+        self.assertEqual(report["free_cutouts"], 1)
+        self.assertEqual(report["free_cutout_holes"], 1)
+        self.assertEqual(len(defs), 1)
+        self.assertEqual(len(defs[0]["holes"]), 1)
+        self.assertAlmostEqual(slab_stops.area_m2(defs[0]["ring"]), 16.0,
+                               places=3)
+
+    def test_a_free_mark_reaching_the_bays_edge_divides_it(self):
+        defs, report = slab_outlines.apply_slab_stops(
+            self._bays(), _cross(1000, 0, 2000, 4000), [])
+        self.assertEqual(report["divided"], 1)
+        self.assertEqual(len(defs), 2)
+        self.assertAlmostEqual(
+            sum(slab_stops.area_m2(d["ring"]) for d in defs), 12.0, places=3)
+
+    def test_a_free_mark_that_covers_the_bay_withdraws_it_outright(self):
+        # not the same rectangle as the bay -- it spills past it, so the
+        # crossed-BAY reading does not see it -- but nothing is left underneath
+        defs, report = slab_outlines.apply_slab_stops(
+            self._bays(), _cross(-500, -500, 4500, 4500), [])
+        self.assertEqual(report["free_cutout_holes"], 1)
+        self.assertEqual(defs, [])
+        self.assertTrue(any("taken up by what was cut out" in note
+                            for note in report["notes"]))
+
+    def test_a_free_mark_in_no_bay_is_reported_and_cuts_nothing(self):
+        # 63 of test14's 108, the twelve big 2300x2925 ones among them: the
+        # beams closed no face over that ground, so there is nothing to cut.
+        defs, report = slab_outlines.apply_slab_stops(
+            self._bays(), _cross(9000, 9000, 10000, 10000), [])
+        self.assertEqual(report["free_cutouts"], 1)
+        self.assertEqual(report["free_cutout_holes"], 0)
+        self.assertEqual(len(defs), 1)
+        self.assertTrue(any("inside no slab bay" in note
+                            for note in report["notes"]))
+
+    def test_a_free_mark_in_a_bay_already_withdrawn_cuts_nothing(self):
+        bays = [_bay(_box(0, 0, 4000, 4000))]
+        records = _cross(0, 0, 4000, 4000) + _cross(1000, 1000, 2000, 3000)
+        defs, report = slab_outlines.apply_slab_stops(bays, records, [])
+        self.assertEqual(report["cutout_bays"], 1)
+        self.assertEqual(report["free_cutout_holes"], 0)
+        self.assertEqual(defs, [])
+
+    def test_what_a_subtraction_leaves_as_a_rim_is_not_a_floor(self):
+        # test13's five: a 5550x2150 cross over a notched 12.2 m2 bay comes
+        # back as 200x200 corner stubs and 50 mm strips, 2.6% of the bay.
+        # Every survivor anywhere else in the corpus keeps 46% or more.
+        bay = _bay([(0, 0), (4000, 0), (4000, 4000), (2100, 4000),
+                    (2100, 4100), (1900, 4100), (1900, 4000), (0, 4000)])
+        defs, report = slab_outlines.apply_slab_stops(
+            [bay], _cross(0, 0, 4000, 4000), [])
+        # the mark is not the bay's own rectangle, so the crossed-BAY reading
+        # does not withdraw it -- the rim rule is what leaves nothing behind
+        self.assertEqual(report["cutout_bays"], 0)
+        self.assertEqual(report["free_cutout_holes"], 1)
+        self.assertEqual(defs, [])
+
+
+class TheOwnersThreeFloorsInOneBay(unittest.TestCase):
+    """3d, on the fixture's own coordinates: one ledge, not three floors.
+
+    test14's bay at (48301..49676, 35909..36789) with the 600 mm GOST_GLASS
+    chajja down the middle of it and the two 387 mm crosses either side. Before
+    v0.92.0 the chajja divided the bay and BOTH halves were cast, each one
+    standing inside a cross -- "it split two slab in three, one is respecting
+    outline and hatch while two are drawn inside cutout cross".
+    """
+
+    def _legend(self):
+        return [{"pattern": "GOST_GLASS", "kind": "other", "value_mm": None,
+                 "meaning": "INDICATES SLAB AT BEAM BOTTOM", "swatch": None}]
+
+    def _run(self, records):
+        bay = _bay(_box(48300.8, 35908.9, 49675.8, 36788.9))
+        ledge = _Region(_box(48688.3, 35908.9, 49288.3, 36788.9), "GOST_GLASS")
+        beams = [_beam(48300.8, 35758.9, 49675.8, 35758.9, 300.0, 600.0)]
+        return slab_outlines.apply_slab_stops(
+            [bay], records, [], regions=[ledge], beam_segments=beams,
+            legend_entries=self._legend(), blanket_thickness_mm=125.0)
+
+    def test_v0_91_0_cast_the_ledge_and_two_floors_over_the_crosses(self):
+        # the shape of the bug, pinned so it cannot come back: with the
+        # crosses unread the bay divides and both halves are floors
+        defs, report = self._run([])
+        self.assertEqual(report["divided"], 1)
+        self.assertEqual(len(defs), 3)
+        self.assertEqual(sum(1 for d in defs if d.get("part") == "chajja"), 1)
+
+    def test_the_crosses_leave_the_ledge_and_nothing_else(self):
+        records = (_cross(48300.8, 35908.9, 48688.3, 36788.9)
+                   + _cross(49288.3, 35908.9, 49675.8, 36788.9))
+        defs, report = self._run(records)
+        self.assertEqual(report["cross_marks"], 2)
+        self.assertEqual(report["free_cutouts"], 2)
+        self.assertEqual(report["free_cutout_holes"], 2)
+        self.assertEqual([d.get("part") for d in defs], ["chajja"])
+        self.assertAlmostEqual(slab_stops.area_m2(defs[0]["ring"]), 0.528,
+                               places=3)
+
+
 class ATextNamingACutoutMarksOne(unittest.TestCase):
     """3c. The WORD is the same instruction as the X (BUG-16).
 
@@ -601,7 +778,10 @@ class ATextNamingACutoutMarksOne(unittest.TestCase):
     the Cutout Cross even when now that i have put the `Cutout, Lift Shaft,
     Duct etc.` text there also." Measured on test14: four bays per plan carry a
     `CUTOUT` text, three of them crossed too and ONE -- the largest, 29.13 m2 --
-    crossed by nothing at all.
+    that `crossed` reads as crossed by nothing. (The diagonals over that one
+    are there; the bay's face walk simplifies to eight corners rather than
+    four, so `crossed` refuses the question before looking at them. See
+    `slab_stops.cutout_bays`. The word is still what withdraws it.)
 
     The whole risk in this reading is a false positive, so the refusals below
     are not invented: every one of them is a real text out of this corpus.

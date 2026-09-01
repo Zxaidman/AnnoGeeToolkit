@@ -34,10 +34,40 @@ the drawing says about that, each from a mark it already carries.
      drafter writes CUTOUT in the middle of a void whether or not anyone drew
      the diagonals over it, and the word is the same instruction as the X.
      Measured on test14 -- four bays per plan carry a `CUTOUT` text, three of
-     them crossed as well and ONE, the largest at 29.13 m2, crossed by nothing
-     at all. That is the "large place" the owner is still seeing, and no
-     geometry in the drawing says anything about it. See `_NAMES_A_CUTOUT`
-     for what counts as the word and what the corpus does with it.
+     them crossed as well and ONE, the largest at 29.13 m2, that `crossed`
+     reads as crossed by nothing. That is the "large place" the owner was
+     seeing. See `_NAMES_A_CUTOUT` for what counts as the word and what the
+     corpus does with it.
+
+     AND THE DIAGONALS OVER THAT ONE ARE THERE AFTER ALL -- measured while
+     1d was being built, and worth correcting rather than leaving as the
+     comfortable story. The drawing crosses that bay corner to corner over
+     8153x3573 mm exactly. `crossed` cannot see it because it asks the bay's
+     own ring for four corners and this face walk simplifies to EIGHT, the
+     beams leaving notches down its sides. `cross_marks` needs no ring, so 1d
+     reads that X on its own strokes; the bay is withdrawn for the word before
+     the mark is ever hosted, so nothing about the outcome changes -- only the
+     reason the corpus believed it had.
+
+  1d. AND A FREE-STANDING X IS A CUTOUT ALL BY ITSELF. The owner's v0.91.0 run:
+     "urgent -- duplicate slab, while it not work now it split two slab in
+     three, one is respecting outline and hatch while two are drawn inside
+     cutout cross." The three screenshots show one bay carrying three floors:
+     the middle one right, and one either side of it standing in an area the
+     drawing crosses out. Measured, that is exactly what test14 draws at
+     x 48301..49676, y 35909..36789 -- a 600 mm chajja between two 387 mm
+     rectangles, each of the two crossed corner to corner by an X that no ring
+     and no bay is drawn around, so nothing in the pass ever asked about them
+     and the split left a floor in each.
+
+     The first two readings both need a SHAPE to ask the question of: 1 crosses
+     a COVER ring, 1b crosses a bay. A drafter marking a small void does not
+     always draw either -- the two diagonals ARE the drawing of it. So the
+     rectangle the X spans is read as the cutout, and it then behaves exactly
+     as a crossed ring does: a hole in the bay holding it, dividing that bay
+     where it reaches the edge, and taking the bay away outright where it
+     covers the whole of it. See `cross_marks` for how two strokes are paired
+     into one X and `free_cutouts` for what happens to the rectangle after.
 
   2. A BEAM-BOTTOM HATCH IS A CHAJJA. The legend prices its patterns, and one
      of test14's says no depth at all: GOST_GLASS, "INDICATES SLAB AT BEAM
@@ -77,8 +107,9 @@ import re
 from . import config
 from .classify.layers import (CATEGORY_BEAM, CATEGORY_COLUMN,
                               CATEGORY_SLAB_STOP, CATEGORY_STAIR)
-from .slab_graph import (_centroid, _dedup_ring, _point_in_ring,
-                         _signed_area, cross_strokes, crossed)
+from .geom import shapes
+from .slab_graph import (_CUTOUT_MARK_MM, _centroid, _dedup_ring, _dist,
+                         _point_in_ring, _signed_area, cross_strokes, crossed)
 # The stair pass's OWN thresholds, borrowed rather than re-argued: what counts
 # as a flight of risers, and what size of bay can hold a stair at all. A bay
 # withdrawn from the slab pass on a looser rule than the stair pass builds on
@@ -219,6 +250,311 @@ def slab_cutouts(loops, records):
     return out
 
 
+# -------------------------------------------------------- the free-standing X
+def annotation_strokes(records):
+    """[(a, b)] -- every two-point record a cross could be drawn with.
+
+    `cross_strokes` casts a deliberately wide net: any two-point record,
+    whatever layer it is on, because the strokes prove themselves by landing on
+    a shape's corners rather than by where they live -- restricting that
+    reading to the cutout layer was measured to move nothing (test14 reads the
+    same 90 crossed rings either way).
+
+    ONE KIND OF STROKE IS NOT AN ANNOTATION AND IS DROPPED HERE: the diagonal
+    the run places as a MEMBER. test11 draws four 2000x2500 bays with a pair of
+    3200 mm diagonals across each on ING-BEAM -- diagonal BEAMS -- and reading
+    those as the X would delete 20.0 m2 of real floor. The measurement that
+    settled it: dropping the strokes drawn on a beam or column layer takes
+    those four out and moves nothing else in the corpus, test12 still reading
+    21 crossed bays (121.3 m2), test13 4 (0.1 m2) and test14 6 (63.5 m2).
+
+    It matters more now than it did. A crossed RING is protected by the ring:
+    two beams spanning a 0.03 m2 COVER rectangle corner to corner is not a
+    drawing anybody makes, which is why `slab_cutouts` reads the unfiltered
+    strokes and always has. A FREE X has nothing but itself to prove it, so a
+    pair of crossing members IS the whole claim -- measured over the corpus,
+    the filter takes 161 phantom marks off Project1, 140 off test11 and 46 off
+    test8, and every one of the marks that survives it anywhere in the corpus
+    is drawn on a cutout or detail layer.
+    """
+    members = set()
+    for record in (records or []):
+        if getattr(record, "category", None) in (CATEGORY_BEAM,
+                                                 CATEGORY_COLUMN):
+            points = getattr(record, "points", None) or []
+            if len(points) == 2:
+                members.add(((points[0][0], points[0][1]),
+                             (points[1][0], points[1][1])))
+    return [stroke for stroke in cross_strokes(records)
+            if stroke not in members]
+
+
+def cross_marks(records):
+    """[ring] -- the rectangle every X in the drawing spans, ring or no ring.
+
+    TWO STROKES ARE ONE X WHEN THEY CROSS, and that is the whole pairing rule.
+    The obvious cheaper test -- two strokes belong together when their bounding
+    boxes agree -- was measured against it on test14 and is WRONG by a third:
+    of the drawing's 492 CUTOUT diagonals, matching boxes finds 130 pairs and
+    crossing finds 210. The 80 it misses are ordinary drafting slop, one arm
+    drawn a hair longer than the other, and they are not rubbish -- the three
+    BIGGEST marks in the drawing are among them, the 8153x3573 crosses over
+    the 29.13 m2 bays, and so are six of the twelve 2300x2925 ones the plans
+    repeat at y 31766.
+
+    The rectangle is then the box the two of them span, and the two strokes
+    must be its two DIAGONALS -- each end within `_CUTOUT_MARK_MM` of the
+    corner it claims, the same tolerance and the same sentence `crossed` uses
+    when it has a ring to measure against, so the symbol has one reading and
+    not two. Both conditions are needed. Crossing alone finds 270 pairs on
+    test14, 60 of which are strokes from two NEIGHBOURING X's that happen to
+    overlap and span a box neither of them means.
+
+    Pairs are searched by MIDPOINT, because both diagonals of a rectangle pass
+    through its centre: an index on that is exact for this rule rather than a
+    heuristic, and it keeps the search off an every-pair comparison of the
+    2124 two-point records test14 carries. Measured on test14 the
+    result is clean -- 210 rectangles from 420 strokes, no stroke claimed
+    twice, no rectangle found twice, and the same 210 anywhere between 5 mm and
+    100 mm of tolerance -- so nothing here is balanced on the tolerance.
+
+    72 of test14's diagonals pair with nothing. They are left alone: a single
+    slash is not the symbol, exactly as it is not for a ring.
+    """
+    tol = config.mm_to_ft(_CUTOUT_MARK_MM)
+    # A stroke shorter than the tolerance in either axis cannot be the diagonal
+    # of a rectangle wider than it, so the axial linework never enters the
+    # search -- which is most of what a drawing is made of.
+    slanted = [stroke for stroke in annotation_strokes(records)
+               if abs(stroke[0][0] - stroke[1][0]) > tol
+               and abs(stroke[0][1] - stroke[1][1]) > tol]
+    # Cells twice the tolerance across, so the 3x3 neighbourhood below is a
+    # PROOF and not a hope: two ends each up to `tol` off their corners put a
+    # midpoint up to `tol` off the centre, so two diagonals of one rectangle
+    # can be 2 x tol apart, and a 3x3 walk of s-sized cells is guaranteed to
+    # find any pair within s of each other.
+    span = 2.0 * tol
+    cells = {}
+    for index, stroke in enumerate(slanted):
+        cells.setdefault(_cell(_midpoint(stroke), span), []).append(index)
+    out = []
+    taken = set()
+    for index, stroke in enumerate(slanted):
+        if index in taken:
+            continue
+        column, row = _cell(_midpoint(stroke), span)
+        for step_x in (-1, 0, 1):
+            for step_y in (-1, 0, 1):
+                for other in cells.get((column + step_x, row + step_y), ()):
+                    if other <= index or other in taken:
+                        continue
+                    rectangle = _spanned_rectangle(stroke, slanted[other], tol)
+                    if rectangle is None:
+                        continue
+                    taken.add(index)
+                    taken.add(other)
+                    out.append(rectangle)
+                    break
+                if index in taken:
+                    break
+            if index in taken:
+                break
+    return out
+
+
+def free_cutouts(loops, records, skip=None):
+    """{"holes": {loop index: [ring]}, "marks", "free", "hosted", "notes"}.
+
+    THE THIRD FORM OF THE ONE SENTENCE. `slab_cutouts` reads the X over a COVER
+    ring, `cutout_bays` reads it over a whole bay, and this reads it where the
+    drawing drew nothing but the X. Measured on test14 the three do not overlap
+    and together they account for the drawing exactly: of 210 marks, 90 span a
+    COVER ring (which `slab_cutouts` already turns into a hole), 12 span a bay
+    (which `cutout_bays` already withdraws) and 108 span NEITHER and were, until
+    this ran, read by nothing at all.
+
+    THE 102 ALREADY READ ARE DROPPED BY GEOMETRY, not by bookkeeping: a mark
+    whose four corners are a slab-stop ring's four corners, or a bay's, within
+    `_CUTOUT_MARK_MM`, is the same statement the other reading is making and
+    must not be made twice. That tolerance is deliberately the one `crossed`
+    accepts a stroke at, so "the same rectangle" here means precisely "the
+    rectangle those strokes would have been accepted against".
+
+    The rest becomes a hole in the bay that holds it, handed back as a RING for
+    `fold_plan.split_profile` exactly as `slab_cutouts` hands one back -- the
+    same walk, so a free mark and a crossed ring in one bay are subtracted
+    together rather than in two passes that would judge the second against
+    pieces the first invented. Where the mark reaches the bay's edge that walk
+    divides the bay, and where it covers the bay the walk gives back nothing,
+    or nothing but a rim -- `slab_outlines._is_rim` -- and the bay is withdrawn
+    outright on the `emptied` note `apply_slab_stops` already carries.
+
+    AND MOST OF THEM HOST NOWHERE, WHICH IS THE HONEST ANSWER. 63 of test14's
+    108 sit inside no bay -- including all twelve of the big regular
+    2300x2925 mm ones the owner's plans repeat at y 31766. That is not a
+    failure to find the host: the drawing marks a void there and the beam graph
+    closed no face over it either, so there is no floor to cut and nothing to
+    do but say so. They are counted onto `notes` rather than turned into holes
+    nobody can use.
+
+    WHAT THE WHOLE CORPUS SAYS, since a reading this new is worth a census.
+    Marks / free-standing / cut as a hole, per drawing:
+
+        test12   691 / 351 / 177      test14   210 / 108 / 36
+        test13   156 / 141 /  69      test9     62 /  62 /  0
+        test10    22 /  22 /   0      test16    18 /  18 /  0
+        test1/2/3, StaircasePlan-Test2, test7, test15: 1..5 marks each, all
+        free-standing, none hosted
+
+    and the other eight drawings carry no X at all. Every free-standing mark in
+    the corpus is drawn on a cutout or a detail layer, none on a member layer
+    (see `annotation_strokes` for why that is not luck). test10's 22 and test9's
+    62 host nowhere, so those two drawings' numbers do not move a millimetre;
+    test16's 18 all land in bays the CUTOUT texts had already withdrawn.
+
+    `skip` is the bays an earlier reading already withdrew. A mark inside one
+    cuts nothing, there being nothing left to cut.
+    """
+    out = {"holes": {}, "marks": 0, "free": 0, "hosted": 0, "notes": []}
+    marks = cross_marks(records)
+    out["marks"] = len(marks)
+    if not marks:
+        return out
+    skip = skip or set()
+    tol = config.mm_to_ft(_CUTOUT_MARK_MM)
+    drawn = _corner_index(slab_stop_rings(records), tol)
+    for loop in (loops or []):
+        ring = loop.get("ring") if isinstance(loop, dict) else loop
+        if ring and len(ring) >= 3:
+            _add_corners(drawn, [(p[0], p[1]) for p in ring], tol)
+    homeless = 0
+    for rectangle in marks:
+        if _already_drawn(rectangle, drawn, tol):
+            continue
+        out["free"] += 1
+        host = _host_index(rectangle, loops)
+        if host is None:
+            homeless += 1
+            continue
+        if host in skip:
+            continue
+        out["holes"].setdefault(host, []).append(rectangle)
+        out["hosted"] += 1
+    if out["hosted"]:
+        out["notes"].append(
+            "{0} cut-out cross(es) are drawn with no ring or bay around them: "
+            "the rectangle each one spans is the void, and it is cut out of "
+            "the bay standing over it".format(out["hosted"]))
+    if homeless:
+        out["notes"].append(
+            "{0} free-standing cut-out cross(es) sit inside no slab bay: the "
+            "beams closed no floor over that ground, so there is nothing to "
+            "cut and nothing is withdrawn for them".format(homeless))
+    return out
+
+
+def _midpoint(stroke):
+    return ((stroke[0][0] + stroke[1][0]) / 2.0,
+            (stroke[0][1] + stroke[1][1]) / 2.0)
+
+
+def _cell(point, size):
+    return int(math.floor(point[0] / size)), int(math.floor(point[1] / size))
+
+
+def _spanned_rectangle(one, two, tol):
+    """The rectangle these two strokes are the two diagonals of, or None.
+
+    Four corners; each stroke running from one to the one OPPOSITE it, and the
+    two strokes taking different diagonals (two copies of the same diagonal,
+    which a drawing exported twice can hand you, is one line and not a cross).
+    Then the crossing itself, which the corner test very nearly but not quite
+    implies: at 50 mm of tolerance on a rectangle barely wider than that, two
+    strokes can each reach a pair of opposite corners and still miss each
+    other, and that is not the symbol.
+    """
+    points = (one[0], one[1], two[0], two[1])
+    x0 = min(p[0] for p in points)
+    x1 = max(p[0] for p in points)
+    y0 = min(p[1] for p in points)
+    y1 = max(p[1] for p in points)
+    if x1 - x0 <= tol or y1 - y0 <= tol:
+        return None
+    corners = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
+    ends = []
+    for point in points:
+        at = None
+        for index, corner in enumerate(corners):
+            if _dist(point, corner) <= tol:
+                at = index
+                break
+        if at is None:
+            return None
+        ends.append(at)
+    if (ends[0] - ends[1]) % 4 != 2 or (ends[2] - ends[3]) % 4 != 2:
+        return None
+    if set(ends[:2]) == set(ends[2:]):
+        return None
+    if not _strokes_cross(one, two):
+        return None
+    return corners
+
+
+def _strokes_cross(one, two):
+    """True when the two segments properly cross -- ends on opposite sides."""
+    def side(start, end, point):
+        return ((end[0] - start[0]) * (point[1] - start[1])
+                - (end[1] - start[1]) * (point[0] - start[0]))
+
+    first = side(one[0], one[1], two[0]), side(one[0], one[1], two[1])
+    second = side(two[0], two[1], one[0]), side(two[0], two[1], one[1])
+    return ((first[0] > 0) != (first[1] > 0)
+            and (second[0] > 0) != (second[1] > 0))
+
+
+def _corner_index(rings, tol):
+    """{cell: [corner list]} for every ring the drawing actually drew.
+
+    Keyed on the ring's CENTRE, on the same doubled-tolerance grid the stroke
+    pairing uses and for the same reason: two rectangles that are the same
+    rectangle to within `tol` at every corner have centres within `tol` of each
+    other, so a mark only ever has to be compared with the handful of drawn
+    rings sharing its cell. Rings that do not simplify to four corners cannot
+    be a mark's rectangle and never enter the index.
+    """
+    index = {}
+    for ring in (rings or []):
+        _add_corners(index, ring, tol)
+    return index
+
+
+def _add_corners(index, ring, tol):
+    corners = shapes.simplify_ring(ring)
+    if len(corners) != 4:
+        return
+    index.setdefault(_cell(_centroid(corners), 2.0 * tol), []).append(corners)
+
+
+def _already_drawn(rectangle, index, tol):
+    """True when some drawn ring has this mark's four corners.
+
+    Corner for corner both ways round, so a rectangle that merely sits inside a
+    bigger one does not count as it: `slab_cutouts` and `cutout_bays` read the
+    X over the shape they were given, and only an exact match means they have
+    already read THIS one.
+    """
+    column, row = _cell(_centroid(rectangle), 2.0 * tol)
+    for step_x in (-1, 0, 1):
+        for step_y in (-1, 0, 1):
+            for corners in index.get((column + step_x, row + step_y), ()):
+                if (all(any(_dist(a, b) <= tol for b in corners)
+                        for a in rectangle)
+                        and all(any(_dist(a, b) <= tol for a in rectangle)
+                                for b in corners)):
+                    return True
+    return False
+
+
 def names_a_cutout(text):
     """True when this text IS the name of a void, rather than mentioning one.
 
@@ -266,26 +602,31 @@ def cutout_bays(loops, records, texts=None, skip=None):
     `by_text` say how many carry each, so the two readings can be told apart in
     a console line and in the sweep. Measured over the corpus, the text is not
     a duplicate of the X in the one place it matters: on test14 nine of the
-    twelve bays a `CUTOUT` text names are crossed as well, and THREE -- one per
-    plan, 29.13 m2 each, 87.4 m2 in all -- carry the word and no diagonals.
-    Those three are the owner's "large place still taking the Cutout Cross".
+    twelve bays a `CUTOUT` text names read as crossed as well, and THREE -- one
+    per plan, 29.13 m2 each, 87.4 m2 in all -- do not. Those three are the
+    owner's "large place still taking the Cutout Cross", and the word is the
+    only thing that withdraws them here.
+
+    THE DIAGONALS OVER THOSE THREE EXIST; `crossed` JUST CANNOT SEE THEM, which
+    is worth stating because "no geometry says anything about it" is the wrong
+    lesson to carry forward. Each of the three is crossed over 8153x3573 mm
+    exactly. `crossed` simplifies the BAY's ring first and needs four corners
+    from it; a beam-graph face with notches down its sides gives eight, so the
+    question is refused before the strokes are looked at. `cross_marks` reads
+    the same X off the strokes alone and finds all three -- see `free_cutouts`,
+    where they arrive hosted in bays this function has already withdrawn.
 
     The same symbol `slab_cutouts` reads over a slab-stop ring, asked of the
     BAY. It is the same code too -- `slab_graph.crossed` against the same four
     corners -- because the whole point of BUG-13 is that the rule was already
     right and was simply never asked about a piece this big.
 
-    THE STROKES ARE FILTERED HERE, AND ONLY HERE, and the measurement is what
-    forced it. `cross_strokes` casts a deliberately wide net: any two-point
-    record, whatever layer it is on, because a COVER ring 0.03 .. 0.23 m2
-    across is not a shape two members happen to span, and restricting that
-    reading by layer was measured to move nothing. A BAY is exactly that shape.
-    test11 draws four 2000x2500 bays with a pair of 3200 mm diagonals across
-    each, on ING-BEAM -- diagonal BEAMS, which the run places as beams, and
-    withdrawing those four bays would delete 20.0 m2 of real floor. Dropping
-    the strokes drawn on a beam or column layer takes those four out and moves
-    nothing else in the corpus: test12 still reads 21 crossed bays (121.3 m2),
-    test13 4 (0.1 m2) and test14 6 (63.5 m2), identical either way.
+    THE STROKES ARE THE FILTERED ONES -- `annotation_strokes`, which drops the
+    diagonal drawn as a member. A bay is exactly the size a diagonal BEAM
+    spans, and test11 draws four of them; see that function for the
+    measurement. It moved out of this body when `cross_marks` grew, because a
+    free X spanning nothing but itself needs the same filter for the same
+    reason and two copies of it would drift.
 
     `skip` is the set of bays some earlier reading already withdrew -- the
     staircase bays. A bay in both is withdrawn once and counted once, and the
@@ -295,16 +636,7 @@ def cutout_bays(loops, records, texts=None, skip=None):
     """
     out = {"indexes": set(), "by_cross": 0, "by_text": 0, "area_m2": 0.0,
            "notes": []}
-    members = set()
-    for record in (records or []):
-        if getattr(record, "category", None) in (CATEGORY_BEAM,
-                                                 CATEGORY_COLUMN):
-            points = getattr(record, "points", None) or []
-            if len(points) == 2:
-                members.add(((points[0][0], points[0][1]),
-                             (points[1][0], points[1][1])))
-    strokes = [stroke for stroke in cross_strokes(records)
-               if stroke not in members]
+    strokes = annotation_strokes(records)
     names = cutout_texts(texts)
     if not strokes and not names:
         return out
@@ -429,11 +761,29 @@ def chajja_slabs(regions, beam_segments, legend_entries, texts=None,
     runner-up clips of 175 .. 598, and in the four dumped by hand the winner is
     always the long supported side. 12 of the 72 tie within a millimetre
     between beams of different depth -- a ledge spanning between two beams --
-    and there the DEEPER SOFFIT wins: a chajja hung at the shallower would run
-    straight through the deeper beam's web, where one at the deeper clears
-    both. Deeper by SOFFIT, not by section, because that is what the ledge has
-    to clear once the drops are in; on test14 the drops move no tie-break at
-    all. Every tie is named on `notes`.
+    and there the SHALLOWER SOFFIT wins.
+
+    THAT IS THE OWNER'S CONVENTION AND NOT AN INFERENCE, and it is worth being
+    plain about because it reverses v0.91.0, which took the deeper on the
+    reasoning that a ledge hung at the shallower runs through the deeper beam's
+    web. The owner's v0.91.0 run settles it: "Chajja following its sunk beam is
+    working good now. But if there is two beam with different depth edge
+    attached with Chajja then take lesser depth one. In this example image
+    chajja has taken 600 depth beam." There is no measurement that decides
+    between the two -- both are geometrically arguable -- so the drafting
+    office's rule is the rule. Measured on test14 all 12 ties are the same
+    pair, a 200X400 dropped 75 mm against a 300X600 dropped 150, soffits at
+    475 and 750 below the level; each of the 12 rises 275 mm, off the 600 the
+    owner pointed at and onto the 400.
+
+    Shallower by SOFFIT, not by section, because the soffit is what the ledge
+    is cast against once the drops are in. On test14 the two readings agree --
+    the 400 is the shallower section AND, dropped 75 against the 600's 150,
+    the shallower soffit at 475 -- so the drops move no tie-break there. They
+    can: a 400 dropped 150 sits at 550 against an undropped 500 at 500, and
+    the shallower SECTION is then the LOWER underside. Following the section
+    there would hang the ledge 50 mm below the beam it was meant to meet.
+    Every tie is named on `notes`.
 
     A chajja whose ring touches no beam, or whose thickness nothing gives, is
     REPORTED and not placed. Both are the same refusal in different words --
@@ -496,7 +846,7 @@ def chajja_slabs(regions, beam_segments, legend_entries, texts=None,
     if ties:
         out["notes"].append(
             "{0} chajja(s) hang off two beams of different depth in equal "
-            "measure: each takes the DEEPER soffit, which clears both"
+            "measure: each takes the SHALLOWER soffit, the owner's convention"
             .format(ties))
     if dropped:
         out["notes"].append(
@@ -601,8 +951,9 @@ def _carrying_beam(ring, bodies):
     (None, False, False) when nothing bears it. `soffit_mm` is how far BELOW
     the level the winning beam's underside sits -- depth plus whatever a sunk
     hatch dropped it by -- and the tie between equal contacts is settled on
-    that same number, since clearing both beams is what the tie-break is for.
-    `dropped` says the winner was moved, which is what the console line counts.
+    that same number, the SHALLOWEST of them winning: the owner's rule, quoted
+    in `chajja_slabs`, where v0.91.0 took the deepest. `dropped` says the
+    winner was moved, which is what the console line counts.
     """
     tol = config.mm_to_ft(_CONTACT_TOL_MM)
     floor = config.mm_to_ft(_MIN_CONTACT_MM)
@@ -618,9 +969,9 @@ def _carrying_beam(ring, bodies):
             winners.append((depth, drop))
     if not winners:
         return None, False, False
-    soffit, drop = max(winners, key=lambda pair: pair[0] + pair[1])
-    return (soffit + drop,
-            len(set(depth + own for depth, own in winners)) > 1,
+    depth, drop = min(winners, key=lambda pair: pair[0] + pair[1])
+    return (depth + drop,
+            len(set(own + moved for own, moved in winners)) > 1,
             bool(drop))
 
 

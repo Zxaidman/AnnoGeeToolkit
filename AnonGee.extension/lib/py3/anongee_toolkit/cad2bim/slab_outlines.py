@@ -458,13 +458,13 @@ def apply_slab_stops(slab_defs, records, texts, regions=None,
                      sheet_texts=None, beam_drops=None):
     """(defs, report) -- the bays with what the drawing says STOPS them applied.
 
-    `report` is {"notes", "crossed", "holes", "divided", "stair_bays",
-    "stair_area_m2", "cutout_bays", "cutout_bays_by_cross",
-    "cutout_bays_by_text", "cutout_bay_area_m2", "chajjas", "chajja_holes"} --
-    the numbers the console line and the sweep both read, so neither has to
-    count the defs back.
+    `report` is {"notes", "crossed", "holes", "cross_marks", "free_cutouts",
+    "free_cutout_holes", "divided", "stair_bays", "stair_area_m2",
+    "cutout_bays", "cutout_bays_by_cross", "cutout_bays_by_text",
+    "cutout_bay_area_m2", "chajjas", "chajja_holes"} -- the numbers the console
+    line and the sweep both read, so neither has to count the defs back.
 
-    FIVE subtractions and one addition, in the order they have to happen:
+    SIX subtractions and one addition, in the order they have to happen:
 
       * the bays a STAIRCASE stands in are withdrawn (a stair and a flat floor
         in the same bay is the model the owner found);
@@ -475,6 +475,11 @@ def apply_slab_stops(slab_defs, records, texts, regions=None,
         `texts` this pass reads slab notes from: a CUTOUT label lives on its
         own layer and the slab routing cannot be trusted to still hold it;
       * every crossed-out slab-stop ring becomes a hole of the bay holding it;
+      * SO DOES EVERY FREE-STANDING X. A cut-out cross with no ring and no bay
+        drawn around it marks the rectangle it spans, and until v0.92.0 nothing
+        in the pass looked at one -- which is the owner's "two are drawn inside
+        cutout cross". See `slab_stops.free_cutouts` for the 90/12/108 split
+        that measured it;
       * SO DOES EVERY PLACED CHAJJA STANDING IN A BAY. The ledge is cast at its
         beam's soffit, and the bay over it was cast flat as well until this ran
         -- two floors on the same ground, which is the owner's v0.89.0 report.
@@ -485,10 +490,10 @@ def apply_slab_stops(slab_defs, records, texts, regions=None,
         than the exception;
       * the chajjas are added, as their own floors at beam-bottom level.
 
-    BOTH hole sets go into ONE `split_profile` call. A bay carrying a crossed
-    ring and a chajja has to lose both in the same subtraction; splitting twice
-    would judge the second against pieces the first invented, and hand Revit
-    two loops drawn to one line.
+    ALL THREE hole sets go into ONE `split_profile` call. A bay carrying a
+    crossed ring, a free X and a chajja has to lose all three in the same
+    subtraction; splitting three times would judge each against pieces the one
+    before it invented, and hand Revit two loops drawn to one line.
 
     The two withdrawals first: a hole cut into a bay that is about to be
     withdrawn is work thrown away, and worse, it would count in the report. The
@@ -512,6 +517,8 @@ def apply_slab_stops(slab_defs, records, texts, regions=None,
     withdrawn = stairs["indexes"] | voids["indexes"]
     cutouts = slab_stops.slab_cutouts(defs, records)
     notes.extend(cutouts["notes"])
+    frees = slab_stops.free_cutouts(defs, records, skip=withdrawn)
+    notes.extend(frees["notes"])
     chajjas = slab_stops.chajja_slabs(
         regions, beam_segments, legend_entries, texts=texts,
         skip_ids=skip_ids, schedule=schedule,
@@ -527,19 +534,22 @@ def apply_slab_stops(slab_defs, records, texts, regions=None,
         if index in withdrawn:
             continue
         holes = ((cutouts["holes"].get(index) or [])
+                 + (frees["holes"].get(index) or [])
                  + (ledges["holes"].get(index) or []))
         ring = slab.get("ring")
         if not holes or not ring or len(ring) < 3:
             out.append(slab)
             continue
-        pieces = fold_plan.split_profile([(p[0], p[1]) for p in ring],
-                                         list(slab.get("holes") or []) + holes)
+        ring = [(p[0], p[1]) for p in ring]
+        pieces = fold_plan.split_profile(
+            ring, list(slab.get("holes") or []) + holes)
+        if pieces and _is_rim(pieces, ring):
+            pieces = []
         if not pieces:
-            # Nothing of the bay survives what was taken out of it. Said out
-            # loud rather than left as a def that quietly stopped existing:
-            # a floor that vanishes is the hardest kind of missing floor to
-            # find, and the corpus has none -- not one of test14's 18 hosted
-            # chajjas covers its bay whole.
+            # Nothing of the bay survives what was taken out of it, or nothing
+            # worth calling a floor. Said out loud rather than left as a def
+            # that quietly stopped existing: a floor that vanishes is the
+            # hardest kind of missing floor to find.
             emptied += 1
         if len(pieces) > 1:
             divided += 1
@@ -559,7 +569,7 @@ def apply_slab_stops(slab_defs, records, texts, regions=None,
             "than one with a hole".format(divided))
     if emptied:
         notes.append(
-            "{0} slab bay(s) are wholly taken up by what was cut out of them: "
+            "{0} slab bay(s) are taken up by what was cut out of them: "
             "nothing is placed flat there".format(emptied))
 
     out.extend(chajjas["defs"])
@@ -567,6 +577,9 @@ def apply_slab_stops(slab_defs, records, texts, regions=None,
         "notes": notes,
         "crossed": cutouts["crossed"],
         "holes": sum(len(rings) for rings in cutouts["holes"].values()),
+        "cross_marks": frees["marks"],
+        "free_cutouts": frees["free"],
+        "free_cutout_holes": frees["hosted"],
         "chajja_holes": ledges["hosted"],
         "divided": divided,
         "stair_bays": len(stairs["indexes"]),
@@ -579,6 +592,34 @@ def apply_slab_stops(slab_defs, records, texts, regions=None,
         "cutout_bay_area_m2": voids["area_m2"],
         "chajjas": len(chajjas["defs"]),
     }
+
+
+# WHAT A SUBTRACTION MAY LEAVE AND STILL BE CALLED A FLOOR. A cut-out mark is
+# drawn over the OPENING, and a bay read off the beam graph is the opening plus
+# whatever notches the members leave round it -- so a mark covering a bay
+# leaves not nothing but a RIM, and a rim of concrete is not a floor. test13
+# draws five of them: a 12.2 m2 bay under a 5550x2150 cross comes back as five
+# stubs, 200x200 at the corners and 50 mm strips along the sides, 0.32 m2 in
+# all. Read as floors they are five slabs where the drawing says there is a
+# void.
+#
+# The number is measured, not chosen. Across the corpus 317 bays lose something
+# to a subtraction, and the share of each one that survives it lands either at
+# 0.026 or below -- 35 bays at nothing at all and the five test13 rims -- or at
+# 0.46 and above. Nothing between, over four drawings, which is a desert wide
+# enough that a tenth can sit in the middle of it without balancing on
+# anything. Before the free marks were read the lowest survivor in the whole
+# corpus was 0.46, so this rule takes nothing that v0.91.0 was placing.
+_RIM_SHARE = 0.10
+
+
+def _is_rim(pieces, ring):
+    """True when what the subtraction left is a rim rather than a floor."""
+    whole = abs(_signed_area(ring))
+    if whole <= 0:
+        return False
+    left = sum(abs(_signed_area(piece)) for piece, _holes in pieces)
+    return left / whole < _RIM_SHARE
 
 
 # The labelling half moved to slab_labels.py -- imported at the END because that

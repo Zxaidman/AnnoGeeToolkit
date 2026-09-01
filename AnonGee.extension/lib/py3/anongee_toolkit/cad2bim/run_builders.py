@@ -210,15 +210,17 @@ def _slab_stops(slab_defs, records, texts, regions, sheet_texts, beam_segments,
                 selections, schedule, beam_drops=None):
     """(slab_defs, [step]) -- what the drawing says STOPS each bay, applied.
 
-    Four readings, all of them the drawing's own marks and all of them
+    Five readings, all of them the drawing's own marks and all of them
     invisible to a beam graph: a crossed-out ring on the slab-stop layer is a
-    HOLE, a bay the drawing MARKS VOID -- an X over it or a CUTOUT / LIFT SHAFT
-    / DUCT text in it -- is NOT a floor either, a bay a staircase stands in is
-    NOT a floor, and a beam-bottom hatch is a CHAJJA at its own level -- which
-    also cuts the bay it stands in back off it, so the ledge and the floor are
-    not cast over one another. `slab_outlines.apply_slab_stops` does the work;
-    this says what happened, grouped, before anything is placed -- a hole
-    nobody cut and a stair cast solid both look built and are wrong.
+    HOLE, a FREE-STANDING X with no ring and no bay drawn round it is a hole of
+    the rectangle it spans, a bay the drawing MARKS VOID -- an X over it or a
+    CUTOUT / LIFT SHAFT / DUCT text in it -- is NOT a floor either, a bay a
+    staircase stands in is NOT a floor, and a beam-bottom hatch is a CHAJJA at
+    its own level -- which also cuts the bay it stands in back off it, so the
+    ledge and the floor are not cast over one another.
+    `slab_outlines.apply_slab_stops` does the work; this says what happened,
+    grouped, before anything is placed -- a hole nobody cut and a stair cast
+    solid both look built and are wrong.
 
     `beam_drops` is the beam pass's own {segment index: depth_mm}: a chajja
     hangs at the SOFFIT of the beam it is cast off, and since v0.88.0 a beam
@@ -244,6 +246,11 @@ def _slab_stops(slab_defs, records, texts, regions, sheet_texts, beam_segments,
              "{2} bay(s)".format(stopped["crossed"], stopped["holes"],
                                  stopped["holes"] - stopped["divided"]
                                  if stopped["divided"] else stopped["holes"]))
+    if stopped["free_cutouts"]:
+        _say("  stops: {0} cut-out cross(es) of {1} carry no ring and no bay, "
+             "{2} cut as holes of the bay over them".format(
+                 stopped["free_cutouts"], stopped["cross_marks"],
+                 stopped["free_cutout_holes"]))
     if stopped["cutout_bays"]:
         _say("  stops: {0} bay(s) marked void withdrawn ({1} crossed out, {2} "
              "named by a text), {3:.1f} m2 of floor the drawing marks "
@@ -940,6 +947,9 @@ def _create_slabs(doc, records, beam_segments, texts, selections, schedule=None,
             "sunk_supports": sum(len(s["supports"]) for s in steps),
             "slab_cutouts": stopped["crossed"],
             "slab_cutout_holes": stopped["holes"],
+            "cutout_cross_marks": stopped["cross_marks"],
+            "free_cutouts": stopped["free_cutouts"],
+            "free_cutout_holes": stopped["free_cutout_holes"],
             "stair_bays_withdrawn": stopped["stair_bays"],
             "stair_area_m2": stopped["stair_area_m2"],
             "cutout_bays_withdrawn": stopped["cutout_bays"],
