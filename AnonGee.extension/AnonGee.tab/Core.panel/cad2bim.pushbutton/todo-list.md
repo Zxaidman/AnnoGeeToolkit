@@ -113,6 +113,28 @@ for every other pre-P1 file.
 
 ## 2. Errors and bugs
 
+### BUG-23 — On test17 the cutout reading is offered 7,120 beam strokes · `pending`
+
+**Found** by re-taking the free-standing-X census after test17 entered the corpus — the comment in
+`free_cutouts` claimed "every mark that survives the filter anywhere in the corpus is drawn on a
+cutout or detail layer", which was true of the twenty drawings it was measured on and false the day
+the twenty-first arrived. The comment is corrected in v0.93.2; this is the risk it leaves behind.
+
+**Measured.** test17 pairs **1,100 X marks**, the most in the corpus, and the strokes they come from
+sit on `B-200x650` (**7,120** of them), `A-_SANIFIX-_E-` (2,592), layer `0` (2,040), `DROP SLAB`
+(1,546) and its other section-named beam layers. They measure 125 to 2,400 mm across, median 550 —
+sanitary symbols and beam hatching, not voids.
+
+**Nothing is cut for any of them: `free_cutout_holes` is 0 on test17.** Not one of the 1,100 lands
+inside a slab bay. So no floor is wrong today — but the safety rests on the drawing's bays not
+overlapping its plumbing, rather than on the member filter, which is the wrong thing to rest on.
+
+`annotation_strokes` drops a stroke drawn on a BEAM or COLUMN layer, and it cannot drop these
+because nothing classifies `B-200x650` as a beam layer yet. **BUG-22 is therefore the fix for most
+of this**: the moment those layers classify, 7,120 strokes leave the pairing by the rule that is
+already written. What remains after that — the sanitary and layer-`0` strokes — is the part worth
+looking at on its own, and only with a drawing where it costs something.
+
 ### BUG-22 — test17 states each beam's SECTION in the layer name, and nothing reads it · `pending`
 
 **Found** by measuring the owner's new `StructuralPlan-Test17.dxf` (pushed `6243f12`) as it entered

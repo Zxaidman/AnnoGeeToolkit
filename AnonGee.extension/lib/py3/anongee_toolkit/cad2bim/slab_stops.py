@@ -274,8 +274,17 @@ def annotation_strokes(records):
     strokes and always has. A FREE X has nothing but itself to prove it, so a
     pair of crossing members IS the whole claim -- measured over the corpus,
     the filter takes 161 phantom marks off Project1, 140 off test11 and 46 off
-    test8, and every one of the marks that survives it anywhere in the corpus
-    is drawn on a cutout or detail layer.
+    test8.
+
+    AND THE FILTER ONLY REACHES WHAT THE CLASSIFIER NAMES, which test17 proves
+    and this comment used to claim otherwise ("every mark that survives it is
+    drawn on a cutout or detail layer" -- true of the corpus as it stood, false
+    the day test17 joined it). test17 draws its beams on layers named for their
+    section, `B-200x650` and its eight siblings, which nothing classifies yet
+    (todo BUG-22), so 7120 of its beam strokes are offered to the pairing as
+    annotations. Nothing is cut for them -- not one of its 1100 marks lands in
+    a bay -- but that is the drawing's doing and not this function's. See
+    `free_cutouts` for the census and BUG-23 for the risk.
     """
     members = set()
     for record in (records or []):
@@ -400,17 +409,28 @@ def free_cutouts(loops, records, skip=None):
     WHAT THE WHOLE CORPUS SAYS, since a reading this new is worth a census.
     Marks / free-standing / cut as a hole, per drawing:
 
-        test12   691 / 351 / 177      test14   210 / 108 / 36
-        test13   156 / 141 /  69      test9     62 /  62 /  0
-        test10    22 /  22 /   0      test16    18 /  18 /  0
+        test17  1100 / 140 /   0      test12   691 / 351 / 177
+        test14   210 / 108 /  36      test13   156 / 141 /  69
+        test9     62 /  62 /   0      test10    22 /  22 /   0
+        test16    18 /  18 /   0
         test1/2/3, StaircasePlan-Test2, test7, test15: 1..5 marks each, all
         free-standing, none hosted
 
-    and the other eight drawings carry no X at all. Every free-standing mark in
-    the corpus is drawn on a cutout or a detail layer, none on a member layer
-    (see `annotation_strokes` for why that is not luck). test10's 22 and test9's
-    62 host nowhere, so those two drawings' numbers do not move a millimetre;
+    and the other eight drawings carry no X at all. test10's 22 and test9's 62
+    host nowhere, so those two drawings' numbers do not move a millimetre;
     test16's 18 all land in bays the CUTOUT texts had already withdrawn.
+
+    TEST17 IS THE ONE TO WATCH, and it arrived after this census was first
+    taken. Its 1100 marks are the most in the corpus and NONE of them is
+    hosted, so it cuts nothing today -- but that is the drawing's own doing and
+    not the filter's: the strokes they pair from come off `B-200x650` (7120 of
+    them), `A-_SANIFIX-_E-` (2592) and layer `0` (2040), and the first of those
+    is a BEAM layer that `annotation_strokes` cannot drop because nothing
+    classifies it yet (todo BUG-22 -- test17 names its beam layers for their
+    section). The marks measure 125 to 2400 mm across, median 550: sanitary
+    symbols and beam hatching, not voids. Recorded as BUG-23. Fixing BUG-22
+    takes 7120 of those strokes out by itself, since a beam a drawing places is
+    exactly what the member filter is for.
 
     `skip` is the bays an earlier reading already withdrew. A mark inside one
     cuts nothing, there being nothing left to cut.
