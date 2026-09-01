@@ -32,6 +32,39 @@ LEGS = (
 )
 
 
+_CAP = 60
+
+
+def _moved_lines(trace, cap=_CAP):
+    """EVERY number a leg says moved, not just the last one.
+
+    This printed `trace.splitlines()[-1]` and nothing else, which is one line of
+    a message that carries one line PER MOVED NUMBER. A run that moved eight
+    numbers showed the eighth; the seven above it were in the traceback and
+    never reached the screen -- and the whole point of the gate is that a moved
+    number is read and attributed before it is blessed. Caught when a sweep run
+    reported `foundation_profiles: 0 -> 73` alone while the failure itself held
+    `foundation_planned: 0 -> 73` above it.
+
+    Each leg's message is "<what> moved:" and then the lines, so the marker is
+    the same in all three. Anything else -- an error rather than a failure, a
+    message this never anticipated -- still shows its last line, which is what
+    it always did.
+    """
+    body = trace.strip()
+    marker = " moved:\n"
+    if marker not in body:
+        last = body.splitlines()
+        return [last[-1]] if last else []
+    lines = [line.strip()
+             for line in body.split(marker, 1)[1].splitlines()
+             if line.strip()]
+    if len(lines) > cap:
+        hidden = len(lines) - cap
+        lines = lines[:cap] + ["... and {0} more".format(hidden)]
+    return lines
+
+
 def main(argv):
     if "--bless" in argv:
         os.environ["CAD2BIM_BLESS"] = "1"
@@ -57,7 +90,8 @@ def main(argv):
             failed.append(title)
             print("  MOVED    {0}   {1:.0f}s".format(title, elapsed))
             for _test, trace in result.failures + result.errors:
-                print("           " + trace.strip().splitlines()[-1][:200])
+                for line in _moved_lines(trace):
+                    print("           " + line[:200])
 
     print()
     if failed:

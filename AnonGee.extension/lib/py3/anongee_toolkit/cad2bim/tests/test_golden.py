@@ -106,5 +106,53 @@ class Storing(unittest.TestCase):
         self.assertEqual(_golden.load(nested), {"A": {"x": 1}})
 
 
+class TheGatePrintsEveryNumberThatMoved(unittest.TestCase):
+    """`differences()` naming all eight is no use if the runner shows one.
+
+    It printed the traceback's LAST line, which is the last moved number and
+    nothing above it. A sweep run reported `foundation_profiles: 0 -> 73` on its
+    own while the failure it came from also held `foundation_planned: 0 -> 73` --
+    two changes, one shown, and the hidden one would have been blessed unread.
+    """
+
+    def setUp(self):
+        import run_regressions
+        self.runner = run_regressions
+
+    def _trace(self, *moved):
+        # the shape unittest produces for assertEqual(moved, [], msg)
+        return ("Traceback (most recent call last):\n"
+                "  File \"regression_dxf_sweep.py\", line 446, in test_it\n"
+                "    self.assertEqual(moved, [], ...)\n"
+                "AssertionError: Lists differ: [...] != []\n"
+                "\n+ []\n- [...] : the DXF sweep moved:\n  "
+                + "\n  ".join(moved))
+
+    def test_every_moved_number_is_printed_not_only_the_last(self):
+        lines = self.runner._moved_lines(self._trace(
+            "Test16.foundation_planned: 0 -> 73",
+            "Test16.foundation_profiles: 0 -> 73"))
+        self.assertEqual(lines, ["Test16.foundation_planned: 0 -> 73",
+                                 "Test16.foundation_profiles: 0 -> 73"])
+
+    def test_the_unittest_list_diff_above_the_message_is_left_out(self):
+        lines = self.runner._moved_lines(self._trace("Test1.beams: 8 -> 9"))
+        self.assertEqual(lines, ["Test1.beams: 8 -> 9"])
+
+    def test_a_very_long_diff_is_capped_and_says_how_many_it_hid(self):
+        moved = ["Test{0}.beams: 1 -> 2".format(n) for n in range(70)]
+        lines = self.runner._moved_lines(self._trace(*moved), cap=60)
+        self.assertEqual(len(lines), 61)
+        self.assertEqual(lines[-1], "... and 10 more")
+
+    def test_an_error_with_no_diff_still_shows_its_last_line(self):
+        trace = ("Traceback (most recent call last):\n"
+                 "  File \"x.py\", line 1, in test_it\n"
+                 "ValueError: the reader could not open the fixture")
+        self.assertEqual(
+            self.runner._moved_lines(trace),
+            ["ValueError: the reader could not open the fixture"])
+
+
 if __name__ == "__main__":
     unittest.main()
