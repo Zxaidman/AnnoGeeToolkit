@@ -6,8 +6,9 @@ tools/_runtime_backups/*
 tools/_runtime_work/*
 build/
 .py3_previous_swap/
-installer/output/
 installer/payload/
+installer/output/
+installer/prerequisites/**/*.exe
 
 # --- Extended Python & Caching ---
 *.pyo
