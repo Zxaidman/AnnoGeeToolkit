@@ -113,6 +113,49 @@ for every other pre-P1 file.
 
 ## 2. Errors and bugs
 
+### BUG-18 — A free-standing X marks nothing, so slab is cast over the opening · `building`
+
+**Reported urgent** by the owner on the v0.91.0 Revit run: where the duplicate slab used to be two
+pieces it is now three — one respects the outline and its holes, and **two are drawn inside a
+cutout cross** (owner's images 2, 3 and 4).
+
+**Measured on test14, and the mechanism is exact.** The `CUTOUT` layer carries **492 diagonal
+strokes**, which group by shared bounding box into **130 X pairs**. Of those:
+
+| what the X spans | count | read today |
+|---|---|---|
+| a `COVER` slab-stop ring | 52 | yes — becomes a hole |
+| a whole slab bay | 6 | yes — the bay is withdrawn |
+| **neither** | **72** | **no — nothing looks at it** |
+
+Both readers we have (`chajja_cutouts` → holes, `cutout_bays` → withdrawal) need the X to sit on a
+ring or a bay that already exists. **72 X pairs sit on open floor**, so they are read by nothing and
+the bay is slabbed straight over them. They are not noise: nine of them are large and regular —
+six of **2300 x 2925 mm** (x ≈ 25351, 27951, 98111, 100711, 178198, 180798, all at y 31766) and
+three of **2300 x 2300 mm** (y 31294) — down to 2000 x 844 mm, and every one of the largest nine
+reports "inside 0 bay(s)".
+
+**Ruled out first:** `apply_slab_stops`' own report is healthy — `crossed 90, holes 66,
+chajja_holes 18, divided 12, stair_bays 6, cutout_bays 15, chajjas 72` — and **no placed piece is
+centred inside a crossed `COVER` ring**, so nothing is failing to subtract what it already sees.
+The documented order (withdrawals before holes before division) is correct as written.
+
+**Fix direction:** the rectangle an X spans is itself a cutout, whether or not a ring or a bay is
+drawn there. Read the pair's own bounding rectangle as the opening and subtract it, so the 72
+unread pairs stop being invisible. Sizes and positions above are the measurement to hold the fix
+against; test10's foundation numbers (`foundation_planned` 9, `steps_planned` 7, `step_supports` 2,
+`foundation_profiles` 9) must not move.
+
+### BUG-19 — A chajja between two beams takes the deeper one · `building`
+
+Reported by the owner on the same run (image 1): where a chajja's edge attaches to **two beams of
+different depth**, it must hang off the **lesser** depth. In the owner's example it took the 600 mm
+beam where the shallower one governs.
+
+**Where it sits:** v0.91.0 taught the ledge to follow the beam it hangs off — the tie-break when
+there are two was never stated, and the code takes the deeper. The reversal is local to the chajja
+drop lookup; the count of chajjas built (72 on test14) must not move, only the depth each one takes.
+
 ### BUG-4 — An L-shaped column is placed as a big tilted rectangle · `testing`
 
 **Fixed in v0.77.0, awaiting the owner's Revit run.** `parse_column_polyline` now closes the
