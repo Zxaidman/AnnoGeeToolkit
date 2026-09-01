@@ -1,6 +1,6 @@
 # cad2bim — done list
 
-What was built and confirmed, from the first CAD-to-BIM commit to **v0.76.0**. An item arrives here
+What was built and confirmed, from the first CAD-to-BIM commit to **v0.91.0**. An item arrives here
 only by reaching `done` in `todo-list.md`, and it is described here with what was actually done.
 
 **How "confirmed" is used below.** Before v0.68.0 there was no regression gate: each version answers
@@ -194,6 +194,19 @@ Version numbers are tracking numbers, not releases: the stamp in
 | DONE-113 | **`builders/walls.py`** — one line-based `Wall.Create` per planned centreline. Width set through the type's COMPOUND STRUCTURE (no instance parameter exists), duplicated per (kind, width) off a per-kind base type; a refused width (membrane layer, no core, curtain/stacked base) is a red console error and the wall still places at the base type's own width. Top constrained to the level above via `WALL_HEIGHT_TYPE` after Create (the column builder's pattern), unconnected at the storey height when there is no level above; the `structural` bool on Create is the kind | v0.76.0 | 701 → 714 tests, ten static AST pins on the wiring |
 | DONE-114 | `run_builders._create_walls` plans ONCE for both kinds (tolerances passed through), places each kind against its own type inside one transaction group with the warning swallower, routes errors through the red channel and groups the planner's refusals by reason | v0.76.0 | AST pins |
 | DONE-115 | Dialog: Structure gains the structural-wall group, **Architecture gains its first real content**; naming rows `RCC WALL {t} THK` and `BRICK WALL {t} THK` with `{t}` required (the raft precedent — widths are measured, so a collision would be a silent reuse); selections keys `create_struct_walls` / `create_arch_walls` / `struct_wall_type_id` / `arch_wall_type_id`; settings and presets ride the name-driven capture with no schema change. Walls run per storey as build step 8 | v0.76.0 | **The gate moved nothing** — no planning code changed |
+
+---
+
+## N. What the owner has signed off since (v0.77.0 → v0.91.0)
+
+Everything built between v0.77.0 and v0.91.0 sits in `todo-list.md` at `testing` until the owner
+runs it in Revit and says so. These two have been said. The rest stay in the queue, whatever the
+tests say — a green gate is not a confirmation.
+
+| ID | What was done | Version | Confirmed by |
+| --- | --- | --- | --- |
+| DONE-116 | **A wall join is disallowed at both ends, and the corner it leaves open is filled.** Revit's default join pulls both walls back to the intersection's centre, so an L or a T lost the drawn outline (the owner's image 2). Both ends now take `WallUtils.DisallowWallJoinAtEnd`, and the corner is closed geometrically instead: at each junction one wall RUNS THROUGH and the other stops on its face, chosen by run length so the long wall or the column edge is the one that continues — which is the outline the drawing shows | v0.90.0 | The owner in Revit: "test wall joins are working good for wall and column as expected" |
+| DONE-117 | **A chajja hangs off its own beam, and follows it down.** A beam-bottom ledge takes its elevation from the beam it is cast off — the one it shares its longest contact with — as `offset = thickness - (depth + drop)`, so a beam a sunk hatch drops carries its ledge down with it instead of leaving it floating at the old soffit. Measured on test14: 36 of the 72 chajjas hang off a dropped beam, 24 by 75 mm and 12 by 150, and the other 36 do not move | v0.91.0 | The owner in Revit: "test Chajja following its sunk beam is working good now". Two open items keep the rest of the chajja work in the queue: BUG-19 (which of two beams a ledge takes) and BUG-18 (a bay near a ledge splitting into three) |
 
 ---
 

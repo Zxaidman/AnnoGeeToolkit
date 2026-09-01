@@ -206,6 +206,12 @@ every labelled bay sized from the schedule, where none had been. The F/RF rows a
 available; only the S-marks are routed to slabs today, so wiring them to the foundation pass is a
 separate, easy step whenever it is wanted.
 
+**The F/RF rows were wired in v0.89.1**, at the owner's word ("wire F/RF rows to foundation pass
+too"): `plan_foundations` now takes the same `{mark: thickness_mm}` mapping and a ring that names a
+mark but carries no thickness of its own takes the schedule's — the schedule speaks only where the
+ring did not, so a drawing that dimensions its footings is untouched. test10's foundation numbers
+(`foundation_planned` 9, `steps_planned` 7, `step_supports` 2, `foundation_profiles` 9) do not move.
+
 **The owner:** "slab schedule reading for type is not working while layout mark label is used for
 parameter but type creation and using proper type as per schedule is not working for slab." Their
 screenshot shows a floor carrying `S-ScheduleMark S3` correctly, and its type still `.Default Floor`.
@@ -667,6 +673,9 @@ What is built and verified. Nothing here claims more than was measured.
 | WORK-15 | Walls — planner and builder | `testing` | Planned offline: Project1 17 segments / 11 skips, test8 178 / 110, test9 19 / 39; the other 14 fixtures pin zeros. Placed as `DB.Wall` since v0.76.0, **not yet seen in Revit** |
 | WORK-16 | The dialog — six tabs, five Build sub-tabs, AnonGee brand, gated Advanced, saved settings | `done` | The owner in Revit: "tested all good, apply the AnonGee Brand Guidelines design to all cad2bim dialog now", then applied and re-confirmed |
 | WORK-17 | Errors print red on the console; skips are named, never silent | `done` | The owner's instruction, shipped v0.69.3 and extended to all six creators |
+| WORK-18 | Vertical members — a three-way choice: every one a COLUMN, every one a WALL, or COMBINE, where the mark decides (`C1` column, `SW1`/`W1` wall) and, where the mark is silent, L/B decides: under 4 a column, 4 and over a shear wall (IS 456, IS 13920, ACI 318) | `testing` | Built v0.87.0 to the owner's spec. Their own 0.89.1 test16 export ran it: `columns.outcome` reports **71 walls, 0 rects** across the stack, so the toggle reaches the builder — the smart split itself is not yet confirmed in Revit |
+| WORK-19 | Wall joins — both ends disallowed, and the corner they leave open filled: one wall runs through, the other stops on its face, so an L or a T keeps the drawn outline instead of pulling back to the centreline | `done` | The owner in Revit, v0.91.0 round: "test wall joins are working good for wall and column as expected" |
+| WORK-20 | Chajjas — a beam-bottom ledge hangs at the soffit of the beam it is cast off, follows that beam down when a sunk hatch drops it, and the bay above it is no longer cast over the top of it | `testing` | The owner in Revit: "Chajja following its sunk beam is working good now". Two things remain open: which beam a ledge between two takes (BUG-19), and one bay near a ledge splitting into three (BUG-18) |
 
 ---
 
