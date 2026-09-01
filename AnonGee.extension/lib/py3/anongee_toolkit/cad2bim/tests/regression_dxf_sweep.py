@@ -121,9 +121,10 @@ def _measure(path):
 
     # FOUNDATIONS, read the way run_builders reads them: the outlines off the
     # foundation layer, sized by the notes routed off the foundation TEXT layer.
-    # Two drawings reach this at all -- test10, which carries the convention,
-    # and Test0, whose S-FNDN linework closes into faces that nothing labels and
-    # which must therefore plan nothing.
+    # Three drawings reach this -- test10, which carries the convention; test16,
+    # which carries it with the marks written UNDER the rings and sized from a
+    # schedule; and Test0, whose S-FNDN linework closes into faces that nothing
+    # labels and which must therefore plan nothing.
     foundation_texts = [t for t in result.texts
                         if layers.classify_text_layer(t.layer_key)
                         == layers.CATEGORY_FOUNDATION_TEXT]
@@ -131,8 +132,19 @@ def _measure(path):
     # The crossed-out faces: X-marked parts the raft is cast AROUND rather
     # than over. test10 measures 2 -- the corridor's north and south parts.
     foundation_cutouts = foundation_plan.cutouts(result.records)
-    foundation_plans = foundation_plan.plan_foundations(result.records,
-                                                        foundation_texts)
+    # The F/RF block of the drawing's own schedule, from the WHOLE FILE the way
+    # `_create_footings` reads it: the table is on `G-ANNO-SCHD`, never on the
+    # foundation notes' own layer, so a schedule read off `foundation_texts`
+    # comes back empty and every F-marked ring stays unsized. test16 is the one
+    # fixture that has one -- F1 500, F2 550, F3 600, RF1 1200, RF2 1200 -- and
+    # `foundation_planned_sized` is what proves it arrived.
+    foundation_schedule = dict(
+        (mark, thickness)
+        for mark, thickness in marks.parse_thickness_schedule(
+            result.texts).items()
+        if str(mark)[:1].upper() in ("F", "R"))
+    foundation_plans = foundation_plan.plan_foundations(
+        result.records, foundation_texts, schedule=foundation_schedule)
     regions = _regions_by_category(result.regions)
     # THE LEGEND, read the way the pushbutton reads it before the dialog:
     # swatch pattern -> legend text -> meaning, translated into per-layer
@@ -218,6 +230,7 @@ def _measure(path):
             1 for _r, _z, source in foundation_outlines if source == "drawn"),
         "foundation_cutouts": len(foundation_cutouts),
         "foundation_texts": len(foundation_texts),
+        "foundation_schedule_rows": len(foundation_schedule),
         "foundation_planned": len(foundation_plans),
         "foundation_planned_sized": sum(
             1 for p in foundation_plans if p.get("thickness_mm") is not None),

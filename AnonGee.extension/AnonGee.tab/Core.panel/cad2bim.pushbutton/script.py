@@ -851,6 +851,16 @@ def _build_one_storey(doc, revit_result, texts, selections, schedule_source=None
     standards = selections.get("standards")
     tolerances = selections.get("tolerances") or {}
     dxf_texts = texts
+    # THE WHOLE FILE, for the tables that are drawn once for the sheet. A
+    # SCHEDULE sits beside the plans and inside none of them, so on a
+    # multi-storey drawing no storey's own texts hold it -- measured on test16,
+    # the sheet reads eleven Mark|Thk rows and each of its five storeys reads
+    # none, while four of them carry 62, 62, 62 and 15 S-marks on the plan.
+    # `schedule_source` is that list; it is what the COLUMN schedule has always
+    # fallen back to, for this exact reason. Kept apart from `dxf_texts` so the
+    # per-plan readings -- the legend, the blanket note the owner asked to be
+    # read per plan -- keep seeing their own storey and nothing else.
+    file_texts = schedule_source or dxf_texts
 
     _progress(1, _BUILD_STEPS, "build columns")
     sections = report.build_column_sections(revit_result.records, limits, standards,
@@ -1058,7 +1068,8 @@ def _build_one_storey(doc, revit_result, texts, selections, schedule_source=None
         outcomes["slabs"] = _create_slabs(doc, revit_result.records, slab_beam_segments,
                                           slab_texts, selections, schedule,
                                           column_rects=column_footprints,
-                                          regions=hatches, sheet_texts=dxf_texts)
+                                          regions=hatches, sheet_texts=dxf_texts,
+                                          schedule_texts=file_texts)
     # STAIRS (option 1, parametric): a STAIRCASE / ST-n text marks the bay; a
     # generic dog-leg from the Staircase tab numbers is laid out inside it.
     _progress(7, _BUILD_STEPS, "create stairs")
@@ -1086,7 +1097,8 @@ def _build_one_storey(doc, revit_result, texts, selections, schedule_source=None
         outcomes["footings"] = _create_footings(doc, sections, selections,
                                                 records=revit_result.records,
                                                 texts=foundation_texts,
-                                                regions=hatches)
+                                                regions=hatches,
+                                                schedule_texts=file_texts)
     _progress(_BUILD_STEPS, _BUILD_STEPS, "materials")
     applied = _apply_materials(doc, outcomes, selections)
     if applied:

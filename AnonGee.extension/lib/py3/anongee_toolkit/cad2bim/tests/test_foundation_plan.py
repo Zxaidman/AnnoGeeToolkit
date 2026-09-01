@@ -668,5 +668,115 @@ class TheKindReachesTheBuilder(unittest.TestCase):
                          block)
 
 
+class AMarkWrittenBesideItsFooting(unittest.TestCase):
+    """test16 writes the mark UNDER the outline, not inside it.
+
+    Every one of its 73 marks sat outside every ring, so `labelled` came out
+    zero, the drawing was judged not to carry the convention at all, and 73
+    drawn footings built nothing. Measured on that drawing: 68 of the 70 marks
+    that have a ring above them sit exactly 285 mm below it, and the rule below
+    labels all 73 rings, no ring twice and no ring with two different marks.
+    """
+
+    def test_a_mark_drawn_under_its_outline_still_names_it(self):
+        plans = foundation_plan.plan_foundations(
+            [_closed(0, 0, 1800, 1800)], [_Text("F2", (900, -285))])
+        self.assertEqual(len(plans), 1)
+        self.assertEqual(plans[0]["mark"], "F2")
+
+    def test_a_mark_too_far_from_every_outline_names_none(self):
+        # 600 mm below, past the 500 mm reach: the drawing has not proved it
+        # carries the convention, so the whole set is refused as before
+        plans = foundation_plan.plan_foundations(
+            [_closed(0, 0, 1800, 1800)], [_Text("F2", (900, -600))])
+        self.assertEqual(plans, [])
+
+    def test_the_UPPER_of_two_stacked_pads_keeps_its_own_mark(self):
+        # test16's shape exactly: 1800 mm pads 400 mm apart, each mark 285 mm
+        # below its own pad -- which puts the upper pad's mark 115 mm above the
+        # LOWER pad's top edge. Nearest-wins gives it to the pad below.
+        plans = foundation_plan.plan_foundations(
+            [_closed(0, 0, 1800, 1800), _closed(0, 2200, 1800, 4000)],
+            [_Text("F1", (900, -285)), _Text("F3", (900, 1915))])
+        self.assertEqual(len(plans), 2)
+        lower = [p for p in plans if p["ring"][0][1] < _mm(1000)][0]
+        upper = [p for p in plans if p["ring"][0][1] > _mm(1000)][0]
+        self.assertEqual(lower["mark"], "F1")
+        self.assertEqual(upper["mark"], "F3")
+
+    def test_a_mark_under_no_outline_at_all_falls_back_to_the_nearest(self):
+        # three of test16's F3s are written somewhere other than beneath their
+        # pad; the nearest ring within reach still takes them
+        plans = foundation_plan.plan_foundations(
+            [_closed(0, 0, 1800, 1800)], [_Text("F3", (-285, 900))])
+        self.assertEqual(len(plans), 1)
+        self.assertEqual(plans[0]["mark"], "F3")
+
+    def test_a_mark_INSIDE_a_ring_is_still_read_the_old_way(self):
+        # test10 writes every one of its 17 notes inside the outline, and the
+        # smallest containing ring still wins -- the outside pass never runs
+        plans = foundation_plan.plan_foundations(
+            [_closed(0, 0, 20000, 20000), _closed(1000, 1000, 3000, 3000)],
+            [_Text("F1_1200MM THK", (2000, 2000))])
+        inner = [p for p in plans if foundation_plan.area_m2(p["ring"]) < 10.0]
+        self.assertEqual(len(inner), 1)
+        self.assertEqual(inner[0]["mark"], "F1")
+        self.assertEqual(inner[0]["thickness_mm"], 1200.0)
+
+
+class ARaftMark(unittest.TestCase):
+    """`RF1` is a mark, and it is the drawing calling that outline a raft."""
+
+    def test_RF_reads_as_a_foundation_mark(self):
+        plans = foundation_plan.plan_foundations(
+            [_closed(0, 0, 7300, 10400)], [_Text("RF1", (3650, -285))])
+        self.assertEqual(len(plans), 1)
+        self.assertEqual(plans[0]["mark"], "RF1")
+
+    def test_an_RF_outline_under_the_area_line_is_still_a_raft(self):
+        # test16's two rafts are L-shaped, 50.9 and 49.8 m2 -- under the 60 m2
+        # line that would otherwise call them pads
+        plans = foundation_plan.plan_foundations(
+            [_closed(0, 0, 7000, 7000)], [_Text("RF2", (3500, -285))])
+        self.assertEqual(len(plans), 1)
+        self.assertLess(foundation_plan.area_m2(plans[0]["ring"]), 60.0)
+        self.assertEqual(plans[0]["kind"], "raft")
+
+    def test_a_plain_F_mark_under_the_area_line_is_still_a_pad(self):
+        plans = foundation_plan.plan_foundations(
+            [_closed(0, 0, 7000, 7000)], [_Text("F2", (3500, -285))])
+        self.assertEqual(plans[0]["kind"], "pad")
+
+    def test_REF3_is_not_a_mark(self):
+        # the anchor that keeps a word ending in a mark from being one
+        plans = foundation_plan.plan_foundations(
+            [_closed(0, 0, 1800, 1800)], [_Text("REF3", (900, -285))])
+        self.assertEqual(plans, [])
+
+
+class TheScheduleSizesAMarkOnlyOutline(unittest.TestCase):
+    """test16's F/RF schedule block, reaching the rings it prices."""
+
+    def test_a_ring_that_only_names_a_mark_takes_the_schedules_thickness(self):
+        plans = foundation_plan.plan_foundations(
+            [_closed(0, 0, 1800, 1800)], [_Text("F2", (900, -285))],
+            schedule={"F1": 500.0, "F2": 550.0, "F3": 600.0})
+        self.assertEqual(plans[0]["thickness_mm"], 550.0)
+
+    def test_a_note_on_the_ring_outranks_the_schedule(self):
+        plans = foundation_plan.plan_foundations(
+            [_closed(0, 0, 5200, 6650)],
+            [_Text("F2_750MM THK", (2600, 3325))],
+            schedule={"F2": 550.0})
+        self.assertEqual(plans[0]["thickness_mm"], 750.0)
+
+    def test_a_mark_the_schedule_does_not_hold_stays_unsized(self):
+        plans = foundation_plan.plan_foundations(
+            [_closed(0, 0, 1800, 1800)], [_Text("F9", (900, -285))],
+            schedule={"F1": 500.0})
+        self.assertEqual(plans[0]["mark"], "F9")
+        self.assertIsNone(plans[0]["thickness_mm"])
+
+
 if __name__ == "__main__":
     unittest.main()

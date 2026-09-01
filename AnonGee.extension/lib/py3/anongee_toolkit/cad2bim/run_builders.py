@@ -501,7 +501,7 @@ def _create_beams(doc, beam_segments, selections, regions=None, texts=None):
 
 
 def _create_footings(doc, sections, selections, records=None, texts=None,
-                     regions=None):
+                     regions=None, schedule_texts=None):
     """The foundations, on the columns' BASE level.
 
     `records` and `texts` are this storey's geometry and its routed foundation
@@ -527,7 +527,13 @@ def _create_footings(doc, sections, selections, records=None, texts=None,
         records or [], texts or [], regions=regions or [],
         # the drawing's own FOUNDATION schedule, the F/RF block test16 draws
         # beside its slab one. Asked last, so a note on the ring itself wins.
-        schedule=marks.parse_thickness_schedule(texts or []))
+        #
+        # From `schedule_texts` -- the whole file -- and never from `texts`,
+        # which is the routed foundation notes and holds `S-FND-IDEN` alone.
+        # test16 draws its table on `G-ANNO-SCHD`, so reading it off the notes
+        # returned an empty schedule on every storey and every F-marked ring
+        # stayed unsized.
+        schedule=marks.parse_thickness_schedule(schedule_texts or texts or []))
     if outlines:
         _say("Footings -- {0} outline(s) read from the drawing; the "
              "column-offset derivation is not used.".format(len(outlines)))
@@ -780,7 +786,8 @@ def _apply_materials(doc, outcomes, selections):
 
 
 def _create_slabs(doc, records, beam_segments, texts, selections, schedule=None,
-                  column_rects=None, regions=None, sheet_texts=None):
+                  column_rects=None, regions=None, sheet_texts=None,
+                  schedule_texts=None):
     """Place floor slabs after the beams, in a transaction group.
 
     Outline sources, in order: (1) closed rings on the slab-edge (A-FLOR) layer;
@@ -792,9 +799,13 @@ def _create_slabs(doc, records, beam_segments, texts, selections, schedule=None,
     the dialog settled before the run. The floor type is the one picked in the
     window, duplicated per thickness; the level is the beams' level.
 
-    `regions` are the storey's hatches and `sheet_texts` the whole sheet's own
-    -- the legend lives outside any routed text layer, so the narrowed `texts`
-    this pass reads slab notes from cannot be trusted to hold it. A hatched BAY
+    `regions` are the storey's hatches and `sheet_texts` this PLAN's texts
+    unnarrowed -- the legend lives outside any routed text layer, so the
+    narrowed `texts` this pass reads slab notes from cannot be trusted to hold
+    it, and a multi-storey sheet draws its legend once per plan. `schedule_texts`
+    is the whole FILE, because a schedule is drawn once for the sheet and sits
+    inside no plan at all: on test16 the sheet reads eleven Mark|Thk rows and
+    every one of its five storeys reads none. A hatched BAY
     is sunk: the BAY's own ring drops to the legend's depth -- the hatch says
     which bay and how deep and nothing about the shape -- and the vertical face
     between the two soffits is filled where, and only where, the drop is deeper
@@ -859,10 +870,16 @@ def _create_slabs(doc, records, beam_segments, texts, selections, schedule=None,
     # the first dimension of any section that happens to share it. test16 draws
     # S1 125 .. S6 250 and 201 labels using those marks; until this ran, every
     # bay fell back to the blanket note and no type was made from the schedule.
-    # Read from the SHEET's texts -- the table sits on its own annotation layer,
-    # which the narrowed slab routing cannot be trusted to still hold.
+    #
+    # Read from `schedule_texts`, which is the WHOLE FILE and not this storey.
+    # A schedule is drawn once per sheet, beside the plans and inside none of
+    # them: measured on test16, the sheet reads all eleven of its rows and, once
+    # split into storeys, NOT ONE of the five reads a single row -- while those
+    # storeys carry 62, 62, 62 and 15 S-marks on their plans. `sheet_texts`
+    # cannot be widened to fix it, because the blanket note is deliberately read
+    # per plan at the owner's instruction and shares that list.
     for mark, thickness in marks.parse_thickness_schedule(
-            sheet_texts or texts).items():
+            schedule_texts or sheet_texts or texts).items():
         if str(mark)[:1].upper() == "S" and str(mark)[1:2].isdigit():
             slab_schedule[mark] = thickness
     # The sheet's blanket note fills the bays nothing else sized. `texts` here

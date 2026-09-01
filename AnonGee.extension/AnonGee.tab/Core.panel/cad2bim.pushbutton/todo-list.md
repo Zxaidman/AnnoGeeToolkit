@@ -113,7 +113,64 @@ for every other pre-P1 file.
 
 ## 2. Errors and bugs
 
-### BUG-18 — A free-standing X marks nothing, so slab is cast over the opening · `building`
+### BUG-20 — test16 builds NO footing from its 73 drawn outlines · `testing`
+
+**The owner, v0.91.0 round:** "our test16 schedule is not working still for slab and footing alike
+and now it is even worse for footing is is not making it using footing outline at all in test16".
+Their screenshot shows the F1/F2 marks written UNDER each footing outline, in magenta, clear of the
+yellow ring.
+
+**Measured, and the mechanism is one line.** test16 carries the convention in full — **73
+foundation outlines** on `S-FND` and **73 marks** on `S-FND-IDEN` (F1 x30, F2 x26, F3 x15, RF1,
+RF2) — and `plan_foundations` returns **nothing at all**. A note is assigned only to a ring that
+CONTAINS it, and **not one of test16's 73 marks lies inside any ring**: 68 of them sit exactly
+285 mm below the ring they name, the nearest-ring gaps running 87, 115 and 285 mm with nothing
+between 115 and 285. No ring is labelled, so `if not labelled: return []` judges the drawing not to
+carry the convention and the whole set is refused — which is why the footings vanished rather than
+came out wrong. test10 writes all 17 of its notes INSIDE its rings, which is why it never showed.
+
+**Two more things the same drawing proves.** `RF1`/`RF2` do not read as marks at all (`_MARK` is
+`F\d+`), so its two rafts are nameless and the schedule rows that price them are unreachable; and
+those two rings are L-shaped at 50.9 and 49.8 m², under the 60 m² line, so the area rule calls the
+drawing's own rafts pads.
+
+**Fixed in v0.92.0.** A note that lands inside no ring attaches to the nearest ring it is written
+UNDER — its x inside the ring's x-span, the ring's foot above it — and failing that to the nearest
+ring within `_LABEL_REACH_MM = 500`. "Under" comes first because it is what makes stacked footings
+work: test16 draws its 1800 mm pads in pairs 400 mm apart, so the upper pad's mark sits 115 mm above
+the LOWER pad's top edge and nearest-wins hands it to the wrong pad — measured, five pairs. The
+reach is flat anywhere from 300 to 2000 mm (73 of 73 rings labelled, no ring twice, no ring with two
+different marks), so the constant sits in the middle of a plateau. `RF\d+` is a mark, and an `RF`
+mark makes a raft whatever the area. **Measured: test16 0 → 73 foundations planned**, each sized
+from the schedule (F1 500 x30, F2 550 x26, F3 600 x15, RF1/RF2 1200); **test10 unchanged at 9** with
+its marks, thicknesses and kinds identical, Test0 still plans nothing.
+
+### BUG-21 — No storey can see the schedule, because the table is not on any storey · `testing`
+
+The other half of the owner's sentence — the slab schedule — and it is not the reader this time.
+
+**Measured on test16:** the whole sheet reads 11 schedule rows (S1 125 … S6 250, F1 500, F2 550,
+F3 600, RF1 1200, RF2 1200). Split into storeys the way a build does, **not one of the five storeys
+reads a single row**: FOUNDATION LEVEL 0, GROUND FLOOR 0, 1ST FLOOR 0, TYPICAL 0, TERRACE 0 — while
+those same storeys carry **62, 62, 62 and 15 S-marks on their plans**. The `SLAB SCHEDULE` block
+sits outside every plan boundary, so the per-storey text list never holds it.
+
+The slab pass parses the schedule from `sheet_texts`, which `_build_one_storey` sets to the STOREY's
+texts, and the foundation pass parses it from its routed foundation notes, which are `S-FND-IDEN`
+only and never `G-ANNO-SCHD`. Both therefore read `{}` on every storey of a multi-storey sheet,
+every bay falls back to the blanket note or the base type, and no floor type is ever created from
+the schedule — exactly what the owner sees.
+
+**Fixed in v0.93.0.** `_build_one_storey` keeps one `file_texts = schedule_source or dxf_texts`
+beside `dxf_texts`, and both passes take it as `schedule_texts` — the slab pass for its `S` rows and
+the footing pass for its `F`/`RF` rows. `sheet_texts` is deliberately NOT widened: the blanket note
+is read per plan at the owner's instruction ("150 is deliberate, read the note per plan"), and the
+legend is drawn once per plan too, so both keep seeing their own storey. Measured: test16's
+`foundation_planned_sized` **0 → 73** — every ring sized from the table (F1 500 ×30, F2 550 ×26,
+F3 600 ×15, RF1/RF2 1200) — and `foundation_schedule_rows` reads 5 on test16 and 0 on the other
+nineteen fixtures. Three AST pins hold the wiring, since every link in it fails silently.
+
+### BUG-18 — A free-standing X marks nothing, so slab is cast over the opening · `testing`
 
 **Reported urgent** by the owner on the v0.91.0 Revit run: where the duplicate slab used to be two
 pieces it is now three — one respects the outline and its holes, and **two are drawn inside a
@@ -146,7 +203,7 @@ unread pairs stop being invisible. Sizes and positions above are the measurement
 against; test10's foundation numbers (`foundation_planned` 9, `steps_planned` 7, `step_supports` 2,
 `foundation_profiles` 9) must not move.
 
-### BUG-19 — A chajja between two beams takes the deeper one · `building`
+### BUG-19 — A chajja between two beams takes the deeper one · `testing`
 
 Reported by the owner on the same run (image 1): where a chajja's edge attaches to **two beams of
 different depth**, it must hang off the **lesser** depth. In the owner's example it took the 600 mm

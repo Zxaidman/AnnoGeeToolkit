@@ -518,8 +518,27 @@ class TheLegendProposalReachesTheDialog(unittest.TestCase):
         # test16 draws an F/RF Mark|Thk block beside its slab one: a ring
         # labelled only "F2" is sized from it, and by nothing else
         call = _builders_source().split(
-            "foundation_plan.plan_foundations(", 1)[1][:400]
+            "foundation_plan.plan_foundations(", 1)[1][:900]
         self.assertIn("schedule=marks.parse_thickness_schedule(", call)
+
+    def test_that_schedule_is_read_from_the_file_not_the_routed_notes(self):
+        # `texts` here is the FOUNDATION routing -- S-FND-IDEN alone -- and
+        # test16 draws its table on G-ANNO-SCHD, so reading the schedule off
+        # the notes returns {} and every F-marked ring stays unsized
+        call = _builders_source().split(
+            "foundation_plan.plan_foundations(", 1)[1][:900]
+        schedule = call.split("schedule=marks.parse_thickness_schedule(", 1)[1]
+        self.assertIn("schedule_texts", schedule[:60])
+
+    def test_the_pushbutton_hands_both_passes_the_whole_file(self):
+        # one list, defined once beside dxf_texts and kept apart from it: the
+        # per-plan readings (the legend, the blanket note) must keep seeing
+        # their own storey, which is why sheet_texts is NOT widened instead
+        source = _script_source()
+        self.assertIn("file_texts = schedule_source or dxf_texts", source)
+        self.assertEqual(source.count("schedule_texts=file_texts"), 2,
+                         "the slab pass and the footing pass must both be "
+                         "handed the file's texts for their schedules")
 
 
 class TheHatchLayersHaveTheirOwnTable(unittest.TestCase):
@@ -1208,13 +1227,15 @@ class TheSlabScheduleReachesTheSlabs(unittest.TestCase):
                       "the slab pass never reads a Mark|Thk schedule, so a "
                       "drawing that has one still falls back to the note")
 
-    def test_it_is_read_from_the_sheet_not_the_routed_labels(self):
-        # the table sits on its own annotation layer; the narrowed slab routing
-        # cannot be trusted to still hold it
+    def test_it_is_read_from_the_whole_file_not_the_storey(self):
+        # the table sits on its own annotation layer, outside every plan on the
+        # sheet: measured on test16, the file reads 11 Mark|Thk rows and each of
+        # its five storeys reads NONE, while four of them carry 62, 62, 62 and
+        # 15 S-marks on the plan. Reading it off the storey sizes nothing.
         block = _builders_source().split("def _create_slabs(", 1)[1].split(
             "\ndef ", 1)[0]
         call = block.split("marks.parse_thickness_schedule(", 1)[1][:60]
-        self.assertIn("sheet_texts", call)
+        self.assertIn("schedule_texts", call)
 
     def test_the_thickness_wins_over_a_section_sharing_the_mark(self):
         # a thickness stated against the mark beats the first dimension of any
@@ -1335,6 +1356,12 @@ class TheBlanketNoteReachesTheBuilders(unittest.TestCase):
         self.assertIn("sheet_texts", slab_kwargs,
                       "the slab pass is handed only its routed texts, which "
                       "cannot be trusted to still carry the legend")
+        # and NOT `sheet_texts` either for the SCHEDULE: that list is this
+        # storey's, and a Mark|Thk table is drawn once for the sheet, outside
+        # every plan on it -- test16's five storeys read none of its 11 rows
+        self.assertIn("schedule_texts", slab_kwargs,
+                      "the slab pass reads its schedule from the storey, so a "
+                      "multi-storey sheet's table reaches no bay at all")
 
     def test_one_function_turns_the_tick_and_the_boxes_into_one_number(self):
         # the dialog cannot send None, so the (tick, box) -> tri-state mapping
