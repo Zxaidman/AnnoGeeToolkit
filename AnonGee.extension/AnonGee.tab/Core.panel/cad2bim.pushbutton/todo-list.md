@@ -113,6 +113,30 @@ for every other pre-P1 file.
 
 ## 2. Errors and bugs
 
+### BUG-22 — test17 states each beam's SECTION in the layer name, and nothing reads it · `pending`
+
+**Found** by measuring the owner's new `StructuralPlan-Test17.dxf` (pushed `6243f12`) as it entered
+the corpus. Nothing is broken that used to work — the drawing is simply drawn on a convention
+cad2bim has never met.
+
+**Measured.** The drawing carries **9,515 records on nine layers named for the section they hold** —
+`B-200x650` (7,165), `B-200x325` (981), `B-200x375` (480), `B-200x400` (430), `BK1-200x650` (264),
+`B-200x300` (137), `B-200x450` (44), `B-300X650` (8), `B-400x650` (6), eight distinct sections in
+all. `build_default_mapping` recognises none of them, so all 9,515 land in `unmapped` and the
+drawing yields **151 beams** where it plainly draws thousands. Its other numbers are healthy — 48,441
+records, 2,824 column entries, **7,336 wall segments** (the largest wall drawing in the corpus by
+far, next is test8 at 178), 1,210 slab loops, 18,248 hatch regions — and it carries no foundation
+layer, no legend and no schedule.
+
+**Why it is worth its own entry rather than a mapping tweak:** the layer name is not just a
+category here, it is the SIZE. A `B-200x650` record needs to reach the beam pass already sized
+200 × 650, which is a source of section the pipeline has never had — today a beam is sized by a
+text label or by a schedule row, and this drawing has neither for its beams. The routing and the
+sizing are one question and should be answered together.
+
+**Not started, and not to be started on a guess.** The owner has not reported anything about test17
+yet; this is the measurement taken as the fixture arrived, filed so it is not re-derived later.
+
 ### BUG-20 — test16 builds NO footing from its 73 drawn outlines · `testing`
 
 **The owner, v0.91.0 round:** "our test16 schedule is not working still for slab and footing alike
