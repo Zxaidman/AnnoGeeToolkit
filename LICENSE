@@ -1,22 +1,68 @@
-# ANONGEE TOOLKIT PROPRIETARY SOURCE LICENSE
+ANONGEE TOOLKIT PROPRIETARY SOURCE LICENSE
 
-Copyright © 2026 Zxaidman.
-All rights reserved.
+Copyright © 2026 Zxaidman. All rights reserved.
 
-The source code, original software components, documentation,
-designs, and other original materials comprising AnonGee Toolkit
-are proprietary materials of Zxaidman, to the extent protected by
-applicable law.
+1. OWNERSHIP AND SCOPE
 
-No permission is granted to copy, modify, publish, redistribute,
-sublicense, sell, or commercially exploit the source code except
-under a separate written agreement with the copyright holder.
+This license applies to the original source code, scripts, documentation,
+design assets, build tooling, installer sources, user-interface materials,
+and other original materials comprising AnonGee Toolkit that are owned or
+controlled by Zxaidman (collectively, the "AnonGee Materials"), to the extent
+protected by applicable law.
 
-Possession of or access to this repository does not grant a license
-to the source code.
+AnonGee Toolkit is proprietary software. Except for rights expressly granted
+in a separate written agreement, no ownership interest or source-code license
+is transferred by access to this repository, possession of a copy, or use of
+the compiled/distributed product.
 
-Authorized collaborators may access or modify source code only
-under the permissions specifically granted to them by the
-copyright holder.
+2. NO GENERAL SOURCE-CODE LICENSE
 
-Third-party components remain governed by their respective licenses.
+No permission is granted to copy, reproduce, modify, adapt, publish, disclose,
+distribute, sublicense, sell, rent, lease, commercially exploit, or create
+derivative works from the AnonGee Materials, except as expressly authorized
+in writing by Zxaidman or as required by non-waivable applicable law.
+
+3. AUTHORIZED COLLABORATORS
+
+Access granted to an approved collaborator is limited to the purpose and scope
+expressly authorized by Zxaidman. Repository access alone does not grant a
+right to redistribute, publish, sublicense, sell, or independently exploit the
+AnonGee Materials.
+
+Human contributions may be accepted only under contribution terms approved by
+Zxaidman that preserve sufficient rights for AnonGee Toolkit to be maintained,
+commercialized, relicensed, distributed, and licensed to third parties.
+
+4. END-USER RIGHTS ARE SEPARATE
+
+This source license does not define the rights of ordinary end users of a
+compiled or packaged AnonGee Toolkit release. End-user rights are governed by
+the End User License Agreement supplied with the applicable release.
+
+5. COMMERCIAL LICENSING AND DISTRIBUTION
+
+Commercial, organizational, reseller, distributor, OEM, source-access, and
+other expanded rights may be granted only under a separate written agreement
+with Zxaidman. Such agreements may include fees, royalties, revenue sharing,
+territory, support, branding, source-access, or other negotiated terms.
+
+6. THIRD-PARTY MATERIALS
+
+Third-party software, libraries, runtimes, tools, trademarks, and other
+materials are not owned by Zxaidman merely because they are used by, bundled
+with, or referenced by AnonGee Toolkit. They remain governed by their
+respective licenses and notices. Where a third-party license grants rights
+that conflict with this source license, that third-party license controls only
+for the corresponding third-party material.
+
+7. HISTORICAL LICENSING
+
+Some historical revisions of this repository were made available while a GNU
+General Public License Version 3 license file was present. The separate
+RELICENSING_NOTICE.md records the licensing transition. Nothing in this
+license attempts to revoke rights that were validly granted for a historical
+copy under its applicable license.
+
+8. RESERVATION OF RIGHTS
+
+All rights not expressly granted are reserved by Zxaidman.
