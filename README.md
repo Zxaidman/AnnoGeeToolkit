@@ -1,8 +1,8 @@
-# AnonGee BIM Tools — Revit Automation Toolkit
+# AnonGee BIM Tools — pyRevit Extension for Autodesk Revit
 
-AnonGee Toolkit is a proprietary suite of structural and architectural BIM automation tools for Autodesk Revit, currently delivered through the pyRevit framework. The current packaged installer target is **Autodesk Revit 2025 on native Windows x64**. End users do not need a standalone Python installation because the tested CPython dependencies are bundled with the extension.
+A professional suite of structural and architectural BIM automation tools for **Autodesk Revit**, currently delivered through the **pyRevit** framework. The current packaged installer target is **Autodesk Revit 2025 on native Windows x64**. End users do not need a standalone Python installation because the tested CPython dependencies are bundled inside the extension.
 
-> **Source status:** This repository is private and proprietary. Repository access does not grant redistribution, resale, sublicensing, or source-code publication rights. See [LICENSE](LICENSE), [RELICENSING_NOTICE.md](RELICENSING_NOTICE.md), and [CONTRIBUTING.md](CONTRIBUTING.md).
+> **Source status:** This repository is private and proprietary. Repository access does not grant redistribution, resale, sublicensing, or source-publication rights. See [LICENSE](LICENSE), [RELICENSING_NOTICE.md](RELICENSING_NOTICE.md), and [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ![Revit](https://img.shields.io/badge/Autodesk%20Revit-2025-blue)
 ![pyRevit](https://img.shields.io/badge/pyRevit-6.1.x--6.3.x%20%7C%206.5.x-brightgreen)
@@ -11,116 +11,215 @@ AnonGee Toolkit is a proprietary suite of structural and architectural BIM autom
 
 ---
 
-## Tools Overview
+## ✨ Tools Overview
 
-The extension adds an **AnonGee** tab to the Revit ribbon with four panels and a growing collection of automation tools.
+The extension adds an **AnonGee** tab to the Revit ribbon with four panels and 29 tools.
 
-### Essential Panel
+### 🟢 Essential Panel
 
 Everyday modelling and clean-up work.
 
-**Auto Level Manager** — manage project levels from one modeless window. Reads level marks from drawing text, selections, DXF input, or pasted text; previews proposed changes; and applies approved modifications to the Revit model.
+**Auto Level Manager** *(v2.0.0 · [changelog](AnonGee.extension/AnonGee.tab/Essential.panel/AutoLevel.pushbutton/CHANGELOG.md))*
 
-**StrucBIM** — structural slab and setting-out tools, including element-distance checks, floor creation from bounded regions, and slab/foundation conversion.
+| Tool | Description |
+| --- | --- |
+| **Auto Level Manager** | Every level in the model from one **modeless** window — Revit stays interactive while it is open. Reads level marks out of drawing text ("FFL +3.500", "TOS -1.200", "TERRACE +14'-6\"") from the active view, the Revit selection, a DXF, or a paste box; infers the drawing's unit from the storey heights and cross-checks each text against where it sits on the sheet. Adds, renames, re-spaces and deletes levels. The stack is drawn to scale and editable in place — click to select, drag to move, double-click to rename, wheel to zoom. Undo/redo over staged changes; nothing reaches the model until Apply, which lands as one undo step. |
 
-**Bulk Tool** — bulk clean-up and rename tools for patterns, line styles, rebar visibility, and related model-wide operations.
+**StrucBIM** — structural slabs and setting-out
 
-**Action** — annotation and placement tools including self-dimensioning, schedule export, and column rotation.
+| Tool | Description |
+| --- | --- |
+| **Round Element Dist** | Check element distances against one correct datum element or point and round them to a design value. Reports every deviation first; you approve each fix before anything moves. Skips pinned, grouped and linked elements. |
+| **Draw Floor** | Click inside a closed region formed by structural framing and columns in a plan view; a structural floor or foundation slab is created with its boundary on the **inner faces** of those elements. Pick a type, click regions, repeat. |
+| **Convert Slab** | Convert Structural Floor ⇄ Structural Foundation (slab). Works on a pre-selection or lets you pick in plan, 3D, section or elevation, and shows a pre-flight list of every element with its resolved target type before committing. |
 
-**Modify** — join-priority, category unjoin, and linked-model visibility tools.
+**Bulk Tool** — model-wide clean-up
 
-### Advance Panel
+| Tool | Description |
+| --- | --- |
+| **Bulk Delete** | Bulk-delete **Fill Patterns**, **Line Patterns** or **Line Styles**. Search and tick what to remove, with All / None helpers. |
+| **Bulk Rename** | Bulk find-and-replace across all **Fill Pattern**, **Line Pattern** or **Line Style** names. |
+| **Obscured Rebar** | Set rebars as Unobscured and Solid across selected views. Uses the pre-selection if there is one, otherwise every rebar in the document. |
+| **Copy Rebar Visibility** | Copy rebar visibility from one view to many: hidden/unhidden state, the Unobscured flag, and the Solid flag for 3D → 3D pairs. |
 
-Parameter workflows for filtering, previewing, and batch-editing Revit element parameters.
+**Action** — annotation and placement
 
-### Core Panel
+| Tool | Description |
+| --- | --- |
+| **AutoDIM** | *Self Dimension.* Dimension a selected element's own extents, measured along the element's **own** orientation, on whichever axes lie in the active view's plane. Placement is tuned per category so dimensions stay clear of the geometry. |
+| **Export Schedule** | Export Revit schedules to a single Excel workbook (`.xlsx`) with borders, fonts and header styling. Lists every project schedule with checkboxes. |
+| **Rotate Column** | Rotate selected columns sequentially by a dynamically calculated step angle. Pure Revit API through Python.NET. |
 
-Model-generation tools from external sources, including FRAMEWIN/PLANWIN workflows and **CAD2BIM**, which reads DXF geometry and annotations to generate Revit grids, columns, beams, slabs, stairs, walls, and related structural content.
+**Modify** — joins and link visibility
 
-### Dev Panel
+| Tool | Description |
+| --- | --- |
+| **Join Priority** | Enforce a category-based join order on selected elements, so higher-priority categories cut lower-priority ones. |
+| **Unjoin by Category** | Unjoin the selected elements from everything they are joined to in the categories you choose. |
+| **Toggle Linked** | Toggle the visibility of linked Revit categories in the current view. |
 
-Development and reference tooling including BBS generation, the AnonGee design system, CPython engine health checks, pushbutton scaffolding, and modeless-window implementation patterns.
+### 🔵 Advance Panel
+
+Parameter work across many elements, always with a preview before anything is written.
+
+| Tool | Description |
+| --- | --- |
+| **One Filter Parameter** | Filter elements by a single parameter condition, preview the matches in a table, then batch-change a parameter on everything that passes (Set / Prefix / Suffix / Replace / Delete). |
+| **Multi Filter Parameter** | Filter by multiple parameter conditions (All / Any logic), then batch-edit a parameter on everything that matches. |
+| **Parameter Combination** | Write a value into a target parameter across model elements, built from one of four operations, with a live per-element preview before you apply. |
+
+### 🔴 Core Panel
+
+Build a model from an external source.
+
+| Tool | Description |
+| --- | --- |
+| **BIM Generation** | Build a structural Revit model from a PLANWIN / FRAMEWIN **INP** file. Creates levels, structural columns, beams and floors with auto-sized type duplicates. |
+| **FramewinToBIM** | Generate a structural RC frame (columns / beams / slabs) from FRAMEWIN data. |
+| **cad2bim** | Pick a **DXF**, link it with unit and positioning settings, then build Revit grids, columns, beams, slabs and stairs from it. Hybrid extraction — the Revit link's geometry plus ezdxf for geometry and text — with layer classification and size refinement from text marks ("C1 400x400"). |
+
+### 🟠 Dev Panel
+
+Generators, the design system, and the reference patterns new tools are built from.
+
+| Tool | Description |
+| --- | --- |
+| **BBS Generator** | **Bar Bending Schedule** generator. Reads native `DB.Rebar` elements and exports formatted Excel workbooks (BBS, Calculation, Summary sheets). Supports **IS 2502:2019**, **BS 8666:2020** and **ACI 318-19 / CRSI**, with revision tracking. |
+| **Brand Guidelines** | Living component gallery for the design system — brand colours, typography, buttons, inputs, selection controls, lists and status badges, exactly as they render inside Revit. |
+| **CPython3 engine** | Engine health check. Reports whether the CPython 3 engine is a fresh load or a reused instance (and how many runs this session), which third-party libraries resolve, and whether the Revit API bridge responds. |
+| **Create Button** | Scaffold a new pyRevit pushbutton: collects the tab / panel / group / metadata in a brand-themed dialog, writes the folder, script, icon and `bundle.yaml`, then asks pyRevit to reload. |
+| **Modeless Window** | Reference implementation of the modeless (non-blocking) window pattern — `window.Show()`, an `IExternalEventHandler` bridge marshalling every Revit call onto Revit's primary thread, and the session-state rules that go with it. |
 
 ---
 
-## Versioning
+## 🏷️ Versioning
 
-The extension carries its own version in `extension.json`, recorded in the root [CHANGELOG.md](CHANGELOG.md).
+The extension carries one version in `extension.json`, recorded in the [root changelog](CHANGELOG.md).
 
-Individual tools that evolve independently may carry their own semantic version and changelog beside their bundle. Tool versions and the toolkit version therefore do not need to move together.
+A tool that changes often enough for "which build am I running" to be a real question carries **its own version and its own changelog**, beside its `bundle.yaml`. Those move independently — `AnonGee BIM Tools 1.1.0` can ship `Auto Level Manager 2.0.0`, and neither number is wrong. The version shown in a tool's own window is the build actually running; quote it when reporting anything.
 
 The installer/build pipeline also uses milestone versions independently from the user-facing AnonGee product version while the deployment system is being developed.
 
+## 🎨 Design System
+
+All tools use a **custom WPF design system** with:
+
+- Brand color palette & theming (`Colors.xaml`, `AnonGeeTheme.xaml`)
+- Reusable WPF controls (`Controls.xaml`)
+- SVG/vector icons (`Icons.xaml`)
+- Consistent typography (`Typography.xaml`)
+- Panel layout templates (`Panels.xaml`)
+
+Preview the full system in Revit via **AnonGee > Dev > Brand Guidelines**.
+
 ---
 
-## Design System
+## 📦 Installation (End User)
 
-AnonGee tools use a custom WPF design system with shared colors, typography, controls, icons, and panel patterns under `AnonGee.extension/Resources/`.
+AnonGee source code is not distributed through a public clone/download workflow.
 
-Preview the component system in Revit through **AnonGee > Dev > Brand Guidelines**.
-
----
-
-## Supported Packaged Environment
-
-The current production-target compatibility contract is intentionally narrow while the installer is being validated:
+### Current packaged prerequisites
 
 - **Windows 10/11 native x64**
 - **Autodesk Revit 2025**
 - **pyRevit 6.1.x–6.3.x or 6.5.x**
-- **pyRevit 6.4.x is blocked** because of reproduced CPython initialization failures
-- pyRevit versions newer than the validated 6.5.x range may require explicit compatibility validation
-- **Standalone Python is not required for end users**
+- **pyRevit 6.4.x is not supported** because of reproduced CPython initialization failures
+- **Standalone Python is not required** for end users
 
-Support for additional Revit, pyRevit, Windows, or architecture combinations must be explicitly tested before being added to the supported contract.
-
----
-
-## Installation — End Users
-
-AnonGee source code is not distributed through a public clone/download workflow.
-
-End users receive a packaged AnonGee installer when they are entitled to use the Software under the applicable End User License Agreement.
-
-The installer places the extension into the current user's pyRevit Extensions directory and performs compatibility checks before modifying the installation.
+The current installer detects the supported environment before modifying the AnonGee installation. End users receive the packaged installer when they are entitled to use the Software under the applicable EULA.
 
 ### Licensing model
 
-- **Personal non-commercial use:** may be permitted without charge under the packaged EULA.
+- **Personal non-commercial use:** may be used without charge under the packaged EULA.
 - **Company, employer, client, professional, governmental, or organizational use:** requires an appropriate commercial license or written authorization.
 - **Redistribution, resale, OEM distribution, sublicensing, and source access:** require a separate written agreement.
 
-The exact rights for a particular release are defined by the EULA supplied with that release.
+The exact rights for a particular packaged release are defined by the EULA supplied with that release.
+
+> ✅ **No standalone Python installation or end-user pip setup is required.** The tested CPython runtime dependencies are bundled with the extension.
 
 ---
 
-## Development — Approved Collaborators
+## 🛠️ Development (Approved Collaborators)
 
-Development access is limited to approved collaborators. Access to this private repository does not by itself grant rights to publish, redistribute, sublicense, or commercially exploit AnonGee source code.
+Development access is limited to approved collaborators. Access to this private repository does not by itself grant rights to publish, redistribute, sublicense, resell, or commercially exploit AnonGee source code.
 
 Before making substantial human-authored contributions, review [CONTRIBUTING.md](CONTRIBUTING.md). Contributor/IP terms may be required before a contribution is accepted.
 
-### Dependency provisioning
-
-The controlled CPython runtime is built from pinned requirements. From the repository root, approved developers can use the project provisioning/build tooling rather than installing ad-hoc packages into the release payload.
+If you're modifying or extending the tools, use the controlled dependency workflow:
 
 ```bash
+# From the repository root
 cd tools
 py -3.12 -m pip install -r requirements.txt
 py -3.12 auto_provision.py
 ```
 
-Runtime dependencies are bundled under `AnonGee.extension/lib/py3/` and are validated by the release payload builder before installer compilation.
+This builds the pinned CPython 3.12 runtime used by the extension. Release payloads are subsequently verified by `installer/build_payload.py` before installer compilation.
 
 ### Tests
 
-Revit-independent logic is covered by Python tests where practical. Run the applicable suite from the repository root using the project-standard Python environment.
+Some tools keep their Revit-free logic in plain Python modules so it can be exercised without opening Revit. Run the applicable unit suite from the repository root using the project-standard Python environment.
+
+`tests/test_repo_docs.py` holds this README and the [root changelog](CHANGELOG.md) to what is actually on the ribbon — every `.pushbutton` on disk has to be documented, every panel has to be declared in `extension.json`, and the changelog has to lead with the version `extension.json` states. `tests/test_autolevel.py` covers the Auto Level Manager's text detection, naming, plan model and stack-drawing camera. `tests/test_autolevel_ui.py` checks its XAML and Python wiring statically, against the delivery rules in §12.7–§12.9 of the brand guidelines and against the failures that are expensive to find inside Revit:
+
+- every `FindName` lookup resolves and every named control is used;
+- every `{Binding}` path has a matching `__slots__` entry;
+- no `re`, no pyRevit imports, no `StaticResource` on the root `Window`;
+- **no attribute value is mistaken for a markup extension** — a literal starting with `{` must be escaped `{}`, or `XamlReader.Load` throws and the window never opens;
+- every `{StaticResource}` names a key that exists, no `x:Key` is defined twice, every `Style` matches the element it is applied to, and every trigger `TargetName` exists in its own template;
+- every interactive control carries a tooltip;
+- the tool's version agrees across `__init__.py`, `bundle.yaml`, `CHANGELOG.md` and the window header.
 
 CAD2BIM additionally maintains a large regression corpus. Heavy CAD fixtures used only for development are excluded from packaged release payloads by `installer/build_payload.py`.
 
+### Project Structure
+
+```text
+pyRevit-addons/
+├── LICENSE                         # proprietary source license
+├── RELICENSING_NOTICE.md           # historical GPL → proprietary transition
+├── CONTRIBUTING.md                 # approved collaborator/IP policy
+├── CHANGELOG.md                    # extension version history
+├── README.md
+├── extension.json                  # extension name, version, panel order
+├── tests/                          # Revit-free tests
+├── tools/                          # dependency provisioning
+├── installer/                      # payload builder + Inno Setup sources
+├── AnonGee_BIM_Tools_Brand_Guidelines.md
+└── AnonGee.extension/
+    ├── AnonGee.tab/                # Revit ribbon tab definition
+    │   ├── Essential.panel/
+    │   ├── Advance.panel/
+    │   ├── Core.panel/
+    │   └── Dev.panel/
+    ├── lib/
+    │   └── py3/                    # CPython 3.12 runtime + anongee_toolkit
+    ├── Resources/                  # WPF design system
+    │   ├── AnonGeeTheme.xaml
+    │   ├── Colors.xaml
+    │   ├── Controls.xaml
+    │   ├── Icons.xaml
+    │   ├── Panels.xaml
+    │   └── Typography.xaml
+    └── path_resolver.py
+```
+
+A tool bundle is a folder ending in `.pushbutton`, holding `bundle.yaml` (title, author, tooltip), `icon.png`, `script.py`, and — for anything with a window — a sibling `ui.xaml`. A tool with its own version adds a `CHANGELOG.md` and keeps its logic in a package beside the script, so the parts that do not touch Revit can be tested:
+
+```text
+AutoLevel.pushbutton/
+├── bundle.yaml
+├── CHANGELOG.md
+├── icon.png
+├── script.py
+├── ui.xaml
+└── anongee_autolevel/
+```
+
 ---
 
-## Installer / Release Pipeline
+## 📦 Installer / Release Pipeline
 
 The current release flow is:
 
@@ -138,77 +237,29 @@ AnonGee-Setup-<version>.exe
 
 `build_payload.py` verifies pinned dependency metadata, native `.pyd`/DLL content, key NumPy runtime files, release exclusions, Git source information, and payload integrity before the installer is compiled.
 
-Generated payloads, build outputs, and prerequisite executables are intentionally excluded from normal Git history.
+Generated payloads, installer outputs, and prerequisite executables are intentionally excluded from normal Git history.
 
 ---
 
-## Project Structure
+## 🤝 Contributing
 
-```text
-pyRevit-addons/
-├── LICENSE                         # proprietary source license
-├── RELICENSING_NOTICE.md           # historical GPL → proprietary transition
-├── CONTRIBUTING.md                 # approved collaborator/IP policy
-├── CHANGELOG.md
-├── README.md
-├── extension.json
-├── AnonGee_BIM_Tools_Brand_Guidelines.md
-│
-├── tools/
-│   ├── requirements.txt
-│   ├── auto_provision.py
-│   └── install_dependencies.bat
-│
-├── installer/
-│   ├── AnonGee.iss
-│   ├── build_payload.py
-│   ├── legal/
-│   │   ├── EULA.txt
-│   │   ├── LICENSE.txt
-│   │   ├── INSTALL_NOTES.txt
-│   │   └── THIRD_PARTY_NOTICES.txt
-│   ├── assets/
-│   ├── prerequisites/
-│   ├── payload/                    # generated / gitignored
-│   └── output/                     # generated / gitignored
-│
-└── AnonGee.extension/
-    ├── AnonGee.tab/
-    │   ├── Essential.panel/
-    │   ├── Advance.panel/
-    │   ├── Core.panel/
-    │   └── Dev.panel/
-    ├── lib/
-    │   └── py3/
-    ├── Resources/
-    └── path_resolver.py
-```
-
----
-
-## Third-Party Software
-
-AnonGee Toolkit uses third-party open-source and proprietary-platform components. These components remain governed by their own licenses and are not converted into proprietary AnonGee code merely because they are bundled with or used by AnonGee.
-
-The current packaged dependency inventory is maintained in:
-
-`installer/legal/THIRD_PARTY_NOTICES.txt`
-
-Third-party license files distributed inside Python wheel/package metadata must be retained in release payloads where applicable.
-
-pyRevit and Autodesk Revit are separate third-party products and are not owned by Zxaidman.
-
----
-
-## Contributing
-
-AnonGee Toolkit does **not** accept unrestricted public/open-source contributions.
+AnonGee Toolkit does **not** use an unrestricted public/open-source contribution model.
 
 Only approved collaborators may contribute source code, and substantial human-authored contributions may require a contributor/IP agreement before acceptance. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 
-## License
+## 🧾 Third-Party Software
+
+AnonGee Toolkit uses third-party software and libraries. Those components remain governed by their own licenses and do not become proprietary AnonGee code merely because they are bundled with or used by AnonGee.
+
+The current dependency inventory is maintained in [`installer/legal/THIRD_PARTY_NOTICES.txt`](installer/legal/THIRD_PARTY_NOTICES.txt). Upstream LICENSE/COPYING/NOTICE files supplied with Python wheels and native libraries should be retained in release payloads where applicable.
+
+pyRevit and Autodesk Revit are separate third-party products and are not owned by Zxaidman.
+
+---
+
+## 🪪 License
 
 AnonGee Toolkit source code and original project materials are proprietary and are governed by [LICENSE](LICENSE).
 
