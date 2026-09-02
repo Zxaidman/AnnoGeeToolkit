@@ -1,0 +1,12 @@
+<!-- AnonGee Logo Geometry v1.0.1 | ViewBox 0,0,480,440 -->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Color x:Key="AnonGee.VividRed">#E02020</Color>
+  <Color x:Key="AnonGee.CharcoalBlack">#141414</Color>
+  <Color x:Key="AnonGee.SilverSteel">#C0C8D8</Color>
+  <SolidColorBrush x:Key="AnonGee.BrushRed" Color="{StaticResource AnonGee.VividRed}"/>
+  <SolidColorBrush x:Key="AnonGee.BrushBlack" Color="{StaticResource AnonGee.CharcoalBlack}"/>
+  <SolidColorBrush x:Key="AnonGee.BrushSilver" Color="{StaticResource AnonGee.SilverSteel}"/>
+  <Geometry x:Key="AnonGee.Logo.Red">M 322,18 L 196,18 L 11,344 L 11,397 L 100,396 Z</Geometry>
+  <Geometry x:Key="AnonGee.Logo.Black">M 323,19 L 264,120 L 318,218 L 435,218 Z</Geometry>
+  <Geometry x:Key="AnonGee.Logo.Silver">M 456,254 L 290,254 L 249,320 L 357,320 L 358,355 L 160,356 L 115,429 L 455,429 Z</Geometry>
+</ResourceDictionary>

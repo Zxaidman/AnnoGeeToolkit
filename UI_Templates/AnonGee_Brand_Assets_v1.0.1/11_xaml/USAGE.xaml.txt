@@ -1,0 +1,7 @@
+<Viewbox Width="64" Height="64">
+  <Grid Width="480" Height="440">
+    <Path Data="{StaticResource AnonGee.Logo.Red}" Fill="{StaticResource AnonGee.BrushRed}"/>
+    <Path Data="{StaticResource AnonGee.Logo.Black}" Fill="{StaticResource AnonGee.BrushBlack}"/>
+    <Path Data="{StaticResource AnonGee.Logo.Silver}" Fill="{StaticResource AnonGee.BrushSilver}"/>
+  </Grid>
+</Viewbox>
