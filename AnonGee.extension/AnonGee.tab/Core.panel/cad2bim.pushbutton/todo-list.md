@@ -230,7 +230,7 @@ mark makes a raft whatever the area. **Measured: test16 0 → 73 foundations pla
 from the schedule (F1 500 x30, F2 550 x26, F3 600 x15, RF1/RF2 1200); **test10 unchanged at 9** with
 its marks, thicknesses and kinds identical, Test0 still plans nothing.
 
-### BUG-21 — No storey can see the schedule, because the table is not on any storey · `testing`
+### BUG-21 — No storey can see the schedule, because the table is not on any storey · `done` (v0.93.0)
 
 The other half of the owner's sentence — the slab schedule — and it is not the reader this time.
 
@@ -331,7 +331,7 @@ wrong. **No genuinely rotated column exists in test14** — every failure is noi
 band the measurement leaves empty, then decompose as a composite. `_snapped` in `fold_plan` is the
 donor. Tolerance to be set from the corpus-wide drift measurement, not chosen.
 
-### BUG-17 — A slab schedule with a THK column is not read at all (test16) · `testing`
+### BUG-17 — A slab schedule with a THK column is not read at all (test16) · `done` (v0.89.0, v0.93.0)
 
 **Fixed in v0.89.0, awaiting the owner's Revit run.** `thk` / `thick` / `thickness` is now a header
 word, `_is_header_row` accepts a Mark + one thickness column, and `parse_thickness_schedule` reads
