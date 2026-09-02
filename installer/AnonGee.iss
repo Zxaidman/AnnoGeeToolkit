@@ -54,11 +54,15 @@ Type: filesandordirs; Name: "{userappdata}\pyRevit\Extensions\AnonGee.extension"
 [Code]
 
 const
+  CRLF = #13#10;
+
   Revit2025UninstallKey =
     'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\' +
     '{7346B4A0-2500-0510-0000-705C0D862004}';
+
   Revit2025ProductKey =
     'SOFTWARE\Autodesk\Revit\Autodesk Revit 2025';
+
   WindowsUninstallKey =
     'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall';
 
@@ -175,7 +179,8 @@ var
   N: String;
 begin
   N := LowerCase(Trim(DisplayName));
-  ; pyRevit CLI is separate and is not enough for AnonGee.
+
+  ; pyRevit CLI is a separate product and is not sufficient for AnonGee.
   Result := (Pos('pyrevit', N) = 1) and (Pos('cli', N) = 0);
 end;
 
@@ -187,28 +192,39 @@ procedure ConsiderPyRevitCandidate(
   const RegistryPath: String
 );
 var
-  Major, Minor, Patch: Integer;
-  IsUserScope, ShouldReplace: Boolean;
+  Major: Integer;
+  Minor: Integer;
+  Patch: Integer;
+  IsUserScope: Boolean;
+  ShouldReplace: Boolean;
 begin
   if not TryParseSemVer3(VersionRaw, Major, Minor, Patch) then
   begin
-    Log('Ignoring pyRevit-like registry entry with unreadable version: ' +
-      DisplayName + ' | ' + VersionRaw + ' | ' + RegistryPath);
+    Log(
+      'Ignoring pyRevit-like registry entry with unreadable version: ' +
+      DisplayName + ' | ' + VersionRaw + ' | ' + RegistryPath
+    );
     Exit;
   end;
 
   IsUserScope := ScopeName = 'Per-user';
   ShouldReplace := False;
 
-  Log('Found pyRevit candidate: ' + DisplayName + ' | version=' + VersionRaw +
-    ' | scope=' + ScopeName + ' | registry=' + RegistryPath);
+  Log(
+    'Found pyRevit candidate: ' + DisplayName +
+    ' | version=' + VersionRaw +
+    ' | scope=' + ScopeName +
+    ' | registry=' + RegistryPath
+  );
 
   if IsUserScope then
   begin
     if not UserPyRevitFound then
       ShouldReplace := True
-    else if CompareSemVer3(Major, Minor, Patch,
-      UserPyRevitMajor, UserPyRevitMinor, UserPyRevitPatch) > 0 then
+    else if CompareSemVer3(
+      Major, Minor, Patch,
+      UserPyRevitMajor, UserPyRevitMinor, UserPyRevitPatch
+    ) > 0 then
       ShouldReplace := True;
 
     if ShouldReplace then
@@ -226,8 +242,10 @@ begin
   begin
     if not MachinePyRevitFound then
       ShouldReplace := True
-    else if CompareSemVer3(Major, Minor, Patch,
-      MachinePyRevitMajor, MachinePyRevitMinor, MachinePyRevitPatch) > 0 then
+    else if CompareSemVer3(
+      Major, Minor, Patch,
+      MachinePyRevitMajor, MachinePyRevitMinor, MachinePyRevitPatch
+    ) > 0 then
       ShouldReplace := True;
 
     if ShouldReplace then
@@ -251,11 +269,17 @@ procedure ScanPyRevitUninstallRoot(
 var
   SubKeys: TArrayOfString;
   I: Integer;
-  KeyPath, DisplayName, DisplayVersion, InstallLocation: String;
+  KeyPath: String;
+  DisplayName: String;
+  DisplayVersion: String;
+  InstallLocation: String;
 begin
   if not RegGetSubkeyNames(RootKey, WindowsUninstallKey, SubKeys) then
   begin
-    Log('Could not enumerate uninstall registry: ' + ScopeName + ' / ' + RegistryViewName);
+    Log(
+      'Could not enumerate uninstall registry: ' +
+      ScopeName + ' / ' + RegistryViewName
+    );
     Exit;
   end;
 
@@ -271,15 +295,35 @@ begin
         DisplayVersion := '';
         InstallLocation := '';
 
-        if RegQueryStringValue(RootKey, KeyPath, 'DisplayVersion', DisplayVersion) then
+        if RegQueryStringValue(
+          RootKey,
+          KeyPath,
+          'DisplayVersion',
+          DisplayVersion
+        ) then
         begin
-          RegQueryStringValue(RootKey, KeyPath, 'InstallLocation', InstallLocation);
-          ConsiderPyRevitCandidate(ScopeName, DisplayName, DisplayVersion,
-            InstallLocation, RegistryViewName + '\' + KeyPath);
+          RegQueryStringValue(
+            RootKey,
+            KeyPath,
+            'InstallLocation',
+            InstallLocation
+          );
+
+          ConsiderPyRevitCandidate(
+            ScopeName,
+            DisplayName,
+            DisplayVersion,
+            InstallLocation,
+            RegistryViewName + '\' + KeyPath
+          );
         end
         else
-          Log('Ignoring pyRevit-like registry entry without DisplayVersion: ' +
-            DisplayName + ' | ' + RegistryViewName + '\' + KeyPath);
+        begin
+          Log(
+            'Ignoring pyRevit-like registry entry without DisplayVersion: ' +
+            DisplayName + ' | ' + RegistryViewName + '\' + KeyPath
+          );
+        end;
       end;
     end;
   end;
@@ -290,15 +334,14 @@ begin
   UserPyRevitFound := False;
   MachinePyRevitFound := False;
 
-  ; Search both registry views: pyRevit may have been registered by
+  ; Search both registry views because pyRevit can be registered by
   ; different installer technologies/builds.
   ScanPyRevitUninstallRoot(HKCU64, 'Per-user', 'HKCU64');
   ScanPyRevitUninstallRoot(HKCU32, 'Per-user', 'HKCU32');
   ScanPyRevitUninstallRoot(HKLM64, 'All-users', 'HKLM64');
   ScanPyRevitUninstallRoot(HKLM32, 'All-users', 'HKLM32');
 
-  ; Prefer current-user scope if both are present. It is the relevant
-  ; installation for this per-user AnonGee Setup.
+  ; Prefer current-user scope if both installations exist.
   if UserPyRevitFound then
   begin
     DetectedPyRevitName := UserPyRevitName;
@@ -310,8 +353,10 @@ begin
     DetectedPyRevitPatch := UserPyRevitPatch;
 
     if MachinePyRevitFound then
-      Log('Both per-user and all-users pyRevit installations were detected. ' +
-        'Per-user is used for compatibility checks.');
+      Log(
+        'Both per-user and all-users pyRevit installations were detected. ' +
+        'Per-user is used for compatibility checks.'
+      );
 
     Result := True;
     Exit;
@@ -327,8 +372,11 @@ begin
     DetectedPyRevitMinor := MachinePyRevitMinor;
     DetectedPyRevitPatch := MachinePyRevitPatch;
 
-    Log('All-users pyRevit detected. Detection is supported; this scope ' +
-      'remains an AnonGee QA item before 1.0.0.');
+    Log(
+      'All-users pyRevit detected. Detection is supported; this scope ' +
+      'remains an AnonGee QA item before 1.0.0.'
+    );
+
     Result := True;
     Exit;
   end;
@@ -338,7 +386,8 @@ end;
 
 function DetectRevit2025(var RevitPath: String): Boolean;
 var
-  InstallLocation, CandidateExe: String;
+  InstallLocation: String;
+  CandidateExe: String;
 begin
   Result := False;
   RevitPath := '';
@@ -347,10 +396,20 @@ begin
   ; Primary: Autodesk Revit 2025 uninstall product registration.
   if RegKeyExists(HKLM64, Revit2025UninstallKey) then
   begin
-    if not RegQueryStringValue(HKLM64, Revit2025UninstallKey,
-      'InstallLocation', InstallLocation) then
-      RegQueryStringValue(HKLM64, Revit2025UninstallKey,
-        'InstallationLocation', InstallLocation);
+    if not RegQueryStringValue(
+      HKLM64,
+      Revit2025UninstallKey,
+      'InstallLocation',
+      InstallLocation
+    ) then
+    begin
+      RegQueryStringValue(
+        HKLM64,
+        Revit2025UninstallKey,
+        'InstallationLocation',
+        InstallLocation
+      );
+    end;
 
     if InstallLocation <> '' then
     begin
@@ -364,10 +423,12 @@ begin
     end;
   end;
 
-  ; Secondary: Autodesk's product registry key plus executable validation.
+  ; Secondary: Autodesk product registry key plus executable validation.
   if RegKeyExists(HKLM64, Revit2025ProductKey) then
   begin
-    CandidateExe := ExpandConstant('{autopf64}\Autodesk\Revit 2025\Revit.exe');
+    CandidateExe :=
+      ExpandConstant('{autopf64}\Autodesk\Revit 2025\Revit.exe');
+
     if FileExists(CandidateExe) then
     begin
       RevitPath := ExpandConstant('{autopf64}\Autodesk\Revit 2025');
@@ -377,7 +438,9 @@ begin
   end;
 
   ; Final normal-install fallback.
-  CandidateExe := ExpandConstant('{autopf64}\Autodesk\Revit 2025\Revit.exe');
+  CandidateExe :=
+    ExpandConstant('{autopf64}\Autodesk\Revit 2025\Revit.exe');
+
   if FileExists(CandidateExe) then
   begin
     RevitPath := ExpandConstant('{autopf64}\Autodesk\Revit 2025');
@@ -387,8 +450,9 @@ end;
 
 function IsRevitRunning(var CheckSucceeded: Boolean): Boolean;
 var
-  ResultCode, I: Integer;
+  ResultCode: Integer;
   Output: TExecOutput;
+  I: Integer;
   Line: String;
 begin
   Result := False;
@@ -398,11 +462,17 @@ begin
     if ExecAndCaptureOutputWithNativeSysDir(
       'tasklist.exe',
       '/FI "IMAGENAME eq Revit.exe" /FO CSV /NH',
-      '', SW_SHOWNORMAL, ewWaitUntilTerminated, ResultCode, Output) then
+      '',
+      SW_SHOWNORMAL,
+      ewWaitUntilTerminated,
+      ResultCode,
+      Output
+    ) then
     begin
       if (ResultCode = 0) and (not Output.Error) then
       begin
         CheckSucceeded := True;
+
         for I := 0 to GetArrayLength(Output.StdOut) - 1 do
         begin
           Line := LowerCase(Output.StdOut[I]);
@@ -414,12 +484,20 @@ begin
         end;
       end
       else
-        Log('tasklist process check failed. Exit code=' + IntToStr(ResultCode));
+      begin
+        Log(
+          'tasklist process check failed. Exit code=' +
+          IntToStr(ResultCode)
+        );
+      end;
     end
     else
       Log('Could not execute tasklist.exe for Revit process detection.');
   except
-    Log('Exception while checking for Revit.exe: ' + GetExceptionMessage);
+    Log(
+      'Exception while checking for Revit.exe: ' +
+      GetExceptionMessage
+    );
   end;
 end;
 
@@ -429,23 +507,33 @@ var
 begin
   MessageText :=
     'AnonGee Toolkit detected pyRevit ' +
-    SemVer3ToString(DetectedPyRevitMajor, DetectedPyRevitMinor, DetectedPyRevitPatch) +
-    '.' + #13#10 + #13#10 +
+    SemVer3ToString(
+      DetectedPyRevitMajor,
+      DetectedPyRevitMinor,
+      DetectedPyRevitPatch
+    ) + '.' + CRLF + CRLF +
     'AnonGee has currently been validated through pyRevit 6.5.5. ' +
-    'This newer 6.x version has not yet been validated.' + #13#10 + #13#10 +
+    'This newer 6.x version has not yet been validated.' + CRLF + CRLF +
     'You may continue, but if AnonGee or CPython behaves incorrectly, ' +
     'install a validated pyRevit version before reporting an AnonGee bug.' +
-    #13#10 + #13#10 + 'Continue installation anyway?';
+    CRLF + CRLF + 'Continue installation anyway?';
 
   if WizardSilent then
   begin
-    Log('Blocking silent installation: unvalidated newer pyRevit 6.x version.');
+    Log(
+      'Blocking silent installation: ' +
+      'unvalidated newer pyRevit 6.x version.'
+    );
     Result := False;
     Exit;
   end;
 
-  Result := MsgBox(MessageText, mbConfirmation,
-    MB_YESNO or MB_DEFBUTTON2) = IDYES;
+  Result :=
+    MsgBox(
+      MessageText,
+      mbConfirmation,
+      MB_YESNO or MB_DEFBUTTON2
+    ) = IDYES;
 end;
 
 function ValidatePyRevitCompatibility: Boolean;
@@ -453,50 +541,75 @@ var
   VersionCore: String;
 begin
   Result := False;
-  VersionCore := SemVer3ToString(DetectedPyRevitMajor,
-    DetectedPyRevitMinor, DetectedPyRevitPatch);
+
+  VersionCore :=
+    SemVer3ToString(
+      DetectedPyRevitMajor,
+      DetectedPyRevitMinor,
+      DetectedPyRevitPatch
+    );
 
   if DetectedPyRevitMajor < 6 then
   begin
-    MsgBox('AnonGee Toolkit requires pyRevit 6.1.0 or newer within the ' +
-      'supported 6.x compatibility policy.' + #13#10 + #13#10 +
-      'Detected: pyRevit ' + VersionCore + ' (' + DetectedPyRevitScope + ')' +
-      #13#10 + #13#10 + 'Install a supported pyRevit version and run Setup again.',
-      mbCriticalError, MB_OK);
+    MsgBox(
+      'AnonGee Toolkit requires pyRevit 6.1.0 or newer within the ' +
+      'supported 6.x compatibility policy.' + CRLF + CRLF +
+      'Detected: pyRevit ' + VersionCore +
+      ' (' + DetectedPyRevitScope + ')' + CRLF + CRLF +
+      'Install a supported pyRevit version and run Setup again.',
+      mbCriticalError,
+      MB_OK
+    );
     Exit;
   end;
 
   if DetectedPyRevitMajor >= 7 then
   begin
-    MsgBox('AnonGee Toolkit has not been validated with pyRevit ' +
-      IntToStr(DetectedPyRevitMajor) + '.x.' + #13#10 + #13#10 +
-      'Detected: pyRevit ' + VersionCore + ' (' + DetectedPyRevitScope + ')' +
-      #13#10 + #13#10 +
+    MsgBox(
+      'AnonGee Toolkit has not been validated with pyRevit ' +
+      IntToStr(DetectedPyRevitMajor) + '.x.' + CRLF + CRLF +
+      'Detected: pyRevit ' + VersionCore +
+      ' (' + DetectedPyRevitScope + ')' + CRLF + CRLF +
       'Installation has been blocked to protect the Revit environment.',
-      mbCriticalError, MB_OK);
+      mbCriticalError,
+      MB_OK
+    );
     Exit;
   end;
 
-  if CompareSemVer3(DetectedPyRevitMajor, DetectedPyRevitMinor,
-    DetectedPyRevitPatch, 6, 1, 0) < 0 then
+  if CompareSemVer3(
+    DetectedPyRevitMajor,
+    DetectedPyRevitMinor,
+    DetectedPyRevitPatch,
+    6, 1, 0
+  ) < 0 then
   begin
-    MsgBox('AnonGee Toolkit requires pyRevit 6.1.0 or newer.' +
-      #13#10 + #13#10 + 'Detected: pyRevit ' + VersionCore +
-      ' (' + DetectedPyRevitScope + ')' + #13#10 + #13#10 +
+    MsgBox(
+      'AnonGee Toolkit requires pyRevit 6.1.0 or newer.' +
+      CRLF + CRLF +
+      'Detected: pyRevit ' + VersionCore +
+      ' (' + DetectedPyRevitScope + ')' + CRLF + CRLF +
       'Install a supported pyRevit version and run Setup again.',
-      mbCriticalError, MB_OK);
+      mbCriticalError,
+      MB_OK
+    );
     Exit;
   end;
 
   ; Known-bad family for AnonGee's CPython workload.
-  if (DetectedPyRevitMajor = 6) and (DetectedPyRevitMinor = 4) then
+  if (DetectedPyRevitMajor = 6) and
+     (DetectedPyRevitMinor = 4) then
   begin
-    MsgBox('pyRevit 6.4.x is not supported by AnonGee Toolkit.' +
-      #13#10 + #13#10 + 'Detected: pyRevit ' + VersionCore +
-      ' (' + DetectedPyRevitScope + ')' + #13#10 + #13#10 +
+    MsgBox(
+      'pyRevit 6.4.x is not supported by AnonGee Toolkit.' +
+      CRLF + CRLF +
+      'Detected: pyRevit ' + VersionCore +
+      ' (' + DetectedPyRevitScope + ')' + CRLF + CRLF +
       'The pyRevit 6.4.x line has known CPython initialization problems. ' +
       'Use pyRevit 6.1.x-6.3.x or 6.5.x instead, then run Setup again.',
-      mbCriticalError, MB_OK);
+      mbCriticalError,
+      MB_OK
+    );
     Exit;
   end;
 
@@ -505,13 +618,15 @@ begin
   ; 6.4.x       -> block
   ; 6.5.0-6.5.5 -> allow
   ; >6.5.5 <7   -> warn + allow interactively
-  if (DetectedPyRevitMajor = 6) and (DetectedPyRevitMinor <= 3) then
+  if (DetectedPyRevitMajor = 6) and
+     (DetectedPyRevitMinor <= 3) then
   begin
     Result := True;
     Exit;
   end;
 
-  if (DetectedPyRevitMajor = 6) and (DetectedPyRevitMinor = 5) and
+  if (DetectedPyRevitMajor = 6) and
+     (DetectedPyRevitMinor = 5) and
      (DetectedPyRevitPatch <= 5) then
   begin
     Result := True;
@@ -540,9 +655,13 @@ begin
   ; 1. Native x64 Windows.
   if not IsX64OS then
   begin
-    MsgBox('AnonGee Toolkit currently requires native x64 Windows.' +
-      #13#10 + #13#10 + 'Windows on ARM64 is not yet supported.',
-      mbCriticalError, MB_OK);
+    MsgBox(
+      'AnonGee Toolkit currently requires native x64 Windows.' +
+      CRLF + CRLF +
+      'Windows on ARM64 is not yet supported.',
+      mbCriticalError,
+      MB_OK
+    );
     Exit;
   end;
   Log('[PASS] Native x64 Windows detected.');
@@ -550,21 +669,28 @@ begin
   ; 2. Revit must not be running.
   if IsRevitRunning(ProcessCheckSucceeded) then
   begin
-    MsgBox('Autodesk Revit is currently running.' + #13#10 + #13#10 +
+    MsgBox(
+      'Autodesk Revit is currently running.' + CRLF + CRLF +
       'Save your work and close every Revit window before installing or ' +
-      'upgrading AnonGee Toolkit.' + #13#10 + #13#10 +
+      'upgrading AnonGee Toolkit.' + CRLF + CRLF +
       'Setup will exit without changing your AnonGee installation.',
-      mbCriticalError, MB_OK);
+      mbCriticalError,
+      MB_OK
+    );
     Exit;
   end;
 
   if not ProcessCheckSucceeded then
   begin
-    MsgBox('AnonGee Setup could not safely verify whether Revit.exe is running.' +
-      #13#10 + #13#10 + 'No files have been changed. Close Revit and run Setup again.' +
-      #13#10 + #13#10 +
+    MsgBox(
+      'AnonGee Setup could not safely verify whether Revit.exe is running.' +
+      CRLF + CRLF +
+      'No files have been changed. Close Revit and run Setup again.' +
+      CRLF + CRLF +
       'If this continues, review the Setup log or contact your BIM/IT administrator.',
-      mbCriticalError, MB_OK);
+      mbCriticalError,
+      MB_OK
+    );
     Exit;
   end;
   Log('[PASS] Revit.exe is not running.');
@@ -572,11 +698,14 @@ begin
   ; 3. Revit 2025 must exist and Revit.exe must be present.
   if not DetectRevit2025(DetectedRevitPath) then
   begin
-    MsgBox('Autodesk Revit 2025 was not detected.' + #13#10 + #13#10 +
+    MsgBox(
+      'Autodesk Revit 2025 was not detected.' + CRLF + CRLF +
       'AnonGee Toolkit milestone 0.3.0 supports Revit 2025 only.' +
-      #13#10 + #13#10 +
+      CRLF + CRLF +
       'Install or repair Autodesk Revit 2025, then run Setup again.',
-      mbCriticalError, MB_OK);
+      mbCriticalError,
+      MB_OK
+    );
     Exit;
   end;
   Log('[PASS] Autodesk Revit 2025 detected at: ' + DetectedRevitPath);
@@ -584,23 +713,36 @@ begin
   ; 4-6. Detect pyRevit, scope, and version.
   if not DetectPyRevit then
   begin
-    MsgBox('pyRevit was not detected.' + #13#10 + #13#10 +
-      'AnonGee Toolkit requires a compatible pyRevit installation.' +
-      #13#10 + 'Standalone Python is NOT required.' + #13#10 + #13#10 +
+    MsgBox(
+      'pyRevit was not detected.' + CRLF + CRLF +
+      'AnonGee Toolkit requires a compatible pyRevit installation.' + CRLF +
+      'Standalone Python is NOT required.' + CRLF + CRLF +
       'Install pyRevit first, then run AnonGee Setup again.' +
-      #13#10 + #13#10 +
+      CRLF + CRLF +
       'Automatic pyRevit installation is intentionally deferred to a later milestone.',
-      mbCriticalError, MB_OK);
+      mbCriticalError,
+      MB_OK
+    );
     Exit;
   end;
 
-  Log('[PASS] pyRevit detected: ' + DetectedPyRevitName +
-    ' | version=' + DetectedPyRevitVersionRaw + ' | normalized=' +
-    SemVer3ToString(DetectedPyRevitMajor, DetectedPyRevitMinor,
-      DetectedPyRevitPatch) + ' | scope=' + DetectedPyRevitScope);
+  Log(
+    '[PASS] pyRevit detected: ' + DetectedPyRevitName +
+    ' | version=' + DetectedPyRevitVersionRaw +
+    ' | normalized=' +
+    SemVer3ToString(
+      DetectedPyRevitMajor,
+      DetectedPyRevitMinor,
+      DetectedPyRevitPatch
+    ) +
+    ' | scope=' + DetectedPyRevitScope
+  );
 
   if DetectedPyRevitInstallLocation <> '' then
-    Log('       pyRevit install location: ' + DetectedPyRevitInstallLocation);
+    Log(
+      '       pyRevit install location: ' +
+      DetectedPyRevitInstallLocation
+    );
 
   ; 7. Explicit compatibility policy.
   if not ValidatePyRevitCompatibility then
@@ -613,9 +755,15 @@ begin
   Log('============================================================');
   Log('AnonGee prerequisite preflight PASSED.');
   Log('Revit 2025 path: ' + DetectedRevitPath);
-  Log('pyRevit: ' + SemVer3ToString(DetectedPyRevitMajor,
-    DetectedPyRevitMinor, DetectedPyRevitPatch) +
-    ' (' + DetectedPyRevitScope + ')');
+  Log(
+    'pyRevit: ' +
+    SemVer3ToString(
+      DetectedPyRevitMajor,
+      DetectedPyRevitMinor,
+      DetectedPyRevitPatch
+    ) +
+    ' (' + DetectedPyRevitScope + ')'
+  );
   Log('Standalone Python prerequisite: NOT REQUIRED');
   Log('============================================================');
 
