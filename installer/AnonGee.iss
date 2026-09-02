@@ -29,6 +29,7 @@ SolidCompression=yes
 OutputDir=output
 OutputBaseFilename=AnonGee-Setup-{#MyAppVersion}
 UninstallDisplayName={#MyAppName}
+UninstallDisplayIcon={app}\assets\anongee-setup.ico
 VersionInfoVersion={#MyAppVersion}
 VersionInfoProductName={#MyAppName}
 VersionInfoProductVersion={#MyAppVersion}
@@ -44,9 +45,13 @@ Type: filesandordirs; Name: "{userappdata}\pyRevit\Extensions\AnonGee.extension"
 
 [Files]
 Source: "payload\AnonGee.extension\*"; DestDir: "{userappdata}\pyRevit\Extensions\AnonGee.extension"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "assets\anongee-setup.ico"; DestDir: "{app}\assets"; Flags: ignoreversion
 Source: "legal\EULA.txt"; DestDir: "{app}\legal"; Flags: ignoreversion
 Source: "legal\INSTALL_NOTES.txt"; DestDir: "{app}\legal"; Flags: ignoreversion
 Source: "legal\THIRD_PARTY_NOTICES.txt"; DestDir: "{app}\legal"; Flags: ignoreversion
+
+[Icons]
+Name: "{autoprograms}\AnonGee Toolkit"; Filename: "{code:GetRevitExePath}"; WorkingDir: "{code:GetRevitInstallPath}"; IconFilename: "{app}\assets\anongee-setup.ico"; Comment: "Launch Autodesk Revit 2025 with AnonGee Toolkit installed"; AppUserModelID: "Zxaidman.AnonGee.Toolkit"; Flags: createonlyiffileexists
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{userappdata}\pyRevit\Extensions\AnonGee.extension"
@@ -448,6 +453,26 @@ begin
   end;
 end;
 
+function GetRevitInstallPath(Param: String): String;
+begin
+  if DetectedRevitPath = '' then
+    DetectRevit2025(DetectedRevitPath);
+
+  Result := DetectedRevitPath;
+end;
+
+function GetRevitExePath(Param: String): String;
+var
+  RevitPath: String;
+begin
+  RevitPath := GetRevitInstallPath('');
+
+  if RevitPath <> '' then
+    Result := AddBackslash(RevitPath) + 'Revit.exe'
+  else
+    Result := '';
+end;
+
 function IsRevitRunning(var CheckSucceeded: Boolean): Boolean;
 var
   ResultCode: Integer;
@@ -766,6 +791,40 @@ begin
   );
   Log('Standalone Python prerequisite: NOT REQUIRED');
   Log('============================================================');
+
+  Result := True;
+end;
+
+function InitializeUninstall: Boolean;
+var
+  ProcessCheckSucceeded: Boolean;
+begin
+  Result := False;
+
+  if IsRevitRunning(ProcessCheckSucceeded) then
+  begin
+    MsgBox(
+      'Autodesk Revit is currently running.' + CRLF + CRLF +
+      'Close every Revit window before uninstalling AnonGee Toolkit.' +
+      CRLF + CRLF +
+      'Uninstall has been cancelled and no AnonGee files were removed.',
+      mbCriticalError,
+      MB_OK
+    );
+    Exit;
+  end;
+
+  if not ProcessCheckSucceeded then
+  begin
+    MsgBox(
+      'AnonGee Uninstall could not safely verify whether Revit.exe is running.' +
+      CRLF + CRLF +
+      'No files have been removed. Close Revit and run Uninstall again.',
+      mbCriticalError,
+      MB_OK
+    );
+    Exit;
+  end;
 
   Result := True;
 end;
