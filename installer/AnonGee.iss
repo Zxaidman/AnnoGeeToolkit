@@ -180,7 +180,7 @@ var
 begin
   N := LowerCase(Trim(DisplayName));
 
-  ; pyRevit CLI is a separate product and is not sufficient for AnonGee.
+  // pyRevit CLI is a separate product and is not sufficient for AnonGee.
   Result := (Pos('pyrevit', N) = 1) and (Pos('cli', N) = 0);
 end;
 
@@ -334,14 +334,14 @@ begin
   UserPyRevitFound := False;
   MachinePyRevitFound := False;
 
-  ; Search both registry views because pyRevit can be registered by
-  ; different installer technologies/builds.
+  // Search both registry views because pyRevit can be registered by
+  // different installer technologies/builds.
   ScanPyRevitUninstallRoot(HKCU64, 'Per-user', 'HKCU64');
   ScanPyRevitUninstallRoot(HKCU32, 'Per-user', 'HKCU32');
   ScanPyRevitUninstallRoot(HKLM64, 'All-users', 'HKLM64');
   ScanPyRevitUninstallRoot(HKLM32, 'All-users', 'HKLM32');
 
-  ; Prefer current-user scope if both installations exist.
+  // Prefer current-user scope if both installations exist.
   if UserPyRevitFound then
   begin
     DetectedPyRevitName := UserPyRevitName;
@@ -393,7 +393,7 @@ begin
   RevitPath := '';
   InstallLocation := '';
 
-  ; Primary: Autodesk Revit 2025 uninstall product registration.
+  // Primary: Autodesk Revit 2025 uninstall product registration.
   if RegKeyExists(HKLM64, Revit2025UninstallKey) then
   begin
     if not RegQueryStringValue(
@@ -423,7 +423,7 @@ begin
     end;
   end;
 
-  ; Secondary: Autodesk product registry key plus executable validation.
+  // Secondary: Autodesk product registry key plus executable validation.
   if RegKeyExists(HKLM64, Revit2025ProductKey) then
   begin
     CandidateExe :=
@@ -437,7 +437,7 @@ begin
     end;
   end;
 
-  ; Final normal-install fallback.
+  // Final normal-install fallback.
   CandidateExe :=
     ExpandConstant('{autopf64}\Autodesk\Revit 2025\Revit.exe');
 
@@ -596,7 +596,7 @@ begin
     Exit;
   end;
 
-  ; Known-bad family for AnonGee's CPython workload.
+  // Known-bad family for AnonGee's CPython workload.
   if (DetectedPyRevitMajor = 6) and
      (DetectedPyRevitMinor = 4) then
   begin
@@ -613,11 +613,11 @@ begin
     Exit;
   end;
 
-  ; Validated compatibility contract:
-  ; 6.1.x-6.3.x -> allow
-  ; 6.4.x       -> block
-  ; 6.5.0-6.5.5 -> allow
-  ; >6.5.5 <7   -> warn + allow interactively
+  // Validated compatibility contract:
+  // 6.1.x-6.3.x -> allow
+  // 6.4.x       -> block
+  // 6.5.0-6.5.5 -> allow
+  // >6.5.5 <7   -> warn + allow interactively
   if (DetectedPyRevitMajor = 6) and
      (DetectedPyRevitMinor <= 3) then
   begin
@@ -652,7 +652,7 @@ begin
   Log('Product version: {#MyAppVersion}');
   Log('============================================================');
 
-  ; 1. Native x64 Windows.
+  // 1. Native x64 Windows.
   if not IsX64OS then
   begin
     MsgBox(
@@ -666,7 +666,7 @@ begin
   end;
   Log('[PASS] Native x64 Windows detected.');
 
-  ; 2. Revit must not be running.
+  // 2. Revit must not be running.
   if IsRevitRunning(ProcessCheckSucceeded) then
   begin
     MsgBox(
@@ -695,7 +695,7 @@ begin
   end;
   Log('[PASS] Revit.exe is not running.');
 
-  ; 3. Revit 2025 must exist and Revit.exe must be present.
+  // 3. Revit 2025 must exist and Revit.exe must be present.
   if not DetectRevit2025(DetectedRevitPath) then
   begin
     MsgBox(
@@ -710,7 +710,7 @@ begin
   end;
   Log('[PASS] Autodesk Revit 2025 detected at: ' + DetectedRevitPath);
 
-  ; 4-6. Detect pyRevit, scope, and version.
+  // 4-6. Detect pyRevit, scope, and version.
   if not DetectPyRevit then
   begin
     MsgBox(
@@ -744,13 +744,13 @@ begin
       DetectedPyRevitInstallLocation
     );
 
-  ; 7. Explicit compatibility policy.
+  // 7. Explicit compatibility policy.
   if not ValidatePyRevitCompatibility then
     Exit;
   Log('[PASS] pyRevit compatibility policy accepted.');
 
-  ; 8. Payload integrity stays a build-time responsibility of
-  ; build_payload.py 0.2.0. [Files] also fails compilation if absent.
+  // 8. Payload integrity stays a build-time responsibility of
+  // build_payload.py 0.2.0. [Files] also fails compilation if absent.
 
   Log('============================================================');
   Log('AnonGee prerequisite preflight PASSED.');
