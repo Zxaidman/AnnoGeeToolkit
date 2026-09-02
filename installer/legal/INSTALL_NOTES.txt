@@ -1,0 +1,16 @@
+AnonGee Toolkit 0.1.0
+
+SUPPORTED ENVIRONMENT
+
+• Windows 10/11 x64
+• Autodesk Revit 2025
+• pyRevit 6.1.x–6.3.x or 6.5.x
+• pyRevit 6.4.x is not supported
+• Standalone Python is not required
+
+INSTALLATION
+
+AnonGee Toolkit installs into your per-user
+pyRevit Extensions directory.
+
+Please close Autodesk Revit before continuing.

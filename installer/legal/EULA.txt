@@ -1,0 +1,43 @@
+ANONGEE TOOLKIT END USER LICENSE AGREEMENT
+
+1. PERSONAL NON-COMMERCIAL LICENSE
+
+An individual may install and use AnonGee Toolkit without charge
+solely for personal, non-commercial purposes.
+
+Personal non-commercial use does not include use:
+
+• for an employer;
+• for a business or organization;
+• for a paying client;
+• as part of paid professional services;
+• to generate commercial revenue;
+• on behalf of an organization.
+
+2. COMMERCIAL AND ORGANIZATIONAL USE
+
+Any company, partnership, organization, employer, professional
+practice, governmental body, or other organizational user must
+obtain an appropriate commercial license before using AnonGee
+Toolkit for organizational or professional purposes.
+
+An employee's personal installation does not convert business use
+into personal use.
+
+3. SOURCE CODE
+
+This license grants no right to obtain, copy, modify, distribute,
+publish, or sublicense the proprietary AnonGee source code.
+
+4. REDISTRIBUTION AND RESALE
+
+The software may not be redistributed, resold, sublicensed,
+repackaged, or offered as part of another product or service
+without prior written authorization.
+
+Authorized distributors and resellers are governed by separate
+written commercial agreements.
+
+5. THIRD-PARTY SOFTWARE
+
+Third-party components remain governed by their respective licenses.
