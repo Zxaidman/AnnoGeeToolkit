@@ -652,6 +652,91 @@ class AFreeStandingCrossIsACutoutToo(unittest.TestCase):
             _Record([(0, 4000), (4000, 0)], layers.CATEGORY_BEAM, kind="line")]
         self.assertEqual(slab_stops.cross_marks(beams), [])
 
+    def test_a_MITRED_limb_is_a_quad_and_still_one_mark(self):
+        # the owner's v0.93.2 report: "double cross cutout which makes L-shape
+        # and Triple cutout cross which makes C-Shape". A C is drawn as three
+        # crosses, one per limb, and a mitred limb's four ends are a TRAPEZOID,
+        # not a rectangle. Reading them as rectangles paired not one of
+        # test14's twelve C's -- 72 strokes read by nothing.
+        limb = [_Record([(0, 0), (225, 1297)], layers.CATEGORY_CUTOUT,
+                        kind="line"),
+                _Record([(0, 276), (225, 1021)], layers.CATEGORY_CUTOUT,
+                        kind="line")]
+        marks = slab_stops.cross_marks(limb)
+        self.assertEqual(len(marks), 1)
+        self.assertEqual(len(marks[0]), 4)
+        # and the quad is the four stroke ends, NOT the axis-aligned box
+        self.assertEqual(sorted(marks[0]),
+                         sorted(_ft([(0, 0), (225, 1297),
+                                     (0, 276), (225, 1021)])))
+
+    def test_a_C_of_three_mitred_limbs_reads_as_three_marks(self):
+        # test14's, to the millimetre: two 225 x 1296 uprights and the
+        # 1627 x 275 base between them, every corner cut on the mitre
+        records = [
+            _Record([(26005, 28268), (27408, 28544)],
+                    layers.CATEGORY_CUTOUT, kind="line"),
+            _Record([(27633, 28268), (26231, 28544)],
+                    layers.CATEGORY_CUTOUT, kind="line"),
+            _Record([(26005, 29565), (26231, 28544)],
+                    layers.CATEGORY_CUTOUT, kind="line"),
+            _Record([(26230, 29565), (26005, 28268)],
+                    layers.CATEGORY_CUTOUT, kind="line"),
+            _Record([(27408, 28544), (27633, 29565)],
+                    layers.CATEGORY_CUTOUT, kind="line"),
+            _Record([(27408, 29565), (27633, 28268)],
+                    layers.CATEGORY_CUTOUT, kind="line")]
+        self.assertEqual(len(slab_stops.cross_marks(records)), 3)
+
+    def test_two_marks_that_TOUCH_do_not_pair_across_the_join(self):
+        # the mitre corner puts one limb's end on the next limb's end, and a
+        # shared end reads as a crossing. Measured over test12, test13 and
+        # test14's 1,248 cutout crossings, |t - 0.5| runs 0.00 .. 0.175 for a
+        # real X and is 0.50 -- an end -- for these, with nothing between.
+        touching = [
+            _Record([(0, 0), (1000, 1000)], layers.CATEGORY_CUTOUT,
+                    kind="line"),
+            _Record([(0, 1000), (1000, 0)], layers.CATEGORY_CUTOUT,
+                    kind="line"),
+            _Record([(1000, 1000), (2000, 2000)], layers.CATEGORY_CUTOUT,
+                    kind="line"),
+            _Record([(1000, 2000), (2000, 1000)], layers.CATEGORY_CUTOUT,
+                    kind="line")]
+        marks = slab_stops.cross_marks(touching)
+        self.assertEqual(len(marks), 2)
+        for mark in marks:
+            xs = [p[0] for p in mark]
+            ys = [p[1] for p in mark]
+            self.assertAlmostEqual((max(xs) - min(xs)) * _MM, 1000, places=3)
+            self.assertAlmostEqual((max(ys) - min(ys)) * _MM, 1000, places=3)
+
+    def test_the_crossing_lines_must_be_on_a_CUTOUT_layer(self):
+        # a free X is two lines and nothing else vouches for it, so the layer
+        # is the whole evidence. MessyPlan-Test0 draws 188 crossing pairs of
+        # stair bands, grid lines and foundation linework, 24 of them inside a
+        # bay: read as voids they delete 8,174 m2 from a drawing that marks no
+        # cutout at all, and not one of them is on a cutout layer.
+        for category in (layers.CATEGORY_STAIR, layers.CATEGORY_GRID,
+                         layers.CATEGORY_SLAB_EDGE):
+            records = [
+                _Record([(1000, 1000), (2000, 3000)], category, kind="line"),
+                _Record([(1000, 3000), (2000, 1000)], category, kind="line")]
+            self.assertEqual(slab_stops.cross_marks(records), [],
+                             "{0} strokes must not read as a free X"
+                             .format(category))
+
+    def test_a_stroke_that_could_pair_twice_takes_the_more_central_crossing(self):
+        # three strokes through one area: the true twin cuts it in half, the
+        # interloper clips its end
+        records = _cross(0, 0, 2000, 2000) + [
+            _Record([(1800, 0), (2200, 2000)], layers.CATEGORY_CUTOUT,
+                    kind="line")]
+        marks = slab_stops.cross_marks(records)
+        self.assertEqual(len(marks), 1)
+        xs = [p[0] * _MM for p in marks[0]]
+        self.assertAlmostEqual(min(xs), 0.0, places=3)
+        self.assertAlmostEqual(max(xs), 2000.0, places=3)
+
     def test_a_mark_over_a_slab_stop_ring_is_not_counted_a_second_time(self):
         ring = _Record(_box(1000, 1000, 2000, 3000),
                        layers.CATEGORY_SLAB_STOP, closed=True)

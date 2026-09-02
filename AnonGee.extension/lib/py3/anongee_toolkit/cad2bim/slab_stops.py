@@ -63,11 +63,21 @@ the drawing says about that, each from a mark it already carries.
      The first two readings both need a SHAPE to ask the question of: 1 crosses
      a COVER ring, 1b crosses a bay. A drafter marking a small void does not
      always draw either -- the two diagonals ARE the drawing of it. So the
-     rectangle the X spans is read as the cutout, and it then behaves exactly
-     as a crossed ring does: a hole in the bay holding it, dividing that bay
-     where it reaches the edge, and taking the bay away outright where it
-     covers the whole of it. See `cross_marks` for how two strokes are paired
-     into one X and `free_cutouts` for what happens to the rectangle after.
+     FACE the X spans is read as the cutout, and it then behaves exactly as a
+     crossed ring does: a hole in the bay holding it, dividing that bay where
+     it reaches the edge, and taking the bay away outright where it covers the
+     whole of it. See `cross_marks` for how two strokes are paired into one X
+     and `free_cutouts` for what happens to the face after.
+
+     A FACE AND NOT A RECTANGLE, since v0.94.0. The owner's v0.93.2 run:
+     "almost all the single cross cutout line is working ... but there is still
+     issue persisting multiple cross cutout line ... double cross cutout which
+     makes L-shape and Triple cutout cross which makes C-Shape". An L or a C is
+     drawn as two or three crosses, one per limb, and a mitred limb is a
+     trapezoid -- so a reading that could only return an axis-aligned rectangle
+     paired NOT ONE of test14's twelve C's. Measured then: of 246 voids on that
+     drawing, 36 still had floor cast over more than half of themselves. Now
+     none does.
 
   2. A BEAM-BOTTOM HATCH IS A CHAJJA. The legend prices its patterns, and one
      of test14's says no depth at all: GOST_GLASS, "INDICATES SLAB AT BEAM
@@ -105,7 +115,7 @@ import math
 import re
 
 from . import config
-from .classify.layers import (CATEGORY_BEAM, CATEGORY_COLUMN,
+from .classify.layers import (CATEGORY_BEAM, CATEGORY_COLUMN, CATEGORY_CUTOUT,
                               CATEGORY_SLAB_STOP, CATEGORY_STAIR)
 from .geom import shapes
 from .slab_graph import (_CUTOUT_MARK_MM, _centroid, _dedup_ring, _dist,
@@ -186,6 +196,19 @@ _NAMES_A_CUTOUT = re.compile(
 # touching a chajja at one point out of the tie-break, where a hair of contact
 # could otherwise decide a level.
 _MIN_CONTACT_MM = 100.0
+
+# HOW FAR OFF-CENTRE TWO STROKES MAY CROSS AND STILL BE ONE X. A plain cross
+# is cut exactly in half by its twin (0.0); two neighbouring marks that share a
+# corner "cross" at an end (0.5). Measured over test12, test13 and test14's
+# 1,248 cutout-layer crossings, |t - 0.5| lands at 0.00 (1081 pairs), 0.05
+# (28), 0.10 (98), 0.15 (10), then NOTHING at all until 0.50 (31). This is the
+# middle of that desert. `cross_marks` carries the full measurement.
+_CROSS_CENTRE_SHARE = 0.30
+
+# The cell the crossing search buckets stroke boxes into, in feet. Only a
+# search grid -- no rule rests on it, and the answer is the same at any size;
+# a few metres keeps the buckets small on the corpus's biggest drawings.
+_CROSS_SEARCH_FT = 4.0
 
 
 # ------------------------------------------------------------------ the rings
@@ -276,15 +299,14 @@ def annotation_strokes(records):
     the filter takes 161 phantom marks off Project1, 140 off test11 and 46 off
     test8.
 
-    AND THE FILTER ONLY REACHES WHAT THE CLASSIFIER NAMES, which test17 proves
-    and this comment used to claim otherwise ("every mark that survives it is
-    drawn on a cutout or detail layer" -- true of the corpus as it stood, false
-    the day test17 joined it). test17 draws its beams on layers named for their
-    section, `B-200x650` and its eight siblings, which nothing classifies yet
-    (todo BUG-22), so 7120 of its beam strokes are offered to the pairing as
-    annotations. Nothing is cut for them -- not one of its 1100 marks lands in
-    a bay -- but that is the drawing's doing and not this function's. See
-    `free_cutouts` for the census and BUG-23 for the risk.
+    A FREE X NO LONGER RESTS ON THIS FILTER ALONE, and test17 is why it must
+    not: it draws its beams on layers named for their section, `B-200x650` and
+    its eight siblings, which nothing classifies yet (todo BUG-22), so 7120 of
+    its beam strokes reach here looking exactly like annotations. Since v0.94.0
+    `cross_marks` reads only strokes the drawing routes to CUTOUT, which
+    refuses those and the 188 crossing pairs MessyPlan-Test0 makes of its stair
+    bands and grid lines besides. This filter still does its own job for the
+    CROSSED BAY, where the bay is the evidence and the layer need not be.
     """
     members = set()
     for record in (records or []):
@@ -299,75 +321,81 @@ def annotation_strokes(records):
 
 
 def cross_marks(records):
-    """[ring] -- the rectangle every X in the drawing spans, ring or no ring.
+    """[ring] -- the FACE every X in the drawing spans, ring or no ring.
 
-    TWO STROKES ARE ONE X WHEN THEY CROSS, and that is the whole pairing rule.
-    The obvious cheaper test -- two strokes belong together when their bounding
-    boxes agree -- was measured against it on test14 and is WRONG by a third:
-    of the drawing's 492 CUTOUT diagonals, matching boxes finds 130 pairs and
-    crossing finds 210. The 80 it misses are ordinary drafting slop, one arm
-    drawn a hair longer than the other, and they are not rubbish -- the three
-    BIGGEST marks in the drawing are among them, the 8153x3573 crosses over
-    the 29.13 m2 bays, and so are six of the twelve 2300x2925 ones the plans
-    repeat at y 31766.
+    A FACE AND NOT A RECTANGLE, which is the whole of the owner's v0.93.2
+    report: "almost all the single cross cutout line is working ... but there
+    is still issue persisting multiple cross cutout line ... double cross
+    cutout which makes L-shape and Triple cutout cross which makes C-Shape".
+    A C-shaped void is drawn as three crosses, one over each limb, and a limb
+    of a mitred C IS NOT A RECTANGLE -- its ends are cut on the mitre, so the
+    four stroke ends form a trapezoid. Measured on test14: its 504 cutout
+    diagonals fall into 192 clusters of two strokes (a plain cross), 12 of four
+    (an L) and 12 of SIX (a C), and of the twelve C's, reading them as
+    rectangles paired NOT ONE -- 72 strokes read by nothing. test13 draws 30
+    more of them, 180 strokes. The two strokes of a mitred limb are still each
+    other's diagonals; they are simply the diagonals of a quadrilateral.
 
-    The rectangle is then the box the two of them span, and the two strokes
-    must be its two DIAGONALS -- each end within `_CUTOUT_MARK_MM` of the
-    corner it claims, the same tolerance and the same sentence `crossed` uses
-    when it has a ring to measure against, so the symbol has one reading and
-    not two. Both conditions are needed. Crossing alone finds 270 pairs on
-    test14, 60 of which are strokes from two NEIGHBOURING X's that happen to
-    overlap and span a box neither of them means.
+    So the reading is the quadrilateral, and it needs no corner test at all:
+    ANY two segments that properly cross are the diagonals of the quad their
+    four ends make. What used to do the discriminating -- "each end within
+    `_CUTOUT_MARK_MM` of an axis-aligned corner" -- is what refused the mitres,
+    and two measured rules replace it.
 
-    Pairs are searched by MIDPOINT, because both diagonals of a rectangle pass
-    through its centre: an index on that is exact for this rule rather than a
-    heuristic, and it keeps the search off an every-pair comparison of the
-    2124 two-point records test14 carries. Measured on test14 the
-    result is clean -- 210 rectangles from 420 strokes, no stroke claimed
-    twice, no rectangle found twice, and the same 210 anywhere between 5 mm and
-    100 mm of tolerance -- so nothing here is balanced on the tolerance.
+    FIRST, THE DRAWING DECIDES. Both strokes must be on a layer routed to
+    CUTOUT. Crossing alone, over the corpus, is catastrophic: MessyPlan-Test0
+    yields 188 crossing pairs off its stair bands, grid lines and foundation
+    linework, 24 of them inside a bay, and reading those as voids would delete
+    **8,174 m2** of floor from a drawing that draws no cutout at all. Not one
+    of those 188 is on a cutout layer. Meanwhile every one of test14's 249
+    pairs is on `CUTOUT`, test13's 254 on `CUTOUT`, test12's 745 on `CUT`,
+    test15's 5 on `A-CUTOUT`. The layer is the whole separation, and it is the
+    drawing's own statement rather than a shape we guessed at.
 
-    72 of test14's diagonals pair with nothing. They are left alone: a single
-    slash is not the symbol, exactly as it is not for a ring.
+    SECOND, THE CROSSING MUST BE CENTRAL. Two neighbouring crosses whose limbs
+    meet share an endpoint, and a shared endpoint reads as a crossing; that is
+    the 60-pair error the rectangle test was written to stop. Where along each
+    stroke the crossing falls settles it, and the measurement leaves a desert
+    you could drive through -- |t - 0.5| over test12, test13 and test14's
+    1,248 cutout-layer pairs:
+
+        0.00  1081 pairs        0.10   98        0.20 .. 0.45   NOTHING
+        0.05    28              0.15   10        0.50           31
+
+    Everything real crosses within 0.175 of the middle; everything spurious
+    crosses at exactly 0.5, which is an endpoint. `_CROSS_CENTRE_SHARE = 0.30`
+    sits in the middle of that desert.
+
+    A stroke that could pair two ways takes the more central crossing (6 such
+    strokes on test14, 60 on test12, none on test13), and each stroke is used
+    once. A stroke that pairs with nothing is left alone: a single slash is not
+    the symbol, exactly as it is not for a ring.
     """
     tol = config.mm_to_ft(_CUTOUT_MARK_MM)
-    # A stroke shorter than the tolerance in either axis cannot be the diagonal
-    # of a rectangle wider than it, so the axial linework never enters the
-    # search -- which is most of what a drawing is made of.
-    slanted = [stroke for stroke in annotation_strokes(records)
+    # A stroke shorter than the tolerance in either axis cannot be a diagonal
+    # of anything worth cutting, so the axial linework never enters the search
+    # -- which is most of what a drawing is made of.
+    slanted = [stroke for stroke in _cutout_strokes(records)
                if abs(stroke[0][0] - stroke[1][0]) > tol
                and abs(stroke[0][1] - stroke[1][1]) > tol]
-    # Cells twice the tolerance across, so the 3x3 neighbourhood below is a
-    # PROOF and not a hope: two ends each up to `tol` off their corners put a
-    # midpoint up to `tol` off the centre, so two diagonals of one rectangle
-    # can be 2 x tol apart, and a 3x3 walk of s-sized cells is guaranteed to
-    # find any pair within s of each other.
-    span = 2.0 * tol
-    cells = {}
-    for index, stroke in enumerate(slanted):
-        cells.setdefault(_cell(_midpoint(stroke), span), []).append(index)
+    # Two segments can only cross where their bounding boxes overlap, so the
+    # candidates come off a grid of boxes rather than an every-pair sweep. The
+    # cell is deliberately not derived from the tolerance: a mitred limb's two
+    # diagonals do NOT bisect each other (the midpoints of test14's C-limbs sit
+    # 138 .. 225 mm apart), so the midpoint index this used to keep was the
+    # second reason those never paired.
+    candidates = _crossing_candidates(slanted)
+    # Most central first, so a stroke that could pair two ways takes the pair
+    # that looks most like an X and the loser is left for its own partner.
+    candidates.sort()
     out = []
     taken = set()
-    for index, stroke in enumerate(slanted):
-        if index in taken:
+    for _offset, first, second in candidates:
+        if first in taken or second in taken:
             continue
-        column, row = _cell(_midpoint(stroke), span)
-        for step_x in (-1, 0, 1):
-            for step_y in (-1, 0, 1):
-                for other in cells.get((column + step_x, row + step_y), ()):
-                    if other <= index or other in taken:
-                        continue
-                    rectangle = _spanned_rectangle(stroke, slanted[other], tol)
-                    if rectangle is None:
-                        continue
-                    taken.add(index)
-                    taken.add(other)
-                    out.append(rectangle)
-                    break
-                if index in taken:
-                    break
-            if index in taken:
-                break
+        taken.add(first)
+        taken.add(second)
+        out.append(_spanned_face(slanted[first], slanted[second]))
     return out
 
 
@@ -409,28 +437,23 @@ def free_cutouts(loops, records, skip=None):
     WHAT THE WHOLE CORPUS SAYS, since a reading this new is worth a census.
     Marks / free-standing / cut as a hole, per drawing:
 
-        test17  1100 / 140 /   0      test12   691 / 351 / 177
-        test14   210 / 108 /  36      test13   156 / 141 /  69
+        test12   715 / 375 / 201      test13   254 / 239 / 131
+        test14   246 / 144 /  72      test17   145 / 129 /   0
         test9     62 /  62 /   0      test10    22 /  22 /   0
-        test16    18 /  18 /   0
-        test1/2/3, StaircasePlan-Test2, test7, test15: 1..5 marks each, all
-        free-standing, none hosted
+        test16    18 /  18 /   0      test15     5 /   5 /   2
 
-    and the other eight drawings carry no X at all. test10's 22 and test9's 62
-    host nowhere, so those two drawings' numbers do not move a millimetre;
-    test16's 18 all land in bays the CUTOUT texts had already withdrawn.
+    and the other thirteen drawings carry no X on a cutout layer at all.
+    test10's 22 and test9's 62 host nowhere, so those two drawings' numbers do
+    not move a millimetre; test16's 18 all land in bays the CUTOUT texts had
+    already withdrawn.
 
-    TEST17 IS THE ONE TO WATCH, and it arrived after this census was first
-    taken. Its 1100 marks are the most in the corpus and NONE of them is
-    hosted, so it cuts nothing today -- but that is the drawing's own doing and
-    not the filter's: the strokes they pair from come off `B-200x650` (7120 of
-    them), `A-_SANIFIX-_E-` (2592) and layer `0` (2040), and the first of those
-    is a BEAM layer that `annotation_strokes` cannot drop because nothing
-    classifies it yet (todo BUG-22 -- test17 names its beam layers for their
-    section). The marks measure 125 to 2400 mm across, median 550: sanitary
-    symbols and beam hatching, not voids. Recorded as BUG-23. Fixing BUG-22
-    takes 7120 of those strokes out by itself, since a beam a drawing places is
-    exactly what the member filter is for.
+    TEST17 WAS THE ONE TO WATCH, and the layer rule settled it. Its strokes
+    pair off `B-200x650` (7120 of them), `A-_SANIFIX-_E-` (2592) and layer `0`
+    (2040) -- sanitary symbols and beam hatching, 125 to 2400 mm across, median
+    550 -- and reading them as voids was only harmless because none of them
+    landed in a bay. `_cutout_strokes` refuses all of them outright: 1100 marks
+    become 145, every one on a cutout layer. That was todo BUG-23, and it is
+    closed by the same rule that reads the mitres.
 
     `skip` is the bays an earlier reading already withdrew. A mark inside one
     cuts nothing, there being nothing left to cut.
@@ -473,63 +496,110 @@ def free_cutouts(loops, records, skip=None):
     return out
 
 
-def _midpoint(stroke):
-    return ((stroke[0][0] + stroke[1][0]) / 2.0,
-            (stroke[0][1] + stroke[1][1]) / 2.0)
-
-
 def _cell(point, size):
     return int(math.floor(point[0] / size)), int(math.floor(point[1] / size))
 
 
-def _spanned_rectangle(one, two, tol):
-    """The rectangle these two strokes are the two diagonals of, or None.
+def _cutout_strokes(records):
+    """The two-point records on a CUTOUT layer -- and only those.
 
-    Four corners; each stroke running from one to the one OPPOSITE it, and the
-    two strokes taking different diagonals (two copies of the same diagonal,
-    which a drawing exported twice can hand you, is one line and not a cross).
-    Then the crossing itself, which the corner test very nearly but not quite
-    implies: at 50 mm of tolerance on a rectangle barely wider than that, two
-    strokes can each reach a pair of opposite corners and still miss each
-    other, and that is not the symbol.
+    THE DRAWING SAYS WHICH LINES MEAN "no concrete here", and for a mark with
+    nothing drawn around it that statement is the only evidence there is. A
+    crossed RING is vouched for by the ring, so `slab_cutouts` reads every
+    stroke whatever its layer and always has; a crossed BAY by the bay, which
+    is why `cutout_bays` needs only `annotation_strokes`. A free X is two lines
+    and no more.
+
+    What that costs, measured, is nothing worth keeping: over the corpus the
+    strokes this drops out of the free reading are MessyPlan-Test0's 188
+    crossing pairs of stair bands and grid lines (24 of them inside a bay, 8174
+    m2 of floor they would have deleted), test17's 1100 pairs off its beam,
+    sanitary and layer-`0` linework (todo BUG-23, closed by this), test8's one
+    pair of crossing wall traces, and the handful on `A-DETL` in test1, test2,
+    test3, test7 and StaircasePlan-Test2 -- 17 marks between them, none inside
+    a bay, so not one millimetre of floor changes for those five.
+
+    What it keeps is every real one: test14's 249 pairs, test13's 254, test12's
+    745, test15's 5, test16's 18, test9's 62, test10's 22 -- all on `CUTOUT`,
+    `CUT` or `A-CUTOUT`.
     """
-    points = (one[0], one[1], two[0], two[1])
-    x0 = min(p[0] for p in points)
-    x1 = max(p[0] for p in points)
-    y0 = min(p[1] for p in points)
-    y1 = max(p[1] for p in points)
-    if x1 - x0 <= tol or y1 - y0 <= tol:
-        return None
-    corners = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
-    ends = []
-    for point in points:
-        at = None
-        for index, corner in enumerate(corners):
-            if _dist(point, corner) <= tol:
-                at = index
-                break
-        if at is None:
-            return None
-        ends.append(at)
-    if (ends[0] - ends[1]) % 4 != 2 or (ends[2] - ends[3]) % 4 != 2:
-        return None
-    if set(ends[:2]) == set(ends[2:]):
-        return None
-    if not _strokes_cross(one, two):
-        return None
-    return corners
+    out = []
+    for record in (records or []):
+        if getattr(record, "category", None) != CATEGORY_CUTOUT:
+            continue
+        points = getattr(record, "points", None) or []
+        if len(points) == 2:
+            out.append(((points[0][0], points[0][1]),
+                        (points[1][0], points[1][1])))
+    return out
 
 
-def _strokes_cross(one, two):
-    """True when the two segments properly cross -- ends on opposite sides."""
-    def side(start, end, point):
-        return ((end[0] - start[0]) * (point[1] - start[1])
-                - (end[1] - start[1]) * (point[0] - start[0]))
+def _crossing_candidates(strokes):
+    """[(how off-centre the crossing is, i, j)] for every crossing pair.
 
-    first = side(one[0], one[1], two[0]), side(one[0], one[1], two[1])
-    second = side(two[0], two[1], one[0]), side(two[0], two[1], one[1])
-    return ((first[0] > 0) != (first[1] > 0)
-            and (second[0] > 0) != (second[1] > 0))
+    Bounding boxes first, because two segments that cross must have overlapping
+    boxes and most of a drawing's strokes are nowhere near each other.
+    """
+    cell = _CROSS_SEARCH_FT
+    grid = {}
+    for index, stroke in enumerate(strokes):
+        x0 = min(stroke[0][0], stroke[1][0])
+        x1 = max(stroke[0][0], stroke[1][0])
+        y0 = min(stroke[0][1], stroke[1][1])
+        y1 = max(stroke[0][1], stroke[1][1])
+        for column in range(int(math.floor(x0 / cell)),
+                            int(math.floor(x1 / cell)) + 1):
+            for row in range(int(math.floor(y0 / cell)),
+                             int(math.floor(y1 / cell)) + 1):
+                grid.setdefault((column, row), []).append(index)
+    out = []
+    seen = set()
+    for bucket in grid.values():
+        for position, first in enumerate(bucket):
+            for second in bucket[position + 1:]:
+                pair = (first, second) if first < second else (second, first)
+                if pair in seen:
+                    continue
+                seen.add(pair)
+                offset = _crossing_offset(strokes[pair[0]], strokes[pair[1]])
+                if offset is not None:
+                    out.append((offset, pair[0], pair[1]))
+    return out
+
+
+def _crossing_offset(one, two):
+    """How far off-centre these two segments cross, or None if they do not.
+
+    0.0 when each is cut exactly in half -- a plain X -- and 0.5 when the
+    crossing is at an end, which is two neighbouring marks touching rather
+    than one mark. `_CROSS_CENTRE_SHARE` is where the line is drawn; the
+    measurement behind it is in `cross_marks`.
+    """
+    ax, ay = one[0]
+    bx, by = one[1]
+    cx, cy = two[0]
+    dx, dy = two[1]
+    denominator = (bx - ax) * (dy - cy) - (by - ay) * (dx - cx)
+    if denominator == 0.0:                       # parallel, or a doubled line
+        return None
+    along = ((cx - ax) * (dy - cy) - (cy - ay) * (dx - cx)) / denominator
+    across = ((cx - ax) * (by - ay) - (cy - ay) * (bx - ax)) / denominator
+    if not (0.0 < along < 1.0 and 0.0 < across < 1.0):
+        return None                              # they miss, or meet at an end
+    offset = max(abs(along - 0.5), abs(across - 0.5))
+    return offset if offset <= _CROSS_CENTRE_SHARE else None
+
+
+def _spanned_face(one, two):
+    """The quadrilateral these two strokes are the diagonals of.
+
+    Their four ends in convex order, which is what crossing guarantees: if AB
+    and CD cross then A, C, B, D walk the quad's rim. An X over a rectangle
+    gives back that rectangle (to the drafter's own slop, which is the honest
+    answer -- the old reading snapped it to the axis-aligned box and by doing
+    so could not represent a mitred limb at all).
+    """
+    return [one[0], two[0], one[1], two[1]]
 
 
 def _corner_index(rings, tol):

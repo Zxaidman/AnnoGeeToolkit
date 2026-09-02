@@ -8,8 +8,8 @@ Nothing is deleted to make the list look shorter.
 file before it is built, argued about, or written into any other document. Standing instruction
 from the project owner, and it is what keeps this list the queue rather than a summary of one.
 
-Current build: **v0.76.0** (`85205db`, branch `claude/cad2bim`). 714 unit tests, 3 regression
-legs green. Longer records: `../../../../../task_plan.md`, `findings.md`, `progress.md` at the
+Current build: **v0.94.0** (branch `claude/cad2bim`). 1151 unit tests, 3 regression legs green,
+21 fixture drawings in the sweep. Longer records: `../../../../../task_plan.md`, `findings.md`, `progress.md` at the
 repository root.
 
 ## Sections
@@ -113,9 +113,48 @@ for every other pre-P1 file.
 
 ## 2. Errors and bugs
 
-### BUG-23 — On test17 the cutout reading is offered 7,120 beam strokes · `pending`
+### BUG-24 — A double or triple cross reads as nothing, so its L or C is slabbed · `testing`
 
-**Found** by re-taking the free-standing-X census after test17 entered the corpus — the comment in
+**The owner, testing v0.93.2 in Revit:** "almost all the single cross cutout line is working to
+create actual cutout, but there is still issue persisting multiple cross cutout line ... double
+cross cutout which makes L-shape and Triple cutout cross which makes C-Shape."
+
+**Measured, and the cause is the shape the reading could return.** An L or a C is drawn as two or
+three crosses, one over each limb — and a limb of a mitred C **is not a rectangle**. Its four stroke
+ends form a trapezoid. `cross_marks` could only ever return an axis-aligned box (each end had to sit
+within 50 mm of a bbox corner), so it refused them outright. test14's 504 cutout diagonals cluster
+into **192 pairs (a plain cross), 12 clusters of four (an L) and 12 of six (a C)** — and of the
+twelve C's, **not one stroke paired**: 72 read by nothing. test13 draws 30 more C's, 180 strokes.
+The midpoint index compounded it: a mitred limb's diagonals do not bisect each other (test14's sit
+138–225 mm apart), so the two halves of one limb never even met as candidates.
+
+**Fixed in v0.94.0.** Two segments that properly cross ARE the diagonals of the quadrilateral their
+four ends make, so the mark is that quad and no corner test is needed. What the corner test was
+really doing — keeping neighbouring marks from pairing across their shared mitre — is now done by
+two rules that are measured rather than incidental:
+
+* **the drawing decides**: both strokes must be on a layer routed to `CUTOUT`. Crossing alone is
+  catastrophic without it — MessyPlan-Test0 makes **188** crossing pairs from stair bands, grid
+  lines and foundation linework, 24 inside a bay, **8,174 m² of floor** that would be deleted from a
+  drawing that marks no cutout at all. Not one is on a cutout layer, while every one of test14's
+  249, test13's 254, test12's 745 and test15's 5 is.
+* **the crossing must be central**: `|t − 0.5| ≤ 0.30`. Over 1,248 cutout-layer crossings the
+  measurement is a desert — 0.00 (1,081 pairs), 0.05 (28), 0.10 (98), 0.15 (10), **nothing at all
+  until 0.50 (31)**, and 0.50 is an endpoint, which is two marks touching rather than one mark.
+
+**Measured on test14: of its 246 voids, 36 had floor cast over more than half of themselves at
+v0.93.2. Now none does.** The C at (26005–27633, 28268–29565) reads as its three real limbs —
+225 × 1296, 225 × 1296 and 1627 × 275 — and `free_cutout_holes` doubles, 36 → 72.
+
+### BUG-23 — On test17 the cutout reading is offered 7,120 beam strokes · `done` (v0.94.0)
+
+Closed by BUG-24's layer rule, which is the fix this entry pointed at from the other side: a free X
+is now read only off a cutout layer, so test17's 1,100 marks become **145**, and the 7,120 beam
+strokes, 2,592 sanitary ones and 2,040 on layer `0` are refused before they can pair. Its
+`free_cutout_holes` stays 0, so no floor moves on that drawing — the risk is what went away.
+
+**The measurement that filed it**, taken as test17 entered the corpus and left here because it is
+the evidence, not the story: found by re-taking the free-standing-X census after test17 entered the corpus — the comment in
 `free_cutouts` claimed "every mark that survives the filter anywhere in the corpus is drawn on a
 cutout or detail layer", which was true of the twenty drawings it was measured on and false the day
 the twenty-first arrived. The comment is corrected in v0.93.2; this is the risk it leaves behind.
