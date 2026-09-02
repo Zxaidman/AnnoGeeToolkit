@@ -18,7 +18,11 @@ MinVersion=10.0
 WizardStyle=modern dynamic
 DisableWelcomePage=no
 SetupIconFile=assets\anongee-setup.ico
-LicenseFile=legal\LICENSE.txt
+WizardImageFile=assets\wizard\welcome-light.png
+WizardImageFileDynamicDark=assets\wizard\welcome-dark.png
+WizardSmallImageFile=assets\wizard\small-light.png
+WizardSmallImageFileDynamicDark=assets\wizard\small-dark.png
+LicenseFile=legal\EULA.txt
 InfoBeforeFile=legal\INSTALL_NOTES.txt
 Compression=lzma2
 SolidCompression=yes
@@ -40,6 +44,9 @@ Type: filesandordirs; Name: "{userappdata}\pyRevit\Extensions\AnonGee.extension"
 
 [Files]
 Source: "payload\AnonGee.extension\*"; DestDir: "{userappdata}\pyRevit\Extensions\AnonGee.extension"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "legal\EULA.txt"; DestDir: "{app}\legal"; Flags: ignoreversion
+Source: "legal\INSTALL_NOTES.txt"; DestDir: "{app}\legal"; Flags: ignoreversion
+Source: "legal\THIRD_PARTY_NOTICES.txt"; DestDir: "{app}\legal"; Flags: ignoreversion
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{userappdata}\pyRevit\Extensions\AnonGee.extension"
