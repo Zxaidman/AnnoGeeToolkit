@@ -107,7 +107,10 @@ var
   DetectedPyRevitPatch: Integer;
 
   PyRevitInstallRequired: Boolean;
+  PyRevitCleanupRequired: Boolean;
   PyRevitInstallReason: String;
+  IncompatibleUserPyRevitCount: Integer;
+  IncompatibleUserPyRevitSummary: String;
 
 function IsDigitChar(const C: Char): Boolean;
 begin
@@ -190,6 +193,16 @@ begin
   Result := IntToStr(Major) + '.' + IntToStr(Minor) + '.' + IntToStr(Patch);
 end;
 
+function IsRepairIncompatiblePyRevitVersion(
+  Major, Minor, Patch: Integer
+): Boolean;
+begin
+  Result :=
+    (Major < 6) or
+    (CompareSemVer3(Major, Minor, Patch, 6, 1, 0) < 0) or
+    ((Major = 6) and (Minor = 4));
+end;
+
 function IsPyRevitProductName(const DisplayName: String): Boolean;
 var
   N: String;
@@ -232,6 +245,16 @@ begin
     ' | scope=' + ScopeName +
     ' | registry=' + RegistryPath
   );
+
+  if IsUserScope and
+     IsRepairIncompatiblePyRevitVersion(Major, Minor, Patch) then
+  begin
+    IncompatibleUserPyRevitCount := IncompatibleUserPyRevitCount + 1;
+    if IncompatibleUserPyRevitSummary <> '' then
+      IncompatibleUserPyRevitSummary := IncompatibleUserPyRevitSummary + ', ';
+    IncompatibleUserPyRevitSummary :=
+      IncompatibleUserPyRevitSummary + SemVer3ToString(Major, Minor, Patch);
+  end;
 
   if IsUserScope then
   begin
@@ -349,6 +372,8 @@ function DetectPyRevit: Boolean;
 begin
   UserPyRevitFound := False;
   MachinePyRevitFound := False;
+  IncompatibleUserPyRevitCount := 0;
+  IncompatibleUserPyRevitSummary := '';
 
   // Search both registry views because pyRevit can be registered by
   // different installer technologies/builds.
@@ -537,6 +562,233 @@ begin
   end;
 end;
 
+function SplitRegisteredCommand(
+  const CommandLine: String;
+  var FileName: String;
+  var Params: String
+): Boolean;
+var
+  S: String;
+  EndQuote: Integer;
+  FirstSpace: Integer;
+begin
+  Result := False;
+  FileName := '';
+  Params := '';
+  S := Trim(CommandLine);
+
+  if S = '' then
+    Exit;
+
+  if S[1] = '"' then
+  begin
+    Delete(S, 1, 1);
+    EndQuote := Pos('"', S);
+    if EndQuote = 0 then
+      Exit;
+
+    FileName := Copy(S, 1, EndQuote - 1);
+    Params := Trim(Copy(S, EndQuote + 1, Length(S)));
+  end
+  else
+  begin
+    FirstSpace := Pos(' ', S);
+    if FirstSpace = 0 then
+      FileName := S
+    else
+    begin
+      FileName := Copy(S, 1, FirstSpace - 1);
+      Params := Trim(Copy(S, FirstSpace + 1, Length(S)));
+    end;
+  end;
+
+  Result := FileName <> '';
+end;
+
+function RemoveIncompatiblePyRevitFromRoot(
+  RootKey: HKEY;
+  const RegistryViewName: String;
+  var RemovedCount: Integer;
+  var ErrorText: String
+): Boolean;
+var
+  SubKeys: TArrayOfString;
+  I: Integer;
+  KeyPath: String;
+  DisplayName: String;
+  DisplayVersion: String;
+  UninstallCommand: String;
+  UninstallerExe: String;
+  UninstallerParams: String;
+  Major: Integer;
+  Minor: Integer;
+  Patch: Integer;
+  ResultCode: Integer;
+begin
+  Result := False;
+
+  if not RegKeyExists(RootKey, WindowsUninstallKey) then
+  begin
+    Result := True;
+    Exit;
+  end;
+
+  if not RegGetSubkeyNames(RootKey, WindowsUninstallKey, SubKeys) then
+  begin
+    ErrorText :=
+      'Could not enumerate the current-user uninstall registry (' +
+      RegistryViewName + ').';
+    Exit;
+  end;
+
+  for I := 0 to GetArrayLength(SubKeys) - 1 do
+  begin
+    KeyPath := WindowsUninstallKey + '\' + SubKeys[I];
+    DisplayName := '';
+    DisplayVersion := '';
+
+    if RegQueryStringValue(RootKey, KeyPath, 'DisplayName', DisplayName) and
+       IsPyRevitProductName(DisplayName) and
+       RegQueryStringValue(RootKey, KeyPath, 'DisplayVersion', DisplayVersion) and
+       TryParseSemVer3(DisplayVersion, Major, Minor, Patch) and
+       IsRepairIncompatiblePyRevitVersion(Major, Minor, Patch) then
+    begin
+      UninstallCommand := '';
+      if not RegQueryStringValue(
+        RootKey,
+        KeyPath,
+        'UninstallString',
+        UninstallCommand
+      ) then
+      begin
+        ErrorText :=
+          'AnonGee Setup found incompatible pyRevit ' +
+          SemVer3ToString(Major, Minor, Patch) +
+          ' but Windows did not provide its uninstall command.';
+        Exit;
+      end;
+
+      if not SplitRegisteredCommand(
+        UninstallCommand,
+        UninstallerExe,
+        UninstallerParams
+      ) then
+      begin
+        ErrorText :=
+          'AnonGee Setup could not read the registered uninstall command for ' +
+          'pyRevit ' + SemVer3ToString(Major, Minor, Patch) + '.';
+        Exit;
+      end;
+
+      if not FileExists(UninstallerExe) then
+      begin
+        ErrorText :=
+          'The registered uninstaller for pyRevit ' +
+          SemVer3ToString(Major, Minor, Patch) + ' is missing:' +
+          CRLF + UninstallerExe;
+        Exit;
+      end;
+
+      // All pyRevit desktop installers covered by this repair policy are
+      // Inno Setup installers. Keep their uninstall progress visible while
+      // suppressing confirmation/message boxes because the user already
+      // approved the repair in the AnonGee wizard.
+      if UninstallerParams <> '' then
+        UninstallerParams := UninstallerParams + ' ';
+      UninstallerParams :=
+        UninstallerParams + '/SILENT /SUPPRESSMSGBOXES /NORESTART';
+
+      Log(
+        '[ACTION] Removing incompatible per-user pyRevit ' +
+        SemVer3ToString(Major, Minor, Patch) +
+        ' using registered uninstaller: ' + UninstallerExe
+      );
+
+      if not Exec(
+        UninstallerExe,
+        UninstallerParams,
+        '',
+        SW_SHOWNORMAL,
+        ewWaitUntilTerminated,
+        ResultCode
+      ) then
+      begin
+        ErrorText :=
+          'AnonGee Setup could not start the registered uninstaller for ' +
+          'pyRevit ' + SemVer3ToString(Major, Minor, Patch) + '.';
+        Exit;
+      end;
+
+      if ResultCode <> 0 then
+      begin
+        ErrorText :=
+          'The pyRevit ' + SemVer3ToString(Major, Minor, Patch) +
+          ' uninstaller returned exit code ' + IntToStr(ResultCode) + '.';
+        Exit;
+      end;
+
+      if RegKeyExists(RootKey, KeyPath) then
+      begin
+        ErrorText :=
+          'pyRevit ' + SemVer3ToString(Major, Minor, Patch) +
+          ' still appears in Windows after its uninstaller completed.';
+        Exit;
+      end;
+
+      RemovedCount := RemovedCount + 1;
+      Log(
+        '[PASS] Removed incompatible per-user pyRevit ' +
+        SemVer3ToString(Major, Minor, Patch)
+      );
+    end;
+  end;
+
+  Result := True;
+end;
+
+function RemoveIncompatiblePerUserPyRevit(
+  var RemovedCount: Integer;
+  var ErrorText: String
+): Boolean;
+begin
+  Result := False;
+  RemovedCount := 0;
+  ErrorText := '';
+
+  if not RemoveIncompatiblePyRevitFromRoot(
+    HKCU64,
+    'HKCU64',
+    RemovedCount,
+    ErrorText
+  ) then
+    Exit;
+
+  if not RemoveIncompatiblePyRevitFromRoot(
+    HKCU32,
+    'HKCU32',
+    RemovedCount,
+    ErrorText
+  ) then
+    Exit;
+
+  // Re-scan after uninstall. This also refreshes the selected candidate in
+  // case a compatible pyRevit registration was already present beside the old
+  // one. We still reinstall 6.5.5 afterward because the old and new pyRevit
+  // products can share %APPDATA%\pyRevit-Master and the old uninstaller may
+  // legitimately remove files currently used by the newer registration.
+  DetectPyRevit;
+
+  if IncompatibleUserPyRevitCount > 0 then
+  begin
+    ErrorText :=
+      'One or more incompatible per-user pyRevit installations are still ' +
+      'registered after cleanup: ' + IncompatibleUserPyRevitSummary + '.';
+    Exit;
+  end;
+
+  Result := True;
+end;
+
 procedure MarkPyRevitForInstall(const Reason: String);
 begin
   PyRevitInstallRequired := True;
@@ -544,7 +796,7 @@ begin
   Log('[ACTION] Bundled pyRevit {#PyRevitPrereqCompatibilityVersion} prerequisite required: ' + Reason);
 end;
 
-function ConfirmPerUserPyRevitRepair(const VersionCore: String): Boolean;
+function ConfirmPerUserPyRevitRepair(const VersionSummary: String): Boolean;
 var
   MessageText: String;
 begin
@@ -554,23 +806,26 @@ begin
   begin
     Log(
       'Blocking silent installation: incompatible existing per-user pyRevit ' +
-      VersionCore + ' requires explicit repair consent.'
+      VersionSummary + ' requires explicit repair consent.'
     );
     Exit;
   end;
 
   MessageText :=
-    'AnonGee Toolkit detected an incompatible per-user pyRevit installation.' +
+    'AnonGee Toolkit detected incompatible per-user pyRevit installation(s).' +
     CRLF + CRLF +
-    'Detected: pyRevit ' + VersionCore + CRLF +
+    'Detected incompatible version(s): ' + VersionSummary + CRLF +
     'Required repair version: pyRevit {#PyRevitPrereqCompatibilityVersion}' +
     CRLF + CRLF +
-    'AnonGee requires a compatible pyRevit environment to run. Setup can ' +
-    'upgrade/repair your current per-user pyRevit installation using the ' +
-    'bundled official signed pyRevit installer.' + CRLF + CRLF +
-    'Yes: install pyRevit {#PyRevitPrereqCompatibilityVersion} and continue.' +
-    CRLF +
-    'No: close AnonGee Setup without installing AnonGee.' + CRLF + CRLF +
+    'To avoid multiple pyRevit versions conflicting inside Revit, Setup will ' +
+    'first uninstall the incompatible per-user pyRevit installation(s), then ' +
+    'install/repair pyRevit {#PyRevitPrereqCompatibilityVersion} using the ' +
+    'bundled official signed installer.' + CRLF + CRLF +
+    'Your AnonGee extension and roaming AnonGee settings are stored outside ' +
+    'the pyRevit-Master application folder.' + CRLF + CRLF +
+    'Yes: remove incompatible pyRevit, install 6.5.5, and continue.' + CRLF +
+    'No: close AnonGee Setup without changing pyRevit or installing AnonGee.' +
+    CRLF + CRLF +
     'Do you want Setup to repair pyRevit now?';
 
   if MsgBox(
@@ -579,15 +834,17 @@ begin
     MB_YESNO or MB_DEFBUTTON2
   ) = IDYES then
   begin
+    PyRevitCleanupRequired := True;
     MarkPyRevitForInstall(
-      'user approved repair of incompatible per-user pyRevit ' + VersionCore
+      'user approved cleanup/repair of incompatible per-user pyRevit ' +
+      VersionSummary
     );
     Result := True;
   end
   else
     Log(
-      '[CANCEL] User declined repair of incompatible per-user pyRevit ' +
-      VersionCore + '. AnonGee Setup will close.'
+      '[CANCEL] User declined cleanup/repair of incompatible per-user pyRevit ' +
+      VersionSummary + '. AnonGee Setup will close.'
     );
 end;
 
@@ -657,21 +914,17 @@ begin
     Exit;
   end;
 
-  // Old/incompatible installations can be repaired with the bundled per-user
-  // installer only after explicit user consent. All-users installs may be
-  // company/IT-managed and are never modified by AnonGee Setup.
-  if (DetectedPyRevitMajor < 6) or
-     (CompareSemVer3(
-        DetectedPyRevitMajor,
-        DetectedPyRevitMinor,
-        DetectedPyRevitPatch,
-        6, 1, 0
-      ) < 0) or
-     ((DetectedPyRevitMajor = 6) and (DetectedPyRevitMinor = 4)) then
+  if IsRepairIncompatiblePyRevitVersion(
+    DetectedPyRevitMajor,
+    DetectedPyRevitMinor,
+    DetectedPyRevitPatch
+  ) then
   begin
     if DetectedPyRevitScope = 'Per-user' then
     begin
-      Result := ConfirmPerUserPyRevitRepair(VersionCore);
+      // The consent prompt is performed once in InitializeSetup after the
+      // complete per-user scan, so it also catches stale side-by-side versions.
+      Result := PyRevitCleanupRequired and PyRevitInstallRequired;
       Exit;
     end;
 
@@ -693,7 +946,7 @@ begin
 
   // Compatibility contract:
   // 6.1.x-6.3.x -> allow unchanged
-  // 6.4.x       -> per-user ask to repair / all-users block
+  // 6.4.x       -> per-user ask to purge+repair / all-users block
   // 6.5.0-6.5.5 -> allow unchanged
   // >6.5.5 <7   -> warn + allow unchanged interactively
   if (DetectedPyRevitMajor = 6) and
@@ -728,6 +981,15 @@ begin
     Exit;
   end;
 
+  if IncompatibleUserPyRevitCount > 0 then
+  begin
+    Log(
+      '[FAIL] Incompatible per-user pyRevit remains after repair: ' +
+      IncompatibleUserPyRevitSummary
+    );
+    Exit;
+  end;
+
   if (DetectedPyRevitMajor = 6) and
      (DetectedPyRevitMinor = 5) and
      (DetectedPyRevitPatch = 5) then
@@ -756,9 +1018,35 @@ var
   PrereqPath: String;
   Params: String;
   ResultCode: Integer;
+  RemovedCount: Integer;
+  CleanupError: String;
 begin
   Result := '';
   NeedsRestart := False;
+
+  if PyRevitCleanupRequired then
+  begin
+    Log('============================================================');
+    Log('Removing incompatible per-user pyRevit before repair');
+    Log('Detected version(s): ' + IncompatibleUserPyRevitSummary);
+    Log('============================================================');
+
+    if not RemoveIncompatiblePerUserPyRevit(RemovedCount, CleanupError) then
+    begin
+      Result :=
+        'AnonGee Setup could not safely remove the incompatible per-user ' +
+        'pyRevit installation.' + CRLF + CRLF + CleanupError + CRLF + CRLF +
+        'AnonGee installation has been stopped. Resolve the pyRevit entry ' +
+        'manually in Windows Installed Apps, then run AnonGee Setup again.';
+      Log('[FAIL] pyRevit cleanup failed: ' + CleanupError);
+      Exit;
+    end;
+
+    Log(
+      '[PASS] Incompatible per-user pyRevit cleanup completed. Removed=' +
+      IntToStr(RemovedCount)
+    );
+  end;
 
   if not PyRevitInstallRequired then
   begin
@@ -835,13 +1123,14 @@ begin
   if not VerifyBundledPyRevitInstalled then
   begin
     Result :=
-      'pyRevit Setup completed, but AnonGee could not verify a compatible ' +
+      'pyRevit Setup completed, but AnonGee could not verify a clean compatible ' +
       'pyRevit 6.5.5 installation afterward.' + CRLF + CRLF +
-      'AnonGee files have not been installed. Restart Windows if required, ' +
-      'verify pyRevit, and run AnonGee Setup again.';
+      'AnonGee files have not been installed. Check Windows Installed Apps for ' +
+      'stale pyRevit versions, then run AnonGee Setup again.';
     Exit;
   end;
 
+  PyRevitCleanupRequired := False;
   PyRevitInstallRequired := False;
   Log('[PASS] pyRevit prerequisite installation completed and verified.');
 end;
@@ -852,7 +1141,10 @@ var
 begin
   Result := False;
   PyRevitInstallRequired := False;
+  PyRevitCleanupRequired := False;
   PyRevitInstallReason := '';
+  IncompatibleUserPyRevitCount := 0;
+  IncompatibleUserPyRevitSummary := '';
 
   Log('============================================================');
   Log('AnonGee Toolkit prerequisite preflight');
@@ -919,9 +1211,9 @@ begin
   end;
   Log('[PASS] Autodesk Revit 2025 detected at: ' + DetectedRevitPath);
 
-  // 4-6. Detect pyRevit, scope, and version. Missing pyRevit is provisioned
-  // later by PrepareToInstall. An incompatible existing per-user pyRevit is
-  // repaired only after the user explicitly approves the change.
+  // 4-6. Detect every registered pyRevit candidate. Missing pyRevit is
+  // provisioned later by PrepareToInstall. Any incompatible per-user entries
+  // require explicit consent and are purged before the bundled repair runs.
   if not DetectPyRevit then
   begin
     MarkPyRevitForInstall('pyRevit is not installed');
@@ -947,12 +1239,25 @@ begin
         DetectedPyRevitInstallLocation
       );
 
-    // 7. Explicit compatibility/repair policy.
+    if IncompatibleUserPyRevitCount > 0 then
+    begin
+      Log(
+        '[WARN] Incompatible per-user pyRevit registration(s) detected: ' +
+        IncompatibleUserPyRevitSummary
+      );
+
+      if not ConfirmPerUserPyRevitRepair(
+        IncompatibleUserPyRevitSummary
+      ) then
+        Exit;
+    end;
+
+    // 7. Explicit compatibility/repair policy for the selected candidate.
     if not ValidatePyRevitCompatibility then
       Exit;
 
-    if PyRevitInstallRequired then
-      Log('[PASS] User approved bundled per-user pyRevit repair.')
+    if PyRevitCleanupRequired then
+      Log('[PASS] User approved purge + bundled per-user pyRevit repair.')
     else
       Log('[PASS] pyRevit compatibility policy accepted.');
   end;
@@ -964,8 +1269,13 @@ begin
   Log('============================================================');
   Log('AnonGee prerequisite preflight PASSED.');
   Log('Revit 2025 path: ' + DetectedRevitPath);
-  if PyRevitInstallRequired then
-    Log('pyRevit action: install/repair bundled {#PyRevitPrereqVersion}')
+  if PyRevitCleanupRequired then
+    Log(
+      'pyRevit action: purge incompatible per-user version(s), then install/repair ' +
+      '{#PyRevitPrereqVersion}'
+    )
+  else if PyRevitInstallRequired then
+    Log('pyRevit action: install bundled {#PyRevitPrereqVersion}')
   else
     Log(
       'pyRevit: ' +
