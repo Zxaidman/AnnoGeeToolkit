@@ -1,7 +1,7 @@
 #define MyAppName "AnonGee Toolkit"
-#define MyAppVersion "0.1.0"
+#define MyAppVersion "1.1.0"
 #define MyPublisher "Zxaidman"
-#define InstallerMilestone "0.4.0"
+#define InstallerMilestone "0.6.0"
 #define PyRevitPrereqVersion "6.5.5.26237"
 #define PyRevitPrereqCompatibilityVersion "6.5.5"
 #define PyRevitPrereqFile "pyRevit_6.5.5.26237_signed.exe"
@@ -415,7 +415,7 @@ begin
 
     Log(
       'All-users pyRevit detected. Detection is supported; this scope ' +
-      'remains an AnonGee QA item before 1.0.0.'
+      'remains an AnonGee QA item for broader production rollout.'
     );
 
     Result := True;
@@ -1201,7 +1201,7 @@ begin
   begin
     MsgBox(
       'Autodesk Revit 2025 was not detected.' + CRLF + CRLF +
-      'AnonGee Toolkit milestone 0.4.0 supports Revit 2025 only.' +
+      'AnonGee Toolkit installer milestone {#InstallerMilestone} supports Revit 2025 only.' +
       CRLF + CRLF +
       'Install or repair Autodesk Revit 2025, then run Setup again.',
       mbCriticalError,
