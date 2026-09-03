@@ -10,7 +10,13 @@ SUPPORTED ENVIRONMENT
 
 INSTALLATION
 
-AnonGee Toolkit installs into your per-user
-pyRevit Extensions directory.
+AnonGee Toolkit installs its pyRevit extension into:
+%APPDATA%\pyRevit\Extensions\AnonGee.extension
+
+Installer-owned support files are stored under:
+%LOCALAPPDATA%\Zxaidman\AnonGee\BIM-Toolkit
+
+Roaming AnonGee Toolkit settings are stored under:
+%APPDATA%\Zxaidman\AnonGee\BIM-Toolkit
 
 Please close Autodesk Revit before continuing.
