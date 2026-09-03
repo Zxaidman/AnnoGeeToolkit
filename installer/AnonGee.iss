@@ -544,6 +544,53 @@ begin
   Log('[ACTION] Bundled pyRevit {#PyRevitPrereqCompatibilityVersion} prerequisite required: ' + Reason);
 end;
 
+function ConfirmPerUserPyRevitRepair(const VersionCore: String): Boolean;
+var
+  MessageText: String;
+begin
+  Result := False;
+
+  if WizardSilent then
+  begin
+    Log(
+      'Blocking silent installation: incompatible existing per-user pyRevit ' +
+      VersionCore + ' requires explicit repair consent.'
+    );
+    Exit;
+  end;
+
+  MessageText :=
+    'AnonGee Toolkit detected an incompatible per-user pyRevit installation.' +
+    CRLF + CRLF +
+    'Detected: pyRevit ' + VersionCore + CRLF +
+    'Required repair version: pyRevit {#PyRevitPrereqCompatibilityVersion}' +
+    CRLF + CRLF +
+    'AnonGee requires a compatible pyRevit environment to run. Setup can ' +
+    'upgrade/repair your current per-user pyRevit installation using the ' +
+    'bundled official signed pyRevit installer.' + CRLF + CRLF +
+    'Yes: install pyRevit {#PyRevitPrereqCompatibilityVersion} and continue.' +
+    CRLF +
+    'No: close AnonGee Setup without installing AnonGee.' + CRLF + CRLF +
+    'Do you want Setup to repair pyRevit now?';
+
+  if MsgBox(
+    MessageText,
+    mbConfirmation,
+    MB_YESNO or MB_DEFBUTTON2
+  ) = IDYES then
+  begin
+    MarkPyRevitForInstall(
+      'user approved repair of incompatible per-user pyRevit ' + VersionCore
+    );
+    Result := True;
+  end
+  else
+    Log(
+      '[CANCEL] User declined repair of incompatible per-user pyRevit ' +
+      VersionCore + '. AnonGee Setup will close.'
+    );
+end;
+
 function ConfirmUnvalidatedPyRevitVersion: Boolean;
 var
   MessageText: String;
@@ -610,8 +657,9 @@ begin
     Exit;
   end;
 
-  // Old/incompatible installations can be repaired automatically only when
-  // they belong to the current user. All-users installs may be IT-managed.
+  // Old/incompatible installations can be repaired with the bundled per-user
+  // installer only after explicit user consent. All-users installs may be
+  // company/IT-managed and are never modified by AnonGee Setup.
   if (DetectedPyRevitMajor < 6) or
      (CompareSemVer3(
         DetectedPyRevitMajor,
@@ -623,10 +671,7 @@ begin
   begin
     if DetectedPyRevitScope = 'Per-user' then
     begin
-      MarkPyRevitForInstall(
-        'detected incompatible per-user pyRevit ' + VersionCore
-      );
-      Result := True;
+      Result := ConfirmPerUserPyRevitRepair(VersionCore);
       Exit;
     end;
 
@@ -648,7 +693,7 @@ begin
 
   // Compatibility contract:
   // 6.1.x-6.3.x -> allow unchanged
-  // 6.4.x       -> per-user auto-repair / all-users block
+  // 6.4.x       -> per-user ask to repair / all-users block
   // 6.5.0-6.5.5 -> allow unchanged
   // >6.5.5 <7   -> warn + allow unchanged interactively
   if (DetectedPyRevitMajor = 6) and
@@ -749,18 +794,20 @@ begin
     Exit;
   end;
 
-  // pyRevit's official per-user installer is itself Inno Setup. Install only
-  // its fixed Core component; AnonGee does not require pyRevit's optional
-  // extended, developer, or tutorial extensions.
+  // pyRevit's official per-user installer is itself Inno Setup. /SILENT skips
+  // its wizard but intentionally keeps its progress window visible so AnonGee
+  // Setup never appears frozen while the prerequisite is being installed.
+  // Install only the fixed Core component; AnonGee does not require pyRevit's
+  // optional extended, developer, or tutorial extensions.
   Params :=
-    '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- ' +
+    '/SILENT /SUPPRESSMSGBOXES /NORESTART /SP- ' +
     '/COMPONENTS="core"';
 
   if not Exec(
     PrereqPath,
     Params,
     '',
-    SW_HIDE,
+    SW_SHOWNORMAL,
     ewWaitUntilTerminated,
     ResultCode
   ) then
@@ -872,9 +919,9 @@ begin
   end;
   Log('[PASS] Autodesk Revit 2025 detected at: ' + DetectedRevitPath);
 
-  // 4-6. Detect pyRevit, scope, and version. Missing or safely repairable
-  // per-user pyRevit is handled later by PrepareToInstall, after the user has
-  // accepted AnonGee's EULA and clicked Install.
+  // 4-6. Detect pyRevit, scope, and version. Missing pyRevit is provisioned
+  // later by PrepareToInstall. An incompatible existing per-user pyRevit is
+  // repaired only after the user explicitly approves the change.
   if not DetectPyRevit then
   begin
     MarkPyRevitForInstall('pyRevit is not installed');
@@ -905,7 +952,7 @@ begin
       Exit;
 
     if PyRevitInstallRequired then
-      Log('[PASS] pyRevit is eligible for automatic per-user repair.')
+      Log('[PASS] User approved bundled per-user pyRevit repair.')
     else
       Log('[PASS] pyRevit compatibility policy accepted.');
   end;
