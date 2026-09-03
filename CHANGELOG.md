@@ -58,11 +58,32 @@ of view of someone using the thing rather than someone reading the diff:
   `CHANGELOG.md` beside its `bundle.yaml`, and tests hold the version in the
   package, the bundle tooltip, the changelog heading and the window header to
   the same value so they cannot drift.
+- **Packaged Windows Setup delivery** for Revit 2025 x64. The installer carries
+  the tested CPython 3.12 runtime dependencies inside `AnonGee.extension`, so
+  end users do not need standalone Python or pip. It can provision the pinned
+  signed pyRevit 6.5.5 prerequisite when pyRevit is missing, and can repair an
+  incompatible per-user pyRevit installation after explicit user approval.
 
 **Changed**
 
 - The README now lists every button actually on the ribbon. It had drifted:
   nine tools were shipping and undocumented.
+- AnonGee Setup now uses the extension's **1.1.0** product version instead of
+  the earlier installer-development `0.1.0` identity. Windows Installed Apps,
+  the Setup EXE filename and generated release metadata therefore identify the
+  same product version as `extension.json` and this changelog.
+- The pyRevit compatibility metadata now declares a minimum of **6.1.0**. The
+  installer keeps the more precise compatibility policy: 6.4.x is blocked,
+  6.5.5 is the current confirmed working prerequisite, and newer unvalidated
+  6.x versions use the installer warning policy.
+- Installer support/user-data paths are separated from the pyRevit extension
+  path: installer support files live under `%LOCALAPPDATA%\Zxaidman\AnonGee\BIM-Toolkit`,
+  roaming settings under `%APPDATA%\Zxaidman\AnonGee\BIM-Toolkit`, while the
+  extension remains under `%APPDATA%\pyRevit\Extensions\AnonGee.extension`.
+- The release pipeline now validates the pinned pyRevit installer hash,
+  compiles Inno Setup from one command, records source/compiler/artifact
+  provenance, and requires a clean Git source tree by default for a
+  release-ready artifact.
 
 ## 1.0.0
 
