@@ -18,12 +18,22 @@ pyRevit 6.5.5 installer as a prerequisite.
 • If pyRevit is not installed, Setup installs pyRevit 6.5.5 automatically.
 • During prerequisite installation, the pyRevit progress window remains
   visible so the user can see that Setup is actively working.
-• If an incompatible per-user pyRevit version is detected, Setup asks for
-  explicit permission before replacing/upgrading it with pyRevit 6.5.5.
-• Choosing Yes starts the pyRevit 6.5.5 repair and then continues AnonGee
-  installation after the prerequisite is verified.
-• Choosing No closes AnonGee Setup without installing AnonGee.
-• Existing compatible pyRevit installations are left unchanged.
+• If one or more incompatible per-user pyRevit versions are detected, Setup
+  asks for explicit permission before changing the pyRevit environment.
+• Choosing Yes first runs the registered Windows uninstaller for every
+  incompatible per-user pyRevit entry, verifies those entries are gone, then
+  installs/repairs pyRevit 6.5.5 and verifies the final environment before
+  installing AnonGee.
+• This purge-before-repair step is intentional because older and newer pyRevit
+  releases can have separate Windows product registrations while sharing the
+  same %APPDATA%\pyRevit-Master application directory.
+• Choosing No closes AnonGee Setup without changing pyRevit or installing
+  AnonGee.
+• Existing compatible pyRevit installations are left unchanged when no stale
+  incompatible per-user registration is present.
+• If a compatible pyRevit registration exists beside an incompatible stale
+  per-user version, Setup still reinstalls/repairs 6.5.5 after cleanup because
+  the old uninstaller may remove files from their shared pyRevit-Master folder.
 • Newer unvalidated pyRevit 6.x installations are not downgraded.
 • An incompatible all-users pyRevit installation is not modified by this
   per-user Setup. Ask your BIM/IT administrator to update it, then run Setup
