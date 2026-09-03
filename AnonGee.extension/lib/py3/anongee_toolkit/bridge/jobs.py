@@ -12,31 +12,30 @@ Two folders and a naming rule. That is the whole transport.
 **The HTTP route and the file drop are the same transport**, and this module is
 why. pyRevit loads an extension's ``startup.py`` on IronPython 2.7, which cannot
 see this package at all — so the route does not call this code, it writes the
-same files by the same rules. What is shared is a folder layout, not a module,
-and that turned out to be the simpler thing to share.
+same files by the same rules. What is shared is a folder layout, not a module.
 
-The canonical installed bridge home is now machine-local runtime state:
+The canonical installed bridge home is machine-local runtime state:
 
     %LOCALAPPDATA%\Zxaidman\AnonGee\bridge
 
-``ANONGEE_BRIDGE_HOME`` still overrides everything. On first CPython bridge use,
-this module sets that override **for the current Revit process only** when no
-explicit override exists. The IronPython startup route reads the same process
-environment on every request, so both engines immediately converge on the new
-location without coupling either one to the other. Any legacy
-``%APPDATA%\AnonGee\bridge`` tree is migrated best-effort into the canonical
-home before the listener starts watching it.
+``ANONGEE_BRIDGE_HOME`` still overrides everything. The normal default is the
+canonical ``LOCALAPPDATA`` path; ``%APPDATA%\AnonGee\bridge`` is retained as a
+fallback when LOCALAPPDATA is unavailable and as the legacy upgrade source.
 
-The consequence worth stating: the fallback rules below are duplicated in
-``AnonGee.extension/startup.py``, on purpose, in another language. Duplication
-is the price of the engine split and it is held down by tests. The process-level
-override is the compatibility seam that lets an installed build move the bridge
-without making the IronPython startup import the CPython toolkit.
+Legacy IPC state is migrated conservatively. Completed inbox files may be moved
+(or copied then removed when profiles span volumes) because they are passive
+records. A queued ``.job.json`` is **never copied**: it is moved by one atomic
+rename when that is possible, otherwise it stays in the legacy outbox and the
+new listener claims it there in place. A ``.running.json`` is never moved or
+copied automatically because another Revit session may still own it. This keeps
+an upgrade from manufacturing two runnable copies of one command.
+
+The path rules are duplicated in ``AnonGee.extension/startup.py`` because that
+file runs on IronPython 2.7 while this module runs on CPython. Tests hold the two
+implementations together.
 
 Claiming is a rename. ``os.rename`` is atomic on one filesystem, so two
 listeners cannot both take the same job: one wins and the other's rename raises.
-That matters the day somebody opens two Revit sessions, which is the day nobody
-plans for.
 """
 
 import io
@@ -44,18 +43,15 @@ import json
 import os
 import shutil
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
-#: Overrides everything. Set it and both ends follow — the same variable name is
-#: read by the IronPython route.
+#: Overrides everything. Set it and both engines follow the same process value.
 ENV_HOME = "ANONGEE_BRIDGE_HOME"
 
 #: Canonical installed location for machine-local IPC/runtime state.
 LOCALAPPDATA_PARTS = ("Zxaidman", "AnonGee", "bridge")
 
-#: Legacy/fallback path under ``%APPDATA%``. Kept because startup.py has to stay
-#: independently importable on IronPython 2.7 and because LOCALAPPDATA can in
-#: principle be absent in a non-standard host.
+#: Legacy Windows location and fallback when LOCALAPPDATA is unavailable.
 APPDATA_PARTS = ("AnonGee", "bridge")
 
 #: Anywhere else, and on Windows if neither supported AppData variable exists.
@@ -68,6 +64,7 @@ JOB_SUFFIX = ".job.json"
 RUNNING_SUFFIX = ".running.json"
 RESULT_SUFFIX = ".result.json"
 TSV_SUFFIX = ".result.tsv"
+MIGRATION_CONFLICT_SUFFIX = ".migration-conflict"
 
 
 _AUTO_CANONICAL_HOME = False
@@ -75,18 +72,29 @@ _AUTO_CANONICAL_HOME = False
 
 def _same_path(left, right):
     try:
-        return os.path.normcase(os.path.abspath(left)) == os.path.normcase(os.path.abspath(right))
+        return os.path.normcase(os.path.abspath(left)) == os.path.normcase(
+            os.path.abspath(right)
+        )
     except Exception:
         return left == right
 
 
-def _activate_canonical_process_home():
-    """Point this Revit process at the canonical local bridge home.
+def _mkdir(path):
+    if not path or os.path.isdir(path):
+        return
+    try:
+        os.makedirs(path)
+    except OSError:
+        if not os.path.isdir(path):
+            raise
 
-    A user-supplied ``ANONGEE_BRIDGE_HOME`` always wins. Otherwise, when
-    ``LOCALAPPDATA`` exists, set the override in the process environment. The
-    IronPython startup route reads the environment dynamically, so it follows
-    the same value after the CPython listener imports this module.
+
+def _activate_canonical_process_home():
+    """Expose the canonical default through the existing process override.
+
+    A user-supplied ``ANONGEE_BRIDGE_HOME`` always wins. Setting the automatically
+    selected default in the process environment keeps older IronPython startup
+    code and CPython bridge code converged during an in-process upgrade/reload.
     """
     global _AUTO_CANONICAL_HOME
     if os.environ.get(ENV_HOME):
@@ -102,10 +110,13 @@ _activate_canonical_process_home()
 
 
 def home():
-    """The bridge folder. Explicit override, then legacy-compatible fallback."""
+    """Bridge home: explicit override, local default, roaming fallback, home."""
     override = os.environ.get(ENV_HOME)
     if override:
         return override
+    localappdata = os.environ.get("LOCALAPPDATA")
+    if localappdata:
+        return os.path.join(localappdata, *LOCALAPPDATA_PARTS)
     appdata = os.environ.get("APPDATA")
     if appdata:
         return os.path.join(appdata, *APPDATA_PARTS)
@@ -119,53 +130,100 @@ def _legacy_home():
     return os.path.join(appdata, *APPDATA_PARTS)
 
 
-def _merge_legacy_tree(source, target):
-    """Move what can be moved without overwriting newer canonical state."""
-    if not source or not os.path.isdir(source) or _same_path(source, target):
+def _canonical_has_job(root, identifier):
+    """Whether canonical state already accounts for *identifier*."""
+    for path in (
+        os.path.join(outbox(root), identifier + JOB_SUFFIX),
+        os.path.join(outbox(root), identifier + RUNNING_SUFFIX),
+        os.path.join(inbox(root), identifier + RESULT_SUFFIX),
+        os.path.join(inbox(root), identifier + TSV_SUFFIX),
+    ):
+        if os.path.exists(path):
+            return True
+    return False
+
+
+def _quarantine_legacy_job(path):
+    """Make a conflicting legacy queue file non-runnable without deleting it."""
+    target = path + MIGRATION_CONFLICT_SUFFIX
+    if os.path.exists(target):
+        return False
+    try:
+        os.rename(path, target)
+        return True
+    except OSError:
+        # An older listener may have claimed it between discovery and rename.
+        # In that race, never copy or delete what now belongs to that listener.
+        return False
+
+
+def _move_passive_file(source, target):
+    """Move one non-runnable record without overwriting canonical state."""
+    if os.path.exists(target):
+        return False
+    _mkdir(os.path.dirname(target))
+    try:
+        os.rename(source, target)
+        return True
+    except OSError:
+        pass
+
+    # Cross-volume profile redirection can make rename impossible. Copying is
+    # allowed only for passive records; runnable queue/running files never call
+    # this helper.
+    try:
+        shutil.copy2(source, target)
+        os.remove(source)
+        return True
+    except Exception:
+        # If the copy succeeded but source removal failed, two passive records
+        # are harmless. Keeping both is safer than deleting either one.
+        return False
+
+
+def _migrate_legacy_inbox(legacy, root):
+    source = os.path.join(legacy, INBOX)
+    target = inbox(root)
+    if not os.path.isdir(source):
         return
-
-    parent = os.path.dirname(target)
-    if parent and not os.path.isdir(parent):
-        try:
-            os.makedirs(parent)
-        except OSError:
-            if not os.path.isdir(parent):
-                raise
-
-    # The normal upgrade case: the canonical directory does not exist yet.
-    # A directory rename preserves timestamps and is atomic on the usual user
-    # profile volume.
-    if not os.path.exists(target):
-        try:
-            os.rename(source, target)
-            return
-        except OSError:
-            pass
-
-    if not os.path.isdir(target):
-        return
-
-    # Recovery case: something already created the destination. Merge only
-    # missing entries. Never overwrite a canonical job/result with a legacy
-    # file bearing the same name.
+    _mkdir(target)
     for name in os.listdir(source):
         old = os.path.join(source, name)
+        if os.path.isfile(old):
+            _move_passive_file(old, os.path.join(target, name))
+    try:
+        os.rmdir(source)
+    except OSError:
+        pass
+
+
+def _migrate_legacy_queue(legacy, root):
+    """Move queued jobs only by atomic rename; never touch running jobs."""
+    source = os.path.join(legacy, OUTBOX)
+    target = outbox(root)
+    if not os.path.isdir(source):
+        return
+    _mkdir(target)
+
+    for name in os.listdir(source):
+        if not name.endswith(JOB_SUFFIX):
+            # Includes .running.json and .partial. They may be owned by a live
+            # session or be an interrupted write, so migration leaves them.
+            continue
+        old = os.path.join(source, name)
+        identifier = name[:-len(JOB_SUFFIX)]
+        if _canonical_has_job(root, identifier):
+            _quarantine_legacy_job(old)
+            continue
+
         new = os.path.join(target, name)
-        if os.path.isdir(old):
-            _merge_legacy_tree(old, new)
-            continue
-        if os.path.exists(new):
-            continue
         try:
             os.rename(old, new)
         except OSError:
-            try:
-                shutil.copy2(old, new)
-                os.remove(old)
-            except Exception:
-                # Migration is best-effort. Leaving the legacy file is safer
-                # than deleting data because a copy did not complete.
-                pass
+            # Never copy a runnable job. If APPDATA and LOCALAPPDATA are on
+            # different volumes, pending() also scans the legacy outbox and the
+            # new listener will claim this source file in place atomically.
+            pass
 
     try:
         os.rmdir(source)
@@ -174,17 +232,35 @@ def _merge_legacy_tree(source, target):
 
 
 def _migrate_legacy_if_needed(root):
-    """Migrate only when this module chose the canonical default itself."""
+    """Best-effort upgrade from the old roaming bridge without duplicate work."""
     if not _AUTO_CANONICAL_HOME:
         return
     legacy = _legacy_home()
-    if legacy and not _same_path(legacy, root):
+    if not legacy or not os.path.isdir(legacy) or _same_path(legacy, root):
+        return
+    try:
+        _mkdir(root)
+        _mkdir(outbox(root))
+        _mkdir(inbox(root))
+        _migrate_legacy_inbox(legacy, root)
+        _migrate_legacy_queue(legacy, root)
         try:
-            _merge_legacy_tree(legacy, root)
-        except Exception:
-            # A bridge migration may never take Revit down. The new folders are
-            # still created below and the legacy data remains intact.
+            os.rmdir(legacy)
+        except OSError:
+            # Running, cross-volume queued, partial, conflicting, or otherwise
+            # unknown legacy state intentionally keeps the old tree alive.
             pass
+    except Exception:
+        # A bridge migration may never take Revit/pyRevit down. Whatever could
+        # not be moved remains at the legacy location.
+        pass
+
+
+def _legacy_pending_allowed(root):
+    if not _AUTO_CANONICAL_HOME:
+        return False
+    legacy = _legacy_home()
+    return bool(legacy and not _same_path(legacy, root))
 
 
 def outbox(root=None):
@@ -196,18 +272,13 @@ def inbox(root=None):
 
 
 def ensure(root=None):
-    """Make both folders and migrate the old roaming bridge once, best-effort."""
+    """Make canonical folders and migrate legacy state best-effort."""
+    explicit_root = root is not None
     root = root or home()
-    _migrate_legacy_if_needed(root)
     for folder in (outbox(root), inbox(root)):
-        if not os.path.isdir(folder):
-            try:
-                os.makedirs(folder)
-            except OSError:
-                # Another session made it between the check and the call, which
-                # is the normal case rather than the exceptional one.
-                if not os.path.isdir(folder):
-                    raise
+        _mkdir(folder)
+    if not explicit_root:
+        _migrate_legacy_if_needed(root)
     return root
 
 
@@ -226,25 +297,41 @@ def write_job(envelope, root=None):
     return final
 
 
-def pending(root=None):
-    """``[(jobId, path)]`` for every unclaimed job, oldest name first."""
-    folder = outbox(root)
-    if not os.path.isdir(folder):
-        return []
+def _pending_in(folder):
     found = []
+    if not os.path.isdir(folder):
+        return found
     for name in sorted(os.listdir(folder)):
         if name.endswith(JOB_SUFFIX):
             found.append((name[:-len(JOB_SUFFIX)], os.path.join(folder, name)))
     return found
 
 
+def pending(root=None):
+    """Pending canonical jobs plus safe legacy carry-over, oldest id first."""
+    explicit_root = root is not None
+    root = root or home()
+    found = _pending_in(outbox(root))
+
+    if not explicit_root and _legacy_pending_allowed(root):
+        legacy = _legacy_home()
+        for identifier, path in _pending_in(os.path.join(legacy, OUTBOX)):
+            if _canonical_has_job(root, identifier):
+                _quarantine_legacy_job(path)
+                continue
+            found.append((identifier, path))
+
+    # A job id is normally unique. Path is the tie-breaker only for defensive
+    # determinism if malformed legacy state contains duplicates.
+    return sorted(found, key=lambda row: (row[0], row[1]))
+
+
 def claim(path):
     """Take a job so nothing else can. Returns the new path, or ``None``.
 
-    A rename, because on one filesystem that is atomic: two listeners racing
-    for the same job produce one winner and one ``OSError``, rather than two
-    runs of the same command against the same model. Returning ``None`` for the
-    loser is not an error — it is the mechanism working.
+    A rename in the job's current folder is atomic. This remains true for a
+    legacy cross-volume carry-over because it is claimed *in place* rather than
+    copied into the canonical outbox first.
     """
     if not path.endswith(JOB_SUFFIX):
         return None
@@ -297,11 +384,7 @@ def read_result(identifier, root=None):
 
 
 def finish(running_path, root=None):
-    """Remove a claimed job once its result is written. Never raises.
-
-    The result is the record; a claimed job left behind would be picked up by
-    nothing and confuse everybody.
-    """
+    """Remove a claimed job once its result is written. Never raises."""
     try:
         if running_path and os.path.exists(running_path):
             os.remove(running_path)
@@ -310,11 +393,7 @@ def finish(running_path, root=None):
 
 
 def recent(limit=20, root=None):
-    """The last few jobs and where each got to, newest first.
-
-    What a macro polls when it cannot address one job by id — which is most
-    macros, because a list needs no URL pattern and no query string.
-    """
+    """The last few canonical jobs and where each got to, newest first."""
     from anongee_toolkit.bridge import envelope as envelope_module
 
     root = root or home()
@@ -349,25 +428,13 @@ def recent(limit=20, root=None):
 
 #: The TSV is read by a VBA macro through ``Input$``, which reads bytes as the
 #: machine's ANSI code page and knows nothing about UTF-8. So it is written as
-#: **ASCII**, with anything else replaced: a message containing an em dash would
-#: otherwise either fail to write on a cp1252 machine or arrive as mojibake in a
-#: spreadsheet.
-#:
-#: The JSON keeps the full text — it is the canonical form and is read by
-#: programs that can say what encoding they want. This is the one real cost of
-#: writing the answer twice, and it is worth it against hand-rolling a JSON
-#: parser in VBA.
+#: **ASCII**, with anything else replaced.
 TSV_ENCODING = "ascii"
 JSON_ENCODING = "utf-8"
 
 
 def _write_text(path, text, encoding=JSON_ENCODING):
-    """Write *text*, never guessing at the machine's code page.
-
-    ``open(path, "w")`` with no encoding uses the locale's, which on Windows is
-    cp1252 — so the same file would be written differently on two machines and
-    read wrongly on a third. Every write here names its encoding.
-    """
+    """Write *text*, never guessing at the machine's code page."""
     handle = io.open(path, "w", encoding=encoding, errors="replace",
                      newline="\n")
     try:

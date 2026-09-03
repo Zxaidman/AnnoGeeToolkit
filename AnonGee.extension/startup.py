@@ -41,17 +41,9 @@ import json
 import os
 import sys
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
-#: The API name, and therefore the first path segment: ``/anongee/...``.
-#: The Excel macro in ``bridge/excel/`` names the same string, and a test holds
-#: the two together — a URL that disagrees with its route costs an afternoon and
-#: looks like a network problem the whole time.
 API_NAME = "anongee"
-
-#: What pyRevit's Routes server listens on by default. Recorded here for the
-#: macro and the documentation to agree with; the server decides its own port
-#: and ``/ping`` reports the truth rather than this.
 DEFAULT_HOST = "localhost"
 DEFAULT_PORT = 48884
 
@@ -59,18 +51,12 @@ DEFAULT_PORT = 48884
 # ---------------------------------------------------------------------------
 # Where a job lives
 # ---------------------------------------------------------------------------
-# These rules are also in ``anongee_toolkit/bridge/jobs.py``, in CPython 3, and
-# they have to agree. **That duplication is deliberate and it is the price of
-# the engine split**: this file is loaded by pyRevit's core engine, which is
-# IronPython 2.7, and the toolkit lives in ``lib/py3`` where this engine cannot
-# reach it. What the two ends share is a folder layout, not a module.
-#
-# Held down two ways, because "two files must agree" is exactly the contract
-# that rots: ``tests/test_bridge.py`` compares the constants, and ``/ping``
-# reports the home this file computed so a mismatch shows up as a sentence in a
-# dialog rather than as a job nobody ever sees.
+# These rules are also in ``anongee_toolkit/bridge/jobs.py``. Duplication is
+# deliberate: startup.py must remain IronPython 2.7 compatible and cannot import
+# the CPython toolkit. tests/test_bridge.py holds the two contracts together.
 
 ENV_HOME = "ANONGEE_BRIDGE_HOME"
+LOCALAPPDATA_PARTS = ("Zxaidman", "AnonGee", "bridge")
 APPDATA_PARTS = ("AnonGee", "bridge")
 HOME_PARTS = (".anongee", "bridge")
 
@@ -81,21 +67,18 @@ JOB_SUFFIX = ".job.json"
 RUNNING_SUFFIX = ".running.json"
 RESULT_SUFFIX = ".result.json"
 
-#: Answered by ``/jobs`` when a caller wants the recent list rather than one
-#: job. Twenty is enough to find the one you just posted and short enough that
-#: the answer stays a mouthful.
 RECENT_LIMIT = 20
-
-#: Two presses in the same second are two jobs. Module scope, because this file
-#: is loaded once per session and that is exactly the lifetime wanted.
 _counter = [0]
 
 
 def bridge_home():
-    """The bridge folder. Same three rules as ``jobs.home()``, in order."""
+    """Bridge home: explicit override, local default, roaming fallback, home."""
     override = os.environ.get(ENV_HOME)
     if override:
         return override
+    localappdata = os.environ.get("LOCALAPPDATA")
+    if localappdata:
+        return os.path.join(localappdata, *LOCALAPPDATA_PARTS)
     appdata = os.environ.get("APPDATA")
     if appdata:
         return os.path.join(appdata, *APPDATA_PARTS)
@@ -120,13 +103,7 @@ def _next_job_id():
 
 
 def _body(request):
-    """The posted envelope as a dict, whatever shape the framework hands over.
-
-    pyRevit has carried the body on more than one attribute across releases and
-    may or may not have decoded it. Asking three questions costs nothing; being
-    wrong about which one costs a run that fails with "the job is not an
-    object" and no clue why.
-    """
+    """The posted envelope as a dict, whatever shape the framework hands over."""
     for attribute in ("data", "body", "json"):
         raw = getattr(request, attribute, None)
         if raw is None:
@@ -195,14 +172,6 @@ def _recent(root, limit=RECENT_LIMIT):
     return ordered[:limit]
 
 
-#: Written on every load, whatever happens. **The only way to answer "why is
-#: nothing listening?"** — because when the answer is "the routes never
-#: registered", there is by definition no route to ask.
-#:
-#: A run reported both routes dead with no way to tell three cases apart: the
-#: Routes server switched off, this script failing to register, or the
-#: extension never reloading at all. They need different fixes and looked
-#: identical. This file tells them apart.
 STARTUP_RECORD = "startup.json"
 
 
@@ -222,12 +191,7 @@ def _write_record(payload):
 
 
 def _engine():
-    """Which Python is running this, in as much detail as it will give.
-
-    Question 3, and the single most valuable thing the spike returns: it decides
-    whether a route handler can import the toolkit or has to hand off to a
-    CPython script.
-    """
+    """Which Python is running this, in as much detail as it will give."""
     facts = {
         "version": sys.version.replace("\n", " "),
         "platform": sys.platform,
@@ -236,19 +200,12 @@ def _engine():
         import platform
         facts["implementation"] = platform.python_implementation()
     except Exception:
-        # IronPython's platform module has been known to be partial. The
-        # version string above still names it.
         facts["implementation"] = "unknown"
     return facts
 
 
 def _toolkit():
-    """Whether this engine can see ``anongee_toolkit``, and where from.
-
-    Reported rather than judged. ``lib/py3`` is added to the path for CPython
-    engines only, so the honest answer here may well be "no" — which is a
-    finding, not a fault.
-    """
+    """Whether this engine can see ``anongee_toolkit``, and where from."""
     found = {"importable": False, "path_entries": [], "error": ""}
     for entry in sys.path:
         try:
@@ -273,11 +230,7 @@ def _extension_root():
 
 
 def register():
-    """Register the routes. ``(api, note)`` — never raises.
-
-    Separate from the module body so a test can call it and so the failure has
-    somewhere to be reported rather than being swallowed at import.
-    """
+    """Register the routes. ``(api, note)`` — never raises."""
     try:
         from pyrevit import routes
     except Exception as error:
@@ -288,21 +241,10 @@ def register():
     except Exception as error:
         return None, "could not create the {0} API: {1}".format(API_NAME, error)
 
-    #: Filled in as each route takes. Reported by ``/ping`` and written to the
-    #: startup record, so "which routes exist" is answerable from outside.
     registered = []
     refused = []
 
     def add(pattern, methods, handler):
-        """Register one route, and let a bad one fail alone.
-
-        The first version decorated five routes in a row with nothing between
-        them. ``/jobs/<string:job_id>`` used a pattern pyRevit does not have —
-        it supports ``<int:...>`` and ``<uuid:...>`` and neither fits a job id —
-        so a single bad pattern was in a position to take the diagnostic routes
-        down with it. Whether it actually did is a question that should never
-        have needed asking.
-        """
         try:
             api.route(pattern, methods=methods)(handler)
             registered.append("{0} {1}".format("/".join(methods), pattern))
@@ -310,12 +252,6 @@ def register():
             refused.append("{0}: {1}".format(pattern, error))
 
     def ping():
-        """The server, with no Revit in the question.
-
-        No ``uiapp`` argument on purpose: this answers whether the server is up
-        and reachable **even when Revit is busy**, which is exactly when a user
-        will first suspect the bridge is broken.
-        """
         return {
             "ok": True,
             "api": API_NAME,
@@ -330,16 +266,6 @@ def register():
         }
 
     def status(uiapp):
-        """The model, through Revit's own thread.
-
-        Declaring ``uiapp`` is what asks pyRevit to run this as an External
-        Event. Everything below touches the API and so could only ever run
-        there — if this returns, the marshalling is real.
-
-        ``uidoc`` is read defensively rather than declared, so that *no document
-        open* comes back as an answer instead of an error. A bridge that cannot
-        say "nothing is open" is a bridge that looks broken every morning.
-        """
         answer = {
             "ok": True,
             "api": API_NAME,
@@ -376,15 +302,6 @@ def register():
             answer["document_error"] = "{0}".format(error)
         return answer
 
-    # -- the doorbell ------------------------------------------------------
-    # No Revit argument on any of these, deliberately. A job is *written*, not
-    # run: the route stamps it, drops it in the outbox and returns. Whatever
-    # picks it up runs on Revit's own thread when Revit is idle, which is the
-    # only time the API may be used and is not now.
-    #
-    # It also means posting a job answers instantly even mid-command, which is
-    # what stops Excel hanging on a five-thousand-element run.
-
     def submit(request):
         """Queue a job. Answers with its id and nothing else."""
         envelope, note = _body(request)
@@ -398,8 +315,6 @@ def register():
             return {"ok": False, "status": "rejected",
                     "note": "the job names no command"}
 
-        # The id is stamped here rather than by the caller, so two workbooks
-        # cannot mint the same one and quietly overwrite each other's job.
         identifier = envelope.get("jobId") or _next_job_id()
         envelope["jobId"] = identifier
         envelope["received"] = datetime.datetime.now().isoformat()
@@ -414,11 +329,6 @@ def register():
             return {"ok": False, "status": "rejected",
                     "note": "the job could not be written: {0}".format(error)}
 
-        # The answer carries **where the result will be**, so no caller has to
-        # work the bridge home out for itself. The macro would otherwise be a
-        # third implementation of the three rules in `bridge_home` — in VBA,
-        # untestable, and wrong the first time somebody sets the environment
-        # variable. It waits for this file instead.
         return {
             "ok": True,
             "status": "queued",
@@ -432,23 +342,11 @@ def register():
         }
 
     def listing():
-        """The recent jobs and where each got to.
-
-        No id in the URL, so it needs no route pattern and no query string —
-        which is why the macro polls this rather than addressing one job. A
-        caller finds the id it was given in the list.
-        """
         try:
             return {"ok": True, "home": bridge_home(),
                     "jobs": _recent(bridge_home())}
         except Exception as error:
             return {"ok": False, "note": "{0}".format(error)}
-
-    # There is no route for one job by id. pyRevit's patterns are
-    # ``<int:...>`` and ``<uuid:...>``, and a job id — ``20260822-140311-0007``
-    # — is neither. ``GET /jobs`` returns the recent list and a caller finds
-    # its own id in it, which is what the macro does anyway and needs no
-    # pattern at all.
 
     add("/ping", ["GET"], ping)
     add("/status", ["GET"], status)
@@ -462,17 +360,12 @@ def register():
     return api, note
 
 
-#: What happened when this module loaded. Written to the startup record too,
-#: because a startup script that fails silently is a startup script nobody can
-#: debug — and if it failed there is no route left to ask.
 REGISTRATION_NOTE = ""
-
-#: The routes that actually took. Reported by ``/ping`` and recorded on disk.
 _routes_registered = []
 
 try:
     _api, REGISTRATION_NOTE = register()
-except Exception as _error:            # never take pyRevit's load down with us
+except Exception as _error:
     _api = None
     REGISTRATION_NOTE = "the bridge did not register: {0}".format(_error)
 
@@ -485,6 +378,7 @@ _write_record({
     "api": API_NAME,
     "expect_at": "http://{0}:{1}/{2}".format(DEFAULT_HOST, DEFAULT_PORT,
                                              API_NAME),
+    "bridge_home": bridge_home(),
     "routes": list(_routes_registered),
     "note": REGISTRATION_NOTE,
     "registered": bool(_routes_registered),
