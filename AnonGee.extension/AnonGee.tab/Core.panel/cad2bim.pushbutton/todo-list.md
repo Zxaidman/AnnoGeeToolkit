@@ -8,8 +8,9 @@ Nothing is deleted to make the list look shorter.
 file before it is built, argued about, or written into any other document. Standing instruction
 from the project owner, and it is what keeps this list the queue rather than a summary of one.
 
-Current build: **v0.94.0** (branch `claude/cad2bim`). 1151 unit tests, 3 regression legs green,
-21 fixture drawings in the sweep. Longer records: `../../../../../task_plan.md`, `findings.md`, `progress.md` at the
+Current build: **v0.94.2** (branch `claude/cad2bim`). 1151 unit tests, 3 regression legs green,
+22 fixture drawings in the sweep. The branch also carries the rc-automation merge and the 1.26.1
+extension identity. Longer records: `../../../../../task_plan.md`, `findings.md`, `progress.md` at the
 repository root.
 
 ## Sections
@@ -566,7 +567,13 @@ its bay (the measured minimum is 0.30 — 2.56 m² of hatch in an 8.66 m² bay).
 a third of a hatch would be as wrong as the present overhang, so the threshold wants the same
 empty-band treatment every other constant here got.
 
-### BUG-11 — `COVER` and `CUT` are unmapped, so the slab never learns where it stops · `pending`
+### BUG-11 — `COVER` and `CUT` are unmapped, so the slab never learns where it stops · `testing`
+
+**Overtaken and closed in v0.83.0**, and the phase here was stale until this was re-checked: `COVER`
+is `CATEGORY_SLAB_STOP` and the cutout token is classified, which is what the whole slab-stop pass
+rests on. Left at `testing` rather than `done` because the owner has not called this one out as
+fixed in its own words.
+
 
 **How found:** the owner's v0.81.0 Revit run of test14, with four images. **Reproduced and measured**
 — and it explains four of the five symptoms at once. test14 carries two layers the convention does
@@ -592,7 +599,11 @@ The owner's reading of the three cases, which the geometry matches:
 This is also why the console says `source: placed_members`: with no slab-edge layer recognised the
 outlines are inferred from beam faces, which is what puts slab where the drawing shows none.
 
-### BUG-12 — Cutout and staircase areas are still slabbed · `pending`
+### BUG-12 — Cutout and staircase areas are still slabbed · `testing`
+
+**Overtaken in v0.83.0 and after** — `apply_slab_stops` withdraws stair bays and cutout bays and cuts
+crossed rings, free crosses and chajjas out of the bays that hold them. Phase corrected on re-check.
+
 **How found:** the owner's images 4 and 5 — an X-crossed area carries a slab anyway, and the
 staircase area is slabbed too. Same root as BUG-11 for the crossed areas (the X is never read for
 slabs; it is read only for foundations today). The staircase case is its own: a bay a stair occupies
@@ -603,7 +614,12 @@ should not also be a flat floor. Both need the slab pass to subtract what the dr
 which v0.81.0 now does — but it does **not** mean the slab spans over that beam: the slab must stop
 at the beam's edge. Today the sunk bay is laid across it.
 
-### BUG-9 — `Floor.Create` refuses one slab profile · `pending`
+### BUG-9 — `Floor.Create` refuses one slab profile · `testing`
+
+**Overtaken in v0.82.0**: `builders/slabs.check_profile` runs every profile through the same checks
+before `Floor.Create` is called and declines a bad one by name, with its mark, size and position, on
+the red channel. Phase corrected on re-check.
+
 **How found:** the owner's console, one error against 151 created. **Not reproduced offline:** every
 one of the 474 slab profiles the DXF produces passes a full check — corner count, closure, repeated
 corners, self-intersection, hole-crosses-outer, hole-outside-outer, shared edges, hole-crosses-hole.
