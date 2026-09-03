@@ -1,4 +1,4 @@
-AnonGee Toolkit 0.1.0
+AnonGee Toolkit 1.1.0
 
 SUPPORTED ENVIRONMENT
 
@@ -12,7 +12,7 @@ SUPPORTED ENVIRONMENT
 
 PYREVIT PREREQUISITE
 
-AnonGee Setup milestone 0.4.0 includes the official signed per-user
+AnonGee Setup milestone 0.6.0 includes the official signed per-user
 pyRevit 6.5.5 installer as a prerequisite.
 
 • If pyRevit is not installed, Setup installs pyRevit 6.5.5 automatically.
