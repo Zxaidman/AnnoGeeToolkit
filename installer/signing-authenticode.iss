@@ -11,3 +11,8 @@
 [Setup]
 SignTool=AnonGeeAuthenticode
 SignedUninstaller=yes
+; Timestamp endpoints and hardware/cloud signing providers can fail transiently.
+; Inno already owns the signing loop, so keep retry policy here rather than
+; duplicating it in the Python wrapper.
+SignToolRetryCount=3
+SignToolRetryDelay=1000
