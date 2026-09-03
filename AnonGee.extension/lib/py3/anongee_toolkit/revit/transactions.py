@@ -40,6 +40,18 @@ def _build_suppress_warnings_preprocessor():
         surface as modal dialogs during batch operations.
         """
 
+        # Required by Python.NET to build a real derived CLR type from a .NET
+        # interface. Without it, ``SuppressWarningsPreprocessor()`` -- which
+        # RevitTransaction does below -- routes to the interface's one-argument
+        # cast and raises "TypeError: interface takes exactly one argument".
+        #
+        # Found by an audit rather than by a failure: every other interface
+        # subclass in this repository carries it and this one did not. **Not
+        # reproduced** -- it may be that nothing has taken the suppress_warnings
+        # path on CPython yet. One line either way, and it is the rule the brand
+        # guidelines state.
+        __namespace__ = "AnonGee"
+
         def PreprocessFailures(self, failures_accessor):
             try:
                 for failure in list(failures_accessor.GetFailureMessages()):

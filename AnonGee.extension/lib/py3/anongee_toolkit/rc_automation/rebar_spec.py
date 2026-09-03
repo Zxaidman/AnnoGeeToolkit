@@ -1,0 +1,751 @@
+# -*- coding: utf-8 -*-
+"""Turn a schedule row into bar geometry, in millimetres, with no Revit in sight.
+
+This is where "T16 @ 200 B1 running X" becomes actual centrelines: where each bar
+starts and stops, how far apart they sit, how high off the bottom face. The
+creation layer converts these to feet and hands them to
+``Rebar.CreateFromCurves``; everything decided here is decided in plain numbers
+so it can be checked without opening Revit.
+
+Two things this module works out that a schedule does not state, and both matter:
+
+**A set only works when every bar in it is the same.** Revit lays a bar set out
+by repeating one shape, so a run of bars can be a single ``Rebar`` element only
+if all of them are the same length. That is true in a rectangular pad and false
+the moment the outline is not -- in the five-sided pad the sample workbook
+carries, bars in the same layer are genuinely different lengths. Uniform runs
+collapse to a set (one element standing for thirty bars); varying runs stay
+individual bars, and :attr:`LayerPlan.uniform` says which happened so the report
+can too.
+
+**Bar count does not describe an arrangement.** Eight bars in a 300 x 600 column
+can sit several ways, and Revit will not infer any of them.
+:func:`arrange_column_bars` puts one in each corner and distributes the rest
+along the faces by length, which is what a detailer draws.
+
+Coordinates are local to the element: the footing's own origin for a footing,
+the column's section centre for a column, ``z`` measured up from the bottom
+face. Placing and rotating happens later, once, in the creation layer.
+"""
+
+from anongee_toolkit.rc_automation import models
+
+__version__ = "0.1.0"
+
+#: Two lengths within this are the same length. Bars are scheduled in
+#: millimetres and a run of "identical" bars can differ by a rounding artefact
+#: from intersecting an outline; treating that as a varying run would turn a
+#: perfectly good set into thirty separate elements.
+UNIFORM_TOLERANCE_MM = 1.0
+
+#: Anything shorter than this is not a bar. A scan line clipping a corner of an
+#: outline produces slivers, and a 40 mm bar is a Revit failure, not steel.
+MIN_BAR_LENGTH_MM = 100.0
+
+#: Shape codes whose footing geometry is built here. A code outside this set
+#: validates and is reported, never quietly straightened -- a bar drawn straight
+#: where the schedule said bent is wrong in the model and wrong in the bending
+#: schedule, and looks right in neither.
+SHAPE_STRAIGHT = "00"
+SHAPE_ONE_BEND = "11"
+SHAPE_U_BAR = "21"
+BENT_SHAPE_CODES = (SHAPE_ONE_BEND, SHAPE_U_BAR)
+
+#: A leg shorter than this is not a bend, it is a nub. Below it the shape is
+#: built straight and the reason is carried on the plan.
+MIN_LEG_MM = 75.0
+
+ROLE_FOOTING_LAYER = "FootingLayer"
+ROLE_COLUMN_MAIN = "ColumnMain"
+ROLE_COLUMN_TIE = "ColumnTie"
+
+
+# ---------------------------------------------------------------------------
+# Geometry helpers — plain lists of tuples, no library
+# ---------------------------------------------------------------------------
+
+def bounds(points):
+    """``(min_x, min_y, max_x, max_y)`` of a polygon."""
+    xs = [p[0] for p in points]
+    ys = [p[1] for p in points]
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def rectangle(length_mm, width_mm, origin=(0.0, 0.0)):
+    """A rectangle centred on *origin*, ``length`` along X and ``width`` along Y.
+
+    The fallback outline for a footing type that does not carry one, which is
+    most of them: a schedule states Length and Width and means a rectangle.
+    """
+    half_length = length_mm / 2.0
+    half_width = width_mm / 2.0
+    x, y = origin
+    return [(x - half_length, y - half_width),
+            (x + half_length, y - half_width),
+            (x + half_length, y + half_width),
+            (x - half_length, y + half_width)]
+
+
+def scan_segments(points, position, axis="X"):
+    """Where a line across the polygon at *position* is inside it.
+
+    ``axis="X"`` scans a line running along X at ``y = position`` and returns
+    ``[(x_start, x_end), ...]``; ``axis="Y"`` is the same the other way about.
+
+    Returns a list because a polygon need not be convex: an L-shaped or waisted
+    pad can put two separate runs of steel on one scan line, and each is a bar.
+    Treating only the outermost pair as "the" bar would quietly reinforce the
+    void between them.
+    """
+    along, across = (0, 1) if axis == "X" else (1, 0)
+    crossings = []
+    count = len(points)
+    for index in range(count):
+        a = points[index]
+        b = points[(index + 1) % count]
+        a_across, b_across = a[across], b[across]
+        if a_across == b_across:
+            continue                       # parallel to the scan line
+        low, high = min(a_across, b_across), max(a_across, b_across)
+        # Half-open so a vertex shared by two edges is counted once, not twice.
+        if not (low <= position < high):
+            continue
+        ratio = (position - a_across) / float(b_across - a_across)
+        crossings.append(a[along] + ratio * (b[along] - a[along]))
+
+    crossings.sort()
+    return [(crossings[i], crossings[i + 1])
+            for i in range(0, len(crossings) - 1, 2)]
+
+
+def inset_segment(start, end, inset_mm):
+    """Pull both ends of a 1-D span in by *inset_mm*, or ``None`` if nothing left."""
+    low, high = (start, end) if start <= end else (end, start)
+    low += inset_mm
+    high -= inset_mm
+    if high - low < MIN_BAR_LENGTH_MM:
+        return None
+    return low, high
+
+
+def bar_positions(low, high, count=None, spacing_mm=None):
+    """Where the bars of one run sit across the span ``low..high``.
+
+    The three cases are the three layout rules, and they space bars the way
+    Revit does so the preview and the model agree:
+
+    * count and spacing -- honour both, centred on the span.
+    * count only -- spread evenly, half a gap in from each end.
+    * spacing only -- as many as fit at that spacing, centred.
+    """
+    span = high - low
+    if span <= 0:
+        return []
+
+    if count and spacing_mm:
+        used = (count - 1) * spacing_mm
+        start = low + (span - used) / 2.0
+        return [start + index * spacing_mm for index in range(count)]
+
+    if count:
+        if count == 1:
+            return [(low + high) / 2.0]
+        gap = span / float(count)
+        return [low + gap / 2.0 + index * gap for index in range(count)]
+
+    if spacing_mm:
+        fits = int(span // spacing_mm) + 1
+        used = (fits - 1) * spacing_mm
+        start = low + (span - used) / 2.0
+        return [start + index * spacing_mm for index in range(fits)]
+
+    return []
+
+
+# ---------------------------------------------------------------------------
+# What comes out
+# ---------------------------------------------------------------------------
+
+class BarSpec(object):
+    """One bar: its centreline, in millimetres, local to its host."""
+
+    __slots__ = ("points", "diameter_mm", "bar_type", "shape_code", "role",
+                 "label")
+
+    def __init__(self, points, diameter_mm, bar_type="", shape_code=None,
+                 role=None, label=""):
+        self.points = list(points)
+        self.diameter_mm = diameter_mm
+        self.bar_type = bar_type
+        self.shape_code = shape_code
+        self.role = role
+        self.label = label
+
+    @property
+    def length_mm(self):
+        """Centreline length, following every leg."""
+        total = 0.0
+        for index in range(len(self.points) - 1):
+            a, b = self.points[index], self.points[index + 1]
+            total += _distance(a, b)
+        return total
+
+    def __repr__(self):
+        return "<BarSpec {0} d{1:g} {2:.0f}mm>".format(
+            self.label or self.role, self.diameter_mm or 0, self.length_mm)
+
+
+def _distance(a, b):
+    return sum((a[i] - b[i]) ** 2 for i in range(len(a))) ** 0.5
+
+
+class BarSetSpec(object):
+    """One bar, repeated -- a single Revit element standing for a whole run."""
+
+    __slots__ = ("bar", "count", "spacing_mm", "layout_rule", "array_vector",
+                 "array_length_mm", "varying")
+
+    def __init__(self, bar, count, spacing_mm, layout_rule, array_vector,
+                 array_length_mm, varying=False):
+        self.bar = bar
+        self.count = count
+        self.spacing_mm = spacing_mm
+        self.layout_rule = layout_rule
+        self.array_vector = array_vector
+        self.array_length_mm = array_length_mm
+        #: Whether Revit should length each bar from its constraints.
+        self.varying = varying
+
+    def __repr__(self):
+        return "<BarSetSpec {0} x {1} @ {2}>".format(
+            self.bar.label, self.count, self.spacing_mm)
+
+
+class LayerPlan(object):
+    """Every bar of one scheduled run, and whether it can ship as a set."""
+
+    __slots__ = ("row", "bars", "uniform", "array_vector", "array_length_mm",
+                 "notes", "region")
+
+    def __init__(self, row, bars, uniform, array_vector=None,
+                 array_length_mm=None, notes=None, region=""):
+        self.row = row
+        self.bars = list(bars)
+        self.uniform = uniform
+        self.array_vector = array_vector
+        self.array_length_mm = array_length_mm
+        self.notes = list(notes or ())
+        #: Which stretch of the layer this set covers, when the layer was cut
+        #: at the outline's vertices. Empty when the layer is one region.
+        self.region = region
+
+    @property
+    def count(self):
+        return len(self.bars)
+
+    @property
+    def element_count(self):
+        """How many Revit elements this becomes: one set, either way.
+
+        The difference between 2,000 elements and 50,000 at the stated scale.
+        A varying run is still one set -- what varies is the length of the bars
+        inside it, which is Revit's job once the ends are constrained.
+        """
+        return 1 if self.bars else 0
+
+    @property
+    def varying(self):
+        """True when this run needs Revit's varying-length behaviour.
+
+        A run whose bars differ in length is one distribution region of varying
+        depth, which is what the ribbon's **Varying Rebar Set** is for: one set,
+        constrained to the host cover, letting Revit length each bar. Placing
+        the same run as N individual bars gives the right steel today and
+        nothing that follows an edit tomorrow.
+        """
+        return bool(self.bars) and not self.uniform
+
+    def as_set(self):
+        """A :class:`BarSetSpec` for the whole run, uniform or not.
+
+        Always a set. The first bar carries the shape and Revit repeats it; a
+        varying run then leans on its constraints to length each copy, which is
+        why :attr:`varying` travels with it.
+        """
+        if not self.bars:
+            return None
+        return BarSetSpec(self.bars[0], len(self.bars),
+                          self.row.spacing_mm, self.row.layout_rule(),
+                          self.array_vector, self.array_length_mm,
+                          self.varying)
+
+    def __repr__(self):
+        return "<LayerPlan {0} bars, {1}>".format(
+            self.count, "set" if self.uniform else "individual")
+
+
+# ---------------------------------------------------------------------------
+# Footings
+# ---------------------------------------------------------------------------
+
+def scheduled_extent_mm(footing_type, placement=None):
+    """``(length, width)`` the schedule expects the pad to measure.
+
+    An outline wins over the type's Length and Width, because a pad drawn as a
+    polygon is not the rectangle its type row describes. Comparing a five-sided
+    pad against its type's Length would reject a footing that is exactly right,
+    which is the opposite of what the check is for.
+    """
+    if placement is not None and getattr(placement, "outline", None):
+        points = placement.outline
+        xs = [point[0] for point in points]
+        ys = [point[1] for point in points]
+        return max(xs) - min(xs), max(ys) - min(ys)
+    return footing_type.length_mm, footing_type.width_mm
+
+
+def outline_for(footing_type, placement=None):
+    """The pad's plan shape: its scheduled outline, else its Length x Width."""
+    if placement is not None and getattr(placement, "outline", None):
+        return list(placement.outline)
+    return rectangle(footing_type.length_mm or 0.0, footing_type.width_mm or 0.0)
+
+
+def layer_elevation(row, rows, thickness_mm, cover_top_mm, cover_bottom_mm):
+    """Centreline height of one layer above the pad's bottom face.
+
+    Layers stack outward-in, and the bar below decides where the bar above
+    starts: B2 clears the cover, then B1's whole diameter, then half its own.
+    Which is why the *other* layer's diameter is looked up rather than assumed
+    equal to this one's -- a T20 bottom mat under a T12 second layer would put
+    every bar of that layer 4 mm out otherwise.
+    """
+    index = row.layer_index() or 0
+    own = row.diameter_mm or 0.0
+    beneath = 0.0
+    if index:
+        outer = models.LAYER_B1 if row.is_bottom else models.LAYER_T1
+        for other in rows:
+            if other.layer == outer and other.diameter_mm:
+                beneath = other.diameter_mm
+                break
+        beneath = beneath or own
+
+    if row.is_bottom:
+        return cover_bottom_mm + beneath + own / 2.0
+    return thickness_mm - cover_top_mm - beneath - own / 2.0
+
+
+def leg_height_mm(z_mm, thickness_mm, cover_top_mm):
+    """How far a footing bar's end leg turns up, from its own centreline.
+
+    Up to the top cover plane and not past it. What top cover measures on a
+    turned-up leg is the **end face** of the bar, so a leg that stops exactly
+    on that plane is a leg Revit can hold at *distance to cover = 0* -- which
+    is what :mod:`~anongee_toolkit.structural.rebar_constraints` then asks for.
+    An earlier version stopped half a bar short of it, which is safe steel but
+    leaves every leg carrying an offset nobody scheduled and nobody can read
+    off a drawing.
+
+    A bar already in the top mat has nowhere to go, which is why this can
+    return zero and the caller has to cope.
+    """
+    top = (thickness_mm or 0.0) - (cover_top_mm or 0.0)
+    return max(0.0, top - z_mm)
+
+
+def bend_inset_mm(diameter_mm):
+    """How much further in a **bend** sits than a plain bar end.
+
+    Cover is measured to the steel, not to the centreline the API is given, and
+    the two parts of a bent bar present different faces to it:
+
+    * a straight end presents its **end face**, so the centreline stops on the
+      cover plane;
+    * a turned-up leg presents its **barrel**, which is half a diameter wide
+      either side of the centreline. Put the bend on the cover plane and the
+      outside of the leg sits half a bar *beyond* it.
+
+    Half a diameter, and -- usefully -- independent of the bend radius: for a
+    90 degree bend of centreline radius ``r`` the arc centre is ``r`` in from
+    the corner and the outer surface is ``r + d/2`` from that centre, so the
+    outermost steel is always ``d/2`` outside the corner.
+    """
+    return (diameter_mm or 0.0) / 2.0
+
+
+def bar_points(shape_code, start_mm, end_mm, position_mm, z_mm, axis="X",
+               leg_mm=0.0, inset_mm=0.0):
+    """The centreline of one footing bar, bent according to its shape code.
+
+    ``00`` is a straight run. ``11`` turns one end up, ``21`` turns both -- a
+    U-bar, which is what a footing bottom mat is detailed as almost everywhere,
+    and which was being placed as a straight bar because the shape code was
+    carried as a label and never used to build anything.
+
+    *start_mm* and *end_mm* are where the **cover plane** is. A bent end is
+    pulled back from it by *inset_mm* (see :func:`bend_inset_mm`) so the outside
+    of the leg lands on that plane rather than half a bar past it; a straight
+    end stays on it. The inset is dropped rather than allowed to eat the bar
+    when the run is too short to give it up.
+    """
+    def point(along, height):
+        return ((along, position_mm, height) if axis == "X"
+                else (position_mm, along, height))
+
+    if leg_mm < MIN_LEG_MM or shape_code not in BENT_SHAPE_CODES:
+        return [point(start_mm, z_mm), point(end_mm, z_mm)]
+
+    inset = max(0.0, inset_mm or 0.0)
+    bends = 2 if shape_code == SHAPE_U_BAR else 1
+    if (end_mm - start_mm) - bends * inset < MIN_BAR_LENGTH_MM:
+        inset = 0.0
+
+    if shape_code == SHAPE_U_BAR:
+        low, high = start_mm + inset, end_mm - inset
+        return [point(low, z_mm + leg_mm), point(low, z_mm),
+                point(high, z_mm), point(high, z_mm + leg_mm)]
+    high = end_mm - inset
+    return [point(start_mm, z_mm), point(high, z_mm),
+            point(high, z_mm + leg_mm)]
+
+
+def region_breaks(outline, axis="X"):
+    """Where a layer's bar length changes behaviour, along the array axis.
+
+    Between two consecutive vertices of a polygon the edges are straight, so a
+    bar's length varies linearly and one set can describe the whole stretch.
+    **At** a vertex the slope changes, and one set can no longer describe both
+    sides.
+
+    This is why a Revit varying set must not span a whole tapered pad. Told to
+    vary from one end to the other it interpolates straight through the corner
+    and fans bars out past the concrete -- which is exactly what a run against
+    a house-shaped pad produced. One set per stretch between breaks is what a
+    detailer draws and what Revit can actually follow.
+    """
+    across = 1 if axis == "X" else 0
+    return sorted(set(round(point[across], 6) for point in outline))
+
+
+def _length_at(outline, position, axis, cover_mm):
+    """Total bar length on this scan line, or ``None`` where there is no bar."""
+    total = 0.0
+    found = False
+    for start, end in scan_segments(outline, position, axis=axis):
+        extent = inset_segment(start, end, cover_mm)
+        if extent is not None:
+            total += extent[1] - extent[0]
+            found = True
+    return total if found else None
+
+
+def split_into_regions(positions, breaks):
+    """Group bar positions into the stretches between breaks.
+
+    ``[(label, [positions])]``. A stretch with nothing in it is dropped rather
+    than becoming an empty set.
+    """
+    if not positions:
+        return []
+    inner = [value for value in breaks
+             if positions[0] < value < positions[-1]]
+    if not inner:
+        return [("", list(positions))]
+
+    regions = []
+    remaining = list(positions)
+    lower = None
+    for boundary in inner + [None]:
+        if boundary is None:
+            taken, remaining = remaining, []
+        else:
+            taken = [p for p in remaining if p < boundary]
+            remaining = [p for p in remaining if p >= boundary]
+        if taken:
+            regions.append((_region_label(lower, boundary), taken))
+        lower = boundary
+    return regions
+
+
+def _region_label(lower, upper):
+    if lower is None and upper is None:
+        return ""
+    if lower is None:
+        return "up to {0:.0f}".format(upper)
+    if upper is None:
+        return "from {0:.0f}".format(lower)
+    return "{0:.0f}–{1:.0f}".format(lower, upper)
+
+
+def plan_footing_layer(row, outline, thickness_mm, cover_top_mm,
+                       cover_bottom_mm, cover_side_mm, sibling_rows=()):
+    """One scheduled footing layer, as **one plan per distribution region**.
+
+    Bars run along ``row.direction`` and are arrayed across it. Each bar's
+    length comes from intersecting its own scan line with the outline, then
+    pulling both ends in by the side cover -- so a pad that is not rectangular
+    gets bars that actually fit it.
+
+    The run is then cut at the outline's vertices, because a set cannot follow
+    a change of slope. A house-shaped pad gives one plain set across the
+    rectangle and one varying set up each side of the gable, which is what a
+    detailer draws by hand.
+    """
+    notes = []
+    axis = row.direction if row.direction in models.DIRECTIONS else "X"
+    min_x, min_y, max_x, max_y = bounds(outline)
+
+    across_low, across_high = (min_y, max_y) if axis == "X" else (min_x, max_x)
+    span = inset_segment(across_low, across_high, cover_side_mm)
+    if span is None:
+        return [LayerPlan(row, [], False, notes=[
+            "side cover of {0:g} mm leaves no room to array bars across the "
+            "pad".format(cover_side_mm)])]
+
+    z = layer_elevation(row, list(sibling_rows) or [row], thickness_mm,
+                        cover_top_mm, cover_bottom_mm)
+    positions = bar_positions(span[0], span[1], row.count, row.spacing_mm)
+
+    # A count and a spacing that together need more room than the pad has.
+    # Revit will still lay the set out, past the cover and out of the concrete,
+    # and nothing about the model will look wrong -- so the schedule is what
+    # has to say so.
+    if positions and (positions[0] < span[0] - 0.5
+                      or positions[-1] > span[1] + 0.5):
+        notes.append(
+            "{0:g} bars at {1:g} mm need {2:.0f} mm, and only {3:.0f} mm is "
+            "available between the side cover — the run overhangs it by "
+            "{4:.0f} mm at each end".format(
+                len(positions), row.spacing_mm or 0.0,
+                positions[-1] - positions[0], span[1] - span[0],
+                max(span[0] - positions[0], positions[-1] - span[1])))
+
+    leg = leg_height_mm(z, thickness_mm, cover_top_mm)
+    inset = bend_inset_mm(row.diameter_mm)
+    if row.shape_code in BENT_SHAPE_CODES:
+        if leg < MIN_LEG_MM:
+            notes.append(
+                "shape {0} asks for end legs, but only {1:.0f} mm is available "
+                "between this layer and the top cover — placed straight".format(
+                    row.shape_code, leg))
+        else:
+            notes.append(
+                "shape {0}: {1:.0f} mm end legs, turned up {2:.0f} mm inside "
+                "the side cover so the outside of the bend lands on it".format(
+                    row.shape_code, leg, inset))
+            if row.is_bottom and any(other.is_top for other in sibling_rows):
+                notes.append(
+                    "these legs reach the top cover, where the top mat also "
+                    "sits — check the top layer's end cover if the two should "
+                    "not cross")
+
+    breaks = region_breaks(outline, axis)
+    across_vector = (0.0, 1.0, 0.0) if axis == "X" else (1.0, 0.0, 0.0)
+
+    plans = []
+    skipped = 0
+    for label, region_positions in split_into_regions(positions, breaks):
+        bars = []
+        used = []
+        for position in region_positions:
+            for start, end in scan_segments(outline, position, axis=axis):
+                extent = inset_segment(start, end, cover_side_mm)
+                if extent is None:
+                    skipped += 1
+                    continue
+                points = bar_points(row.shape_code, extent[0], extent[1],
+                                    position, z, axis, leg, inset)
+                bars.append(BarSpec(
+                    points, row.diameter_mm, row.bar_type, row.shape_code,
+                    ROLE_FOOTING_LAYER,
+                    "{0} {1}{2}{3}".format(
+                        row.type_mark, row.layer, row.direction,
+                        " " + label if label else "")))
+                used.append(position)
+        if not bars:
+            continue
+        region_notes = list(notes)
+        uniform = _lengths_agree(bars)
+        if not uniform:
+            region_notes.append(
+                "bars vary across this region — placed as a varying set so "
+                "Revit lengths each one from its constraints")
+        # Across the positions that produced a bar, not the ones considered.
+        # A position whose scan line falls outside the pad once side cover is
+        # taken off yields nothing, and counting it stretched the distribution
+        # by a whole spacing -- which Revit then declined to make, and the
+        # read-back reported as a disagreement that was ours.
+        length = (used[-1] - used[0]) or (span[1] - span[0])
+        plans.append(LayerPlan(row, bars, uniform, across_vector, length,
+                               region_notes, label))
+
+    if skipped:
+        for plan in plans:
+            plan.notes.append(
+                "{0} bar position(s) fell outside the pad once side cover was "
+                "taken off".format(skipped))
+    if not plans:
+        return [LayerPlan(row, [], False, across_vector,
+                          span[1] - span[0], notes)]
+    if len(plans) > 1:
+        for plan in plans:
+            plan.notes.append(
+                "one of {0} region(s) in this layer".format(len(plans)))
+    return plans
+
+
+def _lengths_agree(bars):
+    if len(bars) < 2:
+        return bool(bars)
+    lengths = [bar.length_mm for bar in bars]
+    return max(lengths) - min(lengths) <= UNIFORM_TOLERANCE_MM
+
+
+def plan_footing(footing_type, rows, placement=None, outline=None):
+    """Every layer of one footing type, in schedule order.
+
+    *outline* overrides what the placement would give, so a caller holding the
+    pad's resolved shape can hand over exactly that. The bars and the pad then
+    share one local frame -- which is the whole point: planning bars from the
+    type's rectangle and placing them against the pad's bounding-box centre put
+    them 2.25 metres out of the concrete on the one pad that is not a rectangle.
+    """
+    outline = outline if outline is not None else outline_for(footing_type,
+                                                              placement)
+    rows = list(rows)
+    plans = []
+    for row in rows:
+        plans.extend(plan_footing_layer(
+            row, outline,
+            footing_type.thickness_mm or 0.0,
+            footing_type.cover_top_mm or 0.0,
+            footing_type.cover_bottom_mm or 0.0,
+            row.end_cover_mm if row.end_cover_mm is not None
+            else (footing_type.cover_side_mm or 0.0),
+            sibling_rows=rows))
+    return plans
+
+
+# ---------------------------------------------------------------------------
+# Columns
+# ---------------------------------------------------------------------------
+
+def arrange_column_bars(count, width_mm, depth_mm, cover_mm, tie_diameter_mm,
+                        main_diameter_mm):
+    """Where *count* main bars sit in the section, corners first.
+
+    A count on its own does not describe an arrangement and Revit will not
+    invent one, so this does what a detailer does: one bar in each corner, then
+    the rest shared between the four faces in proportion to their length, so a
+    300 x 600 column puts more bars down its long faces than across its short
+    ones. Positions are bar centres relative to the section centre.
+    """
+    inset = cover_mm + tie_diameter_mm + main_diameter_mm / 2.0
+    half_width = width_mm / 2.0 - inset
+    half_depth = depth_mm / 2.0 - inset
+    if count <= 0 or half_width <= 0 or half_depth <= 0:
+        return []
+
+    corners = [(-half_width, -half_depth), (half_width, -half_depth),
+               (half_width, half_depth), (-half_width, half_depth)]
+    if count <= 4:
+        return corners[:count]
+
+    remaining = count - 4
+    # Two faces run along X and two along Y; share the extras by face length so
+    # the spacing comes out even all the way round rather than even per face.
+    x_face = 2 * half_width
+    y_face = 2 * half_depth
+    total = x_face + y_face
+    per_x_face = int(round(remaining * (x_face / total) / 2.0)) if total else 0
+    per_x_face = max(0, min(per_x_face, remaining // 2))
+    per_y_face = (remaining - 2 * per_x_face) // 2
+    leftover = remaining - 2 * per_x_face - 2 * per_y_face
+
+    positions = list(corners)
+    for index in range(per_x_face):
+        offset = -half_width + (index + 1) * (x_face / (per_x_face + 1.0))
+        positions.append((offset, -half_depth))
+        positions.append((offset, half_depth))
+    for index in range(per_y_face):
+        offset = -half_depth + (index + 1) * (y_face / (per_y_face + 1.0))
+        positions.append((-half_width, offset))
+        positions.append((half_width, offset))
+    # An odd leftover cannot be shared symmetrically; it goes on a long face,
+    # which is where a detailer would put it.
+    for index in range(leftover):
+        positions.append((0.0, half_depth if index % 2 == 0 else -half_depth))
+    return positions[:count]
+
+
+def plan_column_mains(row, column_type, height_mm, tie_diameter_mm=0.0,
+                      base_z=0.0):
+    """Straight vertical bars for one main-bar group.
+
+    Laps and starter bars are deliberately absent -- the plan says so, the
+    report says so per column, and a bar that stops at the top of the pour is
+    honest about being incomplete in a way a guessed lap length would not be.
+    """
+    positions = arrange_column_bars(
+        row.count or 0, column_type.width_mm or 0.0, column_type.depth_mm or 0.0,
+        column_type.cover_mm or 0.0, tie_diameter_mm, row.diameter_mm or 0.0)
+    return [
+        BarSpec([(x, y, base_z), (x, y, base_z + height_mm)],
+                row.diameter_mm, row.bar_type, row.shape_code, ROLE_COLUMN_MAIN,
+                "{0} main".format(row.type_mark))
+        for x, y in positions
+    ]
+
+
+def tie_outline(column_type, tie_diameter_mm, z):
+    """The closed link's centreline: the section, inset by cover and half a tie."""
+    inset = (column_type.cover_mm or 0.0) + tie_diameter_mm / 2.0
+    half_width = (column_type.width_mm or 0.0) / 2.0 - inset
+    half_depth = (column_type.depth_mm or 0.0) / 2.0 - inset
+    if half_width <= 0 or half_depth <= 0:
+        return None
+    corners = [(-half_width, -half_depth), (half_width, -half_depth),
+               (half_width, half_depth), (-half_width, half_depth)]
+    points = [(x, y, z) for x, y in corners]
+    points.append(points[0])              # closed link
+    return points
+
+
+def plan_column_ties(row, column_type, height_mm, base_z=0.0):
+    """The tie sets for one column: confined ends and a looser middle.
+
+    A single spacing all the way up is not what any code accepts -- IS 13920,
+    ACI 318 Ch. 18 and EC8 all want ties closer together over a length at each
+    end -- so a row carrying SpacingEnd and ConfinementLength becomes three
+    sets, and one without stays the single set it asked for.
+    """
+    if not row.spacing_mm:
+        return []
+
+    def build(start, end, spacing, label):
+        span = end - start
+        if span <= 0:
+            return None
+        points = tie_outline(column_type, row.diameter_mm or 0.0, start)
+        if points is None:
+            return None
+        count = max(1, int(span // spacing) + 1)
+        bar = BarSpec(points, row.diameter_mm, row.bar_type, row.shape_code,
+                      ROLE_COLUMN_TIE,
+                      "{0} tie {1}".format(row.type_mark, label))
+        return BarSetSpec(bar, count, spacing,
+                          models.LAYOUT_NUMBER_WITH_SPACING,
+                          (0.0, 0.0, 1.0), span)
+
+    top = base_z + height_mm
+    if not row.has_confinement:
+        return [s for s in [build(base_z, top, row.spacing_mm, "full")] if s]
+
+    zone = min(row.confinement_length_mm, height_mm / 2.0)
+    sets = [
+        build(base_z, base_z + zone, row.spacing_end_mm, "bottom"),
+        build(base_z + zone, top - zone, row.spacing_mm, "middle"),
+        build(top - zone, top, row.spacing_end_mm, "top"),
+    ]
+    return [s for s in sets if s]

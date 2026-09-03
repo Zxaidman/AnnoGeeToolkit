@@ -86,9 +86,13 @@ Generators, the design system, and the reference patterns new tools are built fr
 | --- | --- |
 | **BBS Generator** | **Bar Bending Schedule** generator. Reads native `DB.Rebar` elements and exports formatted Excel workbooks (BBS, Calculation, Summary sheets). Supports **IS 2502:2019**, **BS 8666:2020** and **ACI 318-19 / CRSI**, with revision tracking. |
 | **Brand Guidelines** | Living component gallery for the design system — brand colours, typography, buttons, inputs, selection controls, lists and status badges, exactly as they render inside Revit. |
+| **Bridge Check** | Asks the AnonGee Bridge whether it is running, from inside Revit, and reports what answered. |
+| **Bridge Listener** | The half of the bridge that does the work: a small modeless window that watches for bridge jobs and runs them on Revit's own thread, showing what it is doing. |
 | **CPython3 engine** | Engine health check. Reports whether the CPython 3 engine is a fresh load or a reused instance (and how many runs this session), which third-party libraries resolve, and whether the Revit API bridge responds. |
 | **Create Button** | Scaffold a new pyRevit pushbutton: collects the tab / panel / group / metadata in a brand-themed dialog, writes the folder, script, icon and `bundle.yaml`, then asks pyRevit to reload. |
+| **Extract Template** | Writes everything the open model contains to a Markdown file, so a `.rvt` can be read, diffed and discussed by anyone who does not have Revit open. |
 | **Modeless Window** | Reference implementation of the modeless (non-blocking) window pattern — `window.Show()`, an `IExternalEventHandler` bridge marshalling every Revit call onto Revit's primary thread, and the session-state rules that go with it. |
+| **RC Automation** | Reads an Excel reinforcement schedule, checks it, works out what every existing footing would become, and reconciles the workbook against the model before a transaction is opened. Held to the same **BS 8666:2020** module the BBS Generator ships. |
 
 ---
 
