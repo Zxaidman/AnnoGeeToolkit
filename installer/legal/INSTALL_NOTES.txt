@@ -1,4 +1,4 @@
-AnonGee Toolkit 1.1.0
+AnonGee Toolkit 1.26.1
 
 SUPPORTED ENVIRONMENT
 
@@ -55,5 +55,12 @@ Installer-owned support files are stored under:
 
 Roaming AnonGee Toolkit settings are stored under:
 %APPDATA%\Zxaidman\AnonGee\BIM-Toolkit
+
+RC Automation bridge IPC/runtime state is stored under:
+%LOCALAPPDATA%\Zxaidman\AnonGee\bridge
+
+Legacy %APPDATA%\AnonGee\bridge state is migrated best-effort on first bridge
+use. The ANONGEE_BRIDGE_HOME environment variable remains an explicit override
+for development or managed deployments.
 
 Please close Autodesk Revit before continuing.
