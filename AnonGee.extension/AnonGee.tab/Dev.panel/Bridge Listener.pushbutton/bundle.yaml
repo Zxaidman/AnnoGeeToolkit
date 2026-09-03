@@ -20,8 +20,10 @@ tooltip: |
       never run the same job twice.
 
   Where jobs live
-    %APPDATA%\AnonGee\bridge, or ANONGEE_BRIDGE_HOME if it is set. Bridge Check
-    reports where this session thinks that is.
+    %LOCALAPPDATA%\Zxaidman\AnonGee\bridge by default. ANONGEE_BRIDGE_HOME
+    remains the explicit override for development or managed deployments.
+    Legacy %APPDATA%\AnonGee\bridge state is migrated best-effort on first
+    bridge use. Bridge Check reports where this session thinks that is.
 
   What it will run
     Only commands that are both declared and built. The dialog lists both, so a
