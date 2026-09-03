@@ -4,11 +4,31 @@ SUPPORTED ENVIRONMENT
 
 • Windows 10/11 x64
 • Autodesk Revit 2025
-• pyRevit 6.1.x–6.3.x or 6.5.x
+• pyRevit 6.1.x–6.3.x or 6.5.0–6.5.5 are accepted without warning
 • pyRevit 6.4.x is not supported
+• Newer unvalidated pyRevit 6.x may be allowed with a warning
+• pyRevit 7.x and later are not currently supported
 • Standalone Python is not required
 
-INSTALLATION
+PYREVIT PREREQUISITE
+
+AnonGee Setup milestone 0.4.0 includes the official signed per-user
+pyRevit 6.5.5 installer as a prerequisite.
+
+• If pyRevit is not installed, Setup installs pyRevit 6.5.5 automatically.
+• If an incompatible per-user pyRevit version is detected, Setup upgrades it
+  to the bundled pyRevit 6.5.5 prerequisite before installing AnonGee.
+• Existing compatible pyRevit installations are left unchanged.
+• Newer unvalidated pyRevit 6.x installations are not downgraded.
+• An incompatible all-users pyRevit installation is not modified by this
+  per-user Setup. Ask your BIM/IT administrator to update it, then run Setup
+  again.
+
+pyRevit is a separate third-party project and remains subject to its own
+GPLv3 license and notices. AnonGee Toolkit's proprietary EULA does not replace
+or restrict pyRevit's license rights.
+
+INSTALLATION LOCATIONS
 
 AnonGee Toolkit installs its pyRevit extension into:
 %APPDATA%\pyRevit\Extensions\AnonGee.extension
