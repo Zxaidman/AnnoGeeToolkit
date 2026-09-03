@@ -100,7 +100,7 @@ Generators, the design system, and the reference patterns new tools are built fr
 
 The extension carries one version in `extension.json`, recorded in the [root changelog](CHANGELOG.md).
 
-A tool that changes often enough for "which build am I running" to be a real question carries **its own version and its own changelog**, beside its `bundle.yaml`. Those move independently — `AnonGee BIM Tools 1.1.0` can ship `Auto Level Manager 2.0.0`, and neither number is wrong. The version shown in a tool's own window is the build actually running; quote it when reporting anything.
+A tool that changes often enough for "which build am I running" to be a real question carries **its own version and its own changelog**, beside its `bundle.yaml`. Those move independently — `AnonGee BIM Tools 1.26.1` can ship `Auto Level Manager 2.0.0`, and neither number is wrong. The version shown in a tool's own window is the build actually running; quote it when reporting anything.
 
 The installer/build pipeline also uses milestone versions independently from the user-facing AnonGee product version while the deployment system is being developed.
 
