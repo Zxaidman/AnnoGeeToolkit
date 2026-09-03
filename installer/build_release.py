@@ -1,19 +1,22 @@
 # -*- coding: utf-8 -*-
 """AnonGee Toolkit one-command Windows release builder.
 
-Release Pipeline Version: 0.5.0
+Release Pipeline Version: 0.6.0
 
-This script orchestrates the already-proven release flow:
+The release builder owns release-candidate validation around the already-proven
+payload builder and Inno Setup script:
 
-    locally tested AnonGee.extension
+    clean, locally tested source
+        -> cross-check extension / changelog / installer identity
+        -> verify pinned pyRevit prerequisite
         -> installer/build_payload.py
         -> Inno Setup 7 command-line compiler (ISCC.exe)
         -> installer/output/AnonGee-Setup-<version>.exe
         -> installer/output/release-manifest.json
 
 It deliberately does not rebuild Python dependencies and does not download
-third-party prerequisites. Release inputs must already exist locally and match
-pinned hashes before compilation starts.
+third-party prerequisites. Dirty-source builds require an explicit development
+opt-out and are marked non-release-ready in the generated manifest.
 """
 
 from __future__ import annotations
@@ -32,14 +35,18 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Sequence, Tuple
 
 
-PIPELINE_VERSION = "0.5.0"
-MANIFEST_SCHEMA_VERSION = "1.0.0"
+PIPELINE_VERSION = "0.6.0"
+MANIFEST_SCHEMA_VERSION = "1.1.0"
+EXPECTED_INSTALLER_MILESTONE = "0.6.0"
 EXPECTED_INNO_MAJOR = 7
+EXPECTED_MIN_PYREVIT_VERSION = "6.1.0"
+EXPECTED_PYREVIT_COMPATIBILITY_VERSION = "6.5.5"
 EXPECTED_PYREVIT_FILE = "pyReVit_6.5.5.26237_signed.exe"
 # Official pyRevit v6.5.5.26237 signed per-user release asset.
 EXPECTED_PYREVIT_SHA256 = (
     "1e68bf525fce2e94d70f8e4f9d8a1d2489c86b1f7c79e75bbd65932d91d4a8d6"
 )
+SEMVER_RE = re.compile(r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)")
 
 
 class ReleaseBuildError(RuntimeError):
@@ -74,6 +81,16 @@ def format_bytes(value: int) -> str:
             return "{:.2f} {}".format(size, unit)
         size /= 1024.0
     return "{} B".format(value)
+
+
+def require_semver(value: str, label: str) -> str:
+    if not SEMVER_RE.fullmatch(value):
+        raise ReleaseBuildError(
+            "{} must use Semantic Versioning MAJOR.MINOR.PATCH; found '{}'.".format(
+                label, value
+            )
+        )
+    return value
 
 
 def find_repo_root(script_path: Path) -> Path:
@@ -133,6 +150,27 @@ def git_state(repo_root: Path) -> Tuple[str, str, Tuple[str, ...]]:
     return branch, commit, entries
 
 
+def verify_source_state(
+    repo_root: Path,
+    *,
+    allow_dirty: bool,
+) -> Tuple[str, str, Tuple[str, ...]]:
+    branch, commit, changed_entries = git_state(repo_root)
+
+    if changed_entries and not allow_dirty:
+        raise ReleaseBuildError(
+            "Release source is not clean. A normal 0.6.0 release build refuses "
+            "uncommitted or untracked source changes.\n\n"
+            "Changed entries:\n- {}\n\n"
+            "Commit, stash, or restore these changes first. Use --allow-dirty "
+            "only for an intentional development build; such an artifact is "
+            "marked non-release-ready."
+            .format("\n- ".join(changed_entries))
+        )
+
+    return branch, commit, changed_entries
+
+
 def parse_define(text: str, name: str) -> str:
     match = re.search(
         r'^\s*#define\s+' + re.escape(name) + r'\s+"([^"]+)"\s*$',
@@ -144,23 +182,84 @@ def parse_define(text: str, name: str) -> str:
     return match.group(1).strip()
 
 
+def load_extension_contract(repo_root: Path) -> Dict[str, str]:
+    path = repo_root / "extension.json"
+    if not path.is_file():
+        raise ReleaseBuildError("extension.json is missing: {}".format(path))
+
+    try:
+        data = json.loads(read_text_compat(path))
+    except (OSError, ValueError) as exc:
+        raise ReleaseBuildError("Could not read extension.json: {}".format(path)) from exc
+
+    name = str(data.get("name", "")).strip()
+    version = require_semver(str(data.get("version", "")).strip(), "extension.json version")
+    min_pyrevit = require_semver(
+        str(data.get("min_pyrevit_version", "")).strip(),
+        "extension.json min_pyrevit_version",
+    )
+
+    if not name:
+        raise ReleaseBuildError("extension.json name is empty.")
+    if min_pyrevit != EXPECTED_MIN_PYREVIT_VERSION:
+        raise ReleaseBuildError(
+            "extension.json minimum pyRevit version does not match the validated "
+            "installer compatibility floor: {} != {}.".format(
+                min_pyrevit, EXPECTED_MIN_PYREVIT_VERSION
+            )
+        )
+
+    changelog_path = repo_root / "CHANGELOG.md"
+    if not changelog_path.is_file():
+        raise ReleaseBuildError("Root CHANGELOG.md is missing.")
+    changelog = read_text_compat(changelog_path)
+    headings = re.findall(r"^##\s+(\d+\.\d+\.\d+)\s*$", changelog, flags=re.MULTILINE)
+    if not headings:
+        raise ReleaseBuildError("CHANGELOG.md contains no semantic-version release heading.")
+    if headings[0] != version:
+        raise ReleaseBuildError(
+            "Release identity drift: extension.json is {} but the newest root "
+            "CHANGELOG.md release is {}.".format(version, headings[0])
+        )
+
+    return {
+        "name": name,
+        "version": version,
+        "min_pyrevit_version": min_pyrevit,
+    }
+
+
 def parse_iss_contract(iss_path: Path) -> Dict[str, str]:
     if not iss_path.is_file():
         raise ReleaseBuildError("Inno Setup source not found: {}".format(iss_path))
 
     text = read_text_compat(iss_path)
-    version = parse_define(text, "MyAppVersion")
-    milestone = parse_define(text, "InstallerMilestone")
+    version = require_semver(parse_define(text, "MyAppVersion"), "MyAppVersion")
+    milestone = require_semver(
+        parse_define(text, "InstallerMilestone"),
+        "InstallerMilestone",
+    )
     pyrevit_file = parse_define(text, "PyRevitPrereqFile")
+    pyrevit_compat = require_semver(
+        parse_define(text, "PyRevitPrereqCompatibilityVersion"),
+        "PyRevitPrereqCompatibilityVersion",
+    )
 
-    if not re.fullmatch(r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)", version):
-        raise ReleaseBuildError("MyAppVersion is not semantic MAJOR.MINOR.PATCH: {}".format(version))
-    if not re.fullmatch(r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)", milestone):
-        raise ReleaseBuildError("InstallerMilestone is not semantic MAJOR.MINOR.PATCH: {}".format(milestone))
+    if milestone != EXPECTED_INSTALLER_MILESTONE:
+        raise ReleaseBuildError(
+            "AnonGee.iss installer milestone does not match Release Pipeline {}: {} != {}."
+            .format(PIPELINE_VERSION, milestone, EXPECTED_INSTALLER_MILESTONE)
+        )
     if pyrevit_file.lower() != EXPECTED_PYREVIT_FILE.lower():
         raise ReleaseBuildError(
-            "AnonGee.iss prerequisite filename does not match the release pipeline pin: {} != {}".format(
-                pyrevit_file, EXPECTED_PYREVIT_FILE
+            "AnonGee.iss prerequisite filename does not match the release pipeline pin: {} != {}"
+            .format(pyrevit_file, EXPECTED_PYREVIT_FILE)
+        )
+    if pyrevit_compat != EXPECTED_PYREVIT_COMPATIBILITY_VERSION:
+        raise ReleaseBuildError(
+            "AnonGee.iss pyRevit compatibility version does not match the release "
+            "pipeline contract: {} != {}.".format(
+                pyrevit_compat, EXPECTED_PYREVIT_COMPATIBILITY_VERSION
             )
         )
 
@@ -176,7 +275,21 @@ def parse_iss_contract(iss_path: Path) -> Dict[str, str]:
         "product_version": version,
         "installer_milestone": milestone,
         "pyrevit_file": pyrevit_file,
+        "pyrevit_compatibility_version": pyrevit_compat,
     }
+
+
+def verify_release_identity(
+    extension: Dict[str, str],
+    installer: Dict[str, str],
+) -> None:
+    if extension["version"] != installer["product_version"]:
+        raise ReleaseBuildError(
+            "Release identity drift: extension.json version {} does not match "
+            "AnonGee.iss MyAppVersion {}.".format(
+                extension["version"], installer["product_version"]
+            )
+        )
 
 
 def verify_pyrevit_prerequisite(installer_dir: Path, filename: str) -> Dict[str, Any]:
@@ -227,7 +340,6 @@ def candidate_iscc_paths(explicit: Optional[Path]) -> Sequence[Path]:
         if env_name == "LOCALAPPDATA":
             candidates.append(base / "Programs" / "Inno Setup 7" / "ISCC.exe")
 
-    # Preserve order while removing duplicates case-insensitively.
     unique = []
     seen = set()
     for candidate in candidates:
@@ -276,8 +388,7 @@ def detect_iscc(explicit: Optional[Path]) -> Tuple[Path, str]:
             .format(EXPECTED_INNO_MAJOR, major, found)
         )
 
-    version_text = match.group(0).strip()
-    return found, version_text
+    return found, match.group(0).strip()
 
 
 def run_payload_builder(repo_root: Path, strict_git: bool) -> None:
@@ -310,31 +421,30 @@ def compile_inno(iscc: Path, iss_path: Path, repo_root: Path) -> None:
 
 
 def load_payload_manifest(installer_dir: Path) -> Optional[Dict[str, Any]]:
-    candidates = [
-        installer_dir / "payload" / "build-manifest.json",
-        installer_dir / "payload" / "AnonGee.extension" / "build-manifest.json",
-    ]
-    for path in candidates:
-        if path.is_file():
-            try:
-                return json.loads(read_text_compat(path))
-            except (OSError, ValueError) as exc:
-                raise ReleaseBuildError("Could not read payload manifest: {}".format(path)) from exc
-    return None
+    path = installer_dir / "payload" / "build-manifest.json"
+    if not path.is_file():
+        return None
+    try:
+        return json.loads(read_text_compat(path))
+    except (OSError, ValueError) as exc:
+        raise ReleaseBuildError("Could not read payload manifest: {}".format(path)) from exc
 
 
 def verify_output(
     repo_root: Path,
-    contract: Dict[str, str],
+    extension: Dict[str, str],
+    installer: Dict[str, str],
     prereq: Dict[str, Any],
     iscc: Path,
     iscc_version: str,
-    strict_git: bool,
+    initial_source: Tuple[str, str, Tuple[str, ...]],
+    *,
+    allow_dirty: bool,
 ) -> Path:
     print("\n=== 3/3 VERIFY RELEASE ARTIFACT ===")
     installer_dir = repo_root / "installer"
     output_dir = installer_dir / "output"
-    output_path = output_dir / "AnonGee-Setup-{}.exe".format(contract["product_version"])
+    output_path = output_dir / "AnonGee-Setup-{}.exe".format(installer["product_version"])
 
     if not output_path.is_file():
         raise ReleaseBuildError(
@@ -347,27 +457,40 @@ def verify_output(
     digest = sha256_file(output_path)
 
     branch, commit, changed_entries = git_state(repo_root)
-    if strict_git and changed_entries:
+    initial_branch, initial_commit, initial_entries = initial_source
+    if branch != initial_branch or commit != initial_commit:
         raise ReleaseBuildError(
-            "Worktree became dirty during strict release build:\n- " + "\n- ".join(changed_entries)
+            "Git source changed while the release was building. Refusing to certify the artifact."
         )
+    if changed_entries != initial_entries:
+        raise ReleaseBuildError(
+            "Worktree changed while the release was building. Refusing to certify the artifact.\n"
+            "Before: {!r}\nAfter: {!r}".format(initial_entries, changed_entries)
+        )
+    if changed_entries and not allow_dirty:
+        raise ReleaseBuildError("Internal error: dirty source reached release verification.")
 
     payload_manifest = load_payload_manifest(installer_dir)
+    release_ready = not bool(changed_entries)
 
     manifest = {
         "schema_version": MANIFEST_SCHEMA_VERSION,
         "release_pipeline_version": PIPELINE_VERSION,
         "built_at_utc": datetime.now(timezone.utc).isoformat(),
+        "release_ready": release_ready,
         "product": {
             "name": "AnonGee Toolkit",
-            "version": contract["product_version"],
-            "installer_milestone": contract["installer_milestone"],
+            "version": installer["product_version"],
+            "extension_name": extension["name"],
+            "extension_version": extension["version"],
+            "minimum_pyrevit_version": extension["min_pyrevit_version"],
+            "installer_milestone": installer["installer_milestone"],
         },
         "source": {
             "git_branch": branch,
             "git_commit": commit,
             "git_dirty": bool(changed_entries),
-            "strict_git": strict_git,
+            "allow_dirty": allow_dirty,
             "changed_entries": list(changed_entries),
         },
         "compiler": {
@@ -376,7 +499,8 @@ def verify_output(
         },
         "prerequisites": {
             "pyrevit": {
-                "filename": contract["pyrevit_file"],
+                "filename": installer["pyrevit_file"],
+                "compatibility_version": installer["pyrevit_compatibility_version"],
                 "size_bytes": prereq["size"],
                 "sha256": prereq["sha256"],
             }
@@ -395,10 +519,11 @@ def verify_output(
         encoding="utf-8",
     )
 
-    print("[PASS] Installer: {}".format(output_path))
-    print("[PASS] Size:      {}".format(format_bytes(size)))
-    print("[PASS] SHA-256:   {}".format(digest))
-    print("[PASS] Manifest:  {}".format(manifest_path))
+    print("[PASS] Installer:     {}".format(output_path))
+    print("[PASS] Size:          {}".format(format_bytes(size)))
+    print("[PASS] SHA-256:       {}".format(digest))
+    print("[PASS] Manifest:      {}".format(manifest_path))
+    print("[PASS] Release ready: {}".format("YES" if release_ready else "NO (dirty development build)"))
     return output_path
 
 
@@ -407,9 +532,14 @@ def parse_args() -> argparse.Namespace:
         description="Build and verify the complete AnonGee Windows Setup artifact."
     )
     parser.add_argument(
+        "--allow-dirty",
+        action="store_true",
+        help="Allow a development build from a dirty worktree; manifest is marked non-release-ready.",
+    )
+    parser.add_argument(
         "--strict-git",
         action="store_true",
-        help="Fail unless the release source worktree remains clean.",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--iscc",
@@ -423,6 +553,9 @@ def main() -> int:
     args = parse_args()
 
     try:
+        if args.allow_dirty and args.strict_git:
+            raise ReleaseBuildError("Do not combine --allow-dirty and --strict-git.")
+
         ensure_windows_x64()
         repo_root = find_repo_root(Path(__file__))
         installer_dir = repo_root / "installer"
@@ -431,11 +564,20 @@ def main() -> int:
         print("AnonGee Release Pipeline {}".format(PIPELINE_VERSION))
         print("Repository: {}".format(repo_root))
 
-        contract = parse_iss_contract(iss_path)
-        print("Product version:      {}".format(contract["product_version"]))
-        print("Installer milestone:  {}".format(contract["installer_milestone"]))
+        source_state = verify_source_state(repo_root, allow_dirty=args.allow_dirty)
+        branch, commit, changed_entries = source_state
+        print("Source branch:        {}".format(branch))
+        print("Source commit:        {}".format(commit))
+        print("Source state:         {}".format("DIRTY (development override)" if changed_entries else "CLEAN"))
 
-        prereq = verify_pyrevit_prerequisite(installer_dir, contract["pyrevit_file"])
+        extension = load_extension_contract(repo_root)
+        installer = parse_iss_contract(iss_path)
+        verify_release_identity(extension, installer)
+        print("[PASS] Release identity: {} {}".format(extension["name"], extension["version"]))
+        print("[PASS] Minimum pyRevit metadata: {}".format(extension["min_pyrevit_version"]))
+        print("Installer milestone:  {}".format(installer["installer_milestone"]))
+
+        prereq = verify_pyrevit_prerequisite(installer_dir, installer["pyrevit_file"])
         print("[PASS] pyRevit prerequisite hash verified")
         print("       {}".format(prereq["sha256"]))
 
@@ -444,22 +586,25 @@ def main() -> int:
 
         output_dir = installer_dir / "output"
         output_dir.mkdir(parents=True, exist_ok=True)
-        expected_output = output_dir / "AnonGee-Setup-{}.exe".format(contract["product_version"])
+        expected_output = output_dir / "AnonGee-Setup-{}.exe".format(installer["product_version"])
         manifest_path = output_dir / "release-manifest.json"
         # Never allow a stale previous artifact to masquerade as this build.
         for generated in (expected_output, manifest_path):
             if generated.exists():
                 generated.unlink()
 
-        run_payload_builder(repo_root, args.strict_git)
+        strict_git = not args.allow_dirty
+        run_payload_builder(repo_root, strict_git)
         compile_inno(iscc, iss_path, repo_root)
         verify_output(
             repo_root,
-            contract,
+            extension,
+            installer,
             prereq,
             iscc,
             iscc_version,
-            args.strict_git,
+            source_state,
+            allow_dirty=args.allow_dirty,
         )
 
         print("\n=== RELEASE BUILD PASSED ===")
