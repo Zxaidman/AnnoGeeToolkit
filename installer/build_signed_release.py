@@ -62,8 +62,10 @@ def normalize_thumbprint(value: str) -> str:
 
 
 def _version_key(path: Path) -> Tuple[int, ...]:
+    # Normal SDK layout: ...\Windows Kits\10\bin\10.0.x.y\x64\signtool.exe
+    version_dir = path.parent.parent.name
     parts = []
-    for token in path.parent.name.split("."):
+    for token in version_dir.split("."):
         try:
             parts.append(int(token))
         except ValueError:
@@ -93,7 +95,7 @@ def candidate_signtool_paths(explicit: Optional[Path]) -> Sequence[Path]:
         bin_root = Path(root) / "Windows Kits" / "10" / "bin"
         if not bin_root.is_dir():
             continue
-        sdk_candidates.extend(bin_root.glob("*\\x64\\signtool.exe"))
+        sdk_candidates.extend(bin_root.glob("*/x64/signtool.exe"))
         # Older SDK layouts can expose x64 directly under bin.
         sdk_candidates.append(bin_root / "x64" / "signtool.exe")
 
@@ -317,6 +319,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    manifest_path = None
 
     try:
         base.ensure_windows_x64()
@@ -392,7 +395,6 @@ def main() -> int:
             repo_root,
         )
 
-        print("\n=== 3/4 VERIFY RELEASE ARTIFACT ===")
         artifact = base.verify_output(
             repo_root,
             extension,
@@ -413,9 +415,22 @@ def main() -> int:
         return 0
 
     except base.ReleaseBuildError as exc:
+        # base.verify_output writes a 0.6 manifest before signature verification.
+        # A failed 0.7 verification must not leave that intermediate record
+        # looking like a certified signed release.
+        if manifest_path is not None and manifest_path.exists():
+            try:
+                manifest_path.unlink()
+            except OSError:
+                pass
         print("\n[FAIL] {}".format(exc), file=sys.stderr)
         return 1
     except KeyboardInterrupt:
+        if manifest_path is not None and manifest_path.exists():
+            try:
+                manifest_path.unlink()
+            except OSError:
+                pass
         print("\n[FAIL] Build cancelled by user.", file=sys.stderr)
         return 130
 
