@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import os
+import sys
 import clr
 import System
 
@@ -31,6 +32,92 @@ doc       = __revit__.ActiveUIDocument.Document
 LOCAL_DIR = os.path.dirname(__file__)
 
 
+def _is_under(path, root):
+    """True when *path* is located inside *root* (Windows case-insensitive)."""
+    if not path or not root:
+        return False
+    try:
+        path_key = os.path.normcase(os.path.abspath(path))
+        root_key = os.path.normcase(os.path.abspath(root))
+        return path_key == root_key or path_key.startswith(root_key + os.sep)
+    except (TypeError, ValueError, OSError):
+        return False
+
+
+def _bootstrap_bundled_runtime():
+    """Put AnonGee's own lib/py3 first on sys.path and return that directory."""
+    try:
+        import path_resolver
+        target = path_resolver.update_paths()
+        if target and os.path.isdir(target):
+            return os.path.abspath(target)
+    except ImportError:
+        pass
+
+    # Same bounded fallback used by CAD2BIM. This handles hosts where pyRevit
+    # did not expose the extension's lib/ folder before the button starts.
+    sub = "py3" if sys.version_info[0] == 3 else "py2"
+    try:
+        cursor = os.path.dirname(os.path.abspath(__file__))
+    except NameError:
+        return None
+
+    for _ in range(8):
+        candidate = os.path.abspath(os.path.join(cursor, "lib", sub))
+        if os.path.isdir(candidate):
+            candidate_key = os.path.normcase(candidate)
+            retained = []
+            for entry in sys.path:
+                try:
+                    entry_key = os.path.normcase(os.path.abspath(entry))
+                except (TypeError, ValueError, OSError):
+                    entry_key = None
+                if entry_key != candidate_key:
+                    retained.append(entry)
+            sys.path[:] = [candidate] + retained
+            return candidate
+
+        parent = os.path.dirname(cursor)
+        if parent == cursor:
+            break
+        cursor = parent
+
+    return None
+
+
+_ANONGEE_RUNTIME = _bootstrap_bundled_runtime()
+
+
+def _ensure_bundled_openpyxl():
+    """Verify that openpyxl is loaded from AnonGee.extension/lib/py3."""
+    runtime_root = _ANONGEE_RUNTIME or _bootstrap_bundled_runtime()
+    if not runtime_root:
+        return False, (
+            "AnonGee's bundled Python runtime could not be found. "
+            "Repair or reinstall AnonGee Toolkit. Standalone Python and pip "
+            "are not required."
+        )
+
+    try:
+        import openpyxl
+    except Exception as error:
+        return False, (
+            "AnonGee's bundled openpyxl could not be loaded from {}: {}. "
+            "Repair or reinstall AnonGee Toolkit; standalone Python and pip "
+            "are not required."
+        ).format(runtime_root, error)
+
+    origin = getattr(openpyxl, "__file__", "") or ""
+    if not _is_under(origin, runtime_root):
+        return False, (
+            "A non-AnonGee copy of openpyxl is already loaded from {}. "
+            "Expected it under {}. Restart Revit and try again; if the "
+            "problem remains, repair or reinstall AnonGee Toolkit."
+        ).format(origin or "an unknown location", runtime_root)
+
+    return True, ""
+
+
 def _obj_arr(*items):
     """Build a .NET Object[] reliably. `System.Array[object]` (Python's
     builtin object) raises 'type expected' in this CPython3/pythonnet engine,
@@ -46,7 +133,6 @@ try:
     def _fmt_exc():
         return _tb.format_exc()
 except ImportError:
-    import sys
     def _fmt_exc():
         t, v, _ = sys.exc_info()
         return "{}: {}".format(t.__name__ if t else "Error", v)
@@ -369,13 +455,20 @@ class ExportScheduleDialog(object):
 def export_schedules_to_excel(schedules, output_path,
                                strip_units=True, include_hidden=False,
                                shade_rows=True, save_pdf=False):
+    openpyxl_ok, openpyxl_error = _ensure_bundled_openpyxl()
+    if not openpyxl_ok:
+        return False, openpyxl_error
+
     try:
         from openpyxl import Workbook
         from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
         from openpyxl.utils import get_column_letter
         from openpyxl.worksheet.properties import PageSetupProperties
-    except ImportError as e:
-        return False, "openpyxl not available: {}".format(e)
+    except Exception as e:
+        return False, (
+            "AnonGee's bundled openpyxl could not initialize: {}. "
+            "Repair or reinstall AnonGee Toolkit."
+        ).format(e)
 
     try:
         wb = Workbook()
