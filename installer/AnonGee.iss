@@ -1,7 +1,10 @@
 #define MyAppName "AnonGee Toolkit"
 #define MyAppVersion "0.1.0"
 #define MyPublisher "Zxaidman"
-#define InstallerMilestone "0.3.0"
+#define InstallerMilestone "0.4.0"
+#define PyRevitPrereqVersion "6.5.5.26237"
+#define PyRevitPrereqCompatibilityVersion "6.5.5"
+#define PyRevitPrereqFile "pyRevit_6.5.5.26237_signed.exe"
 
 [Setup]
 AppId=Zxaidman.AnonGee.Toolkit
@@ -50,6 +53,10 @@ Source: "assets\anongee-setup.ico"; DestDir: "{app}\assets"; Flags: ignoreversio
 Source: "legal\EULA.txt"; DestDir: "{app}\legal"; Flags: ignoreversion
 Source: "legal\INSTALL_NOTES.txt"; DestDir: "{app}\legal"; Flags: ignoreversion
 Source: "legal\THIRD_PARTY_NOTICES.txt"; DestDir: "{app}\legal"; Flags: ignoreversion
+; Build-time prerequisite. The EXE is intentionally ignored by Git and must
+; exist locally at compile time. dontcopy keeps it out of the installed app;
+; it is extracted to {tmp} only when Setup actually needs pyRevit.
+Source: "prerequisites\pyrevit\{#PyRevitPrereqFile}"; Flags: dontcopy noencryption
 
 [Icons]
 Name: "{autoprograms}\AnonGee Toolkit"; Filename: "{code:GetRevitExePath}"; WorkingDir: "{code:GetRevitInstallPath}"; IconFilename: "{app}\assets\anongee-setup.ico"; Comment: "Launch Autodesk Revit 2025 with AnonGee Toolkit installed"; AppUserModelID: "Zxaidman.AnonGee.Toolkit"; Flags: createonlyiffileexists
@@ -98,6 +105,9 @@ var
   DetectedPyRevitMajor: Integer;
   DetectedPyRevitMinor: Integer;
   DetectedPyRevitPatch: Integer;
+
+  PyRevitInstallRequired: Boolean;
+  PyRevitInstallReason: String;
 
 function IsDigitChar(const C: Char): Boolean;
 begin
@@ -527,6 +537,13 @@ begin
   end;
 end;
 
+procedure MarkPyRevitForInstall(const Reason: String);
+begin
+  PyRevitInstallRequired := True;
+  PyRevitInstallReason := Reason;
+  Log('[ACTION] Bundled pyRevit {#PyRevitPrereqCompatibilityVersion} prerequisite required: ' + Reason);
+end;
+
 function ConfirmUnvalidatedPyRevitVersion: Boolean;
 var
   MessageText: String;
@@ -540,6 +557,7 @@ begin
     ) + '.' + CRLF + CRLF +
     'AnonGee has currently been validated through pyRevit 6.5.5. ' +
     'This newer 6.x version has not yet been validated.' + CRLF + CRLF +
+    'Setup will leave this newer pyRevit installation unchanged.' + CRLF + CRLF +
     'You may continue, but if AnonGee or CPython behaves incorrectly, ' +
     'install a validated pyRevit version before reporting an AnonGee bug.' +
     CRLF + CRLF + 'Continue installation anyway?';
@@ -575,20 +593,7 @@ begin
       DetectedPyRevitPatch
     );
 
-  if DetectedPyRevitMajor < 6 then
-  begin
-    MsgBox(
-      'AnonGee Toolkit requires pyRevit 6.1.0 or newer within the ' +
-      'supported 6.x compatibility policy.' + CRLF + CRLF +
-      'Detected: pyRevit ' + VersionCore +
-      ' (' + DetectedPyRevitScope + ')' + CRLF + CRLF +
-      'Install a supported pyRevit version and run Setup again.',
-      mbCriticalError,
-      MB_OK
-    );
-    Exit;
-  end;
-
+  // Never automatically downgrade a future major pyRevit release.
   if DetectedPyRevitMajor >= 7 then
   begin
     MsgBox(
@@ -596,6 +601,8 @@ begin
       IntToStr(DetectedPyRevitMajor) + '.x.' + CRLF + CRLF +
       'Detected: pyRevit ' + VersionCore +
       ' (' + DetectedPyRevitScope + ')' + CRLF + CRLF +
+      'Setup will not downgrade this installation automatically.' +
+      CRLF + CRLF +
       'Installation has been blocked to protect the Revit environment.',
       mbCriticalError,
       MB_OK
@@ -603,47 +610,47 @@ begin
     Exit;
   end;
 
-  if CompareSemVer3(
-    DetectedPyRevitMajor,
-    DetectedPyRevitMinor,
-    DetectedPyRevitPatch,
-    6, 1, 0
-  ) < 0 then
+  // Old/incompatible installations can be repaired automatically only when
+  // they belong to the current user. All-users installs may be IT-managed.
+  if (DetectedPyRevitMajor < 6) or
+     (CompareSemVer3(
+        DetectedPyRevitMajor,
+        DetectedPyRevitMinor,
+        DetectedPyRevitPatch,
+        6, 1, 0
+      ) < 0) or
+     ((DetectedPyRevitMajor = 6) and (DetectedPyRevitMinor = 4)) then
   begin
+    if DetectedPyRevitScope = 'Per-user' then
+    begin
+      MarkPyRevitForInstall(
+        'detected incompatible per-user pyRevit ' + VersionCore
+      );
+      Result := True;
+      Exit;
+    end;
+
     MsgBox(
-      'AnonGee Toolkit requires pyRevit 6.1.0 or newer.' +
+      'AnonGee Toolkit detected an incompatible all-users pyRevit installation.' +
       CRLF + CRLF +
       'Detected: pyRevit ' + VersionCore +
       ' (' + DetectedPyRevitScope + ')' + CRLF + CRLF +
-      'Install a supported pyRevit version and run Setup again.',
+      'AnonGee Setup is a per-user installer and will not modify an ' +
+      'all-users pyRevit installation that may be managed by your company.' +
+      CRLF + CRLF +
+      'Ask your BIM/IT administrator to install a supported pyRevit version, ' +
+      'then run AnonGee Setup again.',
       mbCriticalError,
       MB_OK
     );
     Exit;
   end;
 
-  // Known-bad family for AnonGee's CPython workload.
-  if (DetectedPyRevitMajor = 6) and
-     (DetectedPyRevitMinor = 4) then
-  begin
-    MsgBox(
-      'pyRevit 6.4.x is not supported by AnonGee Toolkit.' +
-      CRLF + CRLF +
-      'Detected: pyRevit ' + VersionCore +
-      ' (' + DetectedPyRevitScope + ')' + CRLF + CRLF +
-      'The pyRevit 6.4.x line has known CPython initialization problems. ' +
-      'Use pyRevit 6.1.x-6.3.x or 6.5.x instead, then run Setup again.',
-      mbCriticalError,
-      MB_OK
-    );
-    Exit;
-  end;
-
-  // Validated compatibility contract:
-  // 6.1.x-6.3.x -> allow
-  // 6.4.x       -> block
-  // 6.5.0-6.5.5 -> allow
-  // >6.5.5 <7   -> warn + allow interactively
+  // Compatibility contract:
+  // 6.1.x-6.3.x -> allow unchanged
+  // 6.4.x       -> per-user auto-repair / all-users block
+  // 6.5.0-6.5.5 -> allow unchanged
+  // >6.5.5 <7   -> warn + allow unchanged interactively
   if (DetectedPyRevitMajor = 6) and
      (DetectedPyRevitMinor <= 3) then
   begin
@@ -666,16 +673,145 @@ begin
   end;
 end;
 
+function VerifyBundledPyRevitInstalled: Boolean;
+begin
+  Result := False;
+
+  if not DetectPyRevit then
+  begin
+    Log('[FAIL] pyRevit was still not detectable after prerequisite Setup completed.');
+    Exit;
+  end;
+
+  if (DetectedPyRevitMajor = 6) and
+     (DetectedPyRevitMinor = 5) and
+     (DetectedPyRevitPatch = 5) then
+  begin
+    Log(
+      '[PASS] Bundled pyRevit prerequisite verified: ' +
+      DetectedPyRevitVersionRaw + ' | scope=' + DetectedPyRevitScope
+    );
+    Result := True;
+    Exit;
+  end;
+
+  Log(
+    '[FAIL] Unexpected pyRevit after prerequisite Setup: ' +
+    SemVer3ToString(
+      DetectedPyRevitMajor,
+      DetectedPyRevitMinor,
+      DetectedPyRevitPatch
+    ) + ' | raw=' + DetectedPyRevitVersionRaw +
+    ' | scope=' + DetectedPyRevitScope
+  );
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  PrereqPath: String;
+  Params: String;
+  ResultCode: Integer;
+begin
+  Result := '';
+  NeedsRestart := False;
+
+  if not PyRevitInstallRequired then
+  begin
+    Log('pyRevit prerequisite action: existing installation accepted; nothing to install.');
+    Exit;
+  end;
+
+  Log('============================================================');
+  Log('Installing bundled pyRevit prerequisite');
+  Log('Version: {#PyRevitPrereqVersion}');
+  Log('Reason: ' + PyRevitInstallReason);
+  Log('============================================================');
+
+  try
+    ExtractTemporaryFile('{#PyRevitPrereqFile}');
+  except
+    Result :=
+      'AnonGee Setup could not extract the bundled pyRevit prerequisite.' +
+      CRLF + CRLF +
+      'No AnonGee files have been installed. Rebuild or obtain a complete ' +
+      'AnonGee Setup package and try again.';
+    Log('[FAIL] ExtractTemporaryFile failed: ' + GetExceptionMessage);
+    Exit;
+  end;
+
+  PrereqPath := ExpandConstant('{tmp}\{#PyRevitPrereqFile}');
+  if not FileExists(PrereqPath) then
+  begin
+    Result :=
+      'The bundled pyRevit prerequisite could not be found after extraction.' +
+      CRLF + CRLF + 'AnonGee installation has been stopped.';
+    Log('[FAIL] Extracted pyRevit prerequisite is missing: ' + PrereqPath);
+    Exit;
+  end;
+
+  // pyRevit's official per-user installer is itself Inno Setup. Install only
+  // its fixed Core component; AnonGee does not require pyRevit's optional
+  // extended, developer, or tutorial extensions.
+  Params :=
+    '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- ' +
+    '/COMPONENTS="core"';
+
+  if not Exec(
+    PrereqPath,
+    Params,
+    '',
+    SW_HIDE,
+    ewWaitUntilTerminated,
+    ResultCode
+  ) then
+  begin
+    Result :=
+      'AnonGee Setup could not start the bundled pyRevit installer.' +
+      CRLF + CRLF +
+      'No AnonGee files have been installed. Try again, or install ' +
+      'pyRevit 6.5.5 manually before running AnonGee Setup.';
+    Log('[FAIL] Could not execute pyRevit prerequisite.');
+    Exit;
+  end;
+
+  if ResultCode <> 0 then
+  begin
+    Result :=
+      'pyRevit Setup did not complete successfully.' + CRLF + CRLF +
+      'Exit code: ' + IntToStr(ResultCode) + CRLF + CRLF +
+      'AnonGee installation has been stopped. Install pyRevit 6.5.5 ' +
+      'manually or review the Setup logs before trying again.';
+    Log('[FAIL] pyRevit prerequisite exited with code ' + IntToStr(ResultCode));
+    Exit;
+  end;
+
+  if not VerifyBundledPyRevitInstalled then
+  begin
+    Result :=
+      'pyRevit Setup completed, but AnonGee could not verify a compatible ' +
+      'pyRevit 6.5.5 installation afterward.' + CRLF + CRLF +
+      'AnonGee files have not been installed. Restart Windows if required, ' +
+      'verify pyRevit, and run AnonGee Setup again.';
+    Exit;
+  end;
+
+  PyRevitInstallRequired := False;
+  Log('[PASS] pyRevit prerequisite installation completed and verified.');
+end;
+
 function InitializeSetup: Boolean;
 var
   ProcessCheckSucceeded: Boolean;
 begin
   Result := False;
+  PyRevitInstallRequired := False;
+  PyRevitInstallReason := '';
 
   Log('============================================================');
   Log('AnonGee Toolkit prerequisite preflight');
   Log('Installer milestone: {#InstallerMilestone}');
   Log('Product version: {#MyAppVersion}');
+  Log('Bundled pyRevit prerequisite: {#PyRevitPrereqVersion}');
   Log('============================================================');
 
   // 1. Native x64 Windows.
@@ -726,7 +862,7 @@ begin
   begin
     MsgBox(
       'Autodesk Revit 2025 was not detected.' + CRLF + CRLF +
-      'AnonGee Toolkit milestone 0.3.0 supports Revit 2025 only.' +
+      'AnonGee Toolkit milestone 0.4.0 supports Revit 2025 only.' +
       CRLF + CRLF +
       'Install or repair Autodesk Revit 2025, then run Setup again.',
       mbCriticalError,
@@ -736,60 +872,63 @@ begin
   end;
   Log('[PASS] Autodesk Revit 2025 detected at: ' + DetectedRevitPath);
 
-  // 4-6. Detect pyRevit, scope, and version.
+  // 4-6. Detect pyRevit, scope, and version. Missing or safely repairable
+  // per-user pyRevit is handled later by PrepareToInstall, after the user has
+  // accepted AnonGee's EULA and clicked Install.
   if not DetectPyRevit then
   begin
-    MsgBox(
-      'pyRevit was not detected.' + CRLF + CRLF +
-      'AnonGee Toolkit requires a compatible pyRevit installation.' + CRLF +
-      'Standalone Python is NOT required.' + CRLF + CRLF +
-      'Install pyRevit first, then run AnonGee Setup again.' +
-      CRLF + CRLF +
-      'Automatic pyRevit installation is intentionally deferred to a later milestone.',
-      mbCriticalError,
-      MB_OK
-    );
-    Exit;
-  end;
-
-  Log(
-    '[PASS] pyRevit detected: ' + DetectedPyRevitName +
-    ' | version=' + DetectedPyRevitVersionRaw +
-    ' | normalized=' +
-    SemVer3ToString(
-      DetectedPyRevitMajor,
-      DetectedPyRevitMinor,
-      DetectedPyRevitPatch
-    ) +
-    ' | scope=' + DetectedPyRevitScope
-  );
-
-  if DetectedPyRevitInstallLocation <> '' then
+    MarkPyRevitForInstall('pyRevit is not installed');
+    Log('[INFO] Setup will install bundled pyRevit {#PyRevitPrereqCompatibilityVersion}.');
+  end
+  else
+  begin
     Log(
-      '       pyRevit install location: ' +
-      DetectedPyRevitInstallLocation
+      '[PASS] pyRevit detected: ' + DetectedPyRevitName +
+      ' | version=' + DetectedPyRevitVersionRaw +
+      ' | normalized=' +
+      SemVer3ToString(
+        DetectedPyRevitMajor,
+        DetectedPyRevitMinor,
+        DetectedPyRevitPatch
+      ) +
+      ' | scope=' + DetectedPyRevitScope
     );
 
-  // 7. Explicit compatibility policy.
-  if not ValidatePyRevitCompatibility then
-    Exit;
-  Log('[PASS] pyRevit compatibility policy accepted.');
+    if DetectedPyRevitInstallLocation <> '' then
+      Log(
+        '       pyRevit install location: ' +
+        DetectedPyRevitInstallLocation
+      );
+
+    // 7. Explicit compatibility/repair policy.
+    if not ValidatePyRevitCompatibility then
+      Exit;
+
+    if PyRevitInstallRequired then
+      Log('[PASS] pyRevit is eligible for automatic per-user repair.')
+    else
+      Log('[PASS] pyRevit compatibility policy accepted.');
+  end;
 
   // 8. Payload integrity stays a build-time responsibility of
   // build_payload.py 0.2.0. [Files] also fails compilation if absent.
+  // The bundled pyRevit EXE is likewise a required [Files] compile input.
 
   Log('============================================================');
   Log('AnonGee prerequisite preflight PASSED.');
   Log('Revit 2025 path: ' + DetectedRevitPath);
-  Log(
-    'pyRevit: ' +
-    SemVer3ToString(
-      DetectedPyRevitMajor,
-      DetectedPyRevitMinor,
-      DetectedPyRevitPatch
-    ) +
-    ' (' + DetectedPyRevitScope + ')'
-  );
+  if PyRevitInstallRequired then
+    Log('pyRevit action: install/repair bundled {#PyRevitPrereqVersion}')
+  else
+    Log(
+      'pyRevit: ' +
+      SemVer3ToString(
+        DetectedPyRevitMajor,
+        DetectedPyRevitMinor,
+        DetectedPyRevitPatch
+      ) +
+      ' (' + DetectedPyRevitScope + ')'
+    );
   Log('Standalone Python prerequisite: NOT REQUIRED');
   Log('============================================================');
 
@@ -827,5 +966,7 @@ begin
     Exit;
   end;
 
+  // pyRevit is an independent prerequisite and may be used by other tools.
+  // Removing AnonGee must never uninstall or modify pyRevit.
   Result := True;
 end;
