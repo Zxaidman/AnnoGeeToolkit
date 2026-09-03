@@ -1,0 +1,825 @@
+# -*- coding: utf-8 -*-
+"""Where a column or a footing goes, decided before any of it touches Revit.
+
+Pure: rows in, plans out, no Revit anywhere. Same seam as ``datum`` — the
+command that writes does nothing this file has not already decided, so the rules
+below can be argued with, and tested, without opening a model.
+
+**The key is the position, not the mark.** This is the rule the whole file turns
+on, and it is the project owner's:
+
+    A column at A1 marked ``C1`` is ``C1`` all the way up, even where its size
+    changes. Two columns share a mark on one floor only if their size *and*
+    rebar schedule are both the same.
+
+So a mark is a schedule label, repeated on purpose, and it cannot be what a
+second run matches on. What identifies a column is **where it stands and which
+storey it is in**; what identifies a footing is **where it stands**. That is what
+gets matched, and it is why running twice is safe.
+
+**Nothing is deleted, ever.** An element in the model the sheet does not mention
+is left alone and reported. A sheet is one person's view of a building and a
+model is everybody's.
+
+**Nothing is moved by default.** A column found within tolerance of where the
+sheet wants one *is* that column. A column found nowhere near is not the same
+column, so a new one is planned and the odd one is reported — moving it would
+mean deciding that somebody's deliberate offset was a mistake.
+"""
+
+from anongee_toolkit.rc_automation import datum
+from anongee_toolkit.rc_automation import models
+
+__version__ = "0.1.0"
+
+SHEET_COLUMNS = "COLUMN_PLACEMENT"
+SHEET_FOOTINGS = "FOOTING_PLACEMENT"
+
+#: Two positions within this are the same position. Generous on purpose: it is
+#: the round trip through Revit's feet plus whatever a person typed, not a
+#: statement about how accurately anything is built.
+POSITION_TOLERANCE_MM = 5.0
+
+CREATE = datum.CREATE
+MODIFY = datum.MODIFY
+MATCH = datum.MATCH
+BLOCKED = datum.BLOCKED
+INVALID = datum.INVALID
+
+_MARK = ("mark", "id", "ref")
+_TYPE_MARK = ("typemark", "type", "section", "size")
+_GRID_X = ("gridx", "gridalongx", "gridletter", "grid1")
+_GRID_Y = ("gridy", "gridalongy", "gridnumber", "grid2")
+_OFFSET_X = ("offsetx", "dx", "ex")
+_OFFSET_Y = ("offsety", "dy", "ey")
+_STOREY = ("storey", "story", "lift", "stage")
+_BASE_LEVEL = ("baselevel", "frombase", "bottomlevel")
+_TOP_LEVEL = ("toplevel", "totop", "uptolevel")
+_BASE_OFFSET = ("baseoffset", "bottomoffset")
+_TOP_OFFSET = ("topoffset", "toffset")
+_LEVEL = ("level", "onlevel", "atlevel")
+_ROTATION = ("rotation", "angle", "turn")
+_REBAR = ("rebarschedule", "rebar", "cage", "schedule")
+_OUTLINE = ("outline", "polygon", "shape")
+_COMMENTS = ("comment", "note")
+
+#: Order matters for the same reason it does in ``datum``: several of these
+#: start with the same word. ``BaseOffset`` must be asked before ``BaseLevel``
+#: would swallow it, and ``TopLevel`` before ``TopOffset`` — every pair that
+#: shares a prefix is ordered longest-first.
+_COLUMN_FIELDS = (
+    ("type_mark", _TYPE_MARK), ("rebar", _REBAR),
+    ("base_offset_mm", _BASE_OFFSET), ("top_offset_mm", _TOP_OFFSET),
+    ("base_level", _BASE_LEVEL), ("top_level", _TOP_LEVEL),
+    ("offset_x_mm", _OFFSET_X), ("offset_y_mm", _OFFSET_Y),
+    ("grid_x", _GRID_X), ("grid_y", _GRID_Y),
+    ("storey", _STOREY), ("rotation_deg", _ROTATION),
+    ("mark", _MARK), ("comments", _COMMENTS),
+)
+
+_FOOTING_FIELDS = (
+    ("type_mark", _TYPE_MARK),
+    ("top_offset_mm", _TOP_OFFSET),
+    ("offset_x_mm", _OFFSET_X), ("offset_y_mm", _OFFSET_Y),
+    ("grid_x", _GRID_X), ("grid_y", _GRID_Y),
+    ("level", _LEVEL), ("rotation_deg", _ROTATION),
+    ("outline", _OUTLINE), ("mark", _MARK), ("comments", _COMMENTS),
+)
+
+
+SHEET_BEAMS = "BEAM_PLACEMENT"
+SHEET_SLABS = "SLAB_PLACEMENT"
+SHEET_STAIRS = "STAIR_PLACEMENT"
+
+_FROM_GRID_X = ("fromgridx", "startgridx", "gridxfrom")
+_FROM_GRID_Y = ("fromgridy", "startgridy", "gridyfrom")
+_TO_GRID_X = ("togridx", "endgridx", "gridxto")
+_TO_GRID_Y = ("togridy", "endgridy", "gridyto")
+_SPAN = ("span", "bay", "segment")
+#: What an element does where it meets another one. A slab says it about its
+#: four edges; a beam says it about its two ends. Same idea, two words for it,
+#: because "EdgeRule" on a beam sheet reads like a mistake.
+_EDGE_RULE = ("edgerule", "endprep", "edge", "rule", "end")
+_OFFSET = ("offset", "z", "drop")
+
+#: ``From`` and ``To`` are asked before ``GridX``, which they both start with
+#: once folded — ``fromgridx`` does not start with ``gridx``, but ``gridxfrom``
+#: does, and a sheet written the other way round would otherwise land both ends
+#: in the same field.
+_BEAM_FIELDS = (
+    ("type_mark", _TYPE_MARK), ("span", _SPAN), ("edge_rule", _EDGE_RULE),
+    ("from_grid_x", _FROM_GRID_X), ("from_grid_y", _FROM_GRID_Y),
+    ("to_grid_x", _TO_GRID_X), ("to_grid_y", _TO_GRID_Y),
+    ("level", _LEVEL), ("offset_mm", _OFFSET),
+    ("mark", _MARK), ("comments", _COMMENTS),
+)
+
+_SLAB_FIELDS = (
+    ("type_mark", _TYPE_MARK), ("edge_rule", _EDGE_RULE),
+    ("from_grid_x", _FROM_GRID_X), ("from_grid_y", _FROM_GRID_Y),
+    ("to_grid_x", _TO_GRID_X), ("to_grid_y", _TO_GRID_Y),
+    ("level", _LEVEL), ("offset_mm", _OFFSET),
+    ("mark", _MARK), ("comments", _COMMENTS),
+)
+
+
+class PlacementRow(object):
+    """One row of a placement sheet, coerced and remembering where it came from.
+
+    One class for both, because a column and a footing differ in what they span
+    rather than in how they are found. Fields the sheet did not carry are
+    ``None``, and ``None`` means *the sheet did not say* — never zero.
+    """
+
+    __slots__ = ("mark", "type_mark", "grid_x", "grid_y", "offset_x_mm",
+                 "offset_y_mm", "storey", "base_level", "top_level",
+                 "base_offset_mm", "top_offset_mm", "level", "rotation_deg",
+                 "rebar", "outline", "comments", "row", "point_mm",
+                 "from_grid_x", "from_grid_y", "to_grid_x", "to_grid_y",
+                 "span", "edge_rule", "offset_mm", "start_mm", "end_mm")
+
+    def __init__(self, row=None, **fields):
+        for name in self.__slots__:
+            setattr(self, name, fields.get(name))
+        self.row = row
+        #: Filled in by :func:`locate`, once the grids are known.
+        self.point_mm = None
+        #: The two ends of a beam, or the two opposite corners of a panel.
+        self.start_mm = None
+        self.end_mm = None
+
+    @property
+    def key(self):
+        """What a second run matches on.
+
+        Position and storey — not the mark, which repeats by design. A row with
+        no storey (a footing) keys on position alone, which is right: there is
+        one footing under an intersection.
+        """
+        return (self.grid_x, self.grid_y, self.storey or "",
+                round(self.offset_x_mm or 0.0, 1),
+                round(self.offset_y_mm or 0.0, 1))
+
+    @property
+    def span_key(self):
+        """What identifies a beam or a panel: the two grid pairs and the level.
+
+        Not the mark — a continuous beam's spans all share one, which is the
+        whole point of the grouping.
+        """
+        return (self.level or "", self.from_grid_x, self.from_grid_y,
+                self.to_grid_x, self.to_grid_y)
+
+    @property
+    def unique_mark(self):
+        """What goes in Revit's ``Mark``, and it is not the schedule label.
+
+        Revit expects ``Mark`` to be unique per instance and warns when it is
+        not. The owner's schedule label repeats on purpose — ``C1`` is ``C1``
+        up a whole stack and across a floor — so writing the label there
+        produced *Elements have duplicate "Mark" values* on the first real run.
+
+        The key does not repeat, by construction: ``C1-A1-S1``. The label is
+        still in it, so the schedule mark is readable from the model, and the
+        grid and storey make it unique.
+        """
+        parts = [self.mark or "?"]
+        where = "{0}{1}".format(self.grid_x or "", self.grid_y or "")
+        if not where and self.from_grid_x:
+            where = "{0}{1}{2}{3}".format(
+                self.from_grid_x or "", self.from_grid_y or "",
+                self.to_grid_x or "", self.to_grid_y or "")
+        if where:
+            parts.append(where)
+
+        # The level or storey, unless the mark already carries it. A beam
+        # schedule names its level in the mark — B01-1 is grid 1 on level 01 —
+        # and repeating it gives B01-1-A1B1-01, which is unique and unreadable.
+        suffix = self.storey or (str(self.level).split()[0]
+                                 if self.level else "")
+        if suffix and suffix not in (self.mark or ""):
+            parts.append(suffix)
+        return "-".join(parts)
+
+    def __repr__(self):
+        return "<PlacementRow {0!r} at {1}{2}>".format(
+            self.mark, self.grid_x, self.grid_y)
+
+
+class PlacementPlan(object):
+    """What one row means for the model."""
+
+    __slots__ = ("row", "action", "reason", "existing")
+
+    def __init__(self, row, action=CREATE, reason="", existing=None):
+        self.row = row
+        self.action = action
+        self.reason = reason
+        #: Whatever the caller uses to name an element it already found.
+        self.existing = existing
+
+    @property
+    def will_write(self):
+        return self.action in (CREATE, MODIFY)
+
+    def __repr__(self):
+        return "<PlacementPlan {0} {1!r}>".format(self.action, self.row.mark)
+
+
+# ---------------------------------------------------------------------------
+# Reading a sheet
+# ---------------------------------------------------------------------------
+
+def _header_map(header, fields):
+    found = {}
+    for index, cell in enumerate(header):
+        folded = datum._fold(cell)
+        if not folded:
+            continue
+        for field, names in fields:
+            if field in found.values():
+                continue
+            if any(folded.startswith(candidate) for candidate in names):
+                found[index] = field
+                break
+    return found
+
+
+def _text(value):
+    return str(value if value is not None else "").strip()
+
+
+def parse(grid, fields, required, sheet, units=datum.UNITS_MM):
+    """``([PlacementRow], [Issue])`` from a sheet's rows.
+
+    *required* is the folded field every table must have for the header to be
+    the header — the same trick ``datum`` uses, and for the same reason: a real
+    workbook grows a title above its table sooner or later.
+
+    **A blank row is skipped, not failed.** On the beam sheet a blank row means
+    something; here it means somebody pressed Enter.
+    """
+    issues = []
+    rows = list(grid or [])
+
+    header_at = None
+    columns = {}
+    for index, row in enumerate(rows):
+        found = _header_map(row, fields)
+        if all(name in found.values() for name in required):
+            header_at, columns = index, found
+            break
+
+    if header_at is None:
+        issues.append(models.Issue(
+            models.SEVERITY_ERROR,
+            "No header row with {0}.".format(" and a ".join(required)),
+            sheet=sheet))
+        return [], issues
+
+    column_units = {}
+    for index, field in columns.items():
+        found = None
+        if index < len(rows[header_at]):
+            found = datum.unit_in_header(rows[header_at][index])
+        column_units[field] = found or units
+
+    found_rows = []
+    for offset, raw in enumerate(rows[header_at + 1:]):
+        values = {}
+        for index, field in columns.items():
+            values[field] = raw[index] if index < len(raw) else None
+        if not any(_text(value) for value in values.values()):
+            continue
+
+        fields_out = {}
+        for field in [name for name, _names in fields]:
+            value = values.get(field)
+            if field.endswith("_mm"):
+                fields_out[field] = datum.to_mm(datum._number(value),
+                                                column_units.get(field, units))
+            elif field.endswith("_deg"):
+                fields_out[field] = datum._number(value)
+            else:
+                fields_out[field] = _text(value)
+
+        found_rows.append(PlacementRow(row=header_at + offset + 2,
+                                       **fields_out))
+
+    if not found_rows:
+        issues.append(models.Issue(
+            models.SEVERITY_WARNING, "The sheet places nothing.", sheet=sheet))
+    return found_rows, issues
+
+
+def parse_columns(grid, sheet=SHEET_COLUMNS, units=datum.UNITS_MM):
+    """``([PlacementRow], [Issue])`` from COLUMN_PLACEMENT."""
+    return parse(grid, _COLUMN_FIELDS, ("mark", "grid_x"), sheet, units)
+
+
+def parse_footings(grid, sheet=SHEET_FOOTINGS, units=datum.UNITS_MM):
+    """``([PlacementRow], [Issue])`` from FOOTING_PLACEMENT."""
+    return parse(grid, _FOOTING_FIELDS, ("mark", "grid_x"), sheet, units)
+
+
+def parse_beams(grid, sheet=SHEET_BEAMS, units=datum.UNITS_MM):
+    """``([[PlacementRow]], [Issue])`` — **groups**, not rows.
+
+    A blank row separates one beam from the next, which is the owner's format
+    and a good one: a simply supported beam is one row, a continuous beam is a
+    group of rows sharing a mark, and the sheet reads the way a beam schedule
+    reads. Continuity comes from the shape of the sheet rather than from a
+    column somebody has to keep true.
+
+    So the blank rows are load-bearing, and this is the one parser that must
+    **not** skip them.
+    """
+    return _parse_groups(grid, _BEAM_FIELDS, sheet, units)
+
+
+def _parse_groups(grid, fields, sheet, units):
+    """Blank-row-separated groups of span rows. ``([[PlacementRow]], [Issue])``.
+
+    Shared by beams and stairs because they are the same sheet shape, and
+    because three copies of a helper is exactly what BUG-31 turned out to be.
+    """
+    issues = []
+    rows = list(grid or [])
+
+    header_at = None
+    for index, row in enumerate(rows):
+        found = _header_map(row, fields)
+        if "mark" in found.values() and "from_grid_x" in found.values():
+            header_at = index
+            break
+
+    if header_at is None:
+        issues.append(models.Issue(
+            models.SEVERITY_ERROR,
+            "No header row with a Mark and a FromGridX column.", sheet=sheet))
+        return [], issues
+
+    groups = [[]]
+    for offset, raw in enumerate(rows[header_at + 1:]):
+        if not any(_text(value) for value in raw):
+            if groups[-1]:
+                groups.append([])
+            continue
+        parsed, row_issues = parse([rows[header_at], raw], fields,
+                                   ("mark", "from_grid_x"), sheet, units)
+        issues.extend(row_issues)
+        for item in parsed:
+            item.row = header_at + offset + 2
+            groups[-1].append(item)
+
+    groups = [group for group in groups if group]
+    if not groups:
+        issues.append(models.Issue(
+            models.SEVERITY_WARNING, "The sheet places nothing.", sheet=sheet))
+    return groups, issues
+
+
+def parse_slabs(grid, sheet=SHEET_SLABS, units=datum.UNITS_MM):
+    """``([PlacementRow], [Issue])`` from SLAB_PLACEMENT."""
+    return parse(grid, _SLAB_FIELDS, ("mark", "from_grid_x"), sheet, units)
+
+
+#: A flight is a span with two levels — it starts on one floor and arrives at
+#: another, which is the one thing that makes it not a beam.
+_STAIR_FIELDS = (
+    ("type_mark", _TYPE_MARK), ("span", _SPAN),
+    ("from_grid_x", _FROM_GRID_X), ("from_grid_y", _FROM_GRID_Y),
+    ("to_grid_x", _TO_GRID_X), ("to_grid_y", _TO_GRID_Y),
+    ("level", _LEVEL), ("top_level", _TOP_LEVEL),
+    ("offset_mm", _OFFSET),
+    ("mark", _MARK), ("comments", _COMMENTS),
+)
+
+
+def parse_stairs(grid, sheet=SHEET_STAIRS, units=datum.UNITS_MM):
+    """``([[PlacementRow]], [Issue])`` — **groups**, exactly like beams.
+
+    A straight flight is one row; a dog-leg is two rows sharing a mark with a
+    blank row after them. That is not a coincidence borrowed from the beam
+    sheet — it is the same fact. A continuous beam is several members that
+    make one beam, and a dog-leg stair is two flights that make one stair, and
+    in both cases the thing the schedule names is the group.
+    """
+    return _parse_groups(grid, _STAIR_FIELDS, sheet, units)
+
+
+_LENGTH = ("length", "l")
+_WIDTH = ("width", "w", "breadth", "b")
+_DEPTH = ("depth", "d")
+_THICKNESS = ("thickness", "t")
+
+#: Depth and thickness are kept apart because they are different things. A
+#: column is Width x Depth, a pad is Length x Width x Thickness, and a reader
+#: that folded them together would size a column off a slab's number.
+_TYPE_FIELDS = (("type_mark", _TYPE_MARK), ("thickness_mm", _THICKNESS),
+                ("depth_mm", _DEPTH), ("length_mm", _LENGTH),
+                ("width_mm", _WIDTH))
+
+#: What a type row can say about its size.
+TYPE_SIZES = ("length_mm", "width_mm", "depth_mm", "thickness_mm")
+
+#: A stair type's four numbers. Its own vocabulary rather than
+#: ``TYPE_SIZES``, because a stair's *depth* is meaningless and its **tread**
+#: and **riser** are not sizes at all — they are the rule that decides how many
+#: steps there are. Folding them into width/depth would size a flight off a
+#: column's number, which is the mistake ``_DEPTH`` and ``_THICKNESS`` are kept
+#: apart to avoid.
+_WAIST = ("waist", "waistthickness", "waistthk")
+_TREAD = ("tread", "going", "goingpertread")
+_RISER = ("riser", "rise", "riseperstep")
+
+_STAIR_TYPE_FIELDS = (("type_mark", _TYPE_MARK), ("waist_mm", _WAIST),
+                      ("tread_mm", _TREAD), ("riser_mm", _RISER),
+                      ("width_mm", _WIDTH))
+
+STAIR_SIZES = ("width_mm", "waist_mm", "tread_mm", "riser_mm")
+
+
+def parse_stair_types(grid, sheet="STAIR_TYPES", units=datum.UNITS_MM):
+    """``({type mark: {width_mm, waist_mm, tread_mm, riser_mm}}, [Issue])``.
+
+    ``Riser`` here is **nominal**, not final. The number of risers is the rise
+    divided by it and rounded, and the riser actually built is the rise divided
+    by that whole number — because a flight has to arrive exactly at the floor
+    and 3300 does not divide by 165 as tidily as anybody expects once a level
+    moves by ten millimetres.
+    """
+    return _parse_type_sheet(grid, _STAIR_TYPE_FIELDS, STAIR_SIZES, sheet,
+                             units)
+
+
+def parse_types(grid, sheet="", units=datum.UNITS_MM):
+    """``({type mark: {field: mm}}, [Issue])`` from a TYPES sheet.
+
+    A placement row names a type and a type sheet says how big it is. Keeping
+    those apart is what lets fifteen footings share three sizes, and it is why
+    a placement row can leave ``Outline`` blank — the rectangle is the type's,
+    not the row's.
+    """
+    return _parse_type_sheet(grid, _TYPE_FIELDS, TYPE_SIZES, sheet, units)
+
+
+def _parse_type_sheet(grid, fields, sizes_wanted, sheet, units):
+    """The shared half of every TYPES sheet: find the header, read the units off
+    it, coerce each row's numbers to millimetres."""
+    issues = []
+    rows = list(grid or [])
+
+    header_at = None
+    columns = {}
+    for index, row in enumerate(rows):
+        found = _header_map(row, fields)
+        if "type_mark" in found.values():
+            header_at, columns = index, found
+            break
+
+    if header_at is None:
+        issues.append(models.Issue(
+            models.SEVERITY_WARNING,
+            "No header row with a TypeMark column.", sheet=sheet))
+        return {}, issues
+
+    column_units = {}
+    for index, field in columns.items():
+        found = None
+        if index < len(rows[header_at]):
+            found = datum.unit_in_header(rows[header_at][index])
+        column_units[field] = found or units
+
+    types = {}
+    for raw in rows[header_at + 1:]:
+        values = {}
+        for index, field in columns.items():
+            values[field] = raw[index] if index < len(raw) else None
+        mark = _text(values.get("type_mark"))
+        if not mark:
+            continue
+        sizes = {}
+        for field in sizes_wanted:
+            sizes[field] = datum.to_mm(datum._number(values.get(field)),
+                                       column_units.get(field, units))
+        types[datum._fold(mark)] = sizes
+    return types, issues
+
+
+# ---------------------------------------------------------------------------
+# Working out where that is
+# ---------------------------------------------------------------------------
+
+def locate(rows, intersection, sheet=SHEET_COLUMNS):
+    """Fill in ``point_mm`` on every row. ``[Issue]``.
+
+    *intersection* is ``(name_x, name_y) -> ((x, y), note)`` — whatever the
+    caller uses to cross two grids. Opaque here, so this function never learns
+    what Revit is.
+
+    **The grid is asked first and the offset is added to it.** A row that names
+    no grid falls back to its offsets read as absolute coordinates, which is the
+    only way to describe a position in a model that has no grids in it yet. A
+    row that names a grid the model does not have is reported and left without
+    a point, which makes it unbuildable rather than built in the wrong place.
+    """
+    issues = []
+    for row in rows:
+        if row.grid_x and row.grid_y:
+            point, note = intersection(row.grid_x, row.grid_y)
+            if point is None:
+                issues.append(models.Issue(
+                    models.SEVERITY_ERROR,
+                    "{0!r}: {1}".format(row.mark or "this row", note),
+                    sheet=sheet, row=row.row, column="GridX"))
+                continue
+            row.point_mm = (point[0] + (row.offset_x_mm or 0.0),
+                            point[1] + (row.offset_y_mm or 0.0))
+            continue
+
+        if row.offset_x_mm is None or row.offset_y_mm is None:
+            issues.append(models.Issue(
+                models.SEVERITY_ERROR,
+                "{0!r} names no grid and gives no coordinates, so there is "
+                "nowhere to put it.".format(row.mark or "this row"),
+                sheet=sheet, row=row.row, column="GridX"))
+            continue
+
+        # No grid named: the offsets are the position, measured from the
+        # project origin. Reported, because it is unusual enough to be worth
+        # seeing in a run that otherwise reads as ordinary.
+        row.point_mm = (row.offset_x_mm, row.offset_y_mm)
+        issues.append(models.Issue(
+            models.SEVERITY_INFO,
+            "{0!r} names no grid, so its offsets are being read as absolute "
+            "coordinates.".format(row.mark or "this row"),
+            sheet=sheet, row=row.row, column="OffsetX"))
+    return issues
+
+
+def locate_span(rows, intersection, sheet=SHEET_BEAMS):
+    """Fill in ``start_mm`` and ``end_mm`` on rows that span two intersections.
+
+    A beam runs between them; a panel is the rectangle they are opposite
+    corners of. Same two lookups, so the same function — and the same refusal:
+    a grid the model does not have leaves the row unplaceable and says so,
+    rather than putting a beam through the origin.
+    """
+    issues = []
+    for row in rows:
+        ends = []
+        for name_x, name_y, which in (
+                (row.from_grid_x, row.from_grid_y, "From"),
+                (row.to_grid_x, row.to_grid_y, "To")):
+            if not name_x or not name_y:
+                issues.append(models.Issue(
+                    models.SEVERITY_ERROR,
+                    "{0!r} has no {1} grid reference.".format(
+                        row.mark or "this row", which),
+                    sheet=sheet, row=row.row, column=which + "GridX"))
+                ends = []
+                break
+            point, note = intersection(name_x, name_y)
+            if point is None:
+                issues.append(models.Issue(
+                    models.SEVERITY_ERROR,
+                    "{0!r}: {1}".format(row.mark or "this row", note),
+                    sheet=sheet, row=row.row, column=which + "GridX"))
+                ends = []
+                break
+            ends.append(point)
+
+        if len(ends) == 2:
+            row.start_mm, row.end_mm = ends[0], ends[1]
+            row.point_mm = ((ends[0][0] + ends[1][0]) / 2.0,
+                            (ends[0][1] + ends[1][1]) / 2.0)
+    return issues
+
+
+def plan_spans(rows, existing, sheet=SHEET_BEAMS,
+               tolerance_mm=POSITION_TOLERANCE_MM):
+    """``([PlacementPlan], [Issue])`` for anything identified by its two ends.
+
+    Matched on the **midpoint and the level** rather than the mark, for the same
+    reason columns are: a continuous beam's spans all share one mark, which is
+    the whole point of the grouping.
+    """
+    issues = []
+    plans = []
+    seen = {}
+    claimed = set()
+
+    for row in rows:
+        if not row.mark:
+            plans.append(PlacementPlan(row, INVALID, "no mark"))
+            continue
+        if row.point_mm is None:
+            plans.append(PlacementPlan(row, INVALID, "nowhere to put it"))
+            continue
+        if not row.type_mark:
+            plans.append(PlacementPlan(row, INVALID, "no type"))
+            issues.append(models.Issue(
+                models.SEVERITY_ERROR,
+                "{0!r} names no type.".format(row.mark),
+                sheet=sheet, row=row.row, column="TypeMark"))
+            continue
+        if not row.level:
+            plans.append(PlacementPlan(row, INVALID, "no level"))
+            issues.append(models.Issue(
+                models.SEVERITY_ERROR,
+                "{0!r} names no level.".format(row.mark),
+                sheet=sheet, row=row.row, column="Level"))
+            continue
+
+        if row.span_key in seen:
+            plans.append(PlacementPlan(
+                row, INVALID,
+                "row {0} already spans this".format(seen[row.span_key])))
+            issues.append(models.Issue(
+                models.SEVERITY_ERROR,
+                "Two rows span the same bay on the same level: {0!r} and the "
+                "one on row {1}.".format(row.mark, seen[row.span_key]),
+                sheet=sheet, row=row.row, column="FromGridX"))
+            continue
+        seen[row.span_key] = row.row
+
+        match = _find(existing, row, row.level, tolerance_mm, claimed)
+        if match is None:
+            plans.append(PlacementPlan(row, CREATE))
+            continue
+        key, _point, _level, type_name = match
+        claimed.add(key)
+        if type_name and not _same_type(type_name, row.type_mark):
+            plans.append(PlacementPlan(
+                row, MODIFY,
+                "is {0} in the model, {1} in the sheet".format(
+                    type_name, row.type_mark), key))
+        else:
+            plans.append(PlacementPlan(row, MATCH, "", key))
+
+    for key, point, level, _type_name in existing or ():
+        if key not in claimed:
+            issues.append(models.Issue(
+                models.SEVERITY_INFO,
+                "the model has something at {0} on {1} that the sheet does "
+                "not mention. Nothing is ever deleted, so it has been left "
+                "alone.".format(_where(point), level),
+                sheet=sheet))
+    return plans, issues
+
+
+def rectangle(start_mm, end_mm, inset=(0.0, 0.0, 0.0, 0.0)):
+    """The four corners of a panel, each edge pulled in by its own inset.
+
+    ``inset`` is ``(left, right, bottom, top)`` in millimetres — per edge,
+    because a panel's four beams are not always the same width and pretending
+    they are puts the slab edge in the wrong place on two sides out of four.
+    """
+    low_x, high_x = sorted((start_mm[0], end_mm[0]))
+    low_y, high_y = sorted((start_mm[1], end_mm[1]))
+    low_x += inset[0]
+    high_x -= inset[1]
+    low_y += inset[2]
+    high_y -= inset[3]
+    if high_x <= low_x or high_y <= low_y:
+        return None
+    return [(low_x, low_y), (high_x, low_y), (high_x, high_y),
+            (low_x, high_y)]
+
+
+def near(first, second, tolerance_mm=POSITION_TOLERANCE_MM):
+    """True when two millimetre points are the same point."""
+    if first is None or second is None:
+        return False
+    return (abs(first[0] - second[0]) <= tolerance_mm
+            and abs(first[1] - second[1]) <= tolerance_mm)
+
+
+# ---------------------------------------------------------------------------
+# Deciding what to do about it
+# ---------------------------------------------------------------------------
+
+def plan(rows, existing, sheet=SHEET_COLUMNS,
+         tolerance_mm=POSITION_TOLERANCE_MM, span=True):
+    """``([PlacementPlan], [Issue])``.
+
+    *existing* is ``[(key, point_mm, level_name, type_name)]`` — whatever the
+    caller uses to identify an element it already has. Opaque on purpose.
+
+    *span* says whether an element belongs to a storey (a column) or sits on one
+    level (a footing), which is the only place the two differ.
+    """
+    issues = []
+    plans = []
+    seen = {}
+    claimed = set()
+
+    for row in rows:
+        if not row.mark:
+            plans.append(PlacementPlan(row, INVALID, "no mark"))
+            continue
+
+        if row.point_mm is None:
+            plans.append(PlacementPlan(row, INVALID, "nowhere to put it"))
+            continue
+
+        if not row.type_mark:
+            plans.append(PlacementPlan(row, INVALID, "no type"))
+            issues.append(models.Issue(
+                models.SEVERITY_ERROR,
+                "{0!r} names no type, so there is nothing to place.".format(
+                    row.mark),
+                sheet=sheet, row=row.row, column="TypeMark"))
+            continue
+
+        wanted_level = row.base_level if span else row.level
+        if not wanted_level:
+            plans.append(PlacementPlan(row, INVALID, "no level"))
+            issues.append(models.Issue(
+                models.SEVERITY_ERROR,
+                "{0!r} names no level.".format(row.mark),
+                sheet=sheet, row=row.row,
+                column="BaseLevel" if span else "Level"))
+            continue
+
+        if row.key in seen:
+            plans.append(PlacementPlan(
+                row, INVALID,
+                "row {0} already puts something here".format(seen[row.key])))
+            issues.append(models.Issue(
+                models.SEVERITY_ERROR,
+                "Two rows place an element at the same spot: {0!r} and the "
+                "one on row {1}. One of them is a typo.".format(
+                    row.mark, seen[row.key]),
+                sheet=sheet, row=row.row, column="GridX"))
+            continue
+        seen[row.key] = row.row
+
+        match = _find(existing, row, wanted_level, tolerance_mm, claimed)
+        if match is None:
+            plans.append(PlacementPlan(row, CREATE))
+            continue
+
+        key, _point, _level, type_name = match
+        claimed.add(key)
+        if type_name and row.type_mark and not _same_type(type_name,
+                                                          row.type_mark):
+            plans.append(PlacementPlan(
+                row, MODIFY,
+                "is {0} in the model, {1} in the sheet".format(
+                    type_name, row.type_mark), key))
+        else:
+            plans.append(PlacementPlan(row, MATCH, "", key))
+
+    for key, point, level, _type_name in existing or ():
+        if key not in claimed:
+            issues.append(models.Issue(
+                models.SEVERITY_INFO,
+                "the model has something at {0} on {1} that the sheet does "
+                "not mention. Nothing is ever deleted, so it has been left "
+                "alone.".format(_where(point), level),
+                sheet=sheet))
+    return plans, issues
+
+
+def _find(existing, row, wanted_level, tolerance_mm, claimed):
+    """The element already standing where this row wants one, or ``None``."""
+    for entry in existing or ():
+        key, point, level, _type_name = entry
+        if key in claimed:
+            continue
+        if not near(point, row.point_mm, tolerance_mm):
+            continue
+        if wanted_level and level and datum._fold(level) != datum._fold(
+                wanted_level):
+            continue
+        return entry
+    return None
+
+
+def _same_type(model_name, sheet_name):
+    """Whether a type name in the model is the one the sheet asked for.
+
+    Folded and *contained*, not equal: a sheet says ``C-300x600`` and Revit
+    holds ``AnonGee Rect Column : C-300x600``. Demanding equality would report
+    every single element as needing a change, on every run, for ever.
+    """
+    model, wanted = datum._fold(model_name), datum._fold(sheet_name)
+    return wanted in model or model in wanted
+
+
+def _where(point):
+    if not point:
+        return "an unknown position"
+    return "{0:.0f}, {1:.0f}".format(point[0], point[1])
+
+
+def summarise(plans):
+    """``{created, modified, matched, blocked, invalid}`` for a run's report."""
+    counts = {"created": 0, "modified": 0, "matched": 0, "blocked": 0,
+              "invalid": 0}
+    for item in plans:
+        counts[{CREATE: "created", MODIFY: "modified", MATCH: "matched",
+                BLOCKED: "blocked", INVALID: "invalid"}[item.action]] += 1
+    return counts
