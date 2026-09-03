@@ -16,13 +16,20 @@ AnonGee Setup milestone 0.4.0 includes the official signed per-user
 pyRevit 6.5.5 installer as a prerequisite.
 
 • If pyRevit is not installed, Setup installs pyRevit 6.5.5 automatically.
-• If an incompatible per-user pyRevit version is detected, Setup upgrades it
-  to the bundled pyRevit 6.5.5 prerequisite before installing AnonGee.
+• During prerequisite installation, the pyRevit progress window remains
+  visible so the user can see that Setup is actively working.
+• If an incompatible per-user pyRevit version is detected, Setup asks for
+  explicit permission before replacing/upgrading it with pyRevit 6.5.5.
+• Choosing Yes starts the pyRevit 6.5.5 repair and then continues AnonGee
+  installation after the prerequisite is verified.
+• Choosing No closes AnonGee Setup without installing AnonGee.
 • Existing compatible pyRevit installations are left unchanged.
 • Newer unvalidated pyRevit 6.x installations are not downgraded.
 • An incompatible all-users pyRevit installation is not modified by this
   per-user Setup. Ask your BIM/IT administrator to update it, then run Setup
   again.
+• If AnonGee Setup itself is run silently, an incompatible existing per-user
+  pyRevit is not modified because explicit repair consent cannot be obtained.
 
 pyRevit is a separate third-party project and remains subject to its own
 GPLv3 license and notices. AnonGee Toolkit's proprietary EULA does not replace
