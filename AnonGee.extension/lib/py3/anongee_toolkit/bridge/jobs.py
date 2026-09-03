@@ -15,13 +15,23 @@ see this package at all — so the route does not call this code, it writes the
 same files by the same rules. What is shared is a folder layout, not a module,
 and that turned out to be the simpler thing to share.
 
-The consequence worth stating: **the rules below are duplicated in
-``AnonGee.extension/startup.py``, on purpose, in another language.** Duplication
-is the price of the engine split and it is a price worth paying, because the
-alternative was one engine doing both jobs badly. It is held down two ways —
-``tests/test_bridge.py`` compares the constants, and ``/anongee/ping`` reports
-the home the route computed so a mismatch shows up as a sentence rather than as
-a job nobody ever sees.
+The canonical installed bridge home is now machine-local runtime state:
+
+    %LOCALAPPDATA%\Zxaidman\AnonGee\bridge
+
+``ANONGEE_BRIDGE_HOME`` still overrides everything. On first CPython bridge use,
+this module sets that override **for the current Revit process only** when no
+explicit override exists. The IronPython startup route reads the same process
+environment on every request, so both engines immediately converge on the new
+location without coupling either one to the other. Any legacy
+``%APPDATA%\AnonGee\bridge`` tree is migrated best-effort into the canonical
+home before the listener starts watching it.
+
+The consequence worth stating: the fallback rules below are duplicated in
+``AnonGee.extension/startup.py``, on purpose, in another language. Duplication
+is the price of the engine split and it is held down by tests. The process-level
+override is the compatibility seam that lets an installed build move the bridge
+without making the IronPython startup import the CPython toolkit.
 
 Claiming is a rename. ``os.rename`` is atomic on one filesystem, so two
 listeners cannot both take the same job: one wins and the other's rename raises.
@@ -32,18 +42,23 @@ plans for.
 import io
 import json
 import os
+import shutil
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 #: Overrides everything. Set it and both ends follow — the same variable name is
 #: read by the IronPython route.
 ENV_HOME = "ANONGEE_BRIDGE_HOME"
 
-#: Under ``%APPDATA%`` on Windows, which is where Revit already keeps things and
-#: what a roaming profile carries between machines.
+#: Canonical installed location for machine-local IPC/runtime state.
+LOCALAPPDATA_PARTS = ("Zxaidman", "AnonGee", "bridge")
+
+#: Legacy/fallback path under ``%APPDATA%``. Kept because startup.py has to stay
+#: independently importable on IronPython 2.7 and because LOCALAPPDATA can in
+#: principle be absent in a non-standard host.
 APPDATA_PARTS = ("AnonGee", "bridge")
 
-#: Anywhere else, and on Windows if ``%APPDATA%`` is somehow unset.
+#: Anywhere else, and on Windows if neither supported AppData variable exists.
 HOME_PARTS = (".anongee", "bridge")
 
 OUTBOX = "outbox"
@@ -55,8 +70,39 @@ RESULT_SUFFIX = ".result.json"
 TSV_SUFFIX = ".result.tsv"
 
 
+_AUTO_CANONICAL_HOME = False
+
+
+def _same_path(left, right):
+    try:
+        return os.path.normcase(os.path.abspath(left)) == os.path.normcase(os.path.abspath(right))
+    except Exception:
+        return left == right
+
+
+def _activate_canonical_process_home():
+    """Point this Revit process at the canonical local bridge home.
+
+    A user-supplied ``ANONGEE_BRIDGE_HOME`` always wins. Otherwise, when
+    ``LOCALAPPDATA`` exists, set the override in the process environment. The
+    IronPython startup route reads the environment dynamically, so it follows
+    the same value after the CPython listener imports this module.
+    """
+    global _AUTO_CANONICAL_HOME
+    if os.environ.get(ENV_HOME):
+        return
+    localappdata = os.environ.get("LOCALAPPDATA")
+    if not localappdata:
+        return
+    os.environ[ENV_HOME] = os.path.join(localappdata, *LOCALAPPDATA_PARTS)
+    _AUTO_CANONICAL_HOME = True
+
+
+_activate_canonical_process_home()
+
+
 def home():
-    """The bridge folder. Three rules, in order, and the route uses the same."""
+    """The bridge folder. Explicit override, then legacy-compatible fallback."""
     override = os.environ.get(ENV_HOME)
     if override:
         return override
@@ -64,6 +110,81 @@ def home():
     if appdata:
         return os.path.join(appdata, *APPDATA_PARTS)
     return os.path.join(os.path.expanduser("~"), *HOME_PARTS)
+
+
+def _legacy_home():
+    appdata = os.environ.get("APPDATA")
+    if not appdata:
+        return ""
+    return os.path.join(appdata, *APPDATA_PARTS)
+
+
+def _merge_legacy_tree(source, target):
+    """Move what can be moved without overwriting newer canonical state."""
+    if not source or not os.path.isdir(source) or _same_path(source, target):
+        return
+
+    parent = os.path.dirname(target)
+    if parent and not os.path.isdir(parent):
+        try:
+            os.makedirs(parent)
+        except OSError:
+            if not os.path.isdir(parent):
+                raise
+
+    # The normal upgrade case: the canonical directory does not exist yet.
+    # A directory rename preserves timestamps and is atomic on the usual user
+    # profile volume.
+    if not os.path.exists(target):
+        try:
+            os.rename(source, target)
+            return
+        except OSError:
+            pass
+
+    if not os.path.isdir(target):
+        return
+
+    # Recovery case: something already created the destination. Merge only
+    # missing entries. Never overwrite a canonical job/result with a legacy
+    # file bearing the same name.
+    for name in os.listdir(source):
+        old = os.path.join(source, name)
+        new = os.path.join(target, name)
+        if os.path.isdir(old):
+            _merge_legacy_tree(old, new)
+            continue
+        if os.path.exists(new):
+            continue
+        try:
+            os.rename(old, new)
+        except OSError:
+            try:
+                shutil.copy2(old, new)
+                os.remove(old)
+            except Exception:
+                # Migration is best-effort. Leaving the legacy file is safer
+                # than deleting data because a copy did not complete.
+                pass
+
+    try:
+        os.rmdir(source)
+    except OSError:
+        pass
+
+
+def _migrate_legacy_if_needed(root):
+    """Migrate only when this module chose the canonical default itself."""
+    if not _AUTO_CANONICAL_HOME:
+        return
+    legacy = _legacy_home()
+    if legacy and not _same_path(legacy, root):
+        try:
+            _merge_legacy_tree(legacy, root)
+        except Exception:
+            # A bridge migration may never take Revit down. The new folders are
+            # still created below and the legacy data remains intact.
+            pass
 
 
 def outbox(root=None):
@@ -75,8 +196,9 @@ def inbox(root=None):
 
 
 def ensure(root=None):
-    """Make both folders. Returns the root. Safe to call every time."""
+    """Make both folders and migrate the old roaming bridge once, best-effort."""
     root = root or home()
+    _migrate_legacy_if_needed(root)
     for folder in (outbox(root), inbox(root)):
         if not os.path.isdir(folder):
             try:
