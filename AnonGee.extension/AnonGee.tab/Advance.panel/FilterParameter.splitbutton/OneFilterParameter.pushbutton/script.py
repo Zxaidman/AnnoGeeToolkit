@@ -32,11 +32,19 @@ import types
 import clr
 import System
 
-# Standard Revit API imports
+# Standard Revit API imports. Keep the legacy DB wildcard for the rest of this
+# mature tool, but import every modeless/category-critical symbol explicitly.
+# Python.NET does not guarantee that `import *` exposes CLR interface/types
+# consistently; MultiFilterParameter already uses explicit imports for these.
 clr.AddReference("RevitAPI")
 clr.AddReference("RevitAPIUI")
 from Autodesk.Revit.DB import *
+from Autodesk.Revit.DB import (
+    FilteredElementCollector, ElementCategoryFilter, ElementMulticategoryFilter,
+    CategoryType, ElementId, StorageType, Transaction
+)
 from Autodesk.Revit.UI import *
+from Autodesk.Revit.UI import IExternalEventHandler, ExternalEvent, TaskDialog
 
 # Add WPF assemblies
 clr.AddReference("PresentationFramework")
