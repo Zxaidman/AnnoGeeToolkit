@@ -10,6 +10,15 @@ installer/payload/
 installer/output/
 installer/prerequisites/**/*.exe
 
+# --- Code-signing private material ---
+# Public certificates/notices may be committed deliberately, but private key
+# containers must never enter the repository.
+*.pfx
+*.p12
+*.pvk
+*.key
+installer/signing/private/
+
 # --- Extended Python & Caching ---
 *.pyo
 *.pyc
