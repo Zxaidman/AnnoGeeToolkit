@@ -52,7 +52,14 @@ authenticode.local_windows_policy_verified = true
 authenticode.certificate.self_signed = true
 ```
 
-If `installer\output\AnonGee-Setup-<product-version>.exe` already exists, the self-signed builder deliberately refuses to overwrite it. Archive/move the existing production-named artifact first. This prevents a test binary from silently replacing an earlier artifact with the same product version.
+Before a self-signed build starts, it protects both production-named release records. If either of these already exists, the test build refuses to continue:
+
+```text
+installer\output\AnonGee-Setup-<product-version>.exe
+installer\output\release-manifest.json
+```
+
+Archive or move the existing EXE **and** its manifest first. This prevents a local test from silently replacing any earlier artifact or evidence record that uses the same product version.
 
 ## Remove the development certificate later
 
