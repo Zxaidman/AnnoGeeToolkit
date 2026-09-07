@@ -105,6 +105,9 @@ class SigningContractTests(unittest.TestCase):
         self.assertIn("Oid.Value -eq '2.5.29.37'", body)
         self.assertIn("X509EnhancedKeyUsageExtension", body)
         self.assertIn("EnhancedKeyUsages", body)
+        self.assertIn("$raw=$c.Extensions |", body)
+        self.assertNotIn("$raw=@(", body)
+        self.assertIn("$x.CopyFrom($raw)", body)
         self.assertIn("certificate is not valid for Code Signing; EKUs=", body)
 
     def test_test_certificate_helper_uses_explicit_code_signing_shape(self):
