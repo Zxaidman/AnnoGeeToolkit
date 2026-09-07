@@ -26,7 +26,7 @@ from Autodesk.Revit.DB import Transaction, TransactionGroup
 import re
 
 from . import (config, fold_plan, foundation_plan, legend, naming, report,
-               slab_outlines, wall_plan)
+               slab_outlines, views, wall_plan)
 from .builders import (columns, beams, footings, grids, materials, slabs,
                        txn_failures, view_filters, walls)
 from . import stair_layout
@@ -696,6 +696,77 @@ def _create_walls(doc, records, selections):
             _IDS: result["created"],
             "error_details": [str(e)[:220] for e in result["errors"][:8]],
             "skip_details": _skip_details(result["skipped"] + planner_skips)}
+
+
+def _ensure_link_host_view(doc, uidoc):
+    """Put the user in a view `Document.Link` will accept (BUG-25).
+
+    The owner runs this button from a schedule or a sheet, because that is where
+    the work is, and `Document.Link` refuses either -- "The view is not
+    printable. Parameter name: pDBView" -- before one element is made. His
+    instruction was to stop showing him that: the tool knows the view is wrong
+    and knows which view is right, so it goes there.
+
+    Returns True when the link can proceed. Only False when the model has no
+    view that could host it at all, which is said on the console rather than in
+    a dialog, and is the one case a user has to act on.
+    """
+    from Autodesk.Revit.DB import FilteredElementCollector, View
+    active = getattr(doc, "ActiveView", None)
+    if active is not None and views.can_host_link(
+            getattr(active, "ViewType", ""),
+            bool(getattr(active, "IsTemplate", False))):
+        return True
+
+    was = getattr(active, "Name", "-")
+    candidates = [v for v in FilteredElementCollector(doc).OfClass(View)
+                  if v is not None and not v.IsTemplate]
+    index = views.choose_host(candidates)
+    if index is None:
+        _say_error("The active view ({0}) cannot host a linked DXF, and this "
+                   "model has no plan or 3D view that can. Open one and run "
+                   "again.".format(was))
+        return False
+
+    chosen = candidates[index]
+    try:
+        uidoc.ActiveView = chosen
+    except Exception as switch_error:
+        _say_error("The active view ({0}) cannot host a linked DXF and Revit "
+                   "would not switch to {1}: {2}".format(
+                       was, chosen.Name, switch_error))
+        return False
+    _say("view: {0} cannot host a linked DXF, so the run moved to {1}.".format(
+        was, chosen.Name))
+    return True
+
+
+def _show_the_model(doc, uidoc):
+    """End in a 3D view, zoomed to the model that was just built (FEAT-11)."""
+    from Autodesk.Revit.DB import FilteredElementCollector, View3D
+    active = getattr(doc, "ActiveView", None)
+    if getattr(active, "ViewType", None) is None or str(
+            getattr(active, "ViewType", "")) != "ThreeD":
+        candidates = [v for v in FilteredElementCollector(doc).OfClass(View3D)
+                      if v is not None and not v.IsTemplate]
+        index = views.choose_3d(candidates)
+        if index is None:
+            _say("view: no 3D view in this model to open at the end.")
+            return
+        try:
+            uidoc.ActiveView = candidates[index]
+        except Exception as switch_error:
+            _say("view: could not open the 3D view ({0}).".format(switch_error))
+            return
+    # Zoom whichever 3D view is now in front, whether this pass opened it or the
+    # user was already there.
+    try:
+        for ui_view in uidoc.GetOpenUIViews():
+            if ui_view.ViewId == doc.ActiveView.Id:
+                ui_view.ZoomToFit()
+                break
+    except Exception as zoom_error:
+        _say("view: could not zoom to fit ({0}).".format(zoom_error))
 
 
 def _colour_open_views(doc, uidoc, selections):

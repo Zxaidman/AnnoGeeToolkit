@@ -22,6 +22,7 @@ _SCRIPT = os.path.join(_BUTTON, "script.py")
 _WINDOW = os.path.normpath(os.path.join(_HERE, "..", "ui_window.py"))
 # ...and the element-creation drivers moved beside them
 _BUILDERS = os.path.normpath(os.path.join(_HERE, "..", "run_builders.py"))
+_DIALOGS = os.path.normpath(os.path.join(_HERE, "..", "ui_dialogs.py"))
 # the wall builder itself: imports Revit at module level, so text-only here
 _WALLS_BUILDER = os.path.normpath(os.path.join(_HERE, "..", "builders",
                                                "walls.py"))
@@ -32,6 +33,7 @@ _COLUMNS_BUILDER = os.path.normpath(os.path.join(_HERE, "..", "builders",
 _XAML = os.path.join(_BUTTON, "ui.xaml")
 _LINK_XAML = os.path.join(_BUTTON, "link_options.xaml")
 _ADV_XAML = os.path.join(_BUTTON, "advanced.xaml")
+_ELAPSED_XAML = os.path.join(_BUTTON, "elapsed.xaml")
 
 _RESOURCES = os.path.normpath(os.path.join(
     _HERE, "..", "..", "..", "..", "..", "Resources"))
@@ -121,6 +123,12 @@ def _window_source():
 def _builders_source():
     """The element-creation drivers: one transaction and one outcome per kind."""
     with open(_BUILDERS, "rb") as handle:
+        return handle.read().decode("utf-8")
+
+
+def _dialogs_source():
+    """The window plumbing: loading a .xaml, and the windows built on top."""
+    with open(_DIALOGS, "rb") as handle:
         return handle.read().decode("utf-8")
 
 
@@ -1838,6 +1846,115 @@ class TheDialogsSpeakTheTheme(unittest.TestCase):
                                  "editable combo %r does not wear the "
                                  "editable-capable template"
                                  % combo.get(self._NAME))
+
+
+class TheRunGoesToAViewItCanLinkInto(unittest.TestCase):
+    """BUG-25. Every link the owner starts from a schedule or a sheet died on
+    `ArgumentException: The view is not printable`, and his fix was to move him
+    rather than tell him. The rule is unit-tested in test_views; this pins the
+    two Revit calls that act on it, both of which fail silently if they drift.
+    """
+
+    def test_the_host_view_is_settled_BEFORE_the_dxf_is_linked(self):
+        source = _script_source()
+        self.assertIn("_ensure_link_host_view(doc, uidoc)", source,
+                      "the run never checks whether the active view can host "
+                      "the link")
+        self.assertLess(source.index("_ensure_link_host_view(doc, uidoc)"),
+                        source.index("dxf_linker.link_dxf("),
+                        "the view must be settled before Link is called, not "
+                        "after it has already thrown")
+
+    def test_it_asks_the_shared_rule_rather_than_re_deciding_here(self):
+        block = _builders_source().split("def _ensure_link_host_view(", 1)[1]
+        block = block.split("\ndef ", 1)[0]
+        self.assertIn("views.can_host_link(", block)
+        self.assertIn("views.choose_host(", block)
+
+    def test_a_view_TEMPLATE_is_never_offered_as_the_host(self):
+        block = _builders_source().split("def _ensure_link_host_view(", 1)[1]
+        block = block.split("\ndef ", 1)[0]
+        self.assertIn("not v.IsTemplate", block)
+
+    def test_the_switch_is_on_the_UI_document_not_the_database_one(self):
+        # doc.ActiveView is read-only; only uidoc.ActiveView moves the user
+        block = _builders_source().split("def _ensure_link_host_view(", 1)[1]
+        block = block.split("\ndef ", 1)[0]
+        self.assertIn("uidoc.ActiveView = chosen", block)
+
+
+class TheRunEndsShowingTheModel(unittest.TestCase):
+    """FEAT-11: "auto open the 3D view if not active by user and zoom to fit"."""
+
+    def test_both_finishes_show_the_model(self):
+        # the multi-storey path and the single-storey path each end on their
+        # own line, and a fix applied to one of them only is the usual bug
+        self.assertEqual(_script_source().count("_show_the_model(doc, uidoc)"), 2)
+
+    def test_it_opens_a_3D_view_and_zooms_it(self):
+        block = _builders_source().split("def _show_the_model(", 1)[1]
+        block = block.split("\ndef ", 1)[0]
+        self.assertIn("views.choose_3d(", block)
+        self.assertIn("uidoc.ActiveView = candidates[index]", block)
+        self.assertIn("ZoomToFit()", block)
+
+
+class TheRunSaysHowLongItTook(unittest.TestCase):
+    """FEAT-12: the elapsed-time window, its headline and its three exits."""
+
+    def test_the_clock_starts_on_the_first_line_of_the_command(self):
+        # "from when user click the run command" -- before any dialog
+        body = _script_source().split("def main():", 1)[1][:600]
+        self.assertIn("clicked_at = time.time()", body)
+
+    def test_the_build_is_timed_separately_from_the_dialogs(self):
+        source = _script_source()
+        self.assertIn("build_started = time.time()", source)
+        self.assertLess(source.index('selections = window.result'),
+                        source.index("build_started = time.time()"),
+                        "the build clock must start when the settings window "
+                        "closes, not while the user is still reading it")
+
+    def test_both_finishes_report_the_time(self):
+        # the calls, not the definition line that shares the signature
+        calls = [line for line in _script_source().splitlines()
+                 if line.strip() == "_report_elapsed(clicked_at, build_started)"]
+        self.assertEqual(len(calls), 2,
+                         "the multi-storey finish and the single-storey finish "
+                         "must both report the time")
+
+    def test_the_window_carries_the_headline_and_the_countdown(self):
+        names = _xaml_names(_ELAPSED_XAML)
+        for control in ("txt_elapsed", "txt_breakdown", "txt_countdown",
+                        "btn_close"):
+            self.assertIn(control, names,
+                          "elapsed.xaml has no {0}".format(control))
+
+    def test_the_time_is_the_biggest_boldest_thing_on_it(self):
+        # the owner asked for it "in BOLD and BIGGER", so this is the feature,
+        # not styling: a headline that quietly loses its size is the bug
+        root = ET.parse(_ELAPSED_XAML).getroot()
+        key = "{http://schemas.microsoft.com/winfx/2006/xaml}Name"
+        headline = [el for el in _body_iter(_ELAPSED_XAML)
+                    if el.get(key) == "txt_elapsed"]
+        self.assertEqual(len(headline), 1)
+        self.assertEqual(headline[0].get("FontWeight"), "Bold")
+        self.assertGreaterEqual(float(headline[0].get("FontSize") or 0), 24.0)
+
+    def test_it_closes_three_ways(self):
+        block = _dialogs_source().split("def show_elapsed(", 1)[1]
+        block = block.split("\ndef ", 1)[0]
+        self.assertIn("DispatcherTimer", block, "nothing closes it on its own")
+        self.assertIn("Key.Escape", block, "Esc does not close it")
+        self.assertIn("button.Click += close", block, "the button does not")
+
+    def test_it_closes_itself_after_ten_seconds(self):
+        self.assertIn("ELAPSED_AUTO_CLOSE_SECONDS = 10", _dialogs_source())
+
+    def test_a_failed_stopwatch_never_costs_the_owner_a_good_build(self):
+        block = _dialogs_source().split("def show_elapsed(", 1)[1]
+        block = block.split("\ndef ", 1)[0]
+        self.assertIn("except Exception", block)
 
 
 if __name__ == "__main__":

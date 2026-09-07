@@ -114,6 +114,35 @@ for every other pre-P1 file.
 
 ## 2. Errors and bugs
 
+### BUG-25 — Run it from a schedule or a sheet and the link dies · `building`
+
+**The owner, with the dialog:** "i am getting this error when i am usually running cad2bim link from
+either schedule view or sheet view. not from 3D or Plan view."
+
+```
+Autodesk.Revit.Exceptions.ArgumentException: The view is not printable.
+Parameter name: pDBView
+  at Autodesk.Revit.DB.Document.Link(String file, DWGImportOptions options,
+     View pDBView, ElementId& elementId)
+  readers/dxf_linker.py, line 74, in link_dxf:  result = doc.Link(path, options, view)
+```
+
+**The mechanism is one line and it is not in doubt.** `link_dxf` takes `view = view or
+doc.ActiveView`, and `Document.Link` will only take a view it can draw the import into. A schedule
+has no drawing surface and a sheet is not a model view, so Revit refuses the argument before
+anything is linked. The run then dies in the outermost `except` in `script.main` and the owner sees
+a traceback where the tool should simply have got on with it.
+
+**The owner's own fix, and it is the right one:** when the active view cannot host the link, DO NOT
+show a dialog — put the user in a 3D view and carry on. A tool that knows exactly what is wrong and
+what to do about it should not be asking.
+
+**What "cannot host it" means, stated rather than guessed:** a link needs a graphical model view —
+plan, ceiling, elevation, section, callout, 3D, or a drafting view — and no view template. A
+schedule, a sheet, a legend, a browser or report view is out. The choice of substitute prefers the
+3D view the owner asked for: the default `{3D}` first, then any other non-template `View3D`, then
+whatever plan is open, and only if a model has literally no such view does it say so.
+
 ### BUG-24 — A double or triple cross reads as nothing, so its L or C is slabbed · `testing`
 
 **The owner, testing v0.93.2 in Revit:** "almost all the single cross cutout line is working to
@@ -745,6 +774,37 @@ of the P1–P3 modules. Documentation only; no build reads it, so it is not a ga
 ---
 
 ## 3. Features
+
+### FEAT-11 — When the model is built, show it: 3D view, zoomed to fit · `building`
+
+**The owner:** "once model is ready, auto open the 3D view if not active by user and zoom to fit to
+the model."
+
+The run ends today with the console and nothing else — whatever view the user started in is the view
+they are left in, which after a build from a plan is a plan showing a fraction of what was made. So
+at the end of a successful run: if the active view is not already a 3D view, open one, and zoom it
+to fit either way, so the first thing the owner sees is the model that was just built.
+
+The same view choice BUG-25 makes for the link, reused rather than written twice — the default
+`{3D}` first, then any other non-template `View3D`. Zoom is `UIView.ZoomToFit()` on the open UI view
+for that view; a model with no 3D view at all is a console line, never a dialog.
+
+### FEAT-12 — Say how long it took, in a popup that gets out of the way · `building`
+
+**The owner:** "one dialog popup which shows actually how much time it tooks in BOLD and BIGGER.
+from when user click the run command. which should also close in 10s after showing and can also be
+close manually or by pressing esc key."
+
+A window at the end of the run carrying the elapsed time as its own headline — large and bold, the
+one thing on it — that closes itself after **10 seconds**, and closes at once on **Esc** or on the
+button.
+
+**One thing to be plain about, because "from when the user clicks the run command" can mean two
+things.** Timed from the ribbon click, the number includes however long the owner spent in the Link
+Options dialog and the settings window — minutes of reading, not of work. Timed from Build, it is
+what the tool actually took. The headline is the owner's literal ask, the ribbon click, and the
+breakdown underneath says how much of it was the build, so neither number is lost and neither is
+mistaken for the other.
 
 ### FEAT-1 — Warn when a restored mapping downgrades what the convention recognises · `pending`
 Closes CRIT-3's silent path. The dialog knows both the proposal and the restored value at the moment

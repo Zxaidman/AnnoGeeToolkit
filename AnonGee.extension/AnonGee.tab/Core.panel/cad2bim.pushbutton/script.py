@@ -32,6 +32,7 @@ __min_revit_ver__ = 2022
 import os
 import re
 import sys
+import time
 import traceback
 
 import clr
@@ -119,7 +120,7 @@ from anongee_toolkit import cad2bim
 from anongee_toolkit.cad2bim import (advanced, compat, config, floor_plans,
                                      foundation_plan, legend, naming, prefs,
                                      report, settings, slab_outlines,
-                                     stair_layout)
+                                     stair_layout, views)
 from anongee_toolkit.cad2bim.geom import transform, compare
 from anongee_toolkit.cad2bim.classify import layers, marks
 from anongee_toolkit.cad2bim.readers import geometry_reader, dxf_reader, dxf_linker
@@ -136,7 +137,8 @@ try:
     from anongee_toolkit.cad2bim.run_builders import (   # noqa: F401
         _create_grids, _create_columns, _create_beams, _create_footings,
         _create_slabs, _create_stairs, _create_walls, _apply_materials,
-        _colour_open_views, _strip_ids, blanket_mm, storey_blanket_mm)
+        _colour_open_views, _ensure_link_host_view, _show_the_model,
+        _strip_ids, blanket_mm, storey_blanket_mm)
     # builders.walls is new with v0.76.0, so it rides the guard: a stale
     # library reports through _library_mismatch instead of raw-tracebacking
     # on the module-level import below
@@ -144,7 +146,9 @@ try:
     from anongee_toolkit.cad2bim.run_picking import _draw_stair_outlines
     from anongee_toolkit.cad2bim.ui_window import (CadToBimWindow,
                                                    LinkOptionsDialog)
-    from anongee_toolkit.cad2bim.ui_dialogs import _alert, _error, _save_json
+    from anongee_toolkit.cad2bim.ui_dialogs import (_alert, _error,
+                                                    _save_json,
+                                                    show_elapsed)
     from anongee_toolkit.cad2bim.run_console import (      # noqa: F401
         _OUT, _say, _say_error, _progress, _open_progress, _close_progress,
         _storey_span, _READ_STEPS, _BUILD_STEPS)
@@ -321,6 +325,11 @@ def _grid_axis_positions(records):
 
 
 def main():
+    # FEAT-12's stopwatch. The owner asked for the time "from when user click
+    # the run command", so it starts on the first line the command runs, before
+    # any dialog, and `build_started` below splits out the part that was work.
+    clicked_at = time.time()
+    build_started = None
     uidoc = getattr(__revit__, "ActiveUIDocument", None)
     if uidoc is None or uidoc.Document is None:
         _alert("No document", "Open a Revit project before running CAD to BIM.")
@@ -349,6 +358,14 @@ def main():
         return
 
     # 1. Pick the DXF + its unit + positioning, then link it (own transaction).
+    #    A schedule or a sheet cannot host a linked DXF -- Revit refuses the
+    #    argument outright -- so the run moves itself to a view that can before
+    #    it asks the user anything (BUG-25).
+    if not _ensure_link_host_view(doc, uidoc):
+        _alert("No view to link into",
+               "This model has no plan or 3D view that can host a linked DXF. "
+               "Open one and run CAD to BIM again.")
+        return
     active_view_name = getattr(getattr(doc, "ActiveView", None), "Name", "-")
     options = LinkOptionsDialog(active_view_name)
     options.show()
@@ -627,6 +644,7 @@ def main():
         preset["stair_regions"] = stair_regions
 
     selections = window.result
+    build_started = time.time()
     _open_progress("build")
     layers.apply_mapping(revit_result.records, selections["mapping"])
     # the DXF records carry the markers a Revit import drops, so they get the
@@ -741,7 +759,9 @@ def main():
             _export_storeys(storey_payloads, revit_result.source_name,
                             _export_name(path, selections))
         _colour_open_views(doc, uidoc, selections)
+        _show_the_model(doc, uidoc)
         _OUT.finish(all_outcomes)
+        _report_elapsed(clicked_at, build_started)
         return
 
     outcomes = _build_one_storey(doc, revit_result, dxf_result.texts, selections,
@@ -750,7 +770,21 @@ def main():
                                  transform_method=transform_method,
                                  hatches=dxf_result.regions)
     _colour_open_views(doc, uidoc, selections)
+    _show_the_model(doc, uidoc)
     _OUT.finish(outcomes)
+    _report_elapsed(clicked_at, build_started)
+
+
+def _report_elapsed(clicked_at, build_started):
+    """How long the run took, on the console and in its own window (FEAT-12)."""
+    total = time.time() - clicked_at
+    build = None if build_started is None else time.time() - build_started
+    _say("time: {0} from the click{1}".format(
+        views.format_elapsed(total),
+        "" if build is None else ", {0} building".format(
+            views.format_elapsed(build))))
+    show_elapsed(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              "elapsed.xaml"), total, build)
 
 
 class _StoreyResult(object):
