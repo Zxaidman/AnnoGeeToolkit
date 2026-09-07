@@ -105,8 +105,7 @@ class SigningContractTests(unittest.TestCase):
             "New-SelfSignedCertificate",
             "-Type Custom",
             "-KeyUsage DigitalSignature",
-            "-KeyUsageProperty Sign",
-            "2.5.29.37={text}$CodeSigningEku",
+            "2.5.29.37={text}1.3.6.1.5.5.7.3.3",
             'CodeSigningEku = "1.3.6.1.5.5.7.3.3"',
             "Cert:\\CurrentUser\\My",
             "KeyExportPolicy NonExportable",
@@ -114,6 +113,18 @@ class SigningContractTests(unittest.TestCase):
         ):
             self.assertIn(token, self.test_cert)
         self.assertNotIn("Export-PfxCertificate", self.test_cert)
+
+    def test_test_certificate_helper_parses_raw_eku_extension(self):
+        self.assertIn('Oid.Value -eq "2.5.29.37"', self.test_cert)
+        self.assertIn("X509EnhancedKeyUsageExtension", self.test_cert)
+        self.assertIn("RawExtensions=", self.test_cert)
+
+    def test_test_certificate_helper_uses_windows_powershell_pki_under_core(self):
+        self.assertIn('$PSVersionTable.PSEdition -ne "Desktop"', self.test_cert)
+        self.assertIn("System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+                      self.test_cert)
+        self.assertIn("ANONGEE_CERT_THUMBPRINT=", self.test_cert)
+        self.assertIn("-EmitThumbprintMarker", self.test_cert)
 
     def test_test_certificate_helper_reloads_and_cleans_only_new_invalid_cert(self):
         self.assertIn("Get-Item -LiteralPath", self.test_cert)

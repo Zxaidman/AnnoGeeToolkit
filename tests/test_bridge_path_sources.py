@@ -9,13 +9,11 @@ import unittest
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _STARTUP = os.path.join(_ROOT, "AnonGee.extension", "startup.py")
-_CHECK = os.path.join(
+_DEV_PANEL = os.path.join(
     _ROOT,
     "AnonGee.extension",
     "AnonGee.tab",
     "Dev.panel",
-    "Bridge Check.pushbutton",
-    "script.py",
 )
 _JOBS = os.path.join(
     _ROOT,
@@ -26,6 +24,26 @@ _JOBS = os.path.join(
     "bridge",
     "jobs.py",
 )
+
+
+def _find_pushbutton_script(panel_root, bundle_name):
+    """Find one named pushbutton regardless of stack/group nesting."""
+    wanted = bundle_name + ".pushbutton"
+    matches = []
+    for current, directories, filenames in os.walk(panel_root):
+        if os.path.basename(current) == wanted and "script.py" in filenames:
+            matches.append(os.path.join(current, "script.py"))
+            directories[:] = []
+    if len(matches) != 1:
+        raise RuntimeError(
+            "expected exactly one {0}/script.py under {1}; found {2}: {3}".format(
+                wanted, panel_root, len(matches), matches
+            )
+        )
+    return matches[0]
+
+
+_CHECK = _find_pushbutton_script(_DEV_PANEL, "Bridge Check")
 
 
 def _read(path):
@@ -55,6 +73,11 @@ def _function_source(source, name):
 
 
 class BridgePathSourceContractTests(unittest.TestCase):
+
+    def test_bridge_check_is_discovered_after_panel_refactors(self):
+        self.assertEqual(os.path.basename(os.path.dirname(_CHECK)),
+                         "Bridge Check.pushbutton")
+        self.assertTrue(_CHECK.startswith(_DEV_PANEL + os.sep))
 
     def test_all_three_entry_points_name_the_same_paths(self):
         sources = [_read(_STARTUP), _read(_CHECK), _read(_JOBS)]
