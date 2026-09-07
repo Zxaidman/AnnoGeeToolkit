@@ -176,5 +176,80 @@ class HowLongItTook(unittest.TestCase):
             self.assertEqual(views.format_elapsed(bad), "-")
 
 
+class _Point(object):
+    """Stands in for Revit's XYZ: three coordinates and nothing else."""
+
+    def __init__(self, x, y, z):
+        self.X, self.Y, self.Z = x, y, z
+
+    def __repr__(self):
+        return "({0}, {1}, {2})".format(self.X, self.Y, self.Z)
+
+
+class _Box(object):
+    """Stands in for BoundingBoxXYZ: a Min and a Max, and NOT a pair.
+
+    Deliberately not iterable. That is the whole point of the bug this covers --
+    the accumulator unpacked one of these and Revit threw "cannot unpack
+    non-iterable BoundingBoxXYZ object", so a fake that happened to be a tuple
+    would pass a test the real object fails.
+    """
+
+    def __init__(self, low, high):
+        self.Min, self.Max = _Point(*low), _Point(*high)
+
+
+class TheBoxTheZoomFramesTheModelWith(unittest.TestCase):
+    """The framing never ran once, and only the owner's console said so.
+
+    `run_builders` imports Revit at module level, so a test cannot import it and
+    the zoom could only be pinned by reading its source. A pin reads names. It
+    could not see that the fold seeded itself with the Revit box and then fed
+    that to a union which unpacks a pair, so the SECOND model element raised,
+    the scan swallowed it, and every run quietly fell back to ZoomToFit -- the
+    exact behaviour the owner had asked to be rid of. The arithmetic lives in
+    `views` now so these run it rather than reading it.
+    """
+
+    def test_two_boxes_are_covered_by_one_that_holds_both(self):
+        box = views.model_box([_Box((0, 0, 0), (10, 10, 3)),
+                               _Box((-5, 2, -1), (4, 20, 2))], _Point)
+        low, high = box
+        self.assertEqual((low.X, low.Y, low.Z), (-5, 0, -1))
+        self.assertEqual((high.X, high.Y, high.Z), (10, 20, 3))
+
+    def test_the_second_element_does_not_raise_which_is_the_whole_bug(self):
+        # One box never exercised the union; two did, and two is every real run.
+        box = views.model_box([_Box((0, 0, 0), (1, 1, 1)),
+                               _Box((2, 2, 2), (3, 3, 3))], _Point)
+        self.assertIsNotNone(box)
+        self.assertEqual((box[1].X, box[1].Y, box[1].Z), (3, 3, 3))
+
+    def test_one_box_alone_comes_back_as_the_pair_zoom_takes(self):
+        box = views.model_box([_Box((1, 2, 3), (4, 5, 6))], _Point)
+        low, high = box                      # unpackable, unlike a Revit box
+        self.assertEqual((low.X, low.Y, low.Z), (1, 2, 3))
+        self.assertEqual((high.X, high.Y, high.Z), (4, 5, 6))
+
+    def test_an_element_with_no_geometry_here_does_not_decide_the_framing(self):
+        box = views.model_box([None, _Box((0, 0, 0), (2, 2, 2)), None], _Point)
+        self.assertIsNotNone(box)
+        self.assertEqual((box[1].X, box[1].Y, box[1].Z), (2, 2, 2))
+
+    def test_nothing_to_frame_says_so_rather_than_inventing_a_box(self):
+        self.assertIsNone(views.model_box([], _Point))
+        self.assertIsNone(views.model_box([None, None], _Point))
+
+    def test_the_order_the_elements_arrive_in_does_not_change_the_box(self):
+        boxes = [_Box((0, 0, 0), (1, 1, 1)), _Box((-9, 4, 0), (2, 5, 8)),
+                 _Box((3, -2, -4), (4, 0, 0))]
+        first = views.model_box(boxes, _Point)
+        second = views.model_box(list(reversed(boxes)), _Point)
+        self.assertEqual((first[0].X, first[0].Y, first[0].Z),
+                         (second[0].X, second[0].Y, second[0].Z))
+        self.assertEqual((first[1].X, first[1].Y, first[1].Z),
+                         (second[1].X, second[1].Y, second[1].Z))
+
+
 if __name__ == "__main__":
     unittest.main()

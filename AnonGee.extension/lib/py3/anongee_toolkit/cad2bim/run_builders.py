@@ -782,23 +782,21 @@ def _zoom_to_model(doc, uidoc):
     view = doc.ActiveView
     box = None
     try:
+        boxes = []
         for element in (FilteredElementCollector(doc, view.Id)
                         .WhereElementIsNotElementType()):
             category = getattr(element, "Category", None)
             name = getattr(category, "Name", "")
-            builtin = ""
-            try:
-                builtin = str(category.Id.IntegerValue)
-            except Exception:
-                builtin = ""
             if not views.counts_as_model(
                     _category_key(category) or name,
                     isinstance(element, ImportInstance)):
                 continue
-            here = element.get_BoundingBox(view)
-            if here is None:
-                continue
-            box = here if box is None else _union_box(box, here, XYZ)
+            boxes.append(element.get_BoundingBox(view))
+        # The fold lives in `views` so it can be RUN by a test. Kept here it was
+        # only ever pinned by name, and the seeding bug it carried -- the Revit
+        # box handed to a union that unpacks a pair -- went unnoticed through
+        # every run until the owner's test17 console printed it.
+        box = views.model_box(boxes, XYZ)
     except Exception as scan_error:
         _say("view: could not measure the model to zoom to ({0}).".format(
             scan_error))
@@ -828,15 +826,6 @@ def _category_key(category):
         return str(BuiltInCategory(category.Id.IntegerValue))
     except Exception:
         return ""
-
-
-def _union_box(box, other, XYZ):
-    """(min, max) of the two boxes, as the pair ZoomAndCenterRectangle takes."""
-    low, high = box
-    return (XYZ(min(low.X, other.Min.X), min(low.Y, other.Min.Y),
-                min(low.Z, other.Min.Z)),
-            XYZ(max(high.X, other.Max.X), max(high.Y, other.Max.Y),
-                max(high.Z, other.Max.Z)))
 
 
 def _colour_open_views(doc, uidoc, selections):

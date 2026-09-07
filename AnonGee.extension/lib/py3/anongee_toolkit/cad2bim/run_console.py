@@ -78,32 +78,40 @@ def _say(msg=""):
     _OUT.say(msg)
 
 
+# The mark an error line carries. It is TEXT, not markup: see `_say_error`.
+ERROR_MARK = "!! "
+
+
 def _say_error(msg=""):
-    """An ERROR line, in red, so it stands apart from the notes around it.
+    """An ERROR line, marked so it stands apart from the notes around it.
 
-    pyRevit's output window is an HTML view and renders markup printed into it,
-    which is the one way to colour a line without importing pyrevit modules
-    (those crash the CPython3 engine; see the pushbutton header). The wrapping
-    happens at say-time so a buffered error is revealed red too.
+    THIS PRINTED HTML AND THE HTML DID NOT RENDER. The belief was that pyRevit's
+    output window is an HTML view and colours markup printed into it, so an
+    error was wrapped in a red-and-bold `<span>`. Under the CPython3 engine it
+    is not: the owner's console shows the tag itself, so every error line read
 
-    EVERY LINE IS WRAPPED ON ITS OWN. A Revit exception arrives as a paragraph --
-    message, then "Parameter name:", then a stack -- and one span around the
-    whole of it opens on the first line and closes on the last. The view renders
-    each printed line separately, so that span spans nothing and the tag itself
-    is what the user reads. The owner reported exactly that against a
-    Floor.Create failure.
+        <span style="color:#c00000;font-weight:bold"> slab: ... DECLINED ...</span>
 
-    The message is ESCAPED before it is wrapped: it is a Revit string, data
-    rather than markup, and a stray angle bracket in it would eat the rest of
-    the line.
+    -- the tag competing for attention with the sentence it was supposed to
+    emphasise, on the lines that matter most. Worse, the message was ESCAPED to
+    protect markup that was never interpreted, so an error quoting a Revit
+    string containing `&`, `<` or `>` reached the screen as `&amp;` and `&lt;`.
+    Both are gone. A mark is TEXT now, which needs nothing to render it.
+
+    Red would still be better than a mark, and there is no way to get it from
+    here: colour would mean importing pyRevit's output module, and the pyRevit
+    IronPython modules crash this engine (see the pushbutton header). A mark
+    every console shows beats a colour this one does not.
+
+    EVERY LINE IS MARKED ON ITS OWN. A Revit exception arrives as a paragraph --
+    message, then "Parameter name:", then a stack -- and a single mark in front
+    of the first line leaves the rest looking like ordinary notes.
     """
     for line in str(msg).split("\n"):
         if not line.strip():
             _OUT.say("")
             continue
-        _OUT.say('<span style="color:#c00000;font-weight:bold">{0}</span>'
-                 .format(line.replace("&", "&amp;")
-                             .replace("<", "&lt;").replace(">", "&gt;")))
+        _OUT.say(ERROR_MARK + line)
 
 
 class _NullProgress(object):

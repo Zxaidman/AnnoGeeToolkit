@@ -146,6 +146,45 @@ def counts_as_model(category_name, is_import=False):
     return str(category_name) not in ZOOM_SKIPPED_CATEGORIES
 
 
+def union_box(box, other, make_point):
+    """The (min, max) pair covering both `box` and the Revit box `other`.
+
+    `make_point` is Revit's XYZ, passed in rather than imported, which is what
+    keeps this arithmetic here where it can be run without Revit.
+    """
+    low, high = box
+    return (make_point(min(low.X, other.Min.X), min(low.Y, other.Min.Y),
+                       min(low.Z, other.Min.Z)),
+            make_point(max(high.X, other.Max.X), max(high.Y, other.Max.Y),
+                       max(high.Z, other.Max.Z)))
+
+
+def model_box(boxes, make_point):
+    """The (min, max) pair covering every box given, or None when none does.
+
+    THE SEED IS THE REASON THIS LIVES HERE. It was written inline in
+    `run_builders`, which imports Revit at module level and so cannot be
+    imported by a test at all -- only its source could be pinned, and a pin
+    reads names, not behaviour. What it could not see was that the accumulator
+    seeded itself with the Revit box (`box = here`) and then fed that to a
+    union that unpacks a PAIR, so the second model element raised "cannot
+    unpack non-iterable BoundingBoxXYZ object" on every run with more than one
+    element in it. The scan swallowed that, fell back to ZoomToFit, and the
+    framing never happened once. Moved here, the seed is one assertion away.
+
+    A None box is skipped rather than ending the fold: Revit returns None for an
+    element with no geometry in this view, and one of those must not decide the
+    framing for all the others.
+    """
+    box = None
+    for here in boxes:
+        if here is None:
+            continue
+        box = ((here.Min, here.Max) if box is None
+               else union_box(box, here, make_point))
+    return box
+
+
 def format_elapsed(seconds):
     """How long it took, for a person reading one line of it.
 
