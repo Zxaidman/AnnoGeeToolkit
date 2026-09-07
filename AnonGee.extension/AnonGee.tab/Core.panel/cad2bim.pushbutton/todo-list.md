@@ -8,12 +8,15 @@ Nothing is deleted to make the list look shorter.
 file before it is built, argued about, or written into any other document. Standing instruction
 from the project owner, and it is what keeps this list the queue rather than a summary of one.
 
-Current build: **v0.96.2** (branch `claude/cad2bim`). 1198 unit tests, 3 regression legs green
+Current build: **v0.96.4** (branch `claude/cad2bim`). 1228 unit tests, 3 regression legs green
 over 31 archived exports, 22 fixture drawings and 7 storey stacks — counted off the corpora by the
 gate itself, which is how the old hand-typed 29/17/4 was caught (WORK-21, DONE-130). The storey
-baseline was re-blessed for test10 alone: the owner's 0.95.0 export is a later revision of that
-drawing, carrying a **Refuge Floor Level** where the 0.76.0 one ended on Roof. The old export still
-reproduces the old baseline exactly under this code, which is what attributes the move to the
+baseline was re-blessed for test10, and the fingerprint baseline for test17, on the owner's new
+exports alone — test17's `records` 7560 → 10148 is the `raw_geometry` count stored inside the two
+files, so no code computed it. The sweep moved on the BUG-24 merge and says so: test13
+`slab_defs_built` 275 → 279 (70 crosses became 26 voids) and one new note apiece on test13 and
+test14. The old test10 export still
+reproduces the old baseline exactly under this code, which is what attributes that move to the
 drawing rather than to the tool. The branch also carries the rc-automation merge and the 1.26.1
 extension identity. Longer records: `../../../../../task_plan.md`, `findings.md`, `progress.md` at the
 repository root.
@@ -119,7 +122,76 @@ for every other pre-P1 file.
 
 ## 2. Errors and bugs
 
-### BUG-25 — Run it from a schedule or a sheet and the link dies · `building`
+### BUG-29 — The zoom never framed the model once · `testing`
+
+**Found in the owner's test17 console, which said it out loud:**
+`view: could not measure the model to zoom to (cannot unpack non-iterable BoundingBoxXYZ object).`
+
+`_union_box` unpacks a PAIR, and the fold seeded itself with the Revit box, so the **second** model
+element raised — which is every real run. The scan caught it, set the box to None and fell back to
+`ZoomToFit`: precisely the behaviour FEAT-11 exists to be rid of. It was reported as working because
+what the owner saw was a zoom; it was the wrong zoom, the one that frames the linked CAD and the
+grids along with the building.
+
+**Why nothing caught it:** the fold sat in `run_builders`, which imports Revit at module level and so
+cannot be imported by a test at all. Only its source could be pinned, and a pin reads names, not
+behaviour. Fixed by moving the arithmetic to `views.model_box`, where nine tests now RUN it against a
+fake box that is deliberately **not iterable**, so a tuple cannot pass what the real object fails.
+**Waiting on:** the owner's next run — the building alone in frame, no link, no grids.
+
+### BUG-28 — Two hundred identical lines bury the console · `testing`
+
+**Seen in the owner's test17 paste**, where
+`step: a fold region of 0.9 m2 sits inside no outline: nothing to step`
+runs about two hundred times without a break, burying the dozen lines around it that each said
+something different. The console is the only account of what a run did, and a page of one repeated
+sentence is not an account.
+
+Both skip-printing sites now go through `run_console._say_each`, which says each DISTINCT message once
+with a `[xN]` count and keeps first-appearance order — the console is read top to bottom as the run's
+story, so sorting by frequency would scramble it. Measured on the owner's own numbers: 224 lines
+become 3.
+
+### BUG-27 — An L column is inaccurate in places on test14 · `pending`
+
+**The owner:** "plus one existing bug related to column it is not make accurate L column in some
+place in test14." Distinct from BUG-4, which was an L coming back as a tilted block and which he has
+confirmed fixed — this is an L that IS built as an L but with the wrong shape somewhere.
+
+**What is measured so far:** test14 reads 195 column entries over 408 rectangles — 111 composite,
+84 plain rectangles, 51 axis-snapped (BUG-4's fix), 0 oriented, 0 circular. Nothing in those counts
+looks wrong on its own, and "in some place" is not enough to find which of the 111 composites he
+means: they are grouped by mark, so a bad one cannot be picked out by shape statistics alone.
+
+**Needed from the owner:** a screenshot of one wrong L with enough of the plan around it to locate
+it, or its column mark. One example is enough — the twelve C-cutouts of BUG-24 were found from one
+image the same way.
+
+### BUG-26 — test17 refuses 78 slab profiles and takes eight minutes · `pending`
+
+**The owner:** "test17 json which took very long time image2 and it got stuck image1." The run
+finished — 8 min 08 sec building, 11 min 09 sec from the click — and the progress bar he caught was
+`create footings (8/10, 31s left)` with 1596 footings and 3530 walls still to place. So it was slow
+rather than hung, and the "31s left" estimate was badly wrong, which is what made it look stuck.
+
+**The refusals are the real fault.** `Slabs -- created: 173, skipped: 0, errors: 78`, every one a
+profile Revit would not take: "it comes back to a corner it has already been through" (most) or "it
+crosses or touches itself". The outlines repeat at a handful of sizes — 2400 x 2000 mm with 8 or 11
+corners, 845 x 496 with 8, 125 x 1400 with 6 — which is a pattern, not scattered bad luck.
+
+**BUG-24's merge does not touch these.** Measured: test17 merges 0 crosses, because none of its 145
+free-standing marks hosts in a bay at all ("88 free-standing cut-out cross(es) sit inside no slab
+bay"). So this is its own fault and gets its own entry rather than riding on that one.
+
+**Not reproducible offline yet:** replaying test17's DXF through `apply_slab_stops` and then
+`check_profile` declines nothing, because `split_profile` has already resolved the geometry by then.
+The refusals happen on the LINK's records, and test17 is the drawing where link and DXF differ most
+(`revit 18956 vs dxf 20972 curves; matched 12015`). Wants the same treatment BUG-24 got: numbers from
+a failing run, then a rule measured against them.
+
+### BUG-25 — Run it from a schedule or a sheet and the link dies · `done`
+
+**CONFIRMED by the owner in Revit, v0.96.2: "view switch working".**
 
 **The owner, with the dialog:** "i am getting this error when i am usually running cad2bim link from
 either schedule view or sheet view. not from 3D or Plan view."
@@ -148,7 +220,7 @@ schedule, a sheet, a legend, a browser or report view is out. The choice of subs
 3D view the owner asked for: the default `{3D}` first, then any other non-template `View3D`, then
 whatever plan is open, and only if a model has literally no such view does it say so.
 
-### BUG-24 — A double or triple cross reads as nothing, so its L or C is slabbed · `pending`
+### BUG-24 — A double or triple cross reads as nothing, so its L or C is slabbed · `testing`
 
 **STILL FAILING in the owner's v0.95.x Revit run: "bug-24 still not working on test14."** BUG-11 is
 the same fault seen from the other side -- "working on test14 expect on L or C cutout area is not
@@ -173,6 +245,35 @@ test14 run, so `cutout_cross_marks`, `free_cutouts_read` and `free_cutout_holes`
 LINK's records instead of the DXF's. If those numbers are lower in Revit than the 246 / 144 / 72
 measured offline, the strokes are arriving differently and the rule has to be measured against what
 Revit actually hands it. Nothing here should move until that is on the table.
+
+---
+
+**v0.96.4 — THE EXPORT ARRIVED AND IT WAS NOT THE SOURCE OF THE RECORDS.** The owner pushed
+`0.96.2_footing_test14_with_textmode.json`, the link-side numbers this entry had been waiting for.
+They are close to the DXF's, not far from them: per storey **62 cross marks, 28 free-standing, 9 cut
+as holes**, against 246 / 144 / 72 read whole-file off the DXF. The strokes are arriving. The
+diagnosis above was wrong, and the real fault was one step further on.
+
+**What was actually wrong: an L is one void and it was cut as two.** Clustering test14's 246 marks by
+which of them are drawn against each other says the shape of the problem exactly — 186 stand alone,
+**12 pairs make an L and 12 triples make a C**. The C is a 225 mm left upright and a 250 mm right
+upright, both 1297 mm tall, joined by a 1617 x 275 mm base; the drawing repeats it twelve times. And
+every one of the 36 pieces of those twelve C's lands in the **same bay** as its siblings.
+
+So each C was three abutting rectangles subtracted from one floor. That is not a C. Revit reads a
+profile that comes back to a corner it has already been through and refuses the floor outright —
+which is what the owner's test17 console prints 78 times — and where it does not refuse, the strip of
+concrete between two limbs survives, which is his "it also create slab on cutout area".
+
+**The fix:** voids already sharing a host bay are unioned before they are cut, through
+`fold_plan.rect_union_outline` — the same coordinate-compressed grid walk the collar work uses, exact
+for axis-aligned input. Measured: test14 **48 crosses become 18 voids**, test13 **70 become 26**, and
+the C comes back as the eight-cornered ring it always was with its mouth still open (a point in the
+gap between the uprights is tested as NOT void). test17 merges none — none of its 145 free marks
+hosts in a bay at all — so its 78 refusals are a separate question, tracked at BUG-26.
+
+Only voids in ONE bay are merged, so two crosses touching across a beam are never joined into a shape
+spanning two floors. **Waiting on:** the owner's next Revit run on test14, images 3 and 4.
 
 
 **The owner, testing v0.93.2 in Revit:** "almost all the single cross cutout line is working to
@@ -721,7 +822,7 @@ its loops are not the DXF's. Until it can be reproduced the honest fix is for th
 those same checks before calling `Floor.Create` and report the profile it declines, with
 coordinates, instead of letting Revit throw a stack into the console.
 
-### BUG-8 — Console errors are still not red · `pending`
+### BUG-8 — Console errors are still not red · `testing`
 
 **STILL FAILING, second report: "still not marking errors in red on console."**
 
@@ -742,6 +843,23 @@ outside Revit. The two possibilities need opposite fixes:
 **Needs one look from the owner:** does an error line in the console read
 `<span style="color:#c00000;font-weight:bold">Slab creation failed.</span>`, or does it read
 `Slab creation failed.` in ordinary black? That single answer picks the fix.
+
+---
+
+**ANSWERED, v0.96.3: "about yes bug-24 it shows `<span style ...`".** The second possibility, so the
+markup goes entirely. His test17 console shows it eighty times over — the tag competing for attention
+with the sentence it was supposed to emphasise, on the lines that matter most.
+
+A second fault came with it. The message was HTML-ESCAPED before being wrapped, to protect markup
+nothing ever interpreted, so an error quoting a Revit string containing `&`, `<` or `>` reached the
+screen as `&amp;` and `&lt;` — corrupted text, on an error line, where the exact string is the whole
+value of the report. Both are gone: an error is prefixed `!! ` now, which is text and needs nothing
+to render it, and which a reader can search for.
+
+**Red is not available and this entry should stop asking for it.** Colour would mean importing
+pyRevit's output module, and those modules crash the CPython3 engine (Brand Guidelines 12.1). A mark
+every console shows beats a colour this one does not. **Waiting on:** the owner confirming the tag is
+gone and the `!!` lines read clearly.
 
 **How found:** the owner's console showed `<span style="color:#c00000...">` as text. **Reproduced by
 reading:** a Revit exception arrives as a paragraph, and one span wrapped around the whole of it
@@ -863,10 +981,15 @@ of the P1–P3 modules. Documentation only; no build reads it, so it is not a ga
 
 ## 3. Features
 
-### FEAT-11 — When the model is built, show it: 3D view, zoomed to fit · `building`
+### FEAT-11 — When the model is built, show it: 3D view, zoomed to fit · `testing`
 
 **The owner:** "once model is ready, auto open the 3D view if not active by user and zoom to fit to
 the model."
+
+**Half confirmed, v0.96.3.** "zoom to building is also working" — but it was not: BUG-29 shows the
+model box never folded, so what he saw was `ZoomToFit` framing the link and the grids too. The view
+opening is done; the framing is fixed and unconfirmed. Stays `testing` until he sees the building
+alone in frame.
 
 The run ends today with the console and nothing else — whatever view the user started in is the view
 they are left in, which after a build from a plan is a plan showing a fraction of what was made. So
@@ -877,7 +1000,7 @@ The same view choice BUG-25 makes for the link, reused rather than written twice
 `{3D}` first, then any other non-template `View3D`. Zoom is `UIView.ZoomToFit()` on the open UI view
 for that view; a model with no 3D view at all is a console line, never a dialog.
 
-### FEAT-12 — Say how long it took, in a popup that gets out of the way · `building`
+### FEAT-12 — Say how long it took, in a popup that gets out of the way · `done`
 
 **The owner:** "one dialog popup which shows actually how much time it tooks in BOLD and BIGGER.
 from when user click the run command. which should also close in 10s after showing and can also be
@@ -886,6 +1009,13 @@ close manually or by pressing esc key."
 A window at the end of the run carrying the elapsed time as its own headline — large and bold, the
 one thing on it — that closes itself after **10 seconds**, and closes at once on **Esc** or on the
 button.
+
+**CONFIRMED by the owner in Revit, v0.96.2:** "elapsed to 30s is working / now dialog shows build
+time headline and captions as dialog, input time". Two corrections of his are in it: the headline is
+the BUILD alone, because the total counts the minutes spent reading the Link Options and settings
+dialogs, and the wait is **30 seconds**, not 10, "because 10s go by very quickly". That figure is
+written in exactly one place, `ui_dialogs.ELAPSED_AUTO_CLOSE_SECONDS`, and reaches `show_elapsed` as
+a default argument so there is no second copy to miss.
 
 **One thing to be plain about, because "from when the user clicks the run command" can mean two
 things.** Timed from the ribbon click, the number includes however long the owner spent in the Link

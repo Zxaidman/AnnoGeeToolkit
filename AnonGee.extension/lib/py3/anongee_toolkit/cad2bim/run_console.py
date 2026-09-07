@@ -78,6 +78,33 @@ def _say(msg=""):
     _OUT.say(msg)
 
 
+def _say_each(prefix, messages):
+    """Say each DISTINCT message once, with a count when it repeated.
+
+    A skip list is one message per skipped thing, and on a big drawing that is
+    the same sentence hundreds of times over. test17 printed
+
+        step: a fold region of 0.9 m2 sits inside no outline: nothing to step
+
+    roughly two hundred times in a row, burying the twelve lines around it that
+    said something. Counting the repeats says exactly as much in one line.
+
+    First-appearance order is kept: the console is read top to bottom as the
+    run's story, and sorting it by frequency would scramble that.
+    """
+    seen, order = {}, []
+    for message in messages or []:
+        text = str(message)
+        if text not in seen:
+            order.append(text)
+            seen[text] = 0
+        seen[text] += 1
+    for text in order:
+        times = seen[text]
+        _say("{0}{1}{2}".format(
+            prefix, text, "" if times == 1 else "  [x{0}]".format(times)))
+
+
 # The mark an error line carries. It is TEXT, not markup: see `_say_error`.
 ERROR_MARK = "!! "
 

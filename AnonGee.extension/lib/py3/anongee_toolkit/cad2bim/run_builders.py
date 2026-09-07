@@ -33,7 +33,7 @@ from . import stair_layout
 from .classify import layers, marks
 from .builders import stairs
 from .run_picking import _pick_stair_regions
-from .run_console import _say, _say_error, _progress
+from .run_console import _say, _say_each, _say_error, _progress
 from .ui_dialogs import _alert, _error, _persisted, _rollback_alert
 
 
@@ -301,8 +301,8 @@ def _sunk_slab_steps(selections, regions, texts, slab_defs):
         slab_defs, split["bays"],
         max_step_mm=(selections.get("tolerances") or {}).get("max_step_mm"))
     stepped, cut = fold_plan.slab_defs_with_steps(slab_defs, steps["steps"])
-    for message in split["skipped"] + steps["skipped"] + steps["notes"] + cut:
-        _say("  sunk (slabs): {0}".format(message))
+    _say_each("  sunk (slabs): ",
+              split["skipped"] + steps["skipped"] + steps["notes"] + cut)
     return stepped, steps["steps"]
 
 
@@ -540,8 +540,7 @@ def _create_footings(doc, sections, selections, records=None, texts=None,
     steps = fold_plan.plan_steps(
         outlines, regions or [],
         max_step_mm=(selections.get("tolerances") or {}).get("max_step_mm"))
-    for message in steps["skipped"]:
-        _say("  step: {0}".format(message))
+    _say_each("  step: ", steps["skipped"])
     if steps["steps"]:
         _say("Footings -- {0} fold/sunk step(s): {1} support(s) between the "
              "soffits.".format(len(steps["steps"]),

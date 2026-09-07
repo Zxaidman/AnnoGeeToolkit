@@ -115,6 +115,7 @@ import math
 import re
 
 from . import config
+from . import fold_plan
 from .classify.layers import (CATEGORY_BEAM, CATEGORY_COLUMN, CATEGORY_CUTOUT,
                               CATEGORY_SLAB_STOP, CATEGORY_STAIR)
 from .geom import shapes
@@ -458,7 +459,8 @@ def free_cutouts(loops, records, skip=None):
     `skip` is the bays an earlier reading already withdrew. A mark inside one
     cuts nothing, there being nothing left to cut.
     """
-    out = {"holes": {}, "marks": 0, "free": 0, "hosted": 0, "notes": []}
+    out = {"holes": {}, "marks": 0, "free": 0, "hosted": 0, "notes": [],
+           "merged": 0, "merged_groups": 0}
     marks = cross_marks(records)
     out["marks"] = len(marks)
     if not marks:
@@ -483,6 +485,18 @@ def free_cutouts(loops, records, skip=None):
             continue
         out["holes"].setdefault(host, []).append(rectangle)
         out["hosted"] += 1
+    # AN L OR A C IS ONE VOID, NOT TWO OR THREE HOLES. See `_merged_voids`.
+    for host in list(out["holes"]):
+        merged, joined, groups = _merged_voids(out["holes"][host])
+        out["holes"][host] = merged
+        out["merged"] += joined
+        out["merged_groups"] += groups
+    if out["merged"]:
+        out["notes"].append(
+            "{0} cut-out cross(es) are drawn against each other and were read "
+            "as {1} void(s) of the shape they make together -- an L or a C -- "
+            "rather than as separate rectangles meeting along an edge".format(
+                out["merged"], out["merged_groups"]))
     if out["hosted"]:
         out["notes"].append(
             "{0} cut-out cross(es) are drawn with no ring or bay around them: "
@@ -494,6 +508,86 @@ def free_cutouts(loops, records, skip=None):
             "beams closed no floor over that ground, so there is nothing to "
             "cut and nothing is withdrawn for them".format(homeless))
     return out
+
+
+_VOID_TOUCH_MM = 30.0
+
+
+def _merged_voids(rings):
+    """(rings, crosses joined, groups made) -- touching voids read as one shape.
+
+    THE OWNER'S L AND C. Two cut-out crosses drawn against each other make an L
+    and three make a C, and until this ran each one was cut as its own
+    rectangle. Three rectangles sharing an edge are not a C: subtracted from one
+    bay they hand Revit a profile that comes back to a corner it has already
+    been through, and Revit refuses the floor outright -- or, where it does not,
+    the strip of concrete between two of them survives, which is the owner's
+    "it also create slab on cutout area". His words, twice: "double cross cutout
+    which makes L-shape and Triple cutout cross which makes C-Shape", and then
+    "image 3 and 4 are still not working in test14 in revit L and C cutout".
+
+    Measured on test14, which is the drawing he was looking at: of 246 marks,
+    210 stand alone, 12 pairs make an L and 12 triples make a C -- and every one
+    of the 36 pieces of those twelve C's lands in the SAME bay as its siblings,
+    so every C was three abutting holes in one floor. The union is exact for
+    axis-aligned input (`fold_plan.rect_union_outline`), so a C comes back as
+    the eight-cornered ring it always was.
+
+    ONLY VOIDS ALREADY IN ONE BAY REACH HERE. The caller groups by host first,
+    so two crosses that touch across a beam -- different bays, different floors
+    -- are never merged into a shape that spans both.
+
+    A group whose union will not close (the walk breaks, or it comes back
+    disconnected) is left as the separate rectangles it was: a refusal Revit
+    can report beats a ring this invented.
+    """
+    if len(rings or []) < 2:
+        return list(rings or []), 0, 0
+
+    tol = config.mm_to_ft(_VOID_TOUCH_MM)
+    boxes = [_bounds(ring) for ring in rings]
+
+    def touching(one, two):
+        return (one[0] <= two[2] + tol and two[0] <= one[2] + tol
+                and one[1] <= two[3] + tol and two[1] <= one[3] + tol)
+
+    count = len(rings)
+    seen = [False] * count
+    out, joined, groups = [], 0, 0
+    for start in range(count):
+        if seen[start]:
+            continue
+        seen[start] = True
+        stack, group = [start], []
+        while stack:
+            here = stack.pop()
+            group.append(here)
+            for other in range(count):
+                if not seen[other] and touching(boxes[here], boxes[other]):
+                    seen[other] = True
+                    stack.append(other)
+        if len(group) < 2:
+            out.append(rings[group[0]])
+            continue
+        outer, _pockets = fold_plan.rect_union_outline(
+            [boxes[index] for index in group])
+        if outer and len(outer) >= 3:
+            # (x, y), the arity `cross_marks` hands back and the walk below
+            # expects. A third coordinate here reaches `_point_in_ring` as a
+            # three-tuple and it unpacks two.
+            out.append([(p[0], p[1]) for p in outer])
+            joined += len(group)
+            groups += 1
+        else:
+            out.extend(rings[index] for index in group)
+    return out, joined, groups
+
+
+def _bounds(ring):
+    """(x0, y0, x1, y1) of a ring, as `rect_union_outline` takes them."""
+    xs = [p[0] for p in ring]
+    ys = [p[1] for p in ring]
+    return (min(xs), min(ys), max(xs), max(ys))
 
 
 def _cell(point, size):

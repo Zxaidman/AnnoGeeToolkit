@@ -1155,5 +1155,114 @@ class TheWholePassTogether(unittest.TestCase):
             self.assertIn(key, report)
 
 
+def _rect(x0, y0, width, height):
+    """A rectangle in MILLIMETRES, given back in feet the way a mark is."""
+    x0, y0 = x0 * _FT, y0 * _FT
+    x1, y1 = x0 + width * _FT, y0 + height * _FT
+    return [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
+
+
+class TwoOrThreeCrossesAgainstEachOtherAreOneVoid(unittest.TestCase):
+    """The owner's L and C, in test14's own coordinates.
+
+    "double cross cutout which makes L-shape and Triple cutout cross which
+    makes C-Shape", and after the first attempt: "image 3 and 4 are still not
+    working in test14 in revit L and C cutout".
+
+    Each cross was cut as its own rectangle. Three rectangles sharing an edge
+    are not a C -- subtracted from one bay they give Revit a profile that comes
+    back to a corner it has already been through, which it refuses outright,
+    and where it does not refuse, the strip between two of them stays as
+    concrete over ground the drawing marked void.
+
+    The C below is measured off StructuralPlan-Test14.dxf: a 225 mm left
+    upright and a 250 mm right upright, both 1297 mm tall, joined by a
+    1617 x 275 mm base at (27834, 28269). The drawing repeats it twelve times.
+    """
+
+    def setUp(self):
+        self.C = [_rect(27834, 28269, 225, 1297),      # left upright
+                  _rect(27834, 28269, 1617, 275),      # the base joining them
+                  _rect(29200, 28269, 250, 1297)]      # right upright
+
+    def test_the_c_comes_back_as_one_ring_not_three(self):
+        rings, joined, groups = slab_stops._merged_voids(self.C)
+        self.assertEqual(len(rings), 1)
+        self.assertEqual((joined, groups), (3, 1))
+
+    def test_the_c_has_the_eight_corners_a_c_has(self):
+        rings, _joined, _groups = slab_stops._merged_voids(self.C)
+        self.assertEqual(len(rings[0]), 8)
+
+    def test_the_c_covers_the_ground_all_three_covered_and_no_more(self):
+        rings, _joined, _groups = slab_stops._merged_voids(self.C)
+        xs = [p[0] / _FT for p in rings[0]]
+        ys = [p[1] / _FT for p in rings[0]]
+        self.assertAlmostEqual(min(xs), 27834, places=0)
+        self.assertAlmostEqual(max(xs), 29450, places=0)
+        self.assertAlmostEqual(min(ys), 28269, places=0)
+        self.assertAlmostEqual(max(ys), 29566, places=0)
+
+    def test_the_mouth_of_the_c_is_still_open(self):
+        # The whole point: the ground BETWEEN the uprights and above the base
+        # is not void, so the ring must not be the bounding box.
+        rings, _joined, _groups = slab_stops._merged_voids(self.C)
+        self.assertTrue(slab_stops._point_in_ring(
+            (27900 * _FT, 29000 * _FT), rings[0]), "left upright is void")
+        self.assertFalse(slab_stops._point_in_ring(
+            (28600 * _FT, 29200 * _FT), rings[0]), "the mouth is NOT void")
+
+    def test_two_crosses_make_an_l_of_six_corners(self):
+        rings, joined, groups = slab_stops._merged_voids(
+            [_rect(0, 0, 1000, 300), _rect(0, 0, 300, 1000)])
+        self.assertEqual(len(rings), 1)
+        self.assertEqual((joined, groups), (2, 1))
+        self.assertEqual(len(rings[0]), 6)
+
+    def test_voids_that_do_not_touch_are_left_alone(self):
+        apart = [_rect(0, 0, 300, 300), _rect(5000, 5000, 300, 300)]
+        rings, joined, groups = slab_stops._merged_voids(apart)
+        self.assertEqual(len(rings), 2)
+        self.assertEqual((joined, groups), (0, 0))
+
+    def test_one_void_on_its_own_is_untouched(self):
+        one = [_rect(0, 0, 300, 300)]
+        rings, joined, _groups = slab_stops._merged_voids(one)
+        self.assertEqual(rings, one)
+        self.assertEqual(joined, 0)
+
+    def test_nothing_at_all_is_not_a_crash(self):
+        self.assertEqual(slab_stops._merged_voids([]), ([], 0, 0))
+        self.assertEqual(slab_stops._merged_voids(None), ([], 0, 0))
+
+    def test_a_gap_under_a_millimetre_still_counts_as_drawn_against(self):
+        # Drawn to meet, with float noise: the drawing means one shape.
+        touching = [_rect(0, 0, 1000, 300), _rect(1000.4, 0, 300, 1000)]
+        _rings, joined, _groups = slab_stops._merged_voids(touching)
+        self.assertEqual(joined, 2)
+
+    def test_a_real_gap_is_two_voids_because_the_drawing_drew_two(self):
+        # 200 mm apart is a strip of concrete, not float noise.
+        apart = [_rect(0, 0, 1000, 300), _rect(1200, 0, 300, 1000)]
+        rings, joined, _groups = slab_stops._merged_voids(apart)
+        self.assertEqual((len(rings), joined), (2, 0))
+
+
+class TheLAndCOfTest14ReachTheHolesAsOneShape(unittest.TestCase):
+    """`free_cutouts` counts the merge, and only within one bay.
+
+    Two crosses that touch across a beam belong to different floors, and a
+    void spanning both would cut a hole through concrete the drawing never
+    marked. The caller groups by host bay before merging, so that cannot
+    happen -- this holds the counters that say the merge ran.
+    """
+
+    def test_the_report_carries_what_was_merged(self):
+        out = slab_stops.free_cutouts([], [])
+        for key in ("merged", "merged_groups"):
+            self.assertIn(key, out)
+            self.assertEqual(out[key], 0)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -870,7 +870,7 @@ def _pool_collars(steps, notes):
     for group in groups:
         if len(group) < 2:
             continue
-        outer, pockets = _rect_union_outline([rect for _s, _sup, rect in group])
+        outer, pockets = rect_union_outline([rect for _s, _sup, rect in group])
         if outer is None:
             notes.append("{0} overlapping support collars left separate: a "
                          "non-rectangular union".format(len(group)))
@@ -973,8 +973,13 @@ def _as_rect(ring):
     return (min(xs), min(ys), max(xs), max(ys))
 
 
-def _rect_union_outline(rects):
+def rect_union_outline(rects):
     """(outer_ring, pocket_rings) -- the outline of a union of rectangles.
+
+    PUBLIC because `slab_stops` needs the same answer. Two or three cut-out
+    crosses drawn against each other are ONE void in an L or a C, and cutting
+    them as separate abutting rectangles is what made Revit refuse the profile.
+    The walk below is the reading that turns them back into one ring.
 
     Walks a coordinate-compressed grid: cells covered by any rectangle are the
     union, and the boundary between covered and uncovered is the outline.
