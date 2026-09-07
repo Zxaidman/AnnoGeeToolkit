@@ -2,8 +2,9 @@
 """Static release-signing contract for AnonGee pipeline 0.7.0.
 
 These tests deliberately avoid invoking SignTool or requiring a certificate.
-They protect the repository-level security and sequencing contract; the actual
-certificate-backed build still requires a Windows release machine.
+They protect the repository-level security and sequencing contract. The signed
+path is implemented but may remain dormant until a production signing identity
+is provisioned.
 """
 
 import ast
@@ -107,6 +108,13 @@ class SigningContractTests(unittest.TestCase):
                       self.docs.lower())
         self.assertIn("obtain an appropriate Code Signing certificate".lower(),
                       self.docs.lower())
+
+    def test_signing_adoption_is_deferred_without_blocking_unsigned_builds(self):
+        lowered = self.docs.lower()
+        self.assertIn("adoption status: **implemented / deferred**", lowered)
+        self.assertIn("not a release blocker", lowered)
+        self.assertIn("installer\\build_release.py", lowered)
+        self.assertIn("having them installed does **not** by itself provide", lowered)
 
 
 if __name__ == "__main__":

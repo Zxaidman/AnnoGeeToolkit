@@ -1,22 +1,31 @@
 # AnonGee Authenticode Signing
 
-Status: **Release Pipeline 0.7.0**
+Pipeline version: **0.7.0**  
+Adoption status: **Implemented / Deferred**
 
-AnonGee's normal `installer/build_release.py` remains the proven unsigned/release-candidate builder. Production Authenticode signing is layered on top by:
+The Authenticode release path is implemented and retained in the repository, but it is **not a release blocker** for the current sole-developer deployment. Public signing adoption is deferred until AnonGee has a publicly trusted code-signing identity or supported managed signing service that is financially justified.
+
+The normal unsigned release path remains:
+
+```powershell
+py -3.12 .\installer\build_release.py
+```
+
+When public signing is adopted later, the existing signed path is:
 
 ```powershell
 py -3.12 .\installer\build_signed_release.py
 ```
 
-The signed builder uses Inno Setup's own `SignTool` integration so both the generated Setup EXE and Inno's embedded uninstaller are signed. The final Setup EXE is then verified with Microsoft's SignTool using the Windows Authenticode policy.
+No production certificate is currently assumed or required by the repository. Do not produce or describe an artifact as a publicly trusted signed release unless the signed pipeline completes with a real Code Signing identity and final Authenticode verification.
 
 ## Why signing is separate
 
 A developer must be able to build and test AnonGee without possessing the production private key. Private signing material therefore does not belong in the repository and is not required by `build_release.py`.
 
-`build_signed_release.py` is for formal distributable builds from a clean worktree.
+`build_signed_release.py` is reserved for formal signed distributable builds once the signing identity is provisioned. Keeping it implemented now avoids rebuilding the release engineering later, while deferring the recurring or certificate cost until it is useful.
 
-## Required tools
+## Required tools for the signed path
 
 - Windows x64
 - Inno Setup 7
@@ -25,6 +34,24 @@ A developer must be able to build and test AnonGee without possessing the produc
   - `Cert:\CurrentUser\My` (default), or
   - `Cert:\LocalMachine\My` (`--machine-store`)
 - Network access to an RFC 3161 timestamp server
+
+`SignTool.exe` and the Windows SDK are build tools; having them installed does **not** by itself provide a publicly trusted publisher identity. The current work machine already has the Windows SDK x64 SignTool available, so the deferred dependency is the signing identity rather than the executable.
+
+The pipeline automatically searches the Windows SDK and prefers the newest available `x64\signtool.exe`. A typical SDK installation looks like:
+
+```text
+C:\Program Files (x86)\Windows Kits\10\bin\<SDK-version>\x64\signtool.exe
+```
+
+To inspect installed copies:
+
+```powershell
+Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" `
+  -Filter signtool.exe `
+  -Recurse `
+  -ErrorAction SilentlyContinue |
+  Select-Object -ExpandProperty FullName
+```
 
 The pipeline uses:
 
@@ -96,6 +123,8 @@ $env:ANONGEE_SIGN_MACHINE_STORE = "1"
 
 ## Build a signed release
 
+Only use this section after a real signing identity has been provisioned.
+
 From the repository root, with a clean Git worktree:
 
 ```powershell
@@ -166,3 +195,5 @@ The Setup EXE's SHA-256 in the manifest is the hash of the **already-signed and 
 The repository and build scripts do not create or distribute a publicly trusted code-signing identity. For public/company distribution, obtain an appropriate Code Signing certificate or supported managed signing service from a trusted provider, then configure its signing identity for this pipeline.
 
 Self-signed certificates are useful only for controlled internal testing where the receiving machines explicitly trust your test certificate. They do not provide normal public Windows publisher trust or SmartScreen reputation.
+
+Until that purchase/provisioning is justified, keep using the unsigned release pipeline and leave the 0.7.0 signed path dormant but maintained.
