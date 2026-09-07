@@ -169,12 +169,13 @@ class SigningContractTests(unittest.TestCase):
 
     def test_docs_explain_key_storage_and_future_public_signing(self):
         lowered = self.docs.lower()
-        self.assertIn("where the self-signed key lives", lowered)
-        self.assertIn("private signing key", lowered)
-        self.assertIn("not saved in this git repository", lowered)
-        self.assertIn("hardware crypto module", lowered)
-        self.assertIn("managed signing service", lowered)
-        self.assertIn("do not reuse the self-signed development key", lowered)
+        plain = lowered.replace("*", "").replace("`", "")
+        self.assertIn("where the self-signed key lives", plain)
+        self.assertIn("private signing key", plain)
+        self.assertIn("not saved in this git repository", plain)
+        self.assertIn("hardware crypto module", plain)
+        self.assertIn("managed signing service", plain)
+        self.assertIn("do not reuse the self-signed development key", plain)
 
 
 if __name__ == "__main__":
