@@ -417,13 +417,17 @@ def main() -> int:
         )
         manifest_path = output_dir / "release-manifest.json"
 
-        if test_mode and output_path.exists():
-            raise SigningError(
-                "Self-signed test build refuses to overwrite the production-named "
-                "artifact already present at {}. Move/archive that file first; the "
-                "test build will be renamed with {} after verification."
-                .format(output_path, TEST_ARTIFACT_SUFFIX)
-            )
+        if test_mode:
+            protected_existing = [
+                path for path in (output_path, manifest_path) if path.exists()
+            ]
+            if protected_existing:
+                raise SigningError(
+                    "Self-signed test build refuses to overwrite existing "
+                    "production-named release output. Move/archive these files "
+                    "first:\n- {}"
+                    .format("\n- ".join(str(path) for path in protected_existing))
+                )
 
         for generated in (output_path, manifest_path):
             if generated.exists():

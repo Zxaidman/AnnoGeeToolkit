@@ -1,5 +1,5 @@
 #requires -Version 5.1
-<#!
+<#
 .SYNOPSIS
 Creates or reuses a local AnonGee self-signed Code Signing certificate.
 
