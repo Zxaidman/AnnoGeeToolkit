@@ -50,15 +50,9 @@ Current known child directories include:
 
 The RC Automation Excel/Revit bridge uses this directory for its `outbox`, `inbox`, startup diagnostics, and other local IPC state. `ANONGEE_BRIDGE_HOME` remains the highest-priority explicit override for development or managed deployments.
 
-Bridge migration from the legacy `%APPDATA%\AnonGee\bridge` location is deliberately stricter than preference-file migration because the bridge contains executable IPC state:
+The bridge migration to this canonical local directory is complete for the current deployment. When `LOCALAPPDATA` is available, the runtime now uses only the canonical bridge tree and does not scan, copy, reconcile, or execute jobs from the historical roaming tree. This deliberately removes migration-only complexity from the steady-state IPC path after live Excel → Revit operation was validated at the canonical location.
 
-- completed inbox/result files are passive records and can be moved best-effort; a cross-volume move may safely fall back to copy-then-remove;
-- queued `*.job.json` files are **never copied**. They are moved only by an atomic rename. If roaming and local profiles are on different volumes and the rename cannot succeed, the queued file stays in the legacy outbox and the current listener claims it there in place;
-- `*.running.json`, partial writes, and unknown files are never moved automatically because another Revit session may still own them;
-- if canonical state already accounts for the same job id, the old queued file is made non-runnable and retained as migration-conflict evidence rather than being executed again;
-- a migration failure must never stop the pyRevit extension from loading.
-
-These rules are specifically intended to prevent an upgrade from creating two runnable copies of one Revit command.
+If `LOCALAPPDATA` is unavailable, `%APPDATA%\AnonGee\bridge` remains a compatibility fallback. If neither supported AppData environment variable is available, the non-Windows/home fallback is `~/.anongee/bridge`.
 
 Sub-tools should normally use their own child directory rather than writing directly into the root.
 
@@ -90,13 +84,13 @@ Historical builds may have created:
 
 CAD2BIM and AutoLevel perform best-effort first-use migration into the canonical roaming directory while retaining their legacy files during the migration period.
 
-The RC Automation bridge is different: it contains live IPC/runtime state rather than roaming preferences. Its canonical destination is therefore:
+The RC Automation bridge is different because it contains live IPC/runtime state rather than roaming preferences. Its canonical destination is:
 
 ```text
 %LOCALAPPDATA%\Zxaidman\AnonGee\bridge
 ```
 
-The bridge activates this canonical location for the current Revit process when no explicit `ANONGEE_BRIDGE_HOME` is configured. Legacy state is then reconciled under the IPC safety rules above. `%APPDATA%\AnonGee\bridge` remains the fallback when `LOCALAPPDATA` is unavailable.
+The bridge no longer performs automatic migration from `%APPDATA%\AnonGee\bridge` when the canonical local path is available. The old path is retained only as the `APPDATA` fallback for environments where `LOCALAPPDATA` is unavailable. Any future need to recover data from an old bridge tree should be handled as an explicit maintenance operation rather than reintroducing dual-tree runtime behavior.
 
 ## Paths that should not be rewritten merely for consistency
 
@@ -115,7 +109,7 @@ Third-party libraries may also use the operating system temporary directory inte
 5. Never hard-code a developer machine path.
 6. Existing working paths must be migrated defensively rather than abruptly replaced.
 7. Do not delete legacy user data automatically unless a later release defines and validates a specific cleanup policy.
-8. Executable IPC state must never be copied during migration merely for convenience.
+8. Executable IPC state must never be copied between live queue locations merely for convenience.
 
 ## Future standalone Revit add-in
 

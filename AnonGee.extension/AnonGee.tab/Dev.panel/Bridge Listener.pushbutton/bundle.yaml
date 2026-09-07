@@ -22,8 +22,9 @@ tooltip: |
   Where jobs live
     %LOCALAPPDATA%\Zxaidman\AnonGee\bridge by default. ANONGEE_BRIDGE_HOME
     remains the explicit override for development or managed deployments.
-    Legacy %APPDATA%\AnonGee\bridge state is migrated best-effort on first
-    bridge use. Bridge Check reports where this session thinks that is.
+    %APPDATA%\AnonGee\bridge is used only if LOCALAPPDATA is unavailable; the
+    normal runtime no longer scans the historical roaming bridge tree.
+    Bridge Check reports where this session thinks that is.
 
   What it will run
     Only commands that are both declared and built. The dialog lists both, so a
@@ -35,4 +36,4 @@ tooltip: |
     • A job that fails becomes a result file saying so. The listener does not
       stop — one bad job must not take the next five with it.
 
-  Version: 0.4.0
+  Version: 0.4.1
