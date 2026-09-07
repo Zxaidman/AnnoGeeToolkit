@@ -9,6 +9,8 @@ signing key in Cert:\CurrentUser\My. With -TrustForLocalVerification it also
 adds only the public certificate to Cert:\CurrentUser\Root so SignTool /pa can
 validate test signatures on this Windows user account.
 
+The certificate contract is explicit rather than relying on a shorthand type:
+DigitalSignature key usage plus the Code Signing EKU 1.3.6.1.5.5.7.3.3.
 It never exports a PFX/private key and never creates public publisher trust.
 #>
 
@@ -30,6 +32,18 @@ if ($env:OS -ne "Windows_NT") {
     throw "AnonGee test signing certificate provisioning requires Windows."
 }
 
+function Get-EnhancedKeyUsageOids {
+    param($Certificate)
+
+    if (-not $Certificate) {
+        return @()
+    }
+
+    return @($Certificate.EnhancedKeyUsageList | ForEach-Object {
+        $_.ObjectId.Value
+    })
+}
+
 function Test-CodeSigningCertificate {
     param($Certificate)
 
@@ -39,13 +53,13 @@ function Test-CodeSigningCertificate {
     if ($Certificate.NotAfter -le (Get-Date).AddDays(30)) {
         return $false
     }
-    $Ekus = @($Certificate.EnhancedKeyUsageList | ForEach-Object {
-        $_.ObjectId.Value
-    })
+    $Ekus = @(Get-EnhancedKeyUsageOids $Certificate)
     return $Ekus -contains $CodeSigningEku
 }
 
 $Certificate = $null
+$CreatedNew = $false
+
 if (-not $ForceNew) {
     $Certificate = Get-ChildItem $MyStore |
         Where-Object {
@@ -57,8 +71,12 @@ if (-not $ForceNew) {
 
 if ($null -eq $Certificate) {
     Write-Host "Creating AnonGee self-signed development Code Signing certificate..."
-    $Certificate = New-SelfSignedCertificate `
-        -Type CodeSigningCert `
+
+    # Use the explicit certificate shape recommended by Microsoft's package
+    # signing guidance. This avoids depending on how a particular PKI module
+    # version expands the CodeSigningCert shorthand.
+    $Created = New-SelfSignedCertificate `
+        -Type Custom `
         -Subject $Subject `
         -FriendlyName "AnonGee Toolkit Development Code Signing" `
         -CertStoreLocation $MyStore `
@@ -66,13 +84,48 @@ if ($null -eq $Certificate) {
         -KeyAlgorithm RSA `
         -KeyLength 3072 `
         -KeyExportPolicy NonExportable `
+        -KeyUsage DigitalSignature `
+        -KeyUsageProperty Sign `
+        -TextExtension @(
+            "2.5.29.37={text}$CodeSigningEku",
+            "2.5.29.19={text}"
+        ) `
         -NotAfter (Get-Date).AddYears($ValidYears)
+
+    $CreatedNew = $true
+
+    # Re-read from the certificate provider before validation. This makes the
+    # object shape identical to certificates discovered on later runs and
+    # ensures provider-added properties such as EnhancedKeyUsageList are loaded.
+    $Certificate = Get-Item -LiteralPath (
+        Join-Path $MyStore $Created.Thumbprint
+    )
 } else {
     Write-Host "Reusing existing AnonGee development Code Signing certificate."
 }
 
 if (-not (Test-CodeSigningCertificate $Certificate)) {
-    throw "The selected certificate does not satisfy the AnonGee test-signing contract."
+    $Ekus = @(Get-EnhancedKeyUsageOids $Certificate)
+    $Thumbprint = if ($Certificate) { $Certificate.Thumbprint } else { "<none>" }
+    $HasPrivateKey = if ($Certificate) { $Certificate.HasPrivateKey } else { $false }
+    $NotAfter = if ($Certificate) { $Certificate.NotAfter.ToString("u") } else { "<none>" }
+
+    # Remove only the exact unusable certificate created by this invocation.
+    # Existing certificates are never deleted automatically.
+    if ($CreatedNew -and $Certificate -and $Certificate.Thumbprint) {
+        Remove-Item -LiteralPath (
+            Join-Path $MyStore $Certificate.Thumbprint
+        ) -Force -ErrorAction SilentlyContinue
+    }
+
+    throw (
+        "The selected certificate does not satisfy the AnonGee test-signing " +
+        "contract. Thumbprint={0}; HasPrivateKey={1}; NotAfter={2}; EKUs={3}" -f
+        $Thumbprint,
+        $HasPrivateKey,
+        $NotAfter,
+        (($Ekus -join ", ") -replace "^$", "<none>")
+    )
 }
 
 if ($TrustForLocalVerification) {
@@ -101,6 +154,7 @@ if ($TrustForLocalVerification) {
 Write-Host "Subject:    $($Certificate.Subject)"
 Write-Host "Thumbprint: $($Certificate.Thumbprint)"
 Write-Host "Expires:    $($Certificate.NotAfter.ToString('u'))"
+Write-Host "EKU:        $((Get-EnhancedKeyUsageOids $Certificate) -join ', ')"
 Write-Host ""
 Write-Host "For this PowerShell session:"
 Write-Host ('$env:ANONGEE_SIGN_CERT_SHA1 = "{0}"' -f $Certificate.Thumbprint)

@@ -4,7 +4,7 @@ Pipeline milestone: **0.7.0**
 Public-trust adoption: **Deferred**  
 Self-signed local validation: **Implemented; awaiting workstation proof**
 
-The 0.7.0 Authenticode path can now be exercised end-to-end at no certificate cost using a self-signed development certificate. This validates SignTool discovery, SHA-256 signing, RFC 3161 timestamping, Inno Setup signing of Setup + uninstaller, and final Windows Authenticode verification.
+The 0.7.0 Authenticode path can be exercised end-to-end at no certificate cost using a self-signed development certificate. This validates SignTool discovery, SHA-256 signing, RFC 3161 timestamping, Inno Setup signing of Setup + uninstaller, and final Windows Authenticode verification.
 
 A self-signed build is **not** a public release. The pipeline marks it `release_ready: false`, renames the EXE with `-SELF-SIGNED-TEST`, and writes `test-signing-manifest.json`. A self-signed identity is rejected by the formal signed-release path unless `--allow-self-signed-test` is explicitly supplied.
 
@@ -20,7 +20,20 @@ py -3.12 .\installer\build_release.py
 
 ## Free local Authenticode validation
 
-Microsoft's `New-SelfSignedCertificate` supports a `CodeSigningCert` certificate type. AnonGee keeps the private key non-exportable in the current user's Windows certificate store and does not create a PFX.
+AnonGee creates the development certificate with an explicit Windows certificate shape rather than depending on the `CodeSigningCert` shorthand:
+
+```text
+Type            Custom
+Key usage       DigitalSignature
+Key property    Sign
+Code Signing EKU 1.3.6.1.5.5.7.3.3
+Key algorithm   RSA 3072
+Hash            SHA256
+Private key     Non-exportable
+Store           Cert:\CurrentUser\My
+```
+
+This follows Microsoft's documented package-signing certificate requirements: code-signing EKU plus Digital Signature key usage. The helper re-reads the certificate from the Windows certificate provider before validating it, so the same object shape is used on creation and reuse. If a newly created certificate still fails validation, the helper removes only that exact new certificate and reports its thumbprint, private-key state, expiration, and EKUs; it never deletes an existing certificate automatically.
 
 From the repository root:
 
@@ -34,7 +47,7 @@ py -3.12 .\installer\build_signed_release.py `
     --allow-self-signed-test
 ```
 
-`-TrustForLocalVerification` imports only the public certificate into `Cert:\CurrentUser\Root`. That makes the self-signed test identity trusted **on this Windows user account**, which is required for `signtool verify /pa` to succeed. It does not make the publisher trusted on another PC and does not create SmartScreen reputation.
+`-TrustForLocalVerification` imports only the public certificate into `Cert:\CurrentUser\Root`. Microsoft documents that a self-signed code-signing certificate used for local Authenticode verification must be trusted locally; this helper scopes that trust to the current Windows user. It does not make the publisher trusted on another PC and does not create SmartScreen reputation.
 
 Expected test outputs:
 
@@ -60,6 +73,20 @@ installer\output\release-manifest.json
 ```
 
 Archive or move the existing EXE **and** its manifest first. This prevents a local test from silently replacing any earlier artifact or evidence record that uses the same product version.
+
+## A previous helper attempt failed
+
+An earlier helper revision used `-Type CodeSigningCert` and then checked the resulting EKU. On at least one Windows workstation that object did not satisfy the repository's explicit EKU contract. The current helper does not reuse such an invalid certificate: normal discovery filters it out and creates a new explicit Custom/DigitalSignature/Code-Signing-EKU certificate instead.
+
+You do not need to delete the old invalid test certificate before retrying. After a successful run, inspect same-subject development certificates if you want to clean up stale test entries:
+
+```powershell
+Get-ChildItem Cert:\CurrentUser\My |
+    Where-Object { $_.Subject -eq "CN=AnonGee Toolkit Development" } |
+    Select-Object Subject, Thumbprint, NotAfter, HasPrivateKey, EnhancedKeyUsageList
+```
+
+Only remove a stale certificate after confirming its thumbprint is **not** the one stored in `$cert.Thumbprint`.
 
 ## Remove the development certificate later
 
@@ -111,7 +138,7 @@ The final Setup EXE is checked with:
 signtool verify /pa /all /v
 ```
 
-A self-signed test certificate must therefore be in the local Trusted Root store for this verification to pass.
+A self-signed test certificate must therefore be trusted locally for this verification to pass.
 
 ## Private-key policy
 

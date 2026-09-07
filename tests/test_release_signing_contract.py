@@ -100,16 +100,28 @@ class SigningContractTests(unittest.TestCase):
         self.assertIn("test-signing-manifest.json", self.signed)
         self.assertIn("Release ready: NO", main)
 
-    def test_test_certificate_helper_keeps_private_key_non_exportable(self):
+    def test_test_certificate_helper_uses_explicit_code_signing_shape(self):
         for token in (
             "New-SelfSignedCertificate",
-            "CodeSigningCert",
+            "-Type Custom",
+            "-KeyUsage DigitalSignature",
+            "-KeyUsageProperty Sign",
+            "2.5.29.37={text}$CodeSigningEku",
+            'CodeSigningEku = "1.3.6.1.5.5.7.3.3"',
             "Cert:\\CurrentUser\\My",
             "KeyExportPolicy NonExportable",
             "HashAlgorithm SHA256",
         ):
             self.assertIn(token, self.test_cert)
         self.assertNotIn("Export-PfxCertificate", self.test_cert)
+
+    def test_test_certificate_helper_reloads_and_cleans_only_new_invalid_cert(self):
+        self.assertIn("Get-Item -LiteralPath", self.test_cert)
+        self.assertIn("$CreatedNew = $true", self.test_cert)
+        self.assertIn("if ($CreatedNew -and $Certificate -and $Certificate.Thumbprint)",
+                      self.test_cert)
+        self.assertIn("Remove-Item -LiteralPath", self.test_cert)
+        self.assertIn("Existing certificates are never deleted automatically", self.test_cert)
 
     def test_local_trust_is_explicit_and_current_user_only(self):
         self.assertIn("[switch]$TrustForLocalVerification", self.test_cert)
