@@ -120,6 +120,37 @@ class WhichViewToFinishIn(unittest.TestCase):
         self.assertIsNone(views.choose_3d([_v("3D template", "ThreeD", True)]))
 
 
+class WhatTheZoomFrames(unittest.TestCase):
+    """The owner, on the first zoom: "it also takes LinkedCAD and Level or Grid
+    on Zoom to fit, what actually want was it should only zoom to fit BIM
+    model." So the box is built from the model, and these say what that means.
+    """
+
+    def test_what_a_run_builds_counts(self):
+        for category in ("OST_StructuralColumns", "OST_StructuralFraming",
+                         "OST_Floors", "OST_StructuralFoundation",
+                         "OST_Walls", "OST_Stairs"):
+            self.assertTrue(views.counts_as_model(category),
+                            "{0} is the model".format(category))
+
+    def test_the_datums_that_run_past_the_building_do_not(self):
+        self.assertFalse(views.counts_as_model("OST_Grids"))
+        self.assertFalse(views.counts_as_model("OST_Levels"))
+        self.assertFalse(views.counts_as_model("OST_CLines"))
+
+    def test_the_linked_dxf_does_not_however_it_is_named(self):
+        # an ImportInstance is known by its type, not its category name, so the
+        # caller answers that question and this only has to honour it
+        self.assertFalse(views.counts_as_model("OST_StructuralColumns",
+                                               is_import=True))
+        self.assertFalse(views.counts_as_model("", is_import=True))
+
+    def test_an_element_with_no_category_still_counts(self):
+        # better to frame something unexpected than to miss half the model
+        self.assertTrue(views.counts_as_model(""))
+        self.assertTrue(views.counts_as_model(None))
+
+
 class HowLongItTook(unittest.TestCase):
     """FEAT-12's headline, which is the one thing on that window."""
 

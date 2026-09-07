@@ -25,11 +25,43 @@ import unittest
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 
+# Each leg is (name, module, what it counts). The COUNT IS MEASURED, not typed:
+# these were once written into the label by hand and every one of them had gone
+# stale -- the screen said 29 archived exports, 17 fixture drawings and 4 storey
+# stacks while the legs were actually replaying 31, 22 and 7. A gate that
+# misreports its own corpus size is a gate whose green line means less than it
+# claims, so the size is now read off the corpus at print time and cannot drift
+# again. `None` means the leg has nothing countable and prints no size.
 LEGS = (
-    ("slab fingerprints  (29 archived exports)", "regression_slab_fingerprints"),
-    ("DXF sweep          (17 fixture drawings)", "regression_dxf_sweep"),
-    ("storey replay      (4 storey stacks)", "regression_storeys"),
+    ("slab fingerprints", "regression_slab_fingerprints",
+     ("_corpus", "archived exports")),
+    ("DXF sweep", "regression_dxf_sweep",
+     ("_fixtures", "fixture drawings")),
+    ("storey replay", "regression_storeys",
+     ("_multi_storey_corpus", "storey stacks")),
 )
+
+_LABEL_WIDTH = 18
+
+
+def _leg_title(name, module_name, counts):
+    """"DXF sweep          (22 fixture drawings)" -- with the 22 counted now.
+
+    Never raises. A label is a label: if the corpus cannot be counted (the
+    archive is not on this machine, the helper was renamed) the leg still runs
+    and still reports, it just reports without a size rather than dying before
+    the measurement everybody actually came for.
+    """
+    padded = name.ljust(_LABEL_WIDTH)
+    if not counts:
+        return padded
+    helper, noun = counts
+    try:
+        module = __import__(module_name)
+        size = len(getattr(module, helper)())
+    except Exception:
+        return padded
+    return "{0} ({1} {2})".format(padded, size, noun)
 
 
 _CAP = 60
@@ -73,7 +105,8 @@ def main(argv):
     loader = unittest.TestLoader()
     failed = []
     written = []
-    for title, module in LEGS:
+    for name, module, counts in LEGS:
+        title = _leg_title(name, module, counts)
         started = time.time()
         suite = loader.loadTestsFromName(module)
         with open(os.devnull, "w") as quiet:

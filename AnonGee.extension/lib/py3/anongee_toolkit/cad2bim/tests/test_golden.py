@@ -154,5 +154,47 @@ class TheGatePrintsEveryNumberThatMoved(unittest.TestCase):
             ["ValueError: the reader could not open the fixture"])
 
 
+class TheGateSaysHowBigItsCorpusActuallyIs(unittest.TestCase):
+    """The leg labels were typed once and then quietly went stale.
+
+    The screen said "29 archived exports", "17 fixture drawings" and "4 storey
+    stacks" while the legs were replaying 31, 22 and 7. Nothing failed -- a
+    label cannot fail -- which is exactly why it drifted for so long, and a gate
+    that misreports the size of its own corpus makes its green line mean less
+    than the reader thinks it does. So the size is counted at print time now.
+    """
+
+    def setUp(self):
+        import run_regressions
+        self.runner = run_regressions
+
+    def test_the_size_is_counted_off_the_corpus_not_typed_into_the_label(self):
+        import regression_dxf_sweep
+        title = self.runner._leg_title(
+            "DXF sweep", "regression_dxf_sweep", ("_fixtures", "fixture drawings"))
+        self.assertIn("({0} fixture drawings)".format(
+            len(regression_dxf_sweep._fixtures())), title)
+
+    def test_every_leg_reports_a_size_so_none_is_silently_uncounted(self):
+        for name, module, counts in self.runner.LEGS:
+            self.assertIsNotNone(counts, name)
+            title = self.runner._leg_title(name, module, counts)
+            self.assertRegex(title, r"\(\d+ [a-z ]+\)$", name)
+
+    def test_a_leg_whose_corpus_cannot_be_counted_still_runs_and_reports(self):
+        # No archive on this machine, a helper renamed: the leg loses its size,
+        # never the run. Dying here would lose the measurement entirely.
+        title = self.runner._leg_title(
+            "DXF sweep", "regression_dxf_sweep", ("_gone", "fixture drawings"))
+        self.assertEqual(title.strip(), "DXF sweep")
+
+    def test_the_labels_line_up_so_the_times_form_a_column(self):
+        widths = set()
+        for name, module, counts in self.runner.LEGS:
+            title = self.runner._leg_title(name, module, counts)
+            widths.add(len(title.split("(")[0]))
+        self.assertEqual(len(widths), 1, "leg names are not padded alike")
+
+
 if __name__ == "__main__":
     unittest.main()

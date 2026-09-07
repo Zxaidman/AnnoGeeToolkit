@@ -759,14 +759,84 @@ def _show_the_model(doc, uidoc):
             _say("view: could not open the 3D view ({0}).".format(switch_error))
             return
     # Zoom whichever 3D view is now in front, whether this pass opened it or the
-    # user was already there.
+    # user was already there -- and zoom it to the MODEL, not to everything the
+    # view happens to draw.
+    _zoom_to_model(doc, uidoc)
+
+
+def _zoom_to_model(doc, uidoc):
+    """Frame the model in the active view, ignoring the CAD link and the datums.
+
+    `ZoomToFit` frames everything the view draws, which after a run is the whole
+    linked DXF sheet plus grids and levels running past the building -- the
+    owner: "it also takes LinkedCAD and Level or Grid on Zoom to fit, what
+    actually want was it should only zoom to fit BIM model". So the box is built
+    from the model elements alone (`views.counts_as_model`) and the view is
+    zoomed to that rectangle instead.
+
+    Falls back to `ZoomToFit` when no model element has a box to offer -- an
+    empty run should still frame something rather than leave the camera where a
+    plan left it.
+    """
+    from Autodesk.Revit.DB import FilteredElementCollector, ImportInstance, XYZ
+    view = doc.ActiveView
+    box = None
+    try:
+        for element in (FilteredElementCollector(doc, view.Id)
+                        .WhereElementIsNotElementType()):
+            category = getattr(element, "Category", None)
+            name = getattr(category, "Name", "")
+            builtin = ""
+            try:
+                builtin = str(category.Id.IntegerValue)
+            except Exception:
+                builtin = ""
+            if not views.counts_as_model(
+                    _category_key(category) or name,
+                    isinstance(element, ImportInstance)):
+                continue
+            here = element.get_BoundingBox(view)
+            if here is None:
+                continue
+            box = here if box is None else _union_box(box, here, XYZ)
+    except Exception as scan_error:
+        _say("view: could not measure the model to zoom to ({0}).".format(
+            scan_error))
+        box = None
+
     try:
         for ui_view in uidoc.GetOpenUIViews():
-            if ui_view.ViewId == doc.ActiveView.Id:
+            if ui_view.ViewId != view.Id:
+                continue
+            if box is None:
                 ui_view.ZoomToFit()
-                break
+                _say("view: nothing but the link and the datums to frame, so "
+                     "the view was zoomed to fit everything.")
+            else:
+                ui_view.ZoomAndCenterRectangle(box[0], box[1])
+            break
     except Exception as zoom_error:
-        _say("view: could not zoom to fit ({0}).".format(zoom_error))
+        _say("view: could not zoom ({0}).".format(zoom_error))
+
+
+def _category_key(category):
+    """The BuiltInCategory name of a category, or "" when it has none."""
+    if category is None:
+        return ""
+    try:
+        from Autodesk.Revit.DB import BuiltInCategory
+        return str(BuiltInCategory(category.Id.IntegerValue))
+    except Exception:
+        return ""
+
+
+def _union_box(box, other, XYZ):
+    """(min, max) of the two boxes, as the pair ZoomAndCenterRectangle takes."""
+    low, high = box
+    return (XYZ(min(low.X, other.Min.X), min(low.Y, other.Min.Y),
+                min(low.Z, other.Min.Z)),
+            XYZ(max(high.X, other.Max.X), max(high.Y, other.Max.Y),
+                max(high.Z, other.Max.Z)))
 
 
 def _colour_open_views(doc, uidoc, selections):

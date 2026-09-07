@@ -1896,7 +1896,24 @@ class TheRunEndsShowingTheModel(unittest.TestCase):
         block = block.split("\ndef ", 1)[0]
         self.assertIn("views.choose_3d(", block)
         self.assertIn("uidoc.ActiveView = candidates[index]", block)
-        self.assertIn("ZoomToFit()", block)
+        self.assertIn("_zoom_to_model(doc, uidoc)", block)
+
+    def test_the_zoom_frames_the_MODEL_not_the_link_and_the_datums(self):
+        # the owner, on the first one: "it also takes LinkedCAD and Level or
+        # Grid on Zoom to fit, what actually want was it should only zoom to
+        # fit BIM model"
+        block = _builders_source().split("def _zoom_to_model(", 1)[1]
+        block = block.split("\ndef ", 1)[0]
+        self.assertIn("views.counts_as_model(", block)
+        self.assertIn("ImportInstance", block,
+                      "the linked DXF must be excluded by type, not by name")
+        self.assertIn("ZoomAndCenterRectangle(box[0], box[1])", block)
+
+    def test_a_model_with_nothing_to_frame_still_zooms(self):
+        block = _builders_source().split("def _zoom_to_model(", 1)[1]
+        block = block.split("\ndef ", 1)[0]
+        self.assertIn("ZoomToFit()", block,
+                      "an empty run must still frame something")
 
 
 class TheRunSaysHowLongItTook(unittest.TestCase):
@@ -1948,8 +1965,37 @@ class TheRunSaysHowLongItTook(unittest.TestCase):
         self.assertIn("Key.Escape", block, "Esc does not close it")
         self.assertIn("button.Click += close", block, "the button does not")
 
-    def test_it_closes_itself_after_ten_seconds(self):
-        self.assertIn("ELAPSED_AUTO_CLOSE_SECONDS = 10", _dialogs_source())
+    def test_the_window_stays_up_long_enough_to_read(self):
+        # the owner's number: "make dialog box stay upto 30s, because 10s go by
+        # very quickly". One line holds it, which is the line he was told to edit.
+        self.assertIn("ELAPSED_AUTO_CLOSE_SECONDS = 30", _dialogs_source())
+        self.assertIn("auto_close_seconds=ELAPSED_AUTO_CLOSE_SECONDS",
+                      _dialogs_source(),
+                      "the window must take the constant as its default, or "
+                      "editing that one line changes nothing")
+
+    def test_the_headline_is_the_BUILD_and_the_parts_are_underneath(self):
+        # his call after seeing the first one: the big number is the build
+        # alone, with the dialog time and the total below it
+        block = _dialogs_source().split("def _elapsed_parts(", 1)[1]
+        block = block.split("\ndef ", 1)[0]
+        self.assertIn("views.format_elapsed(build_seconds)", block)
+        names = _xaml_names(_ELAPSED_XAML)
+        self.assertIn("txt_waiting", names)
+        self.assertIn("txt_total", names)
+
+    def test_the_caption_figures_are_red_and_bold_but_caption_sized(self):
+        key = "{http://schemas.microsoft.com/winfx/2006/xaml}Name"
+        fields = dict((el.get(key), el) for el in _body_iter(_ELAPSED_XAML)
+                      if el.get(key) in ("txt_waiting", "txt_total",
+                                         "txt_elapsed"))
+        for name in ("txt_waiting", "txt_total"):
+            self.assertEqual(fields[name].get("FontWeight"), "Bold")
+            self.assertIn("VividRed", fields[name].get("Foreground") or "")
+            # caption-sized means it takes the caption style rather than a
+            # size of its own -- the headline is the only thing with one
+            self.assertIsNone(fields[name].get("FontSize"))
+        self.assertIsNotNone(fields["txt_elapsed"].get("FontSize"))
 
     def test_a_failed_stopwatch_never_costs_the_owner_a_good_build(self):
         block = _dialogs_source().split("def show_elapsed(", 1)[1]

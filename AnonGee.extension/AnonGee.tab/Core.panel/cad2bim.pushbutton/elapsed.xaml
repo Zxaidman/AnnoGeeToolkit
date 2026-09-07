@@ -545,16 +545,39 @@
             <TextBlock Text="Model built" Style="{StaticResource TextH3}"
                        Margin="0,0,0,2"/>
 
-            <!-- THE ONE THING ON THIS WINDOW. The owner asked for the time "in
-                 BOLD and BIGGER", so it is the headline and everything else on
-                 the window is a caption under it. -->
+            <!-- THE ONE THING ON THIS WINDOW, and since v0.96.0 it is the BUILD
+                 alone: the owner's call after seeing the first one, because a
+                 headline that counts the minutes he spent reading two dialogs
+                 is not the tool's time. The two parts are underneath, and the
+                 numbers there are red and bold like this one but caption-sized,
+                 so they read as figures without competing with it. -->
             <TextBlock x:Name="txt_elapsed" Text="-"
                        FontSize="40" FontWeight="Bold"
                        Foreground="{StaticResource BrushVividRed}"
                        TextAlignment="Left" Margin="0,2,0,2"/>
 
+            <TextBlock Text="building the model" Style="{StaticResource TextCaption}"
+                       Margin="0,0,0,6"/>
+
+            <WrapPanel Margin="0,2,0,0">
+                <TextBlock Text="in the dialogs" Style="{StaticResource TextCaption}"
+                           VerticalAlignment="Center"/>
+                <TextBlock x:Name="txt_waiting" Text="-"
+                           Style="{StaticResource TextCaption}"
+                           FontWeight="Bold"
+                           Foreground="{StaticResource BrushVividRed}"
+                           VerticalAlignment="Center" Margin="6,0,0,0"/>
+                <TextBlock Text="  ·  from the click" Style="{StaticResource TextCaption}"
+                           VerticalAlignment="Center" Margin="6,0,0,0"/>
+                <TextBlock x:Name="txt_total" Text="-"
+                           Style="{StaticResource TextCaption}"
+                           FontWeight="Bold"
+                           Foreground="{StaticResource BrushVividRed}"
+                           VerticalAlignment="Center" Margin="6,0,0,0"/>
+            </WrapPanel>
+
             <TextBlock x:Name="txt_breakdown" Style="{StaticResource TextCaption}"
-                       TextWrapping="Wrap" Margin="0,4,0,0"/>
+                       TextWrapping="Wrap" Margin="0,6,0,0"/>
         </StackPanel>
     </DockPanel>
 </Window>

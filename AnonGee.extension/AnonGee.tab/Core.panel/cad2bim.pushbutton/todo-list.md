@@ -8,8 +8,9 @@ Nothing is deleted to make the list look shorter.
 file before it is built, argued about, or written into any other document. Standing instruction
 from the project owner, and it is what keeps this list the queue rather than a summary of one.
 
-Current build: **v0.94.2** (branch `claude/cad2bim`). 1151 unit tests, 3 regression legs green,
-22 fixture drawings in the sweep. The branch also carries the rc-automation merge and the 1.26.1
+Current build: **v0.96.1** (branch `claude/cad2bim`). 1197 unit tests, 3 regression legs green
+over 31 archived exports, 22 fixture drawings and 7 storey stacks — counted off the corpora by the
+gate itself, which is how the old hand-typed 29/17/4 was caught (WORK-21, DONE-130). The branch also carries the rc-automation merge and the 1.26.1
 extension identity. Longer records: `../../../../../task_plan.md`, `findings.md`, `progress.md` at the
 repository root.
 
@@ -143,7 +144,32 @@ schedule, a sheet, a legend, a browser or report view is out. The choice of subs
 3D view the owner asked for: the default `{3D}` first, then any other non-template `View3D`, then
 whatever plan is open, and only if a model has literally no such view does it say so.
 
-### BUG-24 — A double or triple cross reads as nothing, so its L or C is slabbed · `testing`
+### BUG-24 — A double or triple cross reads as nothing, so its L or C is slabbed · `pending`
+
+**STILL FAILING in the owner's v0.95.x Revit run: "bug-24 still not working on test14."** BUG-11 is
+the same fault seen from the other side -- "working on test14 expect on L or C cutout area is not
+working currently both are linked bug".
+
+**What was measured offline, and why it is not enough.** v0.94.0's rule reads test14's C-shapes
+correctly *from the DXF*: 246 marks, the C at (26005..27633, 28268..29565) coming back as its three
+real limbs, and of 246 voids none left with floor over more than half of it, where 36 had been. That
+measurement stands and is reproducible. It is also, evidently, measuring something the Revit run
+does not do.
+
+**The gap is the SOURCE of the records, and it is the obvious suspect.** The build does not read the
+DXF's records -- it reads the LINK's (`geometry_reader.read_link`), which is a different set: Revit
+explodes closed polylines into separate lines, merges some, and drops others at junctions
+(`comparison` reports `dxf_only` / `revit_only` on every run). Every offline measurement in this
+entry was taken on the DXF side. A single cross survives that difference -- the owner confirms
+BUG-18 works -- and a mitred limb may not, because its rule is the stricter of the two: both strokes
+on a CUTOUT layer, properly crossing, and crossing within the middle 60% of each other.
+
+**What is needed to fix it rather than guess at it:** a console report or JSON export from a failing
+test14 run, so `cutout_cross_marks`, `free_cutouts_read` and `free_cutout_holes` can be read on the
+LINK's records instead of the DXF's. If those numbers are lower in Revit than the 246 / 144 / 72
+measured offline, the strokes are arriving differently and the rule has to be measured against what
+Revit actually hands it. Nothing here should move until that is on the table.
+
 
 **The owner, testing v0.93.2 in Revit:** "almost all the single cross cutout line is working to
 create actual cutout, but there is still issue persisting multiple cross cutout line ... double
@@ -228,7 +254,7 @@ sizing are one question and should be answered together.
 **Not started, and not to be started on a guess.** The owner has not reported anything about test17
 yet; this is the measurement taken as the fixture arrived, filed so it is not re-derived later.
 
-### BUG-20 — test16 builds NO footing from its 73 drawn outlines · `testing`
+### BUG-20 — test16 builds NO footing from its 73 drawn outlines · `done`
 
 **The owner, v0.91.0 round:** "our test16 schedule is not working still for slab and footing alike
 and now it is even worse for footing is is not making it using footing outline at all in test16".
@@ -287,6 +313,9 @@ nineteen fixtures. Three AST pins hold the wiring, since every link in it fails 
 
 ### BUG-18 — A free-standing X marks nothing, so slab is cast over the opening · `testing`
 
+**The owner, v0.95.x round:** "yes mostly working on test14 only place where slab are actually placed." So where a bay exists the cross now voids it. What is left is the 63 marks measured as sitting inside no bay at all -- nothing is cut there because the beam graph closed no floor over that ground, which is CRIT-4's territory, not this one's.
+
+
 **Reported urgent** by the owner on the v0.91.0 Revit run: where the duplicate slab used to be two
 pieces it is now three — one respects the outline and its holes, and **two are drawn inside a
 cutout cross** (owner's images 2, 3 and 4).
@@ -318,7 +347,7 @@ unread pairs stop being invisible. Sizes and positions above are the measurement
 against; test10's foundation numbers (`foundation_planned` 9, `steps_planned` 7, `step_supports` 2,
 `foundation_profiles` 9) must not move.
 
-### BUG-19 — A chajja between two beams takes the deeper one · `testing`
+### BUG-19 — A chajja between two beams takes the deeper one · `done`
 
 Reported by the owner on the same run (image 1): where a chajja's edge attaches to **two beams of
 different depth**, it must hang off the **lesser** depth. In the owner's example it took the 600 mm
@@ -328,7 +357,7 @@ beam where the shallower one governs.
 there are two was never stated, and the code takes the deeper. The reversal is local to the chajja
 drop lookup; the count of chajjas built (72 on test14) must not move, only the depth each one takes.
 
-### BUG-4 — An L-shaped column is placed as a big tilted rectangle · `testing`
+### BUG-4 — An L-shaped column is placed as a big tilted rectangle · `done`
 
 **Fixed in v0.77.0, awaiting the owner's Revit run.** `parse_column_polyline` now closes the
 drafting noise before it believes a ring is angled: coordinates within `_AXIS_SNAP_MM = 1.0`
@@ -420,7 +449,7 @@ exactly what the owner sees.
 serves the F1/F2/F3/RF1/RF2 block beside it, which is the foundation/roof schedule — worth reading
 in the same pass and filtering by mark at the consumer, as slabs already are.
 
-### BUG-15 — A sunk beam must move by z Offset Value, and a bay's beams must sink too · `testing`
+### BUG-15 — A sunk beam must move by z Offset Value, and a bay's beams must sink too · `done`
 
 **The owner, twice over:** "beams are not getting sunk which has hatch pattern and its sunk value
 should use Z Offset Value only for sunk or rise not the Start/End Level Offset."
@@ -456,6 +485,9 @@ The two original faults, as found:
 
 ### BUG-16 — A text naming a cutout does not mark one · `testing`
 
+**The owner:** "yes working on test14 mostly." Kept open on his "mostly" -- the word is doing work and the remainder has not been named yet.
+
+
 **The owner:** "Few large place still are still taking the Cutout Cross even when now that i have
 put the `Cutout, Lift Shaft, Duct etc.` text there also."
 
@@ -482,7 +514,14 @@ test16 **+8 bays, 71.0 m²**. Every `SHAFT`-only drawing withdraws NOTHING: thos
 closed bay at all (no bay closes round a lift well), and each is now named on a note rather than
 being silently ignored. test12's 21 and test13's 11 crossed bays do not move.
 
-### BUG-13 — A whole bay crossed by an X still gets a floor · `testing`
+### BUG-13 — A whole large bay crossed by an X still gets a floor · `done`
+
+**The owner: "did not understand your wording, maybe you meant large area with X cutout line which
+is now working on test14."** That is exactly it, and the title now says so. A small cutout is a
+COVER ring with an X over it; this one was the LARGE areas -- whole slab bays, 1.36 to 19.81 m2, 63.5
+m2 on test14 -- crossed corner to corner with nothing drawn around them, which no reading had ever
+asked about. Confirmed working.
+
 
 **Re-measured after v0.86.0 and the owner's re-pushed drawing (image3 — "still not fixed little
 improvement").** The improvement was real and the leftover has a different cause. The beam-pairing
@@ -523,7 +562,7 @@ is working now". **Reproduced and measured, and the small/large split is exactly
 no concrete there*. It is applied to `COVER` rings only. A bay carrying the X is the same statement
 about a bigger piece, and should be withdrawn exactly as a staircase bay is.
 
-### BUG-14 — A hatch is shaping the slab, when it should only inform it · `testing`
+### BUG-14 — A hatch is shaping the slab, when it should only inform it · `done`
 
 **Re-measured after v0.86.0 and the owner's re-pushed drawing (image2 — "did not see any
 improvement").** The sunk SLAB half is working and the symptom the owner still sees is the BEAM.
@@ -598,6 +637,9 @@ empty-band treatment every other constant here got.
 
 ### BUG-11 — `COVER` and `CUT` are unmapped, so the slab never learns where it stops · `testing`
 
+**The owner:** "yes working on test14 expect on L or C cutout area is not working currently both are linked bug." Correct -- the remaining gap is BUG-24's, not this one's: the COVER rings are classified and read, and it is the mitred L/C marks that still fail to void. This entry closes when BUG-24 does.
+
+
 **Overtaken and closed in v0.83.0**, and the phase here was stale until this was re-checked: `COVER`
 is `CATEGORY_SLAB_STOP` and the cutout token is classified, which is what the whole slab-stop pass
 rests on. Left at `testing` rather than `done` because the owner has not called this one out as
@@ -630,6 +672,9 @@ outlines are inferred from beam faces, which is what puts slab where the drawing
 
 ### BUG-12 — Cutout and staircase areas are still slabbed · `testing`
 
+**The owner:** "yes mostly working on already tested fixtures need further testing." Held open for the same reason as BUG-6.
+
+
 **Overtaken in v0.83.0 and after** — `apply_slab_stops` withdraws stair bays and cutout bays and cuts
 crossed rings, free crosses and chajjas out of the bays that hold them. Phase corrected on re-check.
 
@@ -643,7 +688,22 @@ should not also be a flat floor. Both need the slab pass to subtract what the dr
 which v0.81.0 now does — but it does **not** mean the slab spans over that beam: the slab must stop
 at the beam's edge. Today the sunk bay is laid across it.
 
-### BUG-9 — `Floor.Create` refuses one slab profile · `testing`
+### BUG-9 — `Floor.Create` refuses one slab profile · `testing` (not a console item)
+
+**The owner asked what this one even is: "if it is related to console or bug-8 then it is not
+working, or i am misunderstanding this point and unclear about it."** Fair -- the entry never said
+plainly what would be seen.
+
+It is NOT about colour. It is about one slab that Revit refused to create: a run reported one
+`Floor.Create` error against 151 floors, with a stack and no geometry, so nothing said WHICH slab or
+where. Since v0.82.0 every profile is checked before it is handed over, and a bad one is declined
+here with its mark, its size and its position instead of throwing.
+
+**What confirms it:** nothing visible, if no slab is bad -- which is the point. It shows only when a
+drawing contains a profile Revit would refuse, and then the console names it rather than showing a
+stack. It rides on BUG-8 only in that the naming line is printed through the same error channel,
+so it cannot be judged until that channel is readable.
+
 
 **Overtaken in v0.82.0**: `builders/slabs.check_profile` runs every profile through the same checks
 before `Floor.Create` is called and declines a bad one by name, with its mark, size and position, on
@@ -657,7 +717,28 @@ its loops are not the DXF's. Until it can be reproduced the honest fix is for th
 those same checks before calling `Floor.Create` and report the profile it declines, with
 coordinates, instead of letting Revit throw a stack into the console.
 
-### BUG-8 — An error printed its markup instead of turning red · `testing`
+### BUG-8 — Console errors are still not red · `pending`
+
+**STILL FAILING, second report: "still not marking errors in red on console."**
+
+v0.81.1 wrapped each line separately on the theory that one `<span>` around a whole paragraph opened
+on the first line and closed on the last, so the tag itself was what got read. That theory fitted
+the first report -- the owner saw the markup -- and it has not fixed anything.
+
+**The thing that was never established is whether pyRevit's CPython3 output window renders printed
+HTML at all.** cad2bim is the only tool in this repository that tries: nothing else prints a `<span>`
+or calls `print_html`, so there is no working precedent here to copy, and no way to settle it from
+outside Revit. The two possibilities need opposite fixes:
+
+  * the tags are RENDERED but the colour is overridden -- then the styling changes;
+  * the tags are NOT rendered -- then every error line is currently showing its own markup as text,
+    the markup has to go entirely, and errors are marked some other way (a plain `ERROR` marker,
+    which reads correctly in any renderer).
+
+**Needs one look from the owner:** does an error line in the console read
+`<span style="color:#c00000;font-weight:bold">Slab creation failed.</span>`, or does it read
+`Slab creation failed.` in ordinary black? That single answer picks the fix.
+
 **How found:** the owner's console showed `<span style="color:#c00000...">` as text. **Reproduced by
 reading:** a Revit exception arrives as a paragraph, and one span wrapped around the whole of it
 opens on the first line and closes on the last; the output view renders each line separately, so the
@@ -665,6 +746,9 @@ span styles nothing and the tag is what you read. **Fixed:** every line is wrapp
 the message is HTML-escaped first, being Revit data rather than markup.
 
 ### BUG-6 — A hatch's meaning is per PATTERN, but the mapping is per LAYER · `testing`
+
+**The owner:** "yes working correctly on test14 but need further test fixtures for truly mark done." Held at `testing` at his request: one drawing proving it is not the same as the corpus proving it, and he is right to want a second.
+
 
 **Decided by the owner and shipped in v0.80.0:** the hatch table gains a row per (layer, pattern)
 wherever the drawing's own legend gives a layer's patterns more than one meaning; a layer whose
@@ -676,7 +760,7 @@ and inflated three drawings that gain nothing. test14 8 → 11, test9 5 → 8 (a
 mappings and the offline harnesses still route. It also closes half of CRIT-3 for split rows: a
 stale `HAT → sunk` can no longer put "sunk" back onto GOST_GLASS.
 
-### BUG-7 — The legend's sunk depths reach neither slab nor beam · `testing`
+### BUG-7 — The legend's sunk depths reach neither slab nor beam · `done`
 
 **How found:** the owner's Revit run — "see the legend with sunk mention not apply to the hatch
 region in revit to neither slab or beam". Root cause was BUG-5 (the legend was never read at all);
@@ -715,7 +799,7 @@ distinguishes them — which is the honest model but a visible dialog change —
 routing stays internal to the legend path with the table left per-layer. Recorded rather than
 guessed.
 
-### BUG-5 — The legend reader is blind to test14's whole legend · `testing`
+### BUG-5 — The legend reader is blind to test14's whole legend · `done`
 
 **Fixed, awaiting the owner's Revit run.** The row rule is now the verb alone (`INDICATES?`) and the
 SWATCH decides what a legend row is, which is what the convention always was. Measured: real rows
@@ -745,7 +829,7 @@ SLAB AT BEAM BOTTOM → `GOST_GLASS` (75), 150 RC PARDI → `AR-HBONE` (135), 10
 IN BEAM`, which is not a legend row. Loosening it must keep that rejection — the swatch pairing is
 the stronger test and should carry the weight.
 
-### BUG-1 — Placed footings' Width/Length: fixed, unconfirmed · `testing`
+### BUG-1 — Placed footings' Width/Length: fixed, unconfirmed · `done`
 
 **How found:** the owner compared a placed footing against a hand-sketched twin — the placed one
 showed blank read-only Width/Length, the sketched one reported both, and BOQ schedules read those
@@ -891,7 +975,7 @@ What is built and verified. Nothing here claims more than was measured.
 | WORK-15 | Walls — planner and builder | `testing` | Planned offline: Project1 17 segments / 11 skips, test8 178 / 110, test9 19 / 39; the other 14 fixtures pin zeros. Placed as `DB.Wall` since v0.76.0, **not yet seen in Revit** |
 | WORK-16 | The dialog — six tabs, five Build sub-tabs, AnonGee brand, gated Advanced, saved settings | `done` | The owner in Revit: "tested all good, apply the AnonGee Brand Guidelines design to all cad2bim dialog now", then applied and re-confirmed |
 | WORK-17 | Errors print red on the console; skips are named, never silent | `done` | The owner's instruction, shipped v0.69.3 and extended to all six creators |
-| WORK-18 | Vertical members — a three-way choice: every one a COLUMN, every one a WALL, or COMBINE, where the mark decides (`C1` column, `SW1`/`W1` wall) and, where the mark is silent, L/B decides: under 4 a column, 4 and over a shear wall (IS 456, IS 13920, ACI 318) | `testing` | Built v0.87.0 to the owner's spec. Their own 0.89.1 test16 export ran it: `columns.outcome` reports **71 walls, 0 rects** across the stack, so the toggle reaches the builder — the smart split itself is not yet confirmed in Revit |
+| WORK-18 | Vertical members — a three-way choice: every one a COLUMN, every one a WALL, or COMBINE, where the mark decides (`C1` column, `SW1`/`W1` wall) and, where the mark is silent, L/B decides: under 4 a column, 4 and over a shear wall (IS 456, IS 13920, ACI 318) | `done` | Built v0.87.0 to the owner's spec. Their own 0.89.1 test16 export ran it: `columns.outcome` reports **71 walls, 0 rects** across the stack, so the toggle reaches the builder. **The owner in Revit: "work-18 is working"** |
 | WORK-19 | Wall joins — both ends disallowed, and the corner they leave open filled: one wall runs through, the other stops on its face, so an L or a T keeps the drawn outline instead of pulling back to the centreline | `done` | The owner in Revit, v0.91.0 round: "test wall joins are working good for wall and column as expected" |
 | WORK-20 | Chajjas — a beam-bottom ledge hangs at the soffit of the beam it is cast off, follows that beam down when a sunk hatch drops it, and the bay above it is no longer cast over the top of it | `testing` | The owner in Revit: "Chajja following its sunk beam is working good now". Two things remain open: which beam a ledge between two takes (BUG-19), and one bay near a ledge splitting into three (BUG-18) |
 

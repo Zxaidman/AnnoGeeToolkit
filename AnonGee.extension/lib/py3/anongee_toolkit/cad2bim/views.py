@@ -111,6 +111,41 @@ def _unpack(view):
             bool(getattr(view, "IsTemplate", False)))
 
 
+# WHAT "ZOOM TO FIT THE MODEL" LEAVES OUT. `UIView.ZoomToFit` frames everything
+# the view draws, and after a cad2bim run that is the linked DXF sheet -- title
+# block, legends, schedules drawn as linework, the lot -- plus grids and levels
+# that run well past the building. The owner, seeing it: "zoom is also working
+# but it also takes LinkedCAD and Level or Grid on Zoom to fit, what actually
+# want was it should only zoom to fit BIM model."
+#
+# So the box is built from the model elements alone. These are the categories
+# that are NOT the model: the datums that extend past it by design, and the
+# import itself. Everything else a run creates -- columns, beams, floors,
+# foundations, walls, stairs -- counts.
+ZOOM_SKIPPED_CATEGORIES = (
+    "OST_Grids",
+    "OST_Levels",
+    "OST_CLines",                # reference planes
+    "OST_ReferencePoints",
+    "OST_IOSModelGroups",        # the group wrapper, never geometry of its own
+    "OST_Cameras",
+    "OST_SectionBox",
+    "OST_Views",
+)
+
+
+def counts_as_model(category_name, is_import=False):
+    """Whether this element should pull the zoom box out to include it.
+
+    `is_import` covers the linked DXF, whose category name varies by how the
+    link was made -- an ImportInstance is identified by its type, not by a
+    name, so the caller passes the answer in rather than this guessing at it.
+    """
+    if is_import:
+        return False
+    return str(category_name) not in ZOOM_SKIPPED_CATEGORIES
+
+
 def format_elapsed(seconds):
     """How long it took, for a person reading one line of it.
 

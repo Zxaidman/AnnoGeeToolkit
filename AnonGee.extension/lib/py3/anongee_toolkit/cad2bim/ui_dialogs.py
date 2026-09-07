@@ -185,7 +185,11 @@ def _save_json(default_name):
     return None
 
 
-ELAPSED_AUTO_CLOSE_SECONDS = 10
+# HOW LONG THE ELAPSED-TIME WINDOW STAYS UP, in seconds. The owner's number:
+# "make dialog box stay upto 30s, because 10s go by very quickly". Change it
+# here and nowhere else -- `show_elapsed` takes it as a default argument, so
+# this line is the only place the figure is written.
+ELAPSED_AUTO_CLOSE_SECONDS = 30
 
 
 def show_elapsed(xaml_path, total_seconds, build_seconds=None,
@@ -216,8 +220,18 @@ def show_elapsed(xaml_path, total_seconds, build_seconds=None,
         countdown = window.FindName("txt_countdown")
         button = window.FindName("btn_close")
 
+        # THE HEADLINE IS THE BUILD, not the total: the owner's call after the
+        # first one, because the total counts the minutes he spent reading the
+        # Link Options and settings dialogs. Both parts are underneath it.
+        waiting = window.FindName("txt_waiting")
+        total_field = window.FindName("txt_total")
+        headline, dialogs = _elapsed_parts(total_seconds, build_seconds)
         if elapsed is not None:
-            elapsed.Text = views.format_elapsed(total_seconds)
+            elapsed.Text = headline
+        if waiting is not None:
+            waiting.Text = dialogs
+        if total_field is not None:
+            total_field.Text = views.format_elapsed(total_seconds)
         if breakdown is not None:
             breakdown.Text = _elapsed_breakdown(total_seconds, build_seconds)
 
@@ -259,6 +273,24 @@ def show_elapsed(xaml_path, total_seconds, build_seconds=None,
             error))
 
 
+def _elapsed_parts(total_seconds, build_seconds):
+    """(headline, time in the dialogs) for the window's two red figures.
+
+    The headline is the BUILD. When nothing timed the build -- a run that ended
+    before the settings window closed -- the total is all there is, and it goes
+    in the headline rather than leaving it empty.
+    """
+    from . import views
+    if build_seconds is None:
+        return views.format_elapsed(total_seconds), "-"
+    try:
+        waiting = float(total_seconds) - float(build_seconds)
+    except (TypeError, ValueError):
+        return views.format_elapsed(build_seconds), "-"
+    return (views.format_elapsed(build_seconds),
+            views.format_elapsed(max(0.0, waiting)))
+
+
 def _elapsed_breakdown(total_seconds, build_seconds):
     """The caption under the headline: what the total was actually spent on.
 
@@ -276,10 +308,7 @@ def _elapsed_breakdown(total_seconds, build_seconds):
         return "from the moment you clicked CAD to BIM"
     if waiting < 0:
         waiting = 0.0
-    return ("from the moment you clicked CAD to BIM  ·  "
-            "building {0}, the rest in the dialogs ({1})".format(
-                views.format_elapsed(build_seconds),
-                views.format_elapsed(waiting)))
+    return "the build alone; the total is from the moment you clicked CAD to BIM"
 
 
 def _select_containing(combo, keywords):
