@@ -224,6 +224,21 @@
     "sized_beams": 0,
     "storey": "GROUND FLOOR LEVEL"
   },
+  "test17": {
+    "beams": 4520,
+    "column_circles": 0,
+    "column_footprints": 2059,
+    "column_rectangles": 2059,
+    "loops_from_beam_graph": 42,
+    "loops_from_beam_graph_area_m2": 5522.6,
+    "loops_from_edges": 418,
+    "loops_from_edges_area_m2": 566.4,
+    "loops_from_placed_members": 16,
+    "loops_from_placed_members_area_m2": 209.3,
+    "records": 7560,
+    "sized_beams": 0,
+    "storey": "single"
+  },
   "test18_fragmanted": {
     "beams": 21,
     "column_circles": 2,

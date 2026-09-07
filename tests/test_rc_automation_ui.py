@@ -27,8 +27,30 @@ import unittest
 from xml.etree import ElementTree
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_BUTTON = os.path.join(_ROOT, "AnonGee.extension", "AnonGee.tab", "Dev.panel",
-                       "RC Automation.pushbutton")
+def _pushbutton(bundle_name):
+    """The folder of one named pushbutton, wherever it is stacked.
+
+    The Dev panel's buttons move between stacks as the ribbon is arranged --
+    `Bridge Check` went from `Dev.panel/` to `Dev.panel/col2.stack/` in the
+    v1.26.1 layout, and every hard-coded path to it broke at once. Finding the
+    bundle by name keeps these tests measuring the tool rather than its place
+    on the ribbon. `test_bridge_path_sources` has done it this way all along;
+    this is the same walk.
+    """
+    panel = os.path.join(_ROOT, "AnonGee.extension", "AnonGee.tab", "Dev.panel")
+    wanted = bundle_name + ".pushbutton"
+    matches = []
+    for current, directories, _files in os.walk(panel):
+        if os.path.basename(current) == wanted:
+            matches.append(current)
+            directories[:] = []
+    if len(matches) != 1:
+        raise RuntimeError("expected exactly one {0} under {1}; found {2}".format(
+            wanted, panel, matches))
+    return matches[0]
+
+
+_BUTTON = _pushbutton("RC Automation")
 _XAML = os.path.join(_BUTTON, "ui.xaml")
 _SCRIPT = os.path.join(_BUTTON, "script.py")
 _BUNDLE = os.path.join(_BUTTON, "bundle.yaml")
