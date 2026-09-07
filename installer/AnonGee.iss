@@ -1,7 +1,7 @@
 #define MyAppName "AnonGee Toolkit"
 #define MyAppVersion "1.26.1"
 #define MyPublisher "Zxaidman"
-#define InstallerMilestone "0.6.0"
+#define InstallerMilestone "0.8.0"
 #define PyRevitPrereqVersion "6.5.5.26237"
 #define PyRevitPrereqCompatibilityVersion "6.5.5"
 #define PyRevitPrereqFile "pyRevit_6.5.5.26237_signed.exe"
