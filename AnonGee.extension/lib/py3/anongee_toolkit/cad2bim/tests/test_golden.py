@@ -188,6 +188,36 @@ class TheGateSaysHowBigItsCorpusActuallyIs(unittest.TestCase):
             "DXF sweep", "regression_dxf_sweep", ("_gone", "fixture drawings"))
         self.assertEqual(title.strip(), "DXF sweep")
 
+    def test_two_exports_of_one_drawing_at_one_version_pick_the_same_one(self):
+        """test14 is exported at 0.95.0 by BOTH the stair and footing buttons.
+
+        The tie went to whichever `os.walk` reached first, and walk order is not
+        promised by any filesystem -- so a fresh clone could measure the other
+        file and the gate would report movement that no code caused.
+        """
+        import regression_slab_fingerprints as fingerprints
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder, True)
+        for name in ("0.95.0_stair_test14_with_textmode.json",
+                     "0.95.0_footing_test14_with_textmode.json",
+                     "0.94.0_slab_test14_with_textmode.json"):
+            with open(os.path.join(folder, name), "w") as handle:
+                handle.write("{}")
+
+        original = fingerprints._EXPORTS
+        fingerprints._EXPORTS = folder
+        try:
+            picked = set()
+            for _attempt in range(5):
+                picked.add(os.path.basename(fingerprints._corpus()["test14"]))
+        finally:
+            fingerprints._EXPORTS = original
+
+        self.assertEqual(len(picked), 1, "the tie is broken differently: " + repr(picked))
+        # and it is one of the two NEWEST, never the 0.94.0 underneath them
+        self.assertIn(picked.pop(), ("0.95.0_stair_test14_with_textmode.json",
+                                     "0.95.0_footing_test14_with_textmode.json"))
+
     def test_the_labels_line_up_so_the_times_form_a_column(self):
         widths = set()
         for name, module, counts in self.runner.LEGS:

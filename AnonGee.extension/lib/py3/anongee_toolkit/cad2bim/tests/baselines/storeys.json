@@ -23,8 +23,8 @@
       "3rd to 7th Floor Typical Level (3/5)",
       "3rd to 7th Floor Typical Level (4/5)",
       "3rd to 7th Floor Typical Level (5/5)",
-      "Terrace Floor Level",
-      "Roof Floor Level"
+      "Refuge Floor Level",
+      "Terrace Floor Level"
     ],
     "loops_from_beam_graph_per_storey": [
       0,

@@ -65,6 +65,17 @@ def _corpus():
     One per drawing, not one per version: the archive holds the same plan
     exported at a dozen releases, and replaying all 286 would measure the
     archive's shape rather than the code's behaviour.
+
+    TWO EXPORTS OF ONE DRAWING AT THE SAME VERSION are a real case, not a
+    hypothetical -- test14 is exported at 0.95.0 by both the stair button and
+    the footing button. The comparison was `version > best[...]`, which keeps
+    whichever of them `os.walk` happened to reach first, and walk order is not
+    something the filesystem promises. That made the baseline depend on how the
+    directory was laid out: a fresh clone could pick the other file and the gate
+    would report movement no code caused. The key carries the FILE NAME after
+    the version now, so a tie is broken by something written down rather than by
+    the order the disk hands the files over. Which of the two wins is arbitrary;
+    that it is the same one every time is the whole point.
     """
     best = {}
     for folder, _folders, files in os.walk(_EXPORTS):
@@ -74,9 +85,10 @@ def _corpus():
                 continue
             version = tuple(int(match.group(i)) for i in (1, 2, 3))
             drawing = _KIND_PREFIX.sub("", match.group(4))
-            if drawing not in best or version > best[drawing][0]:
-                best[drawing] = (version, os.path.join(folder, name))
-    return dict((drawing, path) for drawing, (_v, path) in best.items())
+            key = (version, name)
+            if drawing not in best or key > best[drawing][0]:
+                best[drawing] = (key, os.path.join(folder, name))
+    return dict((drawing, path) for drawing, (_key, path) in best.items())
 
 
 class _Text(object):

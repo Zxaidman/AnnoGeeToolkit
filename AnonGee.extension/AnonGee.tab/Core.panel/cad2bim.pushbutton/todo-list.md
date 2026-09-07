@@ -8,9 +8,13 @@ Nothing is deleted to make the list look shorter.
 file before it is built, argued about, or written into any other document. Standing instruction
 from the project owner, and it is what keeps this list the queue rather than a summary of one.
 
-Current build: **v0.96.1** (branch `claude/cad2bim`). 1197 unit tests, 3 regression legs green
+Current build: **v0.96.2** (branch `claude/cad2bim`). 1198 unit tests, 3 regression legs green
 over 31 archived exports, 22 fixture drawings and 7 storey stacks — counted off the corpora by the
-gate itself, which is how the old hand-typed 29/17/4 was caught (WORK-21, DONE-130). The branch also carries the rc-automation merge and the 1.26.1
+gate itself, which is how the old hand-typed 29/17/4 was caught (WORK-21, DONE-130). The storey
+baseline was re-blessed for test10 alone: the owner's 0.95.0 export is a later revision of that
+drawing, carrying a **Refuge Floor Level** where the 0.76.0 one ended on Roof. The old export still
+reproduces the old baseline exactly under this code, which is what attributes the move to the
+drawing rather than to the tool. The branch also carries the rc-automation merge and the 1.26.1
 extension identity. Longer records: `../../../../../task_plan.md`, `findings.md`, `progress.md` at the
 repository root.
 
