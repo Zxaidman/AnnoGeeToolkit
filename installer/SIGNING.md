@@ -2,7 +2,8 @@
 
 Pipeline milestone: **0.7.0**  
 Public-trust adoption: **Deferred**  
-Self-signed local validation: **Implemented; awaiting workstation proof**
+Self-signed certificate provisioning: **Proven on the Windows workstation**  
+Self-signed end-to-end signed build: **Awaiting workstation proof after verifier hardening**
 
 The 0.7.0 Authenticode path can be exercised end-to-end at no certificate cost using a self-signed development certificate. This validates SignTool discovery, SHA-256 signing, RFC 3161 timestamping, Inno Setup signing of Setup + uninstaller, and final Windows Authenticode verification.
 
@@ -20,20 +21,24 @@ py -3.12 .\installer\build_release.py
 
 ## Free local Authenticode validation
 
-AnonGee creates the development certificate with an explicit Windows certificate shape rather than depending on the `CodeSigningCert` shorthand:
+AnonGee creates the development certificate with an explicit Windows certificate shape:
 
 ```text
-Type            Custom
-Key usage       DigitalSignature
-Key property    Sign
+Type             Custom
+Key usage        DigitalSignature
 Code Signing EKU 1.3.6.1.5.5.7.3.3
-Key algorithm   RSA 3072
-Hash            SHA256
-Private key     Non-exportable
-Store           Cert:\CurrentUser\My
+Key algorithm    RSA 3072
+Hash             SHA256
+Private key      Non-exportable
+Store            Cert:\CurrentUser\My
 ```
 
-This follows Microsoft's documented package-signing certificate requirements: code-signing EKU plus Digital Signature key usage. The helper re-reads the certificate from the Windows certificate provider before validating it, so the same object shape is used on creation and reuse. If a newly created certificate still fails validation, the helper removes only that exact new certificate and reports its thumbprint, private-key state, expiration, and EKUs; it never deletes an existing certificate automatically.
+The helper and signed builder both validate the Code Signing EKU. Some PowerShell/certificate-provider combinations can leave the convenience property `EnhancedKeyUsageList` empty even when the certificate contains the correct X.509 extension. For that reason the current implementation also parses the persisted Enhanced Key Usage extension directly:
+
+```text
+X.509 extension OID  2.5.29.37
+Code Signing EKU     1.3.6.1.5.5.7.3.3
+```
 
 From the repository root:
 
@@ -46,8 +51,6 @@ $env:ANONGEE_SIGN_CERT_SHA1 = $cert.Thumbprint
 py -3.12 .\installer\build_signed_release.py `
     --allow-self-signed-test
 ```
-
-`-TrustForLocalVerification` imports only the public certificate into `Cert:\CurrentUser\Root`. Microsoft documents that a self-signed code-signing certificate used for local Authenticode verification must be trusted locally; this helper scopes that trust to the current Windows user. It does not make the publisher trusted on another PC and does not create SmartScreen reputation.
 
 Expected test outputs:
 
@@ -65,40 +68,91 @@ authenticode.local_windows_policy_verified = true
 authenticode.certificate.self_signed = true
 ```
 
-Before a self-signed build starts, it protects both production-named release records. If either of these already exists, the test build refuses to continue:
+Before a self-signed build starts, it protects both production-named release records. If either already exists, the test build refuses to continue:
 
 ```text
 installer\output\AnonGee-Setup-<product-version>.exe
 installer\output\release-manifest.json
 ```
 
-Archive or move the existing EXE **and** its manifest first. This prevents a local test from silently replacing any earlier artifact or evidence record that uses the same product version.
+Archive or move the existing EXE **and** its manifest first.
 
-## A previous helper attempt failed
+## Security warning during local trust
 
-An earlier helper revision used `-Type CodeSigningCert` and then checked the resulting EKU. On at least one Windows workstation that object did not satisfy the repository's explicit EKU contract. The current helper does not reuse such an invalid certificate: normal discovery filters it out and creates a new explicit Custom/DigitalSignature/Code-Signing-EKU certificate instead.
+`-TrustForLocalVerification` intentionally imports the **public certificate only** into:
 
-You do not need to delete the old invalid test certificate before retrying. After a successful run, inspect same-subject development certificates if you want to clean up stale test entries:
-
-```powershell
-Get-ChildItem Cert:\CurrentUser\My |
-    Where-Object { $_.Subject -eq "CN=AnonGee Toolkit Development" } |
-    Select-Object Subject, Thumbprint, NotAfter, HasPrivateKey, EnhancedKeyUsageList
+```text
+Cert:\CurrentUser\Root
 ```
 
-Only remove a stale certificate after confirming its thumbprint is **not** the one stored in `$cert.Thumbprint`.
+Windows therefore shows a security warning asking whether to trust a certification authority. For the AnonGee self-signed test, this warning is expected.
+
+Before choosing **Yes**, verify that:
+
+1. you just ran `create_test_signing_certificate.ps1`;
+2. the dialog says `AnonGee Toolkit Development`; and
+3. the thumbprint shown by Windows exactly matches the thumbprint printed by the helper.
+
+If the subject or thumbprint does not match, choose **No** and investigate. Never approve an unexpected root-certificate prompt.
+
+This trust is scoped to the current Windows user. It does not make AnonGee publicly trusted on other computers and does not create Microsoft SmartScreen reputation.
+
+## Where the self-signed key lives
+
+The self-signed signing identity is **not saved in this Git repository**.
+
+| Item | Location | Secret? | Stored in Git? |
+| --- | --- | --- | --- |
+| Private signing key | Windows certificate/key store behind `Cert:\CurrentUser\My` | **Yes** | **No** |
+| Signing certificate (public part) | `Cert:\CurrentUser\My` | No | No |
+| Trusted public copy for local verification | `Cert:\CurrentUser\Root` | No | No |
+| Thumbprint used by the builder | `$env:ANONGEE_SIGN_CERT_SHA1` for the current shell | No | No |
+| Temporary `.cer` used by the helper | Windows temporary directory, deleted after import | No | No |
+| Signing scripts and policy | `installer/` in this repository | No private key | Yes |
+| `test-signing-manifest.json` | `installer\output\` | Metadata only | Output is not a private key |
+
+The helper creates the private key with `KeyExportPolicy NonExportable` and never calls `Export-PfxCertificate`. The repository also ignores common private-key containers such as `.pfx`, `.p12`, `.pvk`, and `.key`.
+
+The environment variable contains only a certificate **thumbprint**. A thumbprint is an identifier, not a password and not a private key.
+
+Do not copy the Windows private-key material out of the user profile, do not try to commit it, and do not convert this development identity into a PFX for convenience.
+
+A public `.cer` certificate is not secret, but installing it into a Trusted Root store grants trust. Share/import it only when that trust is deliberate.
+
+## Inspect the development certificate
+
+```powershell
+$cert |
+    Select-Object `
+        Subject,
+        Issuer,
+        Thumbprint,
+        NotAfter,
+        HasPrivateKey,
+        EnhancedKeyUsageList
+```
+
+Expected characteristics:
+
+```text
+Subject             CN=AnonGee Toolkit Development
+Issuer              CN=AnonGee Toolkit Development
+HasPrivateKey       True
+EnhancedKeyUsage    Code Signing (1.3.6.1.5.5.7.3.3)
+```
 
 ## Remove the development certificate later
 
-Use the thumbprint printed by the provisioning script:
+Use the exact thumbprint printed by the provisioning script:
 
 ```powershell
 $thumb = "YOUR_40_CHARACTER_THUMBPRINT"
+
 Remove-Item "Cert:\CurrentUser\Root\$thumb" -ErrorAction SilentlyContinue
 Remove-Item "Cert:\CurrentUser\My\$thumb" -ErrorAction SilentlyContinue
 ```
 
-Removing the Trusted Root copy removes local trust. Removing the `My` copy also removes access to its private key.
+Removing the Trusted Root copy removes local trust. Removing the `My` copy also removes access to the development private key.
 
 ## Required tools
 
@@ -108,7 +162,7 @@ Removing the Trusted Root copy removes local trust. Removing the `My` copy also 
 - a Code Signing certificate in `Cert:\CurrentUser\My` or `Cert:\LocalMachine\My`
 - network access to an RFC 3161 timestamp server
 
-The current work machine already has Windows SDK SignTool copies including the x64 build under the normal SDK layout. The pipeline automatically searches the SDK and prefers the newest available `x64\signtool.exe`:
+The pipeline automatically searches the Windows SDK and prefers the newest available `x64\signtool.exe`:
 
 ```text
 C:\Program Files (x86)\Windows Kits\10\bin\<SDK-version>\x64\signtool.exe
@@ -130,15 +184,11 @@ Default timestamp endpoint:
 http://timestamp.digicert.com
 ```
 
-Override it with `--timestamp-url` or `ANONGEE_TIMESTAMP_URL` if necessary.
-
 The final Setup EXE is checked with:
 
 ```text
 signtool verify /pa /all /v
 ```
-
-A self-signed test certificate must therefore be trusted locally for this verification to pass.
 
 ## Private-key policy
 
@@ -146,14 +196,76 @@ Do **not** commit a PFX/P12/PVK/private key to Git.
 
 `.gitignore` blocks common private signing-key containers and `installer/signing/private/`. The self-signed helper uses `-KeyExportPolicy NonExportable` and does not call `Export-PfxCertificate`.
 
-The formal workflow selects a certificate from the Windows certificate store by SHA-1 thumbprint. This also supports future hardware-backed/non-exportable production identities without changing installer signing commands.
+The formal workflow currently selects a certificate from the Windows certificate store by SHA-1 thumbprint. This supports hardware-backed/non-exportable certificates exposed through the Windows certificate provider. A future managed signing service can be integrated behind a provider-specific signing adapter without weakening the rest of the release-verification contract.
 
 ## Formal signed release — future
 
-When a real signing identity is provisioned:
+Do **not** reuse the self-signed development key for public production signing.
+
+A publicly trusted code-signing identity is not something AnonGee should generate locally and then make public. The secure process is:
+
+1. choose a publicly trusted code-signing CA or managed signing service;
+2. complete the provider's individual/organization identity validation;
+3. generate and keep the production private key inside approved hardware/HSM-backed protection, or let the managed service generate and retain it;
+4. receive/use the public Code Signing certificate or certificate profile issued for that protected key;
+5. grant signing access only to the release identity/operator;
+6. sign a clean, versioned release;
+7. RFC 3161 timestamp the signature;
+8. verify the final artifact and record the evidence in the release manifest.
+
+Current CA/Browser Forum Code Signing Baseline Requirements require publicly trusted subscriber private keys issued since June 1, 2023 to be generated, stored, and used in a qualifying Hardware Crypto Module, compliant cloud HSM solution, or compliant Signing Service. For Code Signing certificates issued on or after March 1, 2026, the certificate validity period must not exceed 460 days.
+
+Official requirements:
+- CA/Browser Forum Code Signing Baseline Requirements: https://cabforum.org/working-groups/code-signing/requirements/
+- Microsoft SignTool: https://learn.microsoft.com/windows/win32/seccrypto/signtool
+
+### Preferred future option: managed signing service
+
+For a sole developer, a managed signing service is usually the simpler security model because the production private key never needs to live on the development PC.
+
+Microsoft Artifact Signing is one such managed service. Microsoft states that it provides certificate lifecycle management with keys protected in FIPS 140-3 Level 3 HSMs, identity validation, certificate profiles, access control through Azure, and public/private/test signing scenarios.
+
+Official Microsoft references:
+- Overview: https://learn.microsoft.com/azure/artifact-signing/overview
+- Setup quickstart: https://learn.microsoft.com/azure/artifact-signing/quickstart
+
+Public Trust availability and identity eligibility vary by region/entity and can change, so re-check current Microsoft eligibility before choosing this provider.
+
+A secure managed-service setup should use:
+
+- MFA on the account that administers signing;
+- least-privilege signing roles;
+- a dedicated release identity rather than day-to-day broad administrator access;
+- audit logging for signing and configuration changes;
+- no long-lived signing secrets in the repository;
+- release signing only from clean/tagged source;
+- final signature verification and manifest evidence.
+
+### Alternative future option: public CA + hardware token/HSM
+
+A traditional public code-signing CA may issue the certificate for a private key protected by a compliant USB hardware token, smart card, local HSM, or provider-backed cloud HSM/signing service.
+
+For this route:
+
+- use the CA/provider-supported key-generation flow;
+- ensure the private key is generated inside the approved device/service;
+- do not export the production private key to a `.pfx`;
+- protect token PINs/recovery credentials separately;
+- keep a physical token disconnected except during an intentional signing session where practical;
+- enable MFA/audit controls when the provider supports them;
+- document revocation contacts/procedure before the first public release.
+
+The exact provider, price, identity requirements, and hardware model should be selected when public distribution is actually needed because those details change over time.
+
+## Future AnonGee production-signing integration
+
+When the public identity is provisioned, do a **test-only integration first**.
+
+For a production certificate exposed through the Windows certificate store:
 
 ```powershell
 $env:ANONGEE_SIGN_CERT_SHA1 = "YOUR_40_CHARACTER_CERTIFICATE_THUMBPRINT"
+
 py -3.12 .\installer\build_signed_release.py
 ```
 
@@ -163,7 +275,9 @@ The certificate must have a private key and the Code Signing EKU:
 1.3.6.1.5.5.7.3.3
 ```
 
-The formal path rejects a self-signed certificate. It signs both Setup and Inno's embedded uninstaller, timestamps them, verifies the resulting Setup with Windows Authenticode policy, and only then promotes the manifest as release-ready.
+If the chosen managed signing service does not expose a local Windows-store certificate, add a dedicated signing backend/adapter rather than exporting or weakening the provider's protected key model.
+
+The formal path signs both Setup and Inno's embedded uninstaller, timestamps them, verifies the resulting Setup with Windows Authenticode policy, and only then promotes the manifest as release-ready.
 
 ## Manifest contract
 
@@ -184,4 +298,4 @@ Self-signed test mode can never set `release_ready: true`.
 
 The repository can create a **development self-signed identity**, but it does not create or distribute a **publicly trusted code-signing identity**. Self-signed certificates are suitable only for controlled local/internal validation where the receiving machine explicitly trusts that certificate.
 
-For future external distribution, obtain an appropriate Code Signing certificate or supported managed signing service from a trusted provider, then configure its identity for the existing formal pipeline.
+For future external distribution, obtain an appropriate publicly trusted Code Signing certificate or supported managed signing service from a trusted provider, then configure its protected identity for the existing formal pipeline.

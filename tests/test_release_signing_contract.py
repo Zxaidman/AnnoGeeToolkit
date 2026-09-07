@@ -100,6 +100,13 @@ class SigningContractTests(unittest.TestCase):
         self.assertIn("test-signing-manifest.json", self.signed)
         self.assertIn("Release ready: NO", main)
 
+    def test_builder_parses_raw_eku_extension_when_host_property_is_empty(self):
+        body = _function(self.signed, "verify_certificate")
+        self.assertIn("Oid.Value -eq '2.5.29.37'", body)
+        self.assertIn("X509EnhancedKeyUsageExtension", body)
+        self.assertIn("EnhancedKeyUsages", body)
+        self.assertIn("certificate is not valid for Code Signing; EKUs=", body)
+
     def test_test_certificate_helper_uses_explicit_code_signing_shape(self):
         for token in (
             "New-SelfSignedCertificate",
@@ -155,10 +162,19 @@ class SigningContractTests(unittest.TestCase):
     def test_docs_keep_public_trust_deferred(self):
         lowered = self.docs.lower()
         self.assertIn("public-trust adoption: **deferred**", lowered)
-        self.assertIn("self-signed local validation", lowered)
+        self.assertIn("self-signed", lowered)
         self.assertIn("release_ready: false", lowered)
         self.assertIn("does not create or distribute a **publicly trusted", lowered)
         self.assertIn("installer\\build_release.py", lowered)
+
+    def test_docs_explain_key_storage_and_future_public_signing(self):
+        lowered = self.docs.lower()
+        self.assertIn("where the self-signed key lives", lowered)
+        self.assertIn("private signing key", lowered)
+        self.assertIn("not saved in this git repository", lowered)
+        self.assertIn("hardware crypto module", lowered)
+        self.assertIn("managed signing service", lowered)
+        self.assertIn("do not reuse the self-signed development key", lowered)
 
 
 if __name__ == "__main__":

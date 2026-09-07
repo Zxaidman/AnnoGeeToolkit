@@ -154,13 +154,26 @@ def verify_certificate(thumbprint: str, machine_store: bool) -> Dict[str, object
     location = "LocalMachine" if machine_store else "CurrentUser"
     cert_path = "Cert:\\{}\\My\\{}".format(location, thumbprint)
 
+    # EnhancedKeyUsageList is a convenience property and has proven host-sensitive
+    # on a real workstation. If it is empty, validate the persisted X.509 EKU
+    # extension (OID 2.5.29.37) directly before rejecting the certificate.
     script = (
         "$ErrorActionPreference='Stop';"
         "$c=Get-Item -LiteralPath '{path}';"
         "if(-not $c.HasPrivateKey){{throw 'certificate has no private key'}};"
         "if($c.NotAfter -le (Get-Date)){{throw 'certificate is expired'}};"
         "$ekus=@($c.EnhancedKeyUsageList | ForEach-Object {{$_.ObjectId.Value}});"
-        "if($ekus -notcontains '{eku}'){{throw 'certificate is not valid for Code Signing'}};"
+        "if($ekus -notcontains '{eku}'){{"
+        "$raw=@($c.Extensions | Where-Object {{$_.Oid.Value -eq '2.5.29.37'}} | Select-Object -First 1);"
+        "if($raw){{"
+        "$x=New-Object System.Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension;"
+        "$x.CopyFrom($raw);"
+        "$ekus=@($x.EnhancedKeyUsages | ForEach-Object {{$_.Value}})"
+        "}}"
+        "}};"
+        "if($ekus -notcontains '{eku}'){{"
+        "throw ('certificate is not valid for Code Signing; EKUs=' + (($ekus -join ',') -replace '^$','<none>'))"
+        "}};"
         "Write-Output $c.Subject;"
         "Write-Output $c.Issuer;"
         "Write-Output $c.NotAfter.ToUniversalTime().ToString('o');"
