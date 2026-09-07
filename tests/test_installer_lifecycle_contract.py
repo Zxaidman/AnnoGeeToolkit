@@ -6,6 +6,7 @@ import io
 import os
 import re
 import unittest
+import warnings
 
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -62,6 +63,18 @@ def _section(source, name):
     return source[start:] if next_section < 0 else source[start:next_section]
 
 
+def _function_like_inno(source, name):
+    marker = "function {}".format(name)
+    if marker not in source:
+        marker = "procedure {}".format(name)
+    start = source.index(marker)
+    next_function = source.find("\nfunction ", start + len(marker))
+    next_procedure = source.find("\nprocedure ", start + len(marker))
+    candidates = [value for value in (next_function, next_procedure) if value >= 0]
+    end = min(candidates) if candidates else len(source)
+    return source[start:end]
+
+
 class InstallerLifecycleContractTests(unittest.TestCase):
 
     @classmethod
@@ -70,6 +83,12 @@ class InstallerLifecycleContractTests(unittest.TestCase):
         cls.signed = _read(_SIGNED)
         cls.iss = _read(_ISS)
         cls.docs = _read(_LIFECYCLE)
+
+    def test_release_builders_compile_without_escape_warnings(self):
+        for source, path in ((self.base, _BASE), (self.signed, _SIGNED)):
+            with warnings.catch_warnings():
+                warnings.simplefilter("error", SyntaxWarning)
+                compile(source, path, "exec")
 
     def test_080_version_contract_is_aligned(self):
         self.assertEqual(_constant(self.base, "PIPELINE_VERSION"), "0.8.0")
@@ -144,7 +163,7 @@ class InstallerLifecycleContractTests(unittest.TestCase):
         self.assertIn("release readiness explicitly held by caller", body)
 
     def test_lifecycle_document_covers_all_required_scenarios(self):
-        lowered = self.docs.lower()
+        plain = self.docs.lower().replace("*", "").replace("`", "")
         for phrase in (
             "clean install",
             "same-candidate reinstall",
@@ -155,19 +174,7 @@ class InstallerLifecycleContractTests(unittest.TestCase):
             "release_ready = false",
             "workstation lifecycle qa pending",
         ):
-            self.assertIn(phrase, lowered)
-
-
-def _function_like_inno(source, name):
-    marker = "function {}".format(name)
-    if marker not in source:
-        marker = "procedure {}".format(name)
-    start = source.index(marker)
-    next_function = source.find("\nfunction ", start + len(marker))
-    next_procedure = source.find("\nprocedure ", start + len(marker))
-    candidates = [value for value in (next_function, next_procedure) if value >= 0]
-    end = min(candidates) if candidates else len(source)
-    return source[start:end]
+            self.assertIn(phrase, plain)
 
 
 if __name__ == "__main__":
