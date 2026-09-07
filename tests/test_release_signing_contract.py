@@ -1,21 +1,16 @@
 # -*- coding: utf-8 -*-
-"""Static release-signing contract for AnonGee pipeline 0.7.0.
-
-These tests deliberately avoid invoking SignTool or requiring a certificate.
-They protect the repository-level security and sequencing contract. The signed
-path is implemented but may remain dormant until a production signing identity
-is provisioned.
-"""
+"""Static release-signing contract for AnonGee pipeline milestone 0.7.0."""
 
 import ast
 import io
 import os
-import re
 import unittest
+import warnings
 
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _SIGNED = os.path.join(_ROOT, "installer", "build_signed_release.py")
+_TEST_CERT = os.path.join(_ROOT, "installer", "create_test_signing_certificate.ps1")
 _OVERLAY = os.path.join(_ROOT, "installer", "signing-authenticode.iss")
 _GITIGNORE = os.path.join(_ROOT, ".gitignore")
 _SIGNING_DOC = os.path.join(_ROOT, "installer", "SIGNING.md")
@@ -55,19 +50,25 @@ class SigningContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.signed = _read(_SIGNED)
+        cls.test_cert = _read(_TEST_CERT)
         cls.overlay = _read(_OVERLAY)
         cls.gitignore = _read(_GITIGNORE)
         cls.docs = _read(_SIGNING_DOC)
 
+    def test_signing_builder_compiles_without_escape_warnings(self):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", SyntaxWarning)
+            compile(self.signed, _SIGNED, "exec")
+
     def test_pipeline_and_manifest_schema_are_separately_versioned(self):
         self.assertEqual(_constant(self.signed, "PIPELINE_VERSION"), "0.7.0")
-        self.assertEqual(_constant(self.signed, "MANIFEST_SCHEMA_VERSION"), "1.2.0")
+        self.assertEqual(_constant(self.signed, "MANIFEST_SCHEMA_VERSION"), "1.3.0")
 
     def test_signing_uses_sha256_and_rfc3161_timestamping(self):
         body = _function(self.signed, "make_sign_command")
-        for token in ('"/fd"', '"SHA256"', '"/tr"', '"/td"'):
+        for token in ("sign /fd SHA256", "/tr {timestamp}", "/td SHA256"):
             self.assertIn(token, body)
-        self.assertNotIn('"/t"', body)
+        self.assertNotIn(" sign /t ", body)
 
     def test_final_setup_is_verified_with_windows_authenticode_policy(self):
         body = _function(self.signed, "verify_authenticode")
@@ -75,21 +76,46 @@ class SigningContractTests(unittest.TestCase):
             self.assertIn(token, body)
 
     def test_inno_signs_the_uninstaller_and_retries_transient_signing(self):
-        self.assertRegex(self.overlay, r"(?m)^SignTool=AnonGeeAuthenticode\s*$")
-        self.assertRegex(self.overlay, r"(?m)^SignedUninstaller=yes\s*$")
-        self.assertRegex(self.overlay, r"(?m)^SignToolRetryCount=3\s*$")
-        self.assertRegex(self.overlay, r"(?m)^SignToolRetryDelay=1000\s*$")
+        self.assertIn("SignTool=AnonGeeAuthenticode", self.overlay)
+        self.assertIn("SignedUninstaller=yes", self.overlay)
+        self.assertIn("SignToolRetryCount=3", self.overlay)
+        self.assertIn("SignToolRetryDelay=1000", self.overlay)
 
-    def test_release_manifest_is_promoted_only_after_signature_verification(self):
+    def test_manifest_changes_only_after_signature_verification(self):
         main = _function(self.signed, "main")
         verify_at = main.index("verify_authenticode(signtool, artifact)")
         upgrade_at = main.index("upgrade_manifest(")
         self.assertLess(verify_at, upgrade_at)
 
         upgrade = _function(self.signed, "upgrade_manifest")
-        self.assertIn('data["release_ready"] = True', upgrade)
-        before_upgrade = self.signed[:self.signed.index("def upgrade_manifest")]
-        self.assertNotIn('release_ready"] = True', before_upgrade)
+        self.assertIn('data["release_ready"] = not test_mode', upgrade)
+        self.assertIn('"signing_profile": "self-signed-test" if test_mode else "formal"',
+                      upgrade)
+
+    def test_self_signed_identity_requires_explicit_test_mode(self):
+        main = _function(self.signed, "main")
+        self.assertIn('certificate.get("self_signed") and not test_mode', main)
+        self.assertIn("--allow-self-signed-test", self.signed)
+        self.assertIn("SELF-SIGNED-TEST", self.signed)
+        self.assertIn("test-signing-manifest.json", self.signed)
+        self.assertIn("Release ready: NO", main)
+
+    def test_test_certificate_helper_keeps_private_key_non_exportable(self):
+        for token in (
+            "New-SelfSignedCertificate",
+            "CodeSigningCert",
+            "Cert:\\CurrentUser\\My",
+            "KeyExportPolicy NonExportable",
+            "HashAlgorithm SHA256",
+        ):
+            self.assertIn(token, self.test_cert)
+        self.assertNotIn("Export-PfxCertificate", self.test_cert)
+
+    def test_local_trust_is_explicit_and_current_user_only(self):
+        self.assertIn("[switch]$TrustForLocalVerification", self.test_cert)
+        self.assertIn("Cert:\\CurrentUser\\Root", self.test_cert)
+        self.assertIn("Import-Certificate", self.test_cert)
+        self.assertNotIn("Cert:\\LocalMachine\\Root", self.test_cert)
 
     def test_certificate_identity_is_by_thumbprint_not_committed_password(self):
         self.assertIn("ANONGEE_SIGN_CERT_SHA1", self.signed)
@@ -103,18 +129,13 @@ class SigningContractTests(unittest.TestCase):
                         "installer/signing/private/"):
             self.assertIn(pattern, self.gitignore)
 
-    def test_docs_do_not_claim_a_certificate_is_already_configured(self):
-        self.assertIn("do not create or distribute a publicly trusted code-signing identity",
-                      self.docs.lower())
-        self.assertIn("obtain an appropriate Code Signing certificate".lower(),
-                      self.docs.lower())
-
-    def test_signing_adoption_is_deferred_without_blocking_unsigned_builds(self):
+    def test_docs_keep_public_trust_deferred(self):
         lowered = self.docs.lower()
-        self.assertIn("adoption status: **implemented / deferred**", lowered)
-        self.assertIn("not a release blocker", lowered)
+        self.assertIn("public-trust adoption: **deferred**", lowered)
+        self.assertIn("self-signed local validation", lowered)
+        self.assertIn("release_ready: false", lowered)
+        self.assertIn("does not create or distribute a **publicly trusted", lowered)
         self.assertIn("installer\\build_release.py", lowered)
-        self.assertIn("having them installed does **not** by itself provide", lowered)
 
 
 if __name__ == "__main__":

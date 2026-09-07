@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""AnonGee Toolkit Authenticode release builder.
+r"""AnonGee Toolkit Authenticode release builder.
 
 Release Pipeline Version: 0.7.0
 
@@ -16,12 +16,17 @@ The difference is the Inno compile step:
         -> SignTool signs Setup AND Inno's embedded uninstaller
         -> RFC 3161 SHA-256 timestamp
         -> SignTool /pa verification of the resulting Setup EXE
-        -> release-manifest.json upgraded with Authenticode evidence
+        -> manifest upgraded with Authenticode evidence
 
 Private signing keys are never read from the repository. The default contract
 selects a code-signing certificate from the Windows CurrentUser\My certificate
 store by SHA-1 thumbprint. Hardware-backed/non-exportable keys work with that
 model and no PFX password appears in process arguments.
+
+A self-signed certificate is supported only with --allow-self-signed-test.
+That mode exercises the same signing, timestamping and verification plumbing,
+but its artifact is renamed SELF-SIGNED-TEST and its manifest is never marked
+release-ready. Public/company signing therefore remains a separate future gate.
 """
 
 from __future__ import annotations
@@ -40,11 +45,13 @@ import build_release as base
 
 
 PIPELINE_VERSION = "0.7.0"
-MANIFEST_SCHEMA_VERSION = "1.2.0"
+MANIFEST_SCHEMA_VERSION = "1.3.0"
 SIGN_TOOL_NAME = "AnonGeeAuthenticode"
 SIGNING_INCLUDE = "signing-authenticode.iss"
 DEFAULT_TIMESTAMP_URL = "http://timestamp.digicert.com"
 CODE_SIGNING_EKU = "1.3.6.1.5.5.7.3.3"
+TEST_ARTIFACT_SUFFIX = "-SELF-SIGNED-TEST"
+TEST_MANIFEST_NAME = "test-signing-manifest.json"
 
 
 class SigningError(base.ReleaseBuildError):
@@ -86,7 +93,6 @@ def candidate_signtool_paths(explicit: Optional[Path]) -> Sequence[Path]:
     if which:
         candidates.append(Path(which))
 
-    # Windows SDK: prefer the newest x64 SignTool available.
     sdk_candidates = []
     for env_name in ("ProgramFiles(x86)", "ProgramFiles"):
         root = os.environ.get(env_name)
@@ -96,7 +102,6 @@ def candidate_signtool_paths(explicit: Optional[Path]) -> Sequence[Path]:
         if not bin_root.is_dir():
             continue
         sdk_candidates.extend(bin_root.glob("*/x64/signtool.exe"))
-        # Older SDK layouts can expose x64 directly under bin.
         sdk_candidates.append(bin_root / "x64" / "signtool.exe")
 
     sdk_candidates = [path for path in sdk_candidates if path.is_file()]
@@ -138,16 +143,14 @@ def detect_signtool(explicit: Optional[Path]) -> Path:
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise SigningError("Could not execute SignTool: {}".format(found)) from exc
 
-    # SignTool commonly returns 0 or 1 for its help invocation depending on SDK
-    # build; proving it launched and printed its own name is the useful check.
     banner = (probe.stdout or "") + "\n" + (probe.stderr or "")
     if "signtool" not in banner.lower() and "sign tool" not in banner.lower():
         raise SigningError("Could not verify SignTool executable: {}".format(found))
     return found
 
 
-def verify_certificate(thumbprint: str, machine_store: bool) -> Dict[str, str]:
-    """Verify certificate existence, private key, and Code Signing EKU."""
+def verify_certificate(thumbprint: str, machine_store: bool) -> Dict[str, object]:
+    """Verify certificate existence, private key, validity, and Code Signing EKU."""
     location = "LocalMachine" if machine_store else "CurrentUser"
     cert_path = "Cert:\\{}\\My\\{}".format(location, thumbprint)
 
@@ -155,10 +158,13 @@ def verify_certificate(thumbprint: str, machine_store: bool) -> Dict[str, str]:
         "$ErrorActionPreference='Stop';"
         "$c=Get-Item -LiteralPath '{path}';"
         "if(-not $c.HasPrivateKey){{throw 'certificate has no private key'}};"
+        "if($c.NotAfter -le (Get-Date)){{throw 'certificate is expired'}};"
         "$ekus=@($c.EnhancedKeyUsageList | ForEach-Object {{$_.ObjectId.Value}});"
         "if($ekus -notcontains '{eku}'){{throw 'certificate is not valid for Code Signing'}};"
         "Write-Output $c.Subject;"
-        "Write-Output $c.NotAfter.ToUniversalTime().ToString('o')"
+        "Write-Output $c.Issuer;"
+        "Write-Output $c.NotAfter.ToUniversalTime().ToString('o');"
+        "Write-Output ([string]($c.Subject -eq $c.Issuer))"
     ).format(path=cert_path, eku=CODE_SIGNING_EKU)
 
     try:
@@ -187,7 +193,13 @@ def verify_certificate(thumbprint: str, machine_store: bool) -> Dict[str, str]:
         "store_name": "My",
         "thumbprint_sha1": thumbprint,
         "subject": lines[0] if lines else "",
-        "not_after_utc": lines[1] if len(lines) > 1 else "",
+        "issuer": lines[1] if len(lines) > 1 else "",
+        "not_after_utc": lines[2] if len(lines) > 2 else "",
+        "self_signed": (
+            lines[3].lower() == "true"
+            if len(lines) > 3
+            else bool(lines and len(lines) > 1 and lines[0] == lines[1])
+        ),
     }
 
 
@@ -199,8 +211,6 @@ def make_sign_command(
 ) -> str:
     """Command Inno invokes for every file it signs; $f is Inno's filename."""
     store_switch = "/sm " if machine_store else ""
-    # $q is Inno's quote placeholder. It avoids fragile nested Windows quoting
-    # when this command itself is passed as one ISCC command-line argument.
     return (
         "$q{tool}$q sign /fd SHA256 {store}/s My /sha1 {thumb} "
         "/tr {timestamp} /td SHA256 /d $qAnonGee Toolkit$q $f"
@@ -226,7 +236,6 @@ def compile_signed_inno(
         "--signtool={}={}".format(SIGN_TOOL_NAME, sign_command),
         str(iss_path),
     ]
-    # Never print the complete command if future signing backends add secrets.
     print("Compiler: {}".format(iscc))
     print("Signing overlay: {}".format(signing_include))
     result = subprocess.run(command, cwd=repo_root, check=False)
@@ -254,16 +263,25 @@ def verify_authenticode(signtool: Path, artifact: Path) -> None:
     print("[PASS] SignTool /pa verified the final Setup EXE.")
 
 
+def test_artifact_path(artifact: Path) -> Path:
+    return artifact.with_name(artifact.stem + TEST_ARTIFACT_SUFFIX + artifact.suffix)
+
+
 def upgrade_manifest(
     manifest_path: Path,
-    certificate: Dict[str, str],
+    artifact: Path,
+    certificate: Dict[str, object],
     signtool: Path,
     timestamp_url: str,
+    test_mode: bool,
 ) -> None:
     data = json.loads(base.read_text_compat(manifest_path))
     data["schema_version"] = MANIFEST_SCHEMA_VERSION
     data["release_pipeline_version"] = PIPELINE_VERSION
-    data["release_ready"] = True
+    data["release_ready"] = not test_mode
+    data["artifact"]["filename"] = artifact.name
+    data["artifact"]["size_bytes"] = artifact.stat().st_size
+    data["artifact"]["sha256"] = base.sha256_file(artifact)
     data["authenticode"] = {
         "signed": True,
         "setup_signature_verified": True,
@@ -272,6 +290,9 @@ def upgrade_manifest(
         "timestamp_digest": "SHA256",
         "timestamp_url": timestamp_url,
         "signtool_path": str(signtool),
+        "signing_profile": "self-signed-test" if test_mode else "formal",
+        "local_windows_policy_verified": True,
+        "public_trust_claimed": False if test_mode else None,
         "certificate": certificate,
     }
     manifest_path.write_text(
@@ -300,6 +321,14 @@ def parse_args() -> argparse.Namespace:
         help="Use LocalMachine\\My instead of the default CurrentUser\\My store.",
     )
     parser.add_argument(
+        "--allow-self-signed-test",
+        action="store_true",
+        help=(
+            "Allow a self-signed certificate for local pipeline validation. "
+            "The result is clearly renamed and release_ready stays false."
+        ),
+    )
+    parser.add_argument(
         "--timestamp-url",
         default=os.environ.get("ANONGEE_TIMESTAMP_URL", DEFAULT_TIMESTAMP_URL),
         help="RFC 3161 timestamp server URL.",
@@ -320,6 +349,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     manifest_path = None
+    test_artifact = None
 
     try:
         base.ensure_windows_x64()
@@ -364,6 +394,18 @@ def main() -> int:
             certificate.get("subject") or thumbprint
         ))
 
+        test_mode = bool(args.allow_self_signed_test)
+        if certificate.get("self_signed") and not test_mode:
+            raise SigningError(
+                "The selected certificate is self-signed. Formal signed releases "
+                "reject self-signed identities. Re-run with --allow-self-signed-test "
+                "only for local validation, or configure a trusted signing identity."
+            )
+
+        if test_mode:
+            print("[TEST] Self-signed/local validation mode.")
+            print("[TEST] This artifact will NOT be marked release-ready.")
+
         timestamp_url = (args.timestamp_url or "").strip()
         if not timestamp_url.lower().startswith(("http://", "https://")):
             raise SigningError("Timestamp URL must start with http:// or https://")
@@ -374,11 +416,19 @@ def main() -> int:
             installer["product_version"]
         )
         manifest_path = output_dir / "release-manifest.json"
+
+        if test_mode and output_path.exists():
+            raise SigningError(
+                "Self-signed test build refuses to overwrite the production-named "
+                "artifact already present at {}. Move/archive that file first; the "
+                "test build will be renamed with {} after verification."
+                .format(output_path, TEST_ARTIFACT_SUFFIX)
+            )
+
         for generated in (output_path, manifest_path):
             if generated.exists():
                 generated.unlink()
 
-        # Reuse the proven payload builder in formal clean mode.
         base.run_payload_builder(repo_root, True)
 
         sign_command = make_sign_command(
@@ -407,20 +457,49 @@ def main() -> int:
         )
 
         verify_authenticode(signtool, artifact)
-        upgrade_manifest(manifest_path, certificate, signtool, timestamp_url)
+
+        if test_mode:
+            test_artifact = test_artifact_path(artifact)
+            if test_artifact.exists():
+                test_artifact.unlink()
+            artifact.replace(test_artifact)
+            artifact = test_artifact
+
+        upgrade_manifest(
+            manifest_path,
+            artifact,
+            certificate,
+            signtool,
+            timestamp_url,
+            test_mode,
+        )
+
+        if test_mode:
+            test_manifest = output_dir / TEST_MANIFEST_NAME
+            if test_manifest.exists():
+                test_manifest.unlink()
+            manifest_path.replace(test_manifest)
+            manifest_path = test_manifest
 
         print("[PASS] Signed manifest: {}".format(manifest_path))
-        print("[PASS] Release ready: YES — Authenticode verified")
-        print("\n=== SIGNED RELEASE BUILD PASSED ===")
+        if test_mode:
+            print("[PASS] Release ready: NO — self-signed local test only")
+            print("[PASS] Test artifact: {}".format(artifact))
+            print("\n=== SELF-SIGNED SIGNING VALIDATION PASSED ===")
+        else:
+            print("[PASS] Release ready: YES — Authenticode verified")
+            print("\n=== SIGNED RELEASE BUILD PASSED ===")
         return 0
 
     except base.ReleaseBuildError as exc:
-        # base.verify_output writes a 0.6 manifest before signature verification.
-        # A failed 0.7 verification must not leave that intermediate record
-        # looking like a certified signed release.
         if manifest_path is not None and manifest_path.exists():
             try:
                 manifest_path.unlink()
+            except OSError:
+                pass
+        if test_artifact is not None and test_artifact.exists():
+            try:
+                test_artifact.unlink()
             except OSError:
                 pass
         print("\n[FAIL] {}".format(exc), file=sys.stderr)
@@ -429,6 +508,11 @@ def main() -> int:
         if manifest_path is not None and manifest_path.exists():
             try:
                 manifest_path.unlink()
+            except OSError:
+                pass
+        if test_artifact is not None and test_artifact.exists():
+            try:
+                test_artifact.unlink()
             except OSError:
                 pass
         print("\n[FAIL] Build cancelled by user.", file=sys.stderr)
