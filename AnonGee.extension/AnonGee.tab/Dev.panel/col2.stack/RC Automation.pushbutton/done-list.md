@@ -169,7 +169,7 @@ decides where one set ends.
 
 For the sample's five-sided pad:
 
-```
+```Text
 B1X  up to 3000   15 bars   plain set
 B1X  from 3000     6 bars   varying set
 B2Y  up to 2250    7 bars   varying set
