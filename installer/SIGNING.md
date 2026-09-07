@@ -1,15 +1,45 @@
 # AnonGee Authenticode Signing
 
-Pipeline milestone: **0.7.0**  
+Pipeline milestone: **0.7.0 — workstation-proven**  
 Public-trust adoption: **Deferred**  
 Self-signed certificate provisioning: **Proven on the Windows workstation**  
-Self-signed end-to-end signed build: **Awaiting workstation proof after verifier hardening**
+Self-signed end-to-end signed build: **Passed on the Windows workstation (2026-09-07)**
 
 The 0.7.0 Authenticode path can be exercised end-to-end at no certificate cost using a self-signed development certificate. This validates SignTool discovery, SHA-256 signing, RFC 3161 timestamping, Inno Setup signing of Setup + uninstaller, and final Windows Authenticode verification.
 
 A self-signed build is **not** a public release. The pipeline marks it `release_ready: false`, renames the EXE with `-SELF-SIGNED-TEST`, and writes `test-signing-manifest.json`. A self-signed identity is rejected by the formal signed-release path unless `--allow-self-signed-test` is explicitly supplied.
 
 Public/company signing remains deferred until a publicly trusted code-signing certificate or managed signing service is financially justified.
+
+## Workstation proof
+
+The free/self-signed 0.7.0 path was proven end to end on the Windows development workstation on 2026-09-07.
+
+Observed gates:
+
+```text
+Signing contract tests                         PASS
+Inno Setup 7 compile                           PASS
+Windows SDK x64 SignTool discovery             PASS
+Self-signed Code Signing certificate           PASS
+SHA-256 Authenticode signing                   PASS
+RFC 3161 timestamping                          PASS
+Inno Setup + embedded uninstaller signing      PASS
+signtool verify /pa /all /v                    PASS
+Final self-signed test manifest                release_ready = false
+```
+
+Observed test artifact:
+
+```text
+AnonGee-Setup-1.26.1-SELF-SIGNED-TEST.exe
+Size:    110.74 MiB
+SHA-256: f309f75d09ba2bc3a8ee1c613b733642cba4cf74e62da9e660c2afdd355a4395
+```
+
+That hash identifies only this self-signed validation artifact. It is **not** the historical official `1.26.1` release artifact and must not be published as one.
+
+During the signed wrapper run, the reused base 0.6 release verifier may print an intermediate `Release ready: YES` for its temporary production-named artifact. The signed-test wrapper then verifies Authenticode, renames the artifact, rewrites the manifest as `test-signing-manifest.json`, and the **final authoritative state is `release_ready: false`**. A self-signed test must never be treated as a public release.
 
 ## Normal unsigned release
 
