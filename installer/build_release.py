@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """AnonGee Toolkit one-command Windows release builder.
 
-Release Pipeline Version: 0.6.0
+Release Pipeline Version: 0.8.0
 
 The release builder owns release-candidate validation around the already-proven
 payload builder and Inno Setup script:
@@ -13,6 +13,11 @@ payload builder and Inno Setup script:
         -> Inno Setup 7 command-line compiler (ISCC.exe)
         -> installer/output/AnonGee-Setup-<version>.exe
         -> installer/output/release-manifest.json
+
+Milestone 0.8.0 adds lifecycle/release-identity safety around upgrades and
+reinstalls. A formal release must advance beyond the last published product
+version, and callers can explicitly hold release readiness while later gates
+(such as Authenticode verification) are still pending.
 
 It deliberately does not rebuild Python dependencies and does not download
 third-party prerequisites. Dirty-source builds require an explicit development
@@ -35,9 +40,10 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Sequence, Tuple
 
 
-PIPELINE_VERSION = "0.6.0"
-MANIFEST_SCHEMA_VERSION = "1.1.0"
-EXPECTED_INSTALLER_MILESTONE = "0.6.0"
+PIPELINE_VERSION = "0.8.0"
+MANIFEST_SCHEMA_VERSION = "1.2.0"
+EXPECTED_INSTALLER_MILESTONE = "0.8.0"
+LAST_PUBLISHED_PRODUCT_VERSION = "1.26.1"
 EXPECTED_INNO_MAJOR = 7
 EXPECTED_MIN_PYREVIT_VERSION = "6.1.0"
 EXPECTED_PYREVIT_COMPATIBILITY_VERSION = "6.5.5"
@@ -91,6 +97,12 @@ def require_semver(value: str, label: str) -> str:
             )
         )
     return value
+
+
+def semver_tuple(value: str) -> Tuple[int, int, int]:
+    require_semver(value, "version")
+    major, minor, patch = value.split(".")
+    return int(major), int(minor), int(patch)
 
 
 def find_repo_root(script_path: Path) -> Path:
@@ -159,13 +171,13 @@ def verify_source_state(
 
     if changed_entries and not allow_dirty:
         raise ReleaseBuildError(
-            "Release source is not clean. A normal 0.6.0 release build refuses "
+            "Release source is not clean. A normal {} release build refuses "
             "uncommitted or untracked source changes.\n\n"
             "Changed entries:\n- {}\n\n"
             "Commit, stash, or restore these changes first. Use --allow-dirty "
             "only for an intentional development build; such an artifact is "
             "marked non-release-ready."
-            .format("\n- ".join(changed_entries))
+            .format(PIPELINE_VERSION, "\n- ".join(changed_entries))
         )
 
     return branch, commit, changed_entries
@@ -282,6 +294,8 @@ def parse_iss_contract(iss_path: Path) -> Dict[str, str]:
 def verify_release_identity(
     extension: Dict[str, str],
     installer: Dict[str, str],
+    *,
+    allow_published_version: bool = False,
 ) -> None:
     if extension["version"] != installer["product_version"]:
         raise ReleaseBuildError(
@@ -289,6 +303,18 @@ def verify_release_identity(
             "AnonGee.iss MyAppVersion {}.".format(
                 extension["version"], installer["product_version"]
             )
+        )
+
+    if (
+        not allow_published_version
+        and semver_tuple(extension["version"])
+        <= semver_tuple(LAST_PUBLISHED_PRODUCT_VERSION)
+    ):
+        raise ReleaseBuildError(
+            "Formal release product version {} is not newer than the last published "
+            "AnonGee product version {}. Bump extension.json, CHANGELOG.md and "
+            "AnonGee.iss together before producing another production-named binary."
+            .format(extension["version"], LAST_PUBLISHED_PRODUCT_VERSION)
         )
 
 
@@ -440,6 +466,8 @@ def verify_output(
     initial_source: Tuple[str, str, Tuple[str, ...]],
     *,
     allow_dirty: bool,
+    release_ready_override: Optional[bool] = None,
+    release_ready_reason: Optional[str] = None,
 ) -> Path:
     print("\n=== 3/3 VERIFY RELEASE ARTIFACT ===")
     installer_dir = repo_root / "installer"
@@ -471,13 +499,27 @@ def verify_output(
         raise ReleaseBuildError("Internal error: dirty source reached release verification.")
 
     payload_manifest = load_payload_manifest(installer_dir)
-    release_ready = not bool(changed_entries)
+    source_clean = not bool(changed_entries)
+
+    if release_ready_override is None:
+        release_ready = source_clean
+        if release_ready_reason is None:
+            release_ready_reason = (
+                "clean source and unsigned release verification passed"
+                if source_clean
+                else "dirty development build"
+            )
+    else:
+        release_ready = source_clean and bool(release_ready_override)
+        if release_ready_reason is None:
+            release_ready_reason = "release readiness explicitly held by caller"
 
     manifest = {
         "schema_version": MANIFEST_SCHEMA_VERSION,
         "release_pipeline_version": PIPELINE_VERSION,
         "built_at_utc": datetime.now(timezone.utc).isoformat(),
         "release_ready": release_ready,
+        "release_readiness_reason": release_ready_reason,
         "product": {
             "name": "AnonGee Toolkit",
             "version": installer["product_version"],
@@ -523,7 +565,10 @@ def verify_output(
     print("[PASS] Size:          {}".format(format_bytes(size)))
     print("[PASS] SHA-256:       {}".format(digest))
     print("[PASS] Manifest:      {}".format(manifest_path))
-    print("[PASS] Release ready: {}".format("YES" if release_ready else "NO (dirty development build)"))
+    if release_ready:
+        print("[PASS] Release ready: YES")
+    else:
+        print("[PASS] Release ready: NO ({})".format(release_ready_reason))
     return output_path
 
 

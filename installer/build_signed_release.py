@@ -1,14 +1,16 @@
 # -*- coding: utf-8 -*-
 r"""AnonGee Toolkit Authenticode release builder.
 
-Release Pipeline Version: 0.7.0
+Release Pipeline Version: 0.8.0
 
-This is a thin signed-release layer over the proven 0.6.0 build_release.py
-pipeline. It intentionally reuses the existing identity, source-cleanliness,
-payload, prerequisite, compiler and manifest checks instead of duplicating
-those rules.
+The Authenticode capability was introduced and workstation-proven in milestone
+0.7.0. The current 0.8.0 wrapper integrates that signing path with the 0.8.0
+lifecycle/release-identity contract from build_release.py.
 
-The difference is the Inno compile step:
+It intentionally reuses the existing identity, source-cleanliness, payload,
+prerequisite, compiler and manifest checks instead of duplicating those rules.
+
+The signed path is:
 
     clean source
         -> build_payload.py
@@ -44,8 +46,8 @@ from typing import Dict, Optional, Sequence, Tuple
 import build_release as base
 
 
-PIPELINE_VERSION = "0.7.0"
-MANIFEST_SCHEMA_VERSION = "1.3.0"
+PIPELINE_VERSION = "0.8.0"
+MANIFEST_SCHEMA_VERSION = "1.4.0"
 SIGN_TOOL_NAME = "AnonGeeAuthenticode"
 SIGNING_INCLUDE = "signing-authenticode.iss"
 DEFAULT_TIMESTAMP_URL = "http://timestamp.digicert.com"
@@ -292,6 +294,11 @@ def upgrade_manifest(
     data["schema_version"] = MANIFEST_SCHEMA_VERSION
     data["release_pipeline_version"] = PIPELINE_VERSION
     data["release_ready"] = not test_mode
+    data["release_readiness_reason"] = (
+        "self-signed local test only"
+        if test_mode
+        else "Authenticode signature and release verification passed"
+    )
     data["artifact"]["filename"] = artifact.name
     data["artifact"]["size_bytes"] = artifact.stat().st_size
     data["artifact"]["sha256"] = base.sha256_file(artifact)
@@ -361,6 +368,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    test_mode = bool(args.allow_self_signed_test)
     manifest_path = None
     test_artifact = None
 
@@ -385,7 +393,11 @@ def main() -> int:
 
         extension = base.load_extension_contract(repo_root)
         installer = base.parse_iss_contract(iss_path)
-        base.verify_release_identity(extension, installer)
+        base.verify_release_identity(
+            extension,
+            installer,
+            allow_published_version=test_mode,
+        )
         print("[PASS] Release identity: {} {}".format(
             extension["name"], extension["version"]
         ))
@@ -407,7 +419,6 @@ def main() -> int:
             certificate.get("subject") or thumbprint
         ))
 
-        test_mode = bool(args.allow_self_signed_test)
         if certificate.get("self_signed") and not test_mode:
             raise SigningError(
                 "The selected certificate is self-signed. Formal signed releases "
@@ -471,6 +482,12 @@ def main() -> int:
             iscc_version,
             source_state,
             allow_dirty=False,
+            release_ready_override=False,
+            release_ready_reason=(
+                "self-signed local test only"
+                if test_mode
+                else "awaiting Authenticode verification"
+            ),
         )
 
         verify_authenticode(signtool, artifact)
