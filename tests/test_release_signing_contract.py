@@ -1,5 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Static release-signing contract for AnonGee pipeline milestone 0.7.0."""
+"""Static signing contract for the current AnonGee release pipeline 0.8.0.
+
+Authenticode was introduced in milestone 0.7.0; these tests pin its integration
+with the 0.8.0 lifecycle/release-identity pipeline.
+"""
 
 import ast
 import io
@@ -61,8 +65,8 @@ class SigningContractTests(unittest.TestCase):
             compile(self.signed, _SIGNED, "exec")
 
     def test_pipeline_and_manifest_schema_are_separately_versioned(self):
-        self.assertEqual(_constant(self.signed, "PIPELINE_VERSION"), "0.7.0")
-        self.assertEqual(_constant(self.signed, "MANIFEST_SCHEMA_VERSION"), "1.3.0")
+        self.assertEqual(_constant(self.signed, "PIPELINE_VERSION"), "0.8.0")
+        self.assertEqual(_constant(self.signed, "MANIFEST_SCHEMA_VERSION"), "1.4.0")
 
     def test_signing_uses_sha256_and_rfc3161_timestamping(self):
         body = _function(self.signed, "make_sign_command")
@@ -89,8 +93,21 @@ class SigningContractTests(unittest.TestCase):
 
         upgrade = _function(self.signed, "upgrade_manifest")
         self.assertIn('data["release_ready"] = not test_mode', upgrade)
+        self.assertIn('data["release_readiness_reason"]', upgrade)
+        self.assertIn("self-signed local test only", upgrade)
+        self.assertIn("Authenticode signature and release verification passed", upgrade)
         self.assertIn('"signing_profile": "self-signed-test" if test_mode else "formal"',
                       upgrade)
+
+    def test_signed_base_verification_never_claims_ready_before_signature(self):
+        main = _function(self.signed, "main")
+        self.assertIn("release_ready_override=False", main)
+        self.assertIn("awaiting Authenticode verification", main)
+        self.assertIn("self-signed local test only", main)
+        self.assertLess(
+            main.index("release_ready_override=False"),
+            main.index("verify_authenticode(signtool, artifact)"),
+        )
 
     def test_self_signed_identity_requires_explicit_test_mode(self):
         main = _function(self.signed, "main")
@@ -99,6 +116,12 @@ class SigningContractTests(unittest.TestCase):
         self.assertIn("SELF-SIGNED-TEST", self.signed)
         self.assertIn("test-signing-manifest.json", self.signed)
         self.assertIn("Release ready: NO", main)
+
+    def test_self_signed_test_may_reuse_published_version_only_as_test_artifact(self):
+        main = _function(self.signed, "main")
+        self.assertIn("allow_published_version=test_mode", main)
+        self.assertIn("test_mode = bool(args.allow_self_signed_test)", main)
+        self.assertIn("TEST_ARTIFACT_SUFFIX", self.signed)
 
     def test_builder_parses_raw_eku_extension_when_host_property_is_empty(self):
         body = _function(self.signed, "verify_certificate")
