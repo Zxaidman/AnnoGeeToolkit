@@ -1,59 +1,88 @@
 # AnonGee Authenticode Signing
 
-Pipeline version: **0.7.0**  
-Adoption status: **Implemented / Deferred**
+Pipeline milestone: **0.7.0**  
+Public-trust adoption: **Deferred**  
+Self-signed local validation: **Implemented; awaiting workstation proof**
 
-The Authenticode release path is implemented and retained in the repository, but it is **not a release blocker** for the current sole-developer deployment. Public signing adoption is deferred until AnonGee has a publicly trusted code-signing identity or supported managed signing service that is financially justified.
+The 0.7.0 Authenticode path can now be exercised end-to-end at no certificate cost using a self-signed development certificate. This validates SignTool discovery, SHA-256 signing, RFC 3161 timestamping, Inno Setup signing of Setup + uninstaller, and final Windows Authenticode verification.
 
-The normal unsigned release path remains:
+A self-signed build is **not** a public release. The pipeline marks it `release_ready: false`, renames the EXE with `-SELF-SIGNED-TEST`, and writes `test-signing-manifest.json`. A self-signed identity is rejected by the formal signed-release path unless `--allow-self-signed-test` is explicitly supplied.
+
+Public/company signing remains deferred until a publicly trusted code-signing certificate or managed signing service is financially justified.
+
+## Normal unsigned release
+
+The ordinary release builder does not require any certificate:
 
 ```powershell
 py -3.12 .\installer\build_release.py
 ```
 
-When public signing is adopted later, the existing signed path is:
+## Free local Authenticode validation
+
+Microsoft's `New-SelfSignedCertificate` supports a `CodeSigningCert` certificate type. AnonGee keeps the private key non-exportable in the current user's Windows certificate store and does not create a PFX.
+
+From the repository root:
 
 ```powershell
-py -3.12 .\installer\build_signed_release.py
+$cert = & .\installer\create_test_signing_certificate.ps1 `
+    -TrustForLocalVerification
+
+$env:ANONGEE_SIGN_CERT_SHA1 = $cert.Thumbprint
+
+py -3.12 .\installer\build_signed_release.py `
+    --allow-self-signed-test
 ```
 
-No production certificate is currently assumed or required by the repository. Do not produce or describe an artifact as a publicly trusted signed release unless the signed pipeline completes with a real Code Signing identity and final Authenticode verification.
+`-TrustForLocalVerification` imports only the public certificate into `Cert:\CurrentUser\Root`. That makes the self-signed test identity trusted **on this Windows user account**, which is required for `signtool verify /pa` to succeed. It does not make the publisher trusted on another PC and does not create SmartScreen reputation.
 
-## Why signing is separate
+Expected test outputs:
 
-A developer must be able to build and test AnonGee without possessing the production private key. Private signing material therefore does not belong in the repository and is not required by `build_release.py`.
+```text
+installer\output\AnonGee-Setup-<product-version>-SELF-SIGNED-TEST.exe
+installer\output\test-signing-manifest.json
+```
 
-`build_signed_release.py` is reserved for formal signed distributable builds once the signing identity is provisioned. Keeping it implemented now avoids rebuilding the release engineering later, while deferring the recurring or certificate cost until it is useful.
+The manifest must contain:
 
-## Required tools for the signed path
+```text
+release_ready = false
+authenticode.signing_profile = self-signed-test
+authenticode.local_windows_policy_verified = true
+authenticode.certificate.self_signed = true
+```
+
+If `installer\output\AnonGee-Setup-<product-version>.exe` already exists, the self-signed builder deliberately refuses to overwrite it. Archive/move the existing production-named artifact first. This prevents a test binary from silently replacing an earlier artifact with the same product version.
+
+## Remove the development certificate later
+
+Use the thumbprint printed by the provisioning script:
+
+```powershell
+$thumb = "YOUR_40_CHARACTER_THUMBPRINT"
+Remove-Item "Cert:\CurrentUser\Root\$thumb" -ErrorAction SilentlyContinue
+Remove-Item "Cert:\CurrentUser\My\$thumb" -ErrorAction SilentlyContinue
+```
+
+Removing the Trusted Root copy removes local trust. Removing the `My` copy also removes access to its private key.
+
+## Required tools
 
 - Windows x64
 - Inno Setup 7
 - Microsoft `SignTool.exe` from a current Windows SDK
-- A valid Code Signing certificate with its private key available in either:
-  - `Cert:\CurrentUser\My` (default), or
-  - `Cert:\LocalMachine\My` (`--machine-store`)
-- Network access to an RFC 3161 timestamp server
+- a Code Signing certificate in `Cert:\CurrentUser\My` or `Cert:\LocalMachine\My`
+- network access to an RFC 3161 timestamp server
 
-`SignTool.exe` and the Windows SDK are build tools; having them installed does **not** by itself provide a publicly trusted publisher identity. The current work machine already has the Windows SDK x64 SignTool available, so the deferred dependency is the signing identity rather than the executable.
-
-The pipeline automatically searches the Windows SDK and prefers the newest available `x64\signtool.exe`. A typical SDK installation looks like:
+The current work machine already has Windows SDK SignTool copies including the x64 build under the normal SDK layout. The pipeline automatically searches the SDK and prefers the newest available `x64\signtool.exe`:
 
 ```text
 C:\Program Files (x86)\Windows Kits\10\bin\<SDK-version>\x64\signtool.exe
 ```
 
-To inspect installed copies:
+The installed executable itself is free; public publisher trust is the deferred paid dependency.
 
-```powershell
-Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" `
-  -Filter signtool.exe `
-  -Recurse `
-  -ErrorAction SilentlyContinue |
-  Select-Object -ExpandProperty FullName
-```
-
-The pipeline uses:
+## Cryptographic contract
 
 ```text
 file digest      SHA256
@@ -61,139 +90,64 @@ timestamp mode   RFC 3161
 timestamp digest SHA256
 ```
 
-The default timestamp endpoint is:
+Default timestamp endpoint:
 
 ```text
 http://timestamp.digicert.com
 ```
 
-Override it with `--timestamp-url` or `ANONGEE_TIMESTAMP_URL` when your certificate provider or company requires another RFC 3161 endpoint.
+Override it with `--timestamp-url` or `ANONGEE_TIMESTAMP_URL` if necessary.
 
-## Private-key policy
-
-Do **not** commit a PFX/P12/PVK/private key to Git.
-
-`.gitignore` blocks common private signing-key containers and `installer/signing/private/`.
-
-The preferred release workflow uses the Windows certificate store by certificate thumbprint. This also supports certificates whose private keys are non-exportable or hardware-backed.
-
-## Find your certificate
-
-Current-user store:
-
-```powershell
-Get-ChildItem Cert:\CurrentUser\My |
-  Where-Object { $_.HasPrivateKey } |
-  Select-Object Subject, Thumbprint, NotAfter, EnhancedKeyUsageList
-```
-
-Machine store:
-
-```powershell
-Get-ChildItem Cert:\LocalMachine\My |
-  Where-Object { $_.HasPrivateKey } |
-  Select-Object Subject, Thumbprint, NotAfter, EnhancedKeyUsageList
-```
-
-The certificate must include the Code Signing EKU:
-
-```text
-1.3.6.1.5.5.7.3.3
-```
-
-## Configure the certificate
-
-For the current PowerShell session:
-
-```powershell
-$env:ANONGEE_SIGN_CERT_SHA1 = "YOUR_40_CHARACTER_CERTIFICATE_THUMBPRINT"
-```
-
-Optional timestamp override:
-
-```powershell
-$env:ANONGEE_TIMESTAMP_URL = "https://your-rfc3161-timestamp-server"
-```
-
-If the certificate is in `LocalMachine\My`:
-
-```powershell
-$env:ANONGEE_SIGN_MACHINE_STORE = "1"
-```
-
-## Build a signed release
-
-Only use this section after a real signing identity has been provisioned.
-
-From the repository root, with a clean Git worktree:
-
-```powershell
-py -3.12 .\installer\build_signed_release.py
-```
-
-Or pass the thumbprint explicitly:
-
-```powershell
-py -3.12 .\installer\build_signed_release.py `
-  --cert-sha1 "YOUR_40_CHARACTER_CERTIFICATE_THUMBPRINT"
-```
-
-If SignTool is not found automatically:
-
-```powershell
-py -3.12 .\installer\build_signed_release.py `
-  --cert-sha1 "YOUR_40_CHARACTER_CERTIFICATE_THUMBPRINT" `
-  --signtool "C:\Program Files (x86)\Windows Kits\10\bin\<SDK>\x64\signtool.exe"
-```
-
-## What the pipeline verifies
-
-Before compilation it reuses the complete 0.6.0 contract:
-
-- clean source state
-- aligned extension / changelog / Setup product version
-- minimum pyRevit metadata
-- pinned pyRevit prerequisite filename and SHA-256
-- Inno Setup 7
-- verified payload/native-runtime integrity
-
-0.7.0 additionally verifies:
-
-- Microsoft SignTool is available
-- the selected certificate exists in the requested Windows store
-- the certificate has a private key
-- the certificate has the Code Signing EKU
-- Inno invokes Authenticode signing during compilation
-- `SignedUninstaller=yes` is active through `signing-authenticode.iss`
-- the final Setup EXE passes:
+The final Setup EXE is checked with:
 
 ```text
 signtool verify /pa /all /v
 ```
 
-Only after that succeeds is `release-manifest.json` upgraded to schema 1.2.0 and marked with Authenticode evidence.
+A self-signed test certificate must therefore be in the local Trusted Root store for this verification to pass.
 
-## Manifest additions
+## Private-key policy
 
-A successful signed build records an `authenticode` object containing:
+Do **not** commit a PFX/P12/PVK/private key to Git.
 
-- certificate subject
-- certificate SHA-1 thumbprint
-- certificate store location
-- certificate expiration time
-- SignTool path
-- SHA-256 file digest
-- RFC 3161 timestamp URL
-- SHA-256 timestamp digest
-- final Setup signature verification status
-- confirmation that Inno was asked to sign its uninstaller
+`.gitignore` blocks common private signing-key containers and `installer/signing/private/`. The self-signed helper uses `-KeyExportPolicy NonExportable` and does not call `Export-PfxCertificate`.
 
-The Setup EXE's SHA-256 in the manifest is the hash of the **already-signed and timestamped** artifact.
+The formal workflow selects a certificate from the Windows certificate store by SHA-1 thumbprint. This also supports future hardware-backed/non-exportable production identities without changing installer signing commands.
 
-## Certificate acquisition
+## Formal signed release — future
 
-The repository and build scripts do not create or distribute a publicly trusted code-signing identity. For public/company distribution, obtain an appropriate Code Signing certificate or supported managed signing service from a trusted provider, then configure its signing identity for this pipeline.
+When a real signing identity is provisioned:
 
-Self-signed certificates are useful only for controlled internal testing where the receiving machines explicitly trust your test certificate. They do not provide normal public Windows publisher trust or SmartScreen reputation.
+```powershell
+$env:ANONGEE_SIGN_CERT_SHA1 = "YOUR_40_CHARACTER_CERTIFICATE_THUMBPRINT"
+py -3.12 .\installer\build_signed_release.py
+```
 
-Until that purchase/provisioning is justified, keep using the unsigned release pipeline and leave the 0.7.0 signed path dormant but maintained.
+The certificate must have a private key and the Code Signing EKU:
+
+```text
+1.3.6.1.5.5.7.3.3
+```
+
+The formal path rejects a self-signed certificate. It signs both Setup and Inno's embedded uninstaller, timestamps them, verifies the resulting Setup with Windows Authenticode policy, and only then promotes the manifest as release-ready.
+
+## Manifest contract
+
+Signing manifest schema is **1.3.0**. Authenticode evidence records:
+
+- certificate subject, issuer, SHA-1 thumbprint, store and expiration;
+- whether the certificate is self-signed;
+- SignTool path;
+- SHA-256 file digest;
+- RFC 3161 timestamp URL and SHA-256 timestamp digest;
+- final Setup signature verification;
+- confirmation that Inno was asked to sign its uninstaller;
+- signing profile (`self-signed-test` or `formal`).
+
+Self-signed test mode can never set `release_ready: true`.
+
+## Public trust remains deferred
+
+The repository can create a **development self-signed identity**, but it does not create or distribute a **publicly trusted code-signing identity**. Self-signed certificates are suitable only for controlled local/internal validation where the receiving machine explicitly trusts that certificate.
+
+For future external distribution, obtain an appropriate Code Signing certificate or supported managed signing service from a trusted provider, then configure its identity for the existing formal pipeline.
