@@ -5,7 +5,7 @@ Current integrated release pipeline: **0.8.0**
 Current signed manifest schema: **1.4.0**  
 Public-trust adoption: **Deferred**  
 Self-signed certificate provisioning: **Proven on the Windows workstation**  
-Self-signed end-to-end signed build: **Passed on the Windows workstation (2026-09-07)**
+Self-signed end-to-end signed build: **Passed for product 2.0.0 on the Windows workstation (2026-09-08)**
 
 The Authenticode capability was introduced and proven in 0.7.0. Release pipeline 0.8.0 keeps the same signing, timestamping, and verification contract and adds lifecycle/version safety around it.
 
@@ -49,6 +49,18 @@ Size:    110.74 MiB
 SHA-256: 5f94ec9c9e4bdfcc7162500737fa33fd2c1691c60eebf987ca384bd246972315
 Release ready: NO — self-signed local test only
 ```
+
+The current product `2.0.0` candidate was then proven end to end on 2026-09-08 with the full 0.8 lifecycle integration enabled:
+
+```text
+AnonGee-Setup-2.0.0-SELF-SIGNED-TEST.exe
+Size:    110.75 MiB
+SHA-256: 1e6278cec11142fc4275eba90d063dfb1dd506f27191238c5d628c3c1266df1e
+SignTool /pa verification: PASS
+Release ready: NO — self-signed local test only
+```
+
+This 2.0.0 hash is local validation evidence only. The artifact is intentionally non-release-ready and must not be presented as publicly trusted.
 
 Pipeline 0.8.0 deliberately holds the base manifest at `release_ready: false` before Authenticode verification. The misleading intermediate `Release ready: YES` seen in the earlier 0.7 implementation is no longer part of the current signed-build behavior.
 
@@ -136,7 +148,9 @@ lifecycle-version.iss
 signing-authenticode.iss
 ```
 
-The lifecycle overlay classifies fresh install, same-version reinstall, upgrade, and blocked downgrade before the normal Revit/pyRevit prerequisite flow continues. Signing does not bypass or weaken those installer lifecycle rules.
+The lifecycle fragment is deferred into the root installer's existing Pascal `[Code]` stream so lifecycle logic compiles after the main installer code while the signing overlay remains in `[Setup]`.
+
+The lifecycle logic classifies fresh install, same-version reinstall, upgrade, and blocked downgrade before the normal Revit/pyRevit prerequisite flow continues. Signing does not bypass or weaken those installer lifecycle rules.
 
 ## Security warning during local trust
 
