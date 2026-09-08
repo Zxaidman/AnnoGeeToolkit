@@ -200,14 +200,18 @@ class InstallerLifecycleContractTests(unittest.TestCase):
         ):
             self.assertIn(token, self.overlay)
 
-    def test_lifecycle_command_line_include_defers_code_until_after_root_script(self):
-        # ISCC --include is a leading #include.  The lifecycle overlay contains
-        # [Code], so it must make subsequently processed signing/main lines insert
-        # before itself.  Otherwise a [Setup] overlay can land inside the Pascal
-        # compilation stream and fail with a misleading "BEGIN expected" error.
+    def test_lifecycle_command_line_include_is_deferred_pascal_fragment(self):
+        # ISCC --include is a leading #include. The lifecycle file is deferred
+        # behind the root script, which already ends inside [Code]. It must
+        # therefore be a Pascal Script fragment, not another ISS [Code] section.
         lines = [line.strip() for line in self.overlay.splitlines() if line.strip()]
         self.assertEqual(lines[-1], "#insert 0")
-        self.assertIn("[Code]", self.overlay)
+        self.assertNotIn("[Code]", self.overlay)
+        self.assertIsNone(re.search(r"(?m)^\s*;", self.overlay))
+        self.assertIn("function AGLifecycleUninstallKey", self.overlay)
+        self.assertIn("function AGLifecycleTargetVersion", self.overlay)
+        self.assertNotIn("AGLifecycleMode: String", self.overlay)
+        self.assertNotIn("AGLifecyclePreviousVersion: String", self.overlay)
 
     def test_base_and_signed_builds_compile_lifecycle_overlay(self):
         base_compile = _function(self.base, "compile_inno")
