@@ -1,27 +1,30 @@
-; AnonGee installer lifecycle mode overlay.
-;
-; Included by the 0.8 release builders through ISCC --include. The builders
-; provide AnonGeeProductVersion as a command-line ISPP define so this file can
-; compare the candidate against the existing Windows uninstall registration.
-;
-; This stays outside AnonGee.iss deliberately: the mature Revit/pyRevit
-; prerequisite code does not need to be refactored just to add lifecycle UX.
+// AnonGee installer lifecycle mode fragment.
+//
+// Included by the 0.8 release builders through ISCC --include. ISCC processes
+// that include before the root script, so the final #insert 0 below defers this
+// fragment until after AnonGee.iss. At that point the root script is already in
+// its [Code] section, therefore this file must contain Pascal Script only: no
+// [Code] header and no semicolon-style ISS comments.
+//
+// The builders provide AnonGeeProductVersion as a command-line ISPP define so
+// this fragment can compare the candidate against the existing Windows uninstall
+// registration without changing the mature prerequisite implementation.
 
 #ifndef AnonGeeProductVersion
   #error AnonGeeProductVersion must be supplied by the AnonGee release builder.
 #endif
 
-[Code]
-
-const
-  AGLifecycleUninstallKey =
+function AGLifecycleUninstallKey: String;
+begin
+  Result :=
     'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\' +
     'Zxaidman.AnonGee.Toolkit_is1';
-  AGLifecycleTargetVersion = '{#AnonGeeProductVersion}';
+end;
 
-var
-  AGLifecycleMode: String;
-  AGLifecyclePreviousVersion: String;
+function AGLifecycleTargetVersion: String;
+begin
+  Result := '{#AnonGeeProductVersion}';
+end;
 
 function AGLifecycleIsDigit(const C: Char): Boolean;
 begin
@@ -104,16 +107,19 @@ function AGLifecycleReadInstalledVersion(
   var VersionText: String;
   var RegistrationFound: Boolean
 ): Boolean;
+var
+  UninstallKey: String;
 begin
   Result := False;
   VersionText := '';
+  UninstallKey := AGLifecycleUninstallKey;
   RegistrationFound :=
-    RegKeyExists(HKCU64, AGLifecycleUninstallKey) or
-    RegKeyExists(HKCU32, AGLifecycleUninstallKey);
+    RegKeyExists(HKCU64, UninstallKey) or
+    RegKeyExists(HKCU32, UninstallKey);
 
   if RegQueryStringValue(
     HKCU64,
-    AGLifecycleUninstallKey,
+    UninstallKey,
     'DisplayVersion',
     VersionText
   ) then
@@ -124,7 +130,7 @@ begin
 
   if RegQueryStringValue(
     HKCU32,
-    AGLifecycleUninstallKey,
+    UninstallKey,
     'DisplayVersion',
     VersionText
   ) then
@@ -133,7 +139,6 @@ end;
 
 procedure AGLifecycleStop(const Reason: String);
 begin
-  AGLifecycleMode := 'blocked';
   Log('[LIFECYCLE] mode=blocked | ' + Reason);
 
   if not WizardSilent then
@@ -149,6 +154,9 @@ end;
 
 procedure InitializeWizard;
 var
+  LifecycleMode: String;
+  PreviousVersion: String;
+  TargetVersion: String;
   RegistrationFound: Boolean;
   InstalledMajor: Integer;
   InstalledMinor: Integer;
@@ -159,11 +167,12 @@ var
   Comparison: Integer;
   MessageText: String;
 begin
-  AGLifecycleMode := 'fresh-install';
-  AGLifecyclePreviousVersion := '';
+  LifecycleMode := 'fresh-install';
+  PreviousVersion := '';
+  TargetVersion := AGLifecycleTargetVersion;
 
   if not AGLifecycleReadInstalledVersion(
-    AGLifecyclePreviousVersion,
+    PreviousVersion,
     RegistrationFound
   ) then
   begin
@@ -175,35 +184,35 @@ begin
       );
 
     WizardForm.Caption :=
-      'Install AnonGee Toolkit ' + AGLifecycleTargetVersion;
+      'Install AnonGee Toolkit ' + TargetVersion;
     Log(
       '[LIFECYCLE] mode=fresh-install | target=' +
-      AGLifecycleTargetVersion
+      TargetVersion
     );
     Exit;
   end;
 
   if not AGLifecycleTryParseSemVer3(
-    AGLifecyclePreviousVersion,
+    PreviousVersion,
     InstalledMajor,
     InstalledMinor,
     InstalledPatch
   ) then
     AGLifecycleStop(
-      'AnonGee Toolkit ' + AGLifecyclePreviousVersion +
+      'AnonGee Toolkit ' + PreviousVersion +
       ' is already registered, but that installed version is not valid ' +
       'MAJOR.MINOR.PATCH metadata.'
     );
 
   if not AGLifecycleTryParseSemVer3(
-    AGLifecycleTargetVersion,
+    TargetVersion,
     TargetMajor,
     TargetMinor,
     TargetPatch
   ) then
     AGLifecycleStop(
       'This AnonGee Setup carries invalid product version metadata: ' +
-      AGLifecycleTargetVersion
+      TargetVersion
     );
 
   Comparison := AGLifecycleCompareSemVer3(
@@ -218,18 +227,18 @@ begin
   if Comparison < 0 then
     AGLifecycleStop(
       'A newer AnonGee Toolkit is already installed.' + #13#10 +
-      'Installed: ' + AGLifecyclePreviousVersion + #13#10 +
-      'This Setup: ' + AGLifecycleTargetVersion + #13#10 + #13#10 +
+      'Installed: ' + PreviousVersion + #13#10 +
+      'This Setup: ' + TargetVersion + #13#10 + #13#10 +
       'Downgrades are blocked by installer milestone 0.8.0.'
     );
 
   if Comparison = 0 then
   begin
-    AGLifecycleMode := 'same-version-reinstall';
+    LifecycleMode := 'same-version-reinstall';
     WizardForm.Caption :=
-      'Reinstall AnonGee Toolkit ' + AGLifecycleTargetVersion;
+      'Reinstall AnonGee Toolkit ' + TargetVersion;
     MessageText :=
-      'AnonGee Toolkit ' + AGLifecycleTargetVersion +
+      'AnonGee Toolkit ' + TargetVersion +
       ' is already installed.' + #13#10 + #13#10 +
       'Setup will reinstall/repair this same version by replacing the ' +
       'AnonGee extension payload. Bridge runtime state and pyRevit are ' +
@@ -237,30 +246,29 @@ begin
   end
   else
   begin
-    AGLifecycleMode := 'upgrade';
+    LifecycleMode := 'upgrade';
     WizardForm.Caption :=
-      'Upgrade AnonGee Toolkit ' + AGLifecyclePreviousVersion +
-      ' to ' + AGLifecycleTargetVersion;
+      'Upgrade AnonGee Toolkit ' + PreviousVersion +
+      ' to ' + TargetVersion;
     MessageText :=
       'AnonGee Toolkit upgrade detected.' + #13#10 + #13#10 +
-      'Installed: ' + AGLifecyclePreviousVersion + #13#10 +
-      'Upgrade to: ' + AGLifecycleTargetVersion + #13#10 + #13#10 +
+      'Installed: ' + PreviousVersion + #13#10 +
+      'Upgrade to: ' + TargetVersion + #13#10 + #13#10 +
       'Setup will replace the AnonGee extension payload while preserving ' +
       'bridge runtime state and the independent pyRevit installation.';
   end;
 
   Log(
-    '[LIFECYCLE] mode=' + AGLifecycleMode +
-    ' | installed=' + AGLifecyclePreviousVersion +
-    ' | target=' + AGLifecycleTargetVersion
+    '[LIFECYCLE] mode=' + LifecycleMode +
+    ' | installed=' + PreviousVersion +
+    ' | target=' + TargetVersion
   );
 
   if not WizardSilent then
     MsgBox(MessageText, mbInformation, MB_OK);
 end;
 
-; ISCC --include is processed before the root script. Keep this directive as
-; the final non-empty line: it makes every subsequently processed line (the
-; signing overlay, when present, and AnonGee.iss) insert before this [Code]
-; block. Final compiler order is therefore Setup/main first, lifecycle Code last.
+// ISCC --include is processed before the root script. Keep this directive as
+// the final non-empty line so the subsequently processed signing overlay (when
+// present) and AnonGee.iss are inserted before this Pascal code fragment.
 #insert 0
