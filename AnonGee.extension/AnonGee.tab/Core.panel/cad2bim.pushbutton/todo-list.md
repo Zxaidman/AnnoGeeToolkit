@@ -8,14 +8,12 @@ Nothing is deleted to make the list look shorter.
 file before it is built, argued about, or written into any other document. Standing instruction
 from the project owner, and it is what keeps this list the queue rather than a summary of one.
 
-Current build: **v0.96.5** (branch `claude/cad2bim`). 1234 unit tests, 3 regression legs green
-over 31 archived exports, 22 fixture drawings and 8 storey stacks — counted off the corpora by the
-gate itself (WORK-21, DONE-130). All three baselines were re-blessed this round and every number is
-attributed: the owner **redrew test17** (its DXF replaced wholesale, its export gone from one storey
-to sixteen), which moves the sweep, adds the eighth storey stack and changes which plan the
-fingerprint leg measures; my own changes account for exactly two numbers, test18's
-`cutout_cross_marks` 42 → 44 from the polyline fix, plus the new all-zero `link_cutout_strokes` /
-`link_cross_marks` counters. The branch also carries the rc-automation merge and the 1.26.1
+Current build: **v0.96.6** (branch `claude/cad2bim`, restarted from `main` after PR #10 merged).
+1244 unit tests, 3 regression legs green over 31 archived exports, 22 fixture drawings and 8 storey
+stacks. Baselines re-blessed this round for two reasons, both attributed: the owner's **0.96.5
+test14 export** is the first to carry cutout linework, so `link_cross_marks` reads 82 where it read
+0; and the **BUG-27 column fix** ripples downstream through the trim footprints, costing Test8 one
+slab def and 4.2 m² and Project1 one and 2.8 m² while Project1 gains four correctly sized beams. The branch also carries the rc-automation merge and the 1.26.1
 extension identity. Longer records: `../../../../../task_plan.md`, `findings.md`, `progress.md` at the
 repository root.
 
@@ -169,7 +167,7 @@ with a `[xN]` count and keeps first-appearance order — the console is read top
 story, so sorting by frequency would scramble it. Measured on the owner's own numbers: 224 lines
 become 3.
 
-### BUG-27 — An L column is inaccurate in places on test14 · `building`
+### BUG-27 — An L column is inaccurate in places on test14 · `testing`
 
 **The owner:** "plus one existing bug related to column it is not make accurate L column in some
 place in test14." Distinct from BUG-4, which was an L coming back as a tilted block and which he has
@@ -206,10 +204,39 @@ They repeat per plan, which is what makes them findable: the 9 gaps are 3 a plan
 (x 29876 / 36700 / 40351 and the same three in the other two plans); the 12 overlaps are 4 a plan at
 y 41759, 40209, 19329 and 40209.
 
-**Not fixed in v0.96.5, deliberately.** The fix is a snap of each composite piece to the face of the
-piece it abuts, and it lands in the column decomposition that all 111 composite entries go through —
-so it wants its own round and its own gate run rather than riding along with the cutout work. The
-measurement above is what makes that a change to a named rule instead of a guess.
+**FIXED in v0.96.6, and it was not the decomposition.** `decompose_to_rectangles` is an exact cover
+and all 111 of test14's composite rings tile PERFECTLY before anything touches them — measured. The
+damage came after, from the two places that rewrite a rectangle's size and leave `center` alone:
+`_apply_column_marks` (the label) and `_filter_column_entries` (the standards snap). Every piece
+therefore grew or shrank about its own middle and BOTH its faces moved. For a column that is one
+rectangle that is exactly right; for a column that is more than one it is wrong every time.
+
+A resized piece now keeps the face it shares with its neighbours, read off the ORIGINAL tiling:
+touching on one side it is anchored there and grows away from it; touching on neither it keeps its
+centre, as before; touching on BOTH it keeps the drawn extent on that axis, because a label cannot
+move a face another piece is drawn against — that last case is the 300 mm blade relabelled 350 with a
+leg on each side, which spread 25 mm into both of them.
+
+A second fault in the same two functions: `width_ft`/`height_ft` were never updated with the
+millimetres, and `column_geom._bbox_half` reads the FEET — so every trim footprint was computed from
+the DRAWN size while the column was placed at the LABELLED one.
+
+Measured, composite columns whose pieces meet:
+
+| | clean | gap | overlap |
+| --- | --- | --- | --- |
+| test14 before | 69 | 9 | 12 |
+| test14 after | **90** | **0** | **0** |
+| corpus before | 651 | 29 | 205 |
+| corpus after | **923** | **5** | **3** |
+
+**What it costs, stated rather than buried:** correct trim footprints cover more ground than stale
+ones, so a small bay beside a widened column is absorbed — Test8 loses one def and 4.2 m² (43 →
+42, 1002.3 → 998.1), Project1 one and 2.8 m² (153 → 152, 2877.1 → 2874.3). Project1 also sizes four
+more beams (128 → 132). The direction is right: a slab should not be cast over the footprint the
+column is actually placed at.
+
+**Waiting on:** the owner's next Revit run on test14's 16 similar columns.
 
 ### BUG-26 — test17 refuses 78 slab profiles and takes eight minutes · `done`
 
@@ -279,7 +306,7 @@ schedule, a sheet, a legend, a browser or report view is out. The choice of subs
 3D view the owner asked for: the default `{3D}` first, then any other non-template `View3D`, then
 whatever plan is open, and only if a model has literally no such view does it say so.
 
-### BUG-24 — A double or triple cross reads as nothing, so its L or C is slabbed · `testing`
+### BUG-24 — A double or triple cross reads as nothing, so its L or C is slabbed · `done`
 
 **STILL FAILING in the owner's v0.95.x Revit run: "bug-24 still not working on test14."** BUG-11 is
 the same fault seen from the other side -- "working on test14 expect on L or C cutout area is not
@@ -373,8 +400,23 @@ cutting; it was that Revit never had the marks to cut with.
 counter is taken BEFORE the merge, so a run where no compound mark formed reported numbers identical
 to one where they all did. test14 offline answers 48 into 18; 16 into 6 a plan.
 
-**Waiting on:** the owner's next run. The console line and `cutout_crosses_merged` in the export say
-directly whether the compound marks formed.
+**CONFIRMED FIXED, v0.96.6. The owner in Revit: "yes now cutout are being made on test14."** And the
+numbers say it too, off his own 0.96.5 export — the console never opened to show him the new line,
+because the console is DEFERRED and only flushes on failure, and his run had no failures. The export
+carried the answer instead:
+
+| per plan | v0.96.4 | v0.96.5 | the DXF |
+| --- | --- | --- | --- |
+| cross marks | 62 | **82** | 82 |
+| free-standing | 28 | **48** | 48 |
+| cut as holes | 9 | **25** | 27 |
+| crosses merged into an L/C | — | **16** | 16 |
+| voids they made | — | **6** | 6 |
+| errors | — | **0** | |
+
+Revit now forms every mark the drawing carries, and the 16-into-6 merge is exactly what the DXF
+predicts per plan. Two of the 27 holes still do not land; that is a remainder, not the fault, and it
+is small enough to wait for a drawing that shows it.
 
 
 **The owner, testing v0.93.2 in Revit:** "almost all the single cross cutout line is working to
@@ -841,9 +883,11 @@ its bay (the measured minimum is 0.30 — 2.56 m² of hatch in an 8.66 m² bay).
 a third of a hatch would be as wrong as the present overhang, so the threshold wants the same
 empty-band treatment every other constant here got.
 
-### BUG-11 — `COVER` and `CUT` are unmapped, so the slab never learns where it stops · `testing`
+### BUG-11 — `COVER` and `CUT` are unmapped, so the slab never learns where it stops · `done`
 
 **The owner:** "yes working on test14 expect on L or C cutout area is not working currently both are linked bug." Correct -- the remaining gap is BUG-24's, not this one's: the COVER rings are classified and read, and it is the mitred L/C marks that still fail to void. This entry closes when BUG-24 does.
+
+**CLOSED with BUG-24 at v0.96.6**, on its own terms: the owner's "yes now cutout are being made on test14", and his export reading 82 of the drawing's 82 cross marks per plan where it read 62.
 
 
 **Overtaken and closed in v0.83.0**, and the phase here was stale until this was re-checked: `COVER`

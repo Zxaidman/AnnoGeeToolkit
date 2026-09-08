@@ -734,6 +734,14 @@ def _filter_column_entries(entries, limits, standards, snap_tol_mm):
 
     Snapping preserves which stored dimension (width/height) is the short side, so
     the placement rotation stays correct. Returns the number dropped.
+
+    THE SHARED FACE IS HELD HERE TOO, for the reason spelled out on
+    `_apply_column_marks`: this is the second of the two places that rewrite a
+    rectangle's size and leave its centre where it was, so a snapped piece of a
+    composite column drifted off the piece it was drawn against. Measured on
+    test14, this site accounts for the last 3 of the 21 broken columns -- one per
+    plan, a 601 x 350 leg snapped 25 mm into its neighbour with no label anywhere
+    near it, which is what proves the two sites are separate faults.
     """
     dims = [d / _MM for d in _standard_dims_mm(standards.get("column", []))]
     tol = snap_tol_mm / _MM
@@ -742,7 +750,8 @@ def _filter_column_entries(entries, limits, standards, snap_tol_mm):
     dropped = 0
     for entry in entries:
         kept = []
-        for rect in entry["rectangles"]:
+        anchors = _shared_faces(entry["rectangles"])
+        for rect, (x_anchor, y_anchor) in zip(entry["rectangles"], anchors):
             w_mm, h_mm = rect["width_mm"], rect["height_mm"]
             small, big = min(w_mm, h_mm), max(w_mm, h_mm)
             small = shapes.snap_to_standard(small / _MM, dims, tol) * _MM
@@ -750,10 +759,12 @@ def _filter_column_entries(entries, limits, standards, snap_tol_mm):
             if not (b_min <= small <= b_max and h_min <= big <= h_max):
                 dropped += 1
                 continue
-            if w_mm <= h_mm:
-                rect["width_mm"], rect["height_mm"] = small, big
-            else:
-                rect["width_mm"], rect["height_mm"] = big, small
+            box = _rect_box(rect)
+            new_w, new_h = (small, big) if w_mm <= h_mm else (big, small)
+            _cx, _cy, cz = rect["center"]
+            cx = _resized(rect, box, x_anchor, "width", new_w)
+            cy = _resized(rect, box, y_anchor, "height", new_h)
+            rect["center"] = [cx, cy, cz]
             kept.append(rect)
         entry["rectangles"] = kept
     return dropped
@@ -847,28 +858,144 @@ def _polyline_length_ft(points):
 
 
 
+_FACE_TOL_FT = 1.0 / 304.8      # a millimetre: drawn-to-meet counts as meeting
+
+
+def _rect_box(rect):
+    """(x_min, y_min, x_max, y_max) in feet, off a rectangle dict."""
+    cx, cy, _cz = rect["center"]
+    half_w = rect["width_mm"] / (2.0 * 304.8)
+    half_h = rect["height_mm"] / (2.0 * 304.8)
+    return (cx - half_w, cy - half_h, cx + half_w, cy + half_h)
+
+
+def _shared_faces(rects):
+    """[(x_anchor, y_anchor)] per rect -- the face that must not move on resize.
+
+    "min", "max", "both", or None. A piece touching a sibling on ONE side is
+    anchored to that side and grows or shrinks away from it. Touching on NEITHER
+    it keeps its centre, as it always did.
+
+    "both" means the piece is boxed in, and then the drawn extent WINS over the
+    label: no translation can hold two opposite faces still while the distance
+    between them changes, so the only ways out are to overlap a neighbour, leave
+    a gap, or leave the dimension alone. The drawing decides where concrete meets
+    concrete -- the neighbours were drawn against those faces -- so the size is
+    left alone on that axis. Measured, this is the last 3 of test14's 21 broken
+    columns: a 300 mm blade with a leg drawn on each side, relabelled 350, spread
+    25 mm into both of them.
+
+    Read off the ORIGINAL boxes, before anything is resized: the tiling of the
+    drawn outline is what says which pieces meet, and a piece already moved is
+    no longer evidence of it.
+    """
+    boxes = [_rect_box(rect) for rect in rects]
+    out = []
+    for index, box in enumerate(boxes):
+        low_x = high_x = low_y = high_y = False
+        for other_index, other in enumerate(boxes):
+            if other_index == index:
+                continue
+            overlap_y = min(box[3], other[3]) - max(box[1], other[1])
+            overlap_x = min(box[2], other[2]) - max(box[0], other[0])
+            if overlap_y > _FACE_TOL_FT:
+                low_x = low_x or abs(box[0] - other[2]) <= _FACE_TOL_FT
+                high_x = high_x or abs(box[2] - other[0]) <= _FACE_TOL_FT
+            if overlap_x > _FACE_TOL_FT:
+                low_y = low_y or abs(box[1] - other[3]) <= _FACE_TOL_FT
+                high_y = high_y or abs(box[3] - other[1]) <= _FACE_TOL_FT
+        out.append((_anchor(low_x, high_x), _anchor(low_y, high_y)))
+    return out
+
+
+def _anchor(low, high):
+    """Which face a resize must hold: "min", "max", "both" or None."""
+    if low and high:
+        return "both"
+    if low:
+        return "min"
+    if high:
+        return "max"
+    return None
+
+
+def _resized(rect, box, anchor, key, new_mm):
+    """Set one dimension and return the centre coordinate that keeps its faces.
+
+    "both" is the pinned case: the drawn extent stays, because a neighbour is
+    drawn against each face and the label cannot move either of them.
+    """
+    if anchor == "both":
+        return (box[0] + box[2]) / 2.0 if key == "width" else (box[1] + box[3]) / 2.0
+    rect[key + "_mm"] = new_mm
+    rect[key + "_ft"] = new_mm / _MM
+    half = rect[key + "_ft"] / 2.0
+    if key == "width":
+        if anchor == "min":
+            return box[0] + half
+        if anchor == "max":
+            return box[2] - half
+        return (box[0] + box[2]) / 2.0
+    if anchor == "min":
+        return box[1] + half
+    if anchor == "max":
+        return box[3] - half
+    return (box[1] + box[3]) / 2.0
+
+
 def _apply_column_marks(entries, texts, radius_ft):
     """Refine each column rectangle from the nearest sized DXF mark, in place.
 
     Adopts the mark's magnitudes but preserves the geometry's orientation (which
     side is short vs long), so placement rotation stays correct. Returns the count
     refined.
+
+    A RESIZED PIECE KEEPS THE FACE IT SHARES WITH ITS NEIGHBOURS. This changed
+    the size and left `center` alone, so every piece grew or shrank about its own
+    middle and both its faces moved -- which is fine for a column that is one
+    rectangle and wrong for every column that is more than one. The pieces of an
+    L or a T come out of `decompose_to_rectangles`, which is an exact cover:
+    measured, all 111 of test14's composite rings tile perfectly before this runs
+    and 21 of them are broken after it. The owner, in Revit: "in some places it
+    create perfectly column as per outline but in other places it leaves gap
+    between junctions or overlap does not follow outline properly or
+    discounted."
+
+    Both his symptoms are this one arithmetic, to the millimetre:
+
+        a 249 x 350 stub sized to 200 x 600 kept its centre, so the face it
+        shared with its blade moved 24 mm off it -- a GAP;
+        a 399 x 350 stub sized to 600 x 200 kept its centre, so its inner face
+        went 101 mm INTO the blade -- an OVERLAP.
+
+    Anchoring the shared face makes the piece grow or shrink away from the
+    column it belongs to, which is the only direction with room for it.
+
+    `width_ft`/`height_ft` are updated with the millimetres, which they were not:
+    `column_geom._bbox_half` reads the FEET, so a trim footprint was being
+    computed from the drawn size while the column was placed at the labelled one.
     """
     candidates = marks.sized_texts(texts or [])
     if not candidates:
         return 0
     count = 0
     for entry in entries:
-        for rect in entry["rectangles"]:
-            cx, cy, _cz = rect["center"]
+        rects = entry["rectangles"]
+        anchors = _shared_faces(rects)
+        for rect, (x_anchor, y_anchor) in zip(rects, anchors):
+            cx, cy, cz = rect["center"]
             hit = marks.nearest_sized_text(cx, cy, candidates, radius_ft)
             if hit is None:
                 continue
             small_t, big_t = min(hit.b_mm, hit.h_mm), max(hit.b_mm, hit.h_mm)
+            box = _rect_box(rect)
             if rect["width_mm"] <= rect["height_mm"]:
-                rect["width_mm"], rect["height_mm"] = small_t, big_t
+                new_w, new_h = small_t, big_t
             else:
-                rect["width_mm"], rect["height_mm"] = big_t, small_t
+                new_w, new_h = big_t, small_t
+            cx = _resized(rect, box, x_anchor, "width", new_w)
+            cy = _resized(rect, box, y_anchor, "height", new_h)
+            rect["center"] = [cx, cy, cz]
             rect["mark"] = hit.mark
             count += 1
     return count
