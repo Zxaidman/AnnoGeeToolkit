@@ -1248,6 +1248,68 @@ class TwoOrThreeCrossesAgainstEachOtherAreOneVoid(unittest.TestCase):
         self.assertEqual((len(rings), joined), (2, 0))
 
 
+class _Rec(object):
+    """A CurveRecord as `_cutout_strokes` reads one."""
+
+    def __init__(self, points, category):
+        self.points = points
+        self.category = category
+
+
+class ACutoutPolylineIsARunOfStrokes(unittest.TestCase):
+    """Only two-point records were read, so every polyline was dropped silent.
+
+    That is how every L and every C failed in Revit while every X standing on
+    its own worked. Measured on the owner's v0.96.4 run of test14, per plan: the
+    drawing carries 82 cross marks, 62 standing alone and 20 belonging to an L
+    or a C, and Revit formed **exactly 62** — every standalone one, not one
+    compound one.
+
+    The reason is what the marks touch. A standalone X's two diagonals cross in
+    the MIDDLE of each other, so the link keeps them as two lines; the limbs of
+    an L or a C share an edge, their diagonals meet END TO END at the shared
+    corners, and connected linework comes back from the link as one polyline.
+    """
+
+    def test_a_two_point_stroke_is_read_as_it_always_was(self):
+        rec = _Rec([(0.0, 0.0, 0.0), (1.0, 1.0, 0.0)], layers.CATEGORY_CUTOUT)
+        self.assertEqual(slab_stops._cutout_strokes([rec]),
+                         [((0.0, 0.0), (1.0, 1.0))])
+
+    def test_a_polyline_becomes_every_segment_of_itself(self):
+        rec = _Rec([(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (1.0, 1.0, 0.0)],
+                   layers.CATEGORY_CUTOUT)
+        self.assertEqual(slab_stops._cutout_strokes([rec]),
+                         [((0.0, 0.0), (1.0, 0.0)), ((1.0, 0.0), (1.0, 1.0))])
+
+    def test_two_diagonals_joined_end_to_end_still_make_both_crosses(self):
+        # An L: two limbs side by side, each with its own X. In the link the
+        # four diagonals arrive as two polylines joined at the shared edge.
+        left = _Rec([(0.0, 0.0, 0.0), (1.0, 1.0, 0.0), (2.0, 0.0, 0.0)],
+                    layers.CATEGORY_CUTOUT)
+        right = _Rec([(0.0, 1.0, 0.0), (1.0, 0.0, 0.0), (2.0, 1.0, 0.0)],
+                     layers.CATEGORY_CUTOUT)
+        strokes = slab_stops._cutout_strokes([left, right])
+        self.assertEqual(len(strokes), 4)
+
+    def test_a_closing_repeat_is_not_a_stroke(self):
+        # A closed rectangle repeats its first point last; that is not an edge.
+        rec = _Rec([(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (1.0, 0.0, 0.0)],
+                   layers.CATEGORY_CUTOUT)
+        self.assertEqual(slab_stops._cutout_strokes([rec]),
+                         [((0.0, 0.0), (1.0, 0.0))])
+
+    def test_a_single_point_record_yields_nothing(self):
+        rec = _Rec([(0.0, 0.0, 0.0)], layers.CATEGORY_CUTOUT)
+        self.assertEqual(slab_stops._cutout_strokes([rec]), [])
+
+    def test_the_layer_rule_still_decides_and_nothing_else_gets_in(self):
+        # BUG-23's rule: a polyline off a cutout layer is still not a cutout.
+        beam = _Rec([(0.0, 0.0, 0.0), (1.0, 1.0, 0.0), (2.0, 0.0, 0.0)],
+                    layers.CATEGORY_BEAM)
+        self.assertEqual(slab_stops._cutout_strokes([beam]), [])
+
+
 class TheLAndCOfTest14ReachTheHolesAsOneShape(unittest.TestCase):
     """`free_cutouts` counts the merge, and only within one bay.
 

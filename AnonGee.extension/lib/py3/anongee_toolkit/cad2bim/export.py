@@ -18,7 +18,7 @@ import re
 from collections import defaultdict, Counter
 
 from . import config
-from .classify.layers import (CATEGORY_COLUMN, CATEGORY_BEAM,
+from .classify.layers import (CATEGORY_COLUMN, CATEGORY_BEAM, CATEGORY_CUTOUT,
                               CATEGORY_SLAB_EDGE, CATEGORY_STAIR,
                               CATEGORY_STRUCT_WALL)
 
@@ -243,18 +243,26 @@ def _beam_geometry_dump(result):
     the PLACED beams -- so a beam that was never detected leaves no trace to debug. Dumping
     the input geometry (the exact polylines/lines/arcs on the beam + floor layers) lets the
     detection be replayed and a missed beam diagnosed OFFLINE, without another Revit run.
+
+    CUTOUT LINEWORK IS IN HERE for the same reason and it was not, which cost two
+    rounds on the L/C voids (BUG-24). Every counter the export carried about them
+    was a COUNT of what the reading produced, so a run where no compound mark
+    formed at all reported numbers identical to one where they all did, and the
+    difference between the link's strokes and the DXF's could only be guessed at.
+    The strokes themselves settle it: test14 carries 492 of them, about 164 a plan.
     """
     out = []
     for record in result.records:
         if record.category not in (CATEGORY_BEAM, CATEGORY_SLAB_EDGE,
                                    CATEGORY_COLUMN, CATEGORY_STAIR,
-                                   CATEGORY_STRUCT_WALL):
+                                   CATEGORY_STRUCT_WALL, CATEGORY_CUTOUT):
             continue
         out.append({
             "cat": ("slab" if record.category == CATEGORY_SLAB_EDGE
                     else "column" if record.category == CATEGORY_COLUMN
                     else "stair" if record.category == CATEGORY_STAIR
                     else "wall" if record.category == CATEGORY_STRUCT_WALL
+                    else "cutout" if record.category == CATEGORY_CUTOUT
                     else "beam"),
             "kind": record.kind,
             "layer": record.layer,

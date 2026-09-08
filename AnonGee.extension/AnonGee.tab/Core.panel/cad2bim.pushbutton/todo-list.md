@@ -8,16 +8,14 @@ Nothing is deleted to make the list look shorter.
 file before it is built, argued about, or written into any other document. Standing instruction
 from the project owner, and it is what keeps this list the queue rather than a summary of one.
 
-Current build: **v0.96.4** (branch `claude/cad2bim`). 1228 unit tests, 3 regression legs green
-over 31 archived exports, 22 fixture drawings and 7 storey stacks — counted off the corpora by the
-gate itself, which is how the old hand-typed 29/17/4 was caught (WORK-21, DONE-130). The storey
-baseline was re-blessed for test10, and the fingerprint baseline for test17, on the owner's new
-exports alone — test17's `records` 7560 → 10148 is the `raw_geometry` count stored inside the two
-files, so no code computed it. The sweep moved on the BUG-24 merge and says so: test13
-`slab_defs_built` 275 → 279 (70 crosses became 26 voids) and one new note apiece on test13 and
-test14. The old test10 export still
-reproduces the old baseline exactly under this code, which is what attributes that move to the
-drawing rather than to the tool. The branch also carries the rc-automation merge and the 1.26.1
+Current build: **v0.96.5** (branch `claude/cad2bim`). 1234 unit tests, 3 regression legs green
+over 31 archived exports, 22 fixture drawings and 8 storey stacks — counted off the corpora by the
+gate itself (WORK-21, DONE-130). All three baselines were re-blessed this round and every number is
+attributed: the owner **redrew test17** (its DXF replaced wholesale, its export gone from one storey
+to sixteen), which moves the sweep, adds the eighth storey stack and changes which plan the
+fingerprint leg measures; my own changes account for exactly two numbers, test18's
+`cutout_cross_marks` 42 → 44 from the polyline fix, plus the new all-zero `link_cutout_strokes` /
+`link_cross_marks` counters. The branch also carries the rc-automation merge and the 1.26.1
 extension identity. Longer records: `../../../../../task_plan.md`, `findings.md`, `progress.md` at the
 repository root.
 
@@ -122,6 +120,25 @@ for every other pre-P1 file.
 
 ## 2. Errors and bugs
 
+### FEAT-13 — Map many layers at once, not one at a time · `pending`
+
+**The owner:** "i want to add in layer, text and hatch mapping is that there should be option to
+select multiple items just like windows explorer (using ctrl, shift click etc to select multi) and
+assign multi select at one time instead of one at a time, because in test17 i have to manually assign
+B-200x500 or etc one at a time which is inefficient though i can also change the layer names to one
+singular beam layer but that will defeat our actual purpose."
+
+His last clause is the requirement, not an aside: collapsing `B-200x500`, `B-200x650` and the rest
+into one beam layer would lose the sizes the layer NAMES carry, which the beam reader uses. The
+drawing's naming is data, so the dialog has to cope with many layers rather than the drawing being
+flattened to suit the dialog. test17 is the case — its layer list is long enough that one-at-a-time
+assignment is the slowest part of a run.
+
+**Scope:** the three mapping tables (layer, text, hatch) get Windows-Explorer selection — ctrl-click
+to add one, shift-click for a run, ctrl-A for all — and one assignment applied to every selected row
+at once. WPF gives the selection for nothing (`SelectionMode="Extended"`); the work is the apply
+step and making it clear how many rows a choice is about to change.
+
 ### BUG-29 — The zoom never framed the model once · `testing`
 
 **Found in the owner's test17 console, which said it out loud:**
@@ -152,7 +169,7 @@ with a `[xN]` count and keeps first-appearance order — the console is read top
 story, so sorting by frequency would scramble it. Measured on the owner's own numbers: 224 lines
 become 3.
 
-### BUG-27 — An L column is inaccurate in places on test14 · `pending`
+### BUG-27 — An L column is inaccurate in places on test14 · `building`
 
 **The owner:** "plus one existing bug related to column it is not make accurate L column in some
 place in test14." Distinct from BUG-4, which was an L coming back as a tilted block and which he has
@@ -167,7 +184,34 @@ means: they are grouped by mark, so a bad one cannot be picked out by shape stat
 it, or its column mark. One example is enough — the twelve C-cutouts of BUG-24 were found from one
 image the same way.
 
-### BUG-26 — test17 refuses 78 slab profiles and takes eight minutes · `pending`
+---
+
+**LOCATED, v0.96.5, and it splits three ways exactly as he described it.** Clustering each mark's
+rectangles by proximity first (one cluster = one physical column, because an entry is a MARK and a
+mark names many columns) test14 builds **90 columns out of more than one piece**:
+
+  * **69 meet cleanly** — "in some places it create perfectly column as per outline";
+  * **9 leave a GAP** — "it leaves gap between junctions ... or disconnected";
+  * **12 OVERLAP** — "or overlap does not follow outline properly".
+
+Both faults are the same thing: **a stub is positioned on the drawn centreline instead of being taken
+to the blade's face.** Measured, two cases:
+
+    entry 16, GAP     blade x 30100..30401; the 200 x 600 stub ends at x 30076
+                      -- 24 mm short of the blade, so nothing joins
+    entry 11, OVERLAP blade x 51351..51601; one stub starts at 51500 and another
+                      ends at 51476 -- both ~100-125 mm INSIDE the blade
+
+They repeat per plan, which is what makes them findable: the 9 gaps are 3 a plan, all at y 39909
+(x 29876 / 36700 / 40351 and the same three in the other two plans); the 12 overlaps are 4 a plan at
+y 41759, 40209, 19329 and 40209.
+
+**Not fixed in v0.96.5, deliberately.** The fix is a snap of each composite piece to the face of the
+piece it abuts, and it lands in the column decomposition that all 111 composite entries go through —
+so it wants its own round and its own gate run rather than riding along with the cutout work. The
+measurement above is what makes that a change to a named rule instead of a guess.
+
+### BUG-26 — test17 refuses 78 slab profiles and takes eight minutes · `done`
 
 **The owner:** "test17 json which took very long time image2 and it got stuck image1." The run
 finished — 8 min 08 sec building, 11 min 09 sec from the click — and the progress bar he caught was
@@ -188,6 +232,21 @@ bay"). So this is its own fault and gets its own entry rather than riding on tha
 The refusals happen on the LINK's records, and test17 is the drawing where link and DXF differ most
 (`revit 18956 vs dxf 20972 curves; matched 12015`). Wants the same treatment BUG-24 got: numbers from
 a failing run, then a rule measured against them.
+
+---
+
+**CLOSED BY THE DRAWING, v0.96.5. The owner: "there was no errors this time around, and it took 4 min
+rather than 8 min."** He redrew test17 and pushed it: the DXF is replaced wholesale (1,012,916 lines
+changed) and its export went from ONE storey to **sixteen**. The old run's own console said why it
+was slow and why it refused so much — `Storeys: no layer boxes each floor plan -- building as one
+storey` — so sixteen floor plans were being built into a single storey, every plan's linework
+overlapping every other's. That is what produced 78 self-touching profiles and 3530 walls in one
+pass. With the storey boxes drawn, each plan builds on its own and both faults go with it.
+
+Nothing in the tool was changed for this, and the entry says so rather than claiming a fix. The
+baselines moved accordingly and are attributed to the new fixture: the DXF sweep reads 20817 records
+where it read 20972, the storey leg gains an eighth stack, and the fingerprint leg now measures
+test17's richest storey (764 records) instead of the whole sheet (10148).
 
 ### BUG-25 — Run it from a schedule or a sheet and the link dies · `done`
 
@@ -273,7 +332,49 @@ gap between the uprights is tested as NOT void). test17 merges none — none of 
 hosts in a bay at all — so its 78 refusals are a separate question, tracked at BUG-26.
 
 Only voids in ONE bay are merged, so two crosses touching across a beam are never joined into a shape
-spanning two floors. **Waiting on:** the owner's next Revit run on test14, images 3 and 4.
+spanning two floors.
+
+---
+
+**v0.96.5 — STILL FAILING, and the merge was never the missing piece: the MARKS were never formed.**
+"1st of all L and C cutouts are still not working it is still there. C is being made with one whole
+slab without respecting hatch." The v0.96.4 export finally makes the fault countable, per PLAN
+(test14 draws three plans, which is why per-file numbers hid it):
+
+| | DXF per plan | Revit link |
+| --- | --- | --- |
+| cross marks | 82 | **62** |
+| free-standing | 48 | **28** |
+| cut as holes | 27 | **9** |
+| slab_cutouts | 30 | 30 |
+| cutout bays by cross | 4 | 4 |
+
+Twenty marks short — and the drawing carries exactly **62 standalone marks and 20 compound ones** per
+plan. Revit forms every single standalone mark and **not one** belonging to an L or a C.
+
+**The cause: `_cutout_strokes` kept only two-point records and dropped every polyline whole, in
+silence.** A standalone X's diagonals cross in the MIDDLE of each other, so the link keeps them as two
+lines; the limbs of an L or a C share an edge, their diagonals meet END TO END at the shared corners,
+and connected linework comes back from `geometry_reader.read_link` as one polyline. Every segment of
+a cutout polyline is cutout linework, so each is a stroke now.
+
+**Proved offline, not merely argued:** test18's DXF carries exactly one three-point cutout record,
+dropped whole until now, and it holds two real crosses — `cutout_cross_marks` 42 → 44. test14, test13
+and test12 are all two-point records and do not move.
+
+**And the offline pipeline was right the whole time**, which is why two rounds of measuring it found
+nothing: replaying test14's C through `split_profile` returns exactly one piece, the 1141 x 1022 mm
+island at (28059, 28544) — precisely the hatched area in his image 1. The fault was never in the
+cutting; it was that Revit never had the marks to cut with.
+
+**Two instruments added so this cannot hide a third time.** The export now carries CUTOUT linework
+(it carried none, so link strokes could only be inferred by arithmetic), and the run prints
+`stops: N cut-out cross(es) are drawn against each other, read as M L/C void(s)` — every other
+counter is taken BEFORE the merge, so a run where no compound mark formed reported numbers identical
+to one where they all did. test14 offline answers 48 into 18; 16 into 6 a plan.
+
+**Waiting on:** the owner's next run. The console line and `cutout_crosses_merged` in the export say
+directly whether the compound marks formed.
 
 
 **The owner, testing v0.93.2 in Revit:** "almost all the single cross cutout line is working to

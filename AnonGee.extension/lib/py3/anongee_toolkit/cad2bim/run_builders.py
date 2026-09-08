@@ -251,6 +251,14 @@ def _slab_stops(slab_defs, records, texts, regions, sheet_texts, beam_segments,
              "{2} cut as holes of the bay over them".format(
                  stopped["free_cutouts"], stopped["cross_marks"],
                  stopped["free_cutout_holes"]))
+    # The L and the C, said out loud. Every other counter here is taken BEFORE
+    # the merge, so a run where no compound mark formed reported numbers
+    # identical to one where they all did -- which is why the fault survived two
+    # rounds. This line is the difference, and the drawing's own answer is
+    # knowable: test14 merges 48 crosses into 18 voids read from the DXF.
+    _say("  stops: {0} cut-out cross(es) are drawn against each other, read as "
+         "{1} L/C void(s)".format(stopped.get("cutout_crosses_merged", 0),
+                                  stopped.get("cutout_voids_merged", 0)))
     if stopped["cutout_bays"]:
         _say("  stops: {0} bay(s) marked void withdrawn ({1} crossed out, {2} "
              "named by a text), {3:.1f} m2 of floor the drawing marks "
@@ -1096,6 +1104,8 @@ def _create_slabs(doc, records, beam_segments, texts, selections, schedule=None,
             "cutout_cross_marks": stopped["cross_marks"],
             "free_cutouts": stopped["free_cutouts"],
             "free_cutout_holes": stopped["free_cutout_holes"],
+            "cutout_crosses_merged": stopped.get("cutout_crosses_merged", 0),
+            "cutout_voids_merged": stopped.get("cutout_voids_merged", 0),
             "stair_bays_withdrawn": stopped["stair_bays"],
             "stair_area_m2": stopped["stair_area_m2"],
             "cutout_bays_withdrawn": stopped["cutout_bays"],

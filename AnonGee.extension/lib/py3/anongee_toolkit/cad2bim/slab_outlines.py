@@ -580,6 +580,14 @@ def apply_slab_stops(slab_defs, records, texts, regions=None,
         "cross_marks": frees["marks"],
         "free_cutouts": frees["free"],
         "free_cutout_holes": frees["hosted"],
+        # HOW MANY COMPOUND MARKS THE RUN ACTUALLY FORMED. Carried out to the
+        # console and the export because the L/C fault could not be seen from
+        # either: every counter here is taken BEFORE the merge, so a run where
+        # no L or C formed at all reported numbers identical to one where they
+        # all did. These two are the difference, and the drawing's own answer
+        # is knowable -- test14 offline merges 48 crosses into 18 voids.
+        "cutout_crosses_merged": frees["merged"],
+        "cutout_voids_merged": frees["merged_groups"],
         "chajja_holes": ledges["hosted"],
         "divided": divided,
         "stair_bays": len(stairs["indexes"]),

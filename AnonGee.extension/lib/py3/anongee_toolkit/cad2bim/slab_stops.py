@@ -616,15 +616,34 @@ def _cutout_strokes(records):
     What it keeps is every real one: test14's 249 pairs, test13's 254, test12's
     745, test15's 5, test16's 18, test9's 62, test10's 22 -- all on `CUTOUT`,
     `CUT` or `A-CUTOUT`.
+
+    A POLYLINE IS A RUN OF STROKES, and this took only two-point records, so
+    anything longer was dropped whole and in silence. That is how every L and
+    every C failed in Revit while every single X standing on its own worked.
+    Measured on the owner's v0.96.4 run of test14, per plan: the drawing carries
+    82 cross marks of which 62 stand alone and 20 belong to an L or a C, and
+    Revit formed **exactly 62** -- every standalone one, and not one compound
+    one. The reason is what the marks touch. A standalone X's two diagonals
+    cross in the MIDDLE of each other, so the link keeps them as two lines; the
+    limbs of an L or a C share an edge, their diagonals meet END TO END at the
+    shared corners, and connected linework comes back from
+    `geometry_reader.read_link` as one polyline -- which this then threw away.
+    Every segment of a cutout polyline is cutout linework, so each is a stroke.
+
+    Offline this changes only test17, whose DXF carries 57 five-point cutout
+    records that were being dropped the same way. test14 and test13 are all
+    two-point records and do not move a millimetre.
     """
     out = []
     for record in (records or []):
         if getattr(record, "category", None) != CATEGORY_CUTOUT:
             continue
         points = getattr(record, "points", None) or []
-        if len(points) == 2:
-            out.append(((points[0][0], points[0][1]),
-                        (points[1][0], points[1][1])))
+        for index in range(len(points) - 1):
+            start, end = points[index], points[index + 1]
+            if start[0] == end[0] and start[1] == end[1]:
+                continue                    # a closing repeat, not a stroke
+            out.append(((start[0], start[1]), (end[0], end[1])))
     return out
 
 

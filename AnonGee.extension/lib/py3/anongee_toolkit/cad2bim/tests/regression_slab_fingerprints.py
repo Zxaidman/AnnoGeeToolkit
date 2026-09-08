@@ -41,9 +41,9 @@ import _golden
 import _loader
 
 
-config, model, layers, marks, report, slab_outlines = _loader.load(
+config, model, layers, marks, report, slab_outlines, slab_stops = _loader.load(
     "config", "model", "classify.layers", "classify.marks", "report",
-    "slab_outlines")
+    "slab_outlines", "slab_stops")
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _EXPORTS = os.path.join(_HERE, "fixtures", "cad", ".json")
@@ -128,14 +128,23 @@ def _main_storey(document):
 
 
 def _records(payload):
-    """CurveRecords rebuilt from the geometry the Revit link reader returned."""
+    """CurveRecords rebuilt from the geometry the Revit link reader returned.
+
+    CUTOUT keeps its own category. Everything that is not a slab edge has always
+    been replayed as a beam -- columns and stairs included, which is what the
+    baselines were recorded against -- but cutout linework must not join them:
+    fed to `build_beam_segments` as beams it would invent members out of the X's
+    the drawing uses to mark voids. Exports written before v0.96.5 carry no
+    cutout records at all, so this reads as zero of them and moves nothing.
+    """
     records = []
     for geometry in (payload.get("beams") or {}).get("raw_geometry") or []:
         points = [(p[0] * _FT, p[1] * _FT, 0.0) for p in geometry["pts"]]
         record = model.CurveRecord(geometry["kind"], points,
                                    geometry["layer"], 0.0)
-        record.category = (layers.CATEGORY_SLAB_EDGE
-                           if geometry.get("cat") == "slab"
+        category = geometry.get("cat")
+        record.category = (layers.CATEGORY_SLAB_EDGE if category == "slab"
+                           else layers.CATEGORY_CUTOUT if category == "cutout"
                            else layers.CATEGORY_BEAM)
         records.append(record)
     return records
@@ -210,6 +219,14 @@ def _measure(path):
         "column_footprints": len(footprints),
         "beams": len(beams),
         "sized_beams": sum(1 for b in beams if b.get("depth_mm")),
+        # THE MARKS THE LINK ITSELF FORMED, which is the number two rounds of
+        # BUG-24 were argued without. Every counter the export carried was taken
+        # after the reading, so "Revit formed 62 of the drawing's 82 marks" could
+        # only be inferred by arithmetic; here it is measured off the link's own
+        # strokes. Zero for every export written before v0.96.5, which carry no
+        # cutout linework to count.
+        "link_cutout_strokes": len(slab_stops._cutout_strokes(records)),
+        "link_cross_marks": len(slab_stops.cross_marks(records)),
     }
     measured.update(_loop_stats(slab_outlines.slab_loops_from_edges(records),
                                 "loops_from_edges"))
