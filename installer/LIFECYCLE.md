@@ -2,7 +2,7 @@
 
 Installer milestone: **0.8.0**  
 Release pipeline: **0.8.0**  
-Lifecycle contract: **Implemented; final 1.26.1 → 2.0.0 workstation upgrade QA pending**  
+Lifecycle contract: **Implemented; 2.0.0 signed candidate proven; final upgrade/reinstall QA pending**  
 Public Authenticode trust: **Deferred**
 
 Milestone 0.8.0 makes install, same-version reinstall, upgrade, downgrade protection, uninstall, and release identity explicit contracts instead of relying on Inno Setup defaults or operator memory.
@@ -147,11 +147,11 @@ The 0.8 workstation self-signed run confirmed the misleading intermediate `Relea
 
 ## Workstation QA status
 
-The owner has already exercised the 0.8 integrated self-signed build on Windows.
+The owner has exercised the current 0.8 / product 2.0.0 self-signed candidate end to end on Windows.
 
 | Scenario | Status | Evidence / note |
 | --- | --- | --- |
-| 0.8 self-signed build + timestamp + `/pa` verification | **PASS** | final `release_ready: false` confirmed |
+| 0.8 / 2.0.0 self-signed build + timestamp + `/pa` verification | **PASS** | final `release_ready: false` confirmed |
 | Clean install | **PASS** | installer and toolkit loaded normally |
 | Same-build reinstall, functional replacement | **PASS** | reinstall completed over existing copy |
 | Same-version **explicit Reinstall UX** | **PENDING RETEST** | old candidate behaved like normal install; 0.8 lifecycle overlay now adds explicit mode |
@@ -159,10 +159,22 @@ The owner has already exercised the 0.8 integrated self-signed build on Windows.
 | Bridge state preservation | **PASS** | survived tested lifecycle operations |
 | pyRevit independence | **PASS** | remained installed/unchanged |
 | Revit loads AnonGee after install/reinstall | **PASS** | confirmed by owner |
-| Archived `1.26.1` → true newer-version upgrade | **PENDING** | previous attempt used `1.26.1` on both sides, so it was not a version upgrade |
-| `2.0.0` downgrade guard | **PENDING** | requires a 0.8+ newer install and an older 0.8+ test candidate; archived 1.26.1 cannot prove this guard |
+| Archived `1.26.1` → `2.0.0` upgrade | **PENDING** | this is now the remaining real forward-upgrade proof |
+| `2.0.0` downgrade guard | **STATIC CONTRACT PROVEN; destructive workstation proof deferred** | archived 1.26.1 cannot prove a guard it predates |
 
-Observed successful integrated self-signed build before the 2.0.0 candidate bump:
+Observed successful current 2.0.0 self-signed candidate:
+
+```text
+AnonGee-Setup-2.0.0-SELF-SIGNED-TEST.exe
+Size:    110.75 MiB
+SHA-256: 1e6278cec11142fc4275eba90d063dfb1dd506f27191238c5d628c3c1266df1e
+Release ready: NO — self-signed local test only
+SignTool /pa verification: PASS
+```
+
+This hash is test evidence only. The self-signed candidate is not a public release.
+
+Earlier integrated 0.8 proof before the 2.0.0 candidate bump:
 
 ```text
 AnonGee-Setup-1.26.1-SELF-SIGNED-TEST.exe
@@ -170,7 +182,7 @@ SHA-256: 5f94ec9c9e4bdfcc7162500737fa33fd2c1691c60eebf987ca384bd246972315
 Release ready: NO — self-signed local test only
 ```
 
-That hash is test evidence only, not a production `1.26.1` artifact.
+That earlier hash is also test evidence only, not the historical production `1.26.1` artifact.
 
 ## Final upgrade QA: archived 1.26.1 → 2.0.0
 
@@ -246,11 +258,11 @@ Workstation side already proven:
 - bridge preservation;
 - pyRevit preservation;
 - Revit loading after install/reinstall;
-- 0.8 integrated self-signed signing path.
+- 0.8 integrated self-signed signing path;
+- current `2.0.0` self-signed candidate build, timestamp, and Authenticode verification.
 
 Remaining workstation gates:
 
-- build the `2.0.0` self-signed candidate;
 - prove archived official `1.26.1` → `2.0.0` is reported and performed as an upgrade;
 - run `2.0.0` again and prove explicit same-version reinstall UX;
 - confirm Windows Installed Apps reports `2.0.0` and Revit loads the upgraded toolkit.
