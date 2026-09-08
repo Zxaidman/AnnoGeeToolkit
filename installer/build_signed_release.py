@@ -14,7 +14,7 @@ The signed path is:
 
     clean source
         -> build_payload.py
-        -> Inno Setup 7 + signing-authenticode.iss
+        -> Inno Setup 7 + lifecycle + signing overlays
         -> SignTool signs Setup AND Inno's embedded uninstaller
         -> RFC 3161 SHA-256 timestamp
         -> SignTool /pa verification of the resulting Setup EXE
@@ -240,18 +240,23 @@ def make_sign_command(
 def compile_signed_inno(
     iscc: Path,
     iss_path: Path,
+    lifecycle_include: Path,
     signing_include: Path,
+    product_version: str,
     sign_command: str,
     repo_root: Path,
 ) -> None:
     print("\n=== 2/4 COMPILE + AUTHENTICODE SIGN INNO SETUP ===")
     command = [
         str(iscc),
+        "--define=AnonGeeProductVersion={}".format(product_version),
+        "--include={}".format(lifecycle_include),
         "--include={}".format(signing_include),
         "--signtool={}={}".format(SIGN_TOOL_NAME, sign_command),
         str(iss_path),
     ]
     print("Compiler: {}".format(iscc))
+    print("Lifecycle overlay: {}".format(lifecycle_include))
     print("Signing overlay: {}".format(signing_include))
     result = subprocess.run(command, cwd=repo_root, check=False)
     if result.returncode != 0:
@@ -377,11 +382,16 @@ def main() -> int:
         repo_root = base.find_repo_root(Path(__file__))
         installer_dir = repo_root / "installer"
         iss_path = installer_dir / "AnonGee.iss"
+        lifecycle_include = installer_dir / base.LIFECYCLE_INCLUDE
         signing_include = installer_dir / SIGNING_INCLUDE
 
         print("AnonGee Signed Release Pipeline {}".format(PIPELINE_VERSION))
         print("Repository: {}".format(repo_root))
 
+        if not lifecycle_include.is_file():
+            raise SigningError(
+                "Installer lifecycle overlay is missing: {}".format(lifecycle_include)
+            )
         if not signing_include.is_file():
             raise SigningError("Signing overlay is missing: {}".format(signing_include))
 
@@ -468,7 +478,9 @@ def main() -> int:
         compile_signed_inno(
             iscc,
             iss_path,
+            lifecycle_include,
             signing_include,
+            installer["product_version"],
             sign_command,
             repo_root,
         )
