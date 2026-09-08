@@ -3,6 +3,7 @@
 
 import ast
 import io
+import json
 import os
 import re
 import unittest
@@ -13,7 +14,10 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _BASE = os.path.join(_ROOT, "installer", "build_release.py")
 _SIGNED = os.path.join(_ROOT, "installer", "build_signed_release.py")
 _ISS = os.path.join(_ROOT, "installer", "AnonGee.iss")
+_VERSION_OVERLAY = os.path.join(_ROOT, "installer", "lifecycle-version.iss")
 _LIFECYCLE = os.path.join(_ROOT, "installer", "LIFECYCLE.md")
+_EXTENSION = os.path.join(_ROOT, "extension.json")
+_CHANGELOG = os.path.join(_ROOT, "CHANGELOG.md")
 
 
 def _read(path):
@@ -82,7 +86,10 @@ class InstallerLifecycleContractTests(unittest.TestCase):
         cls.base = _read(_BASE)
         cls.signed = _read(_SIGNED)
         cls.iss = _read(_ISS)
+        cls.overlay = _read(_VERSION_OVERLAY)
         cls.docs = _read(_LIFECYCLE)
+        cls.extension = json.loads(_read(_EXTENSION))
+        cls.changelog = _read(_CHANGELOG)
 
     def test_release_builders_compile_without_escape_warnings(self):
         for source, path in ((self.base, _BASE), (self.signed, _SIGNED)):
@@ -97,6 +104,17 @@ class InstallerLifecycleContractTests(unittest.TestCase):
         self.assertEqual(_constant(self.signed, "PIPELINE_VERSION"), "0.8.0")
         self.assertEqual(_constant(self.signed, "MANIFEST_SCHEMA_VERSION"), "1.4.0")
         self.assertEqual(_define(self.iss, "InstallerMilestone"), "0.8.0")
+
+    def test_200_product_identity_is_aligned(self):
+        self.assertEqual(self.extension["version"], "2.0.0")
+        self.assertEqual(_define(self.iss, "MyAppVersion"), "2.0.0")
+        headings = re.findall(
+            r"^##\s+(\d+\.\d+\.\d+)\s*$",
+            self.changelog,
+            flags=re.MULTILINE,
+        )
+        self.assertTrue(headings)
+        self.assertEqual(headings[0], "2.0.0")
 
     def test_stable_app_identity_and_fixed_per_user_directory(self):
         setup = _section(self.iss, "Setup")
@@ -162,17 +180,47 @@ class InstallerLifecycleContractTests(unittest.TestCase):
         self.assertIn('"release_readiness_reason": release_ready_reason', body)
         self.assertIn("release readiness explicitly held by caller", body)
 
+    def test_lifecycle_overlay_reads_stable_uninstall_registration(self):
+        self.assertIn("Zxaidman.AnonGee.Toolkit_is1", self.overlay)
+        self.assertIn("DisplayVersion", self.overlay)
+        self.assertIn("HKCU64", self.overlay)
+        self.assertIn("HKCU32", self.overlay)
+        self.assertIn("AnonGeeProductVersion", self.overlay)
+
+    def test_lifecycle_overlay_names_install_reinstall_upgrade_and_blocked_modes(self):
+        for token in (
+            "fresh-install",
+            "same-version-reinstall",
+            "upgrade",
+            "blocked",
+            "Reinstall AnonGee Toolkit",
+            "AnonGee Toolkit upgrade detected",
+            "Downgrades are blocked by installer milestone 0.8.0",
+            "Abort;",
+        ):
+            self.assertIn(token, self.overlay)
+
+    def test_base_and_signed_builds_compile_lifecycle_overlay(self):
+        base_compile = _function(self.base, "compile_inno")
+        signed_compile = _function(self.signed, "compile_signed_inno")
+        for body in (base_compile, signed_compile):
+            self.assertIn("--define=AnonGeeProductVersion={}", body)
+            self.assertIn("--include={}", body)
+            self.assertIn("lifecycle_include", body)
+        self.assertIn("signing_include", signed_compile)
+        self.assertIn("--signtool={}=", signed_compile)
+
     def test_lifecycle_document_covers_all_required_scenarios(self):
         plain = self.docs.lower().replace("*", "").replace("`", "")
         for phrase in (
             "clean install",
-            "same-candidate reinstall",
+            "same-version reinstall",
             "upgrade from the archived 1.26.1 installer",
             "uninstall",
             "bridge runtime state",
             "intentionally preserved",
             "release_ready = false",
-            "workstation lifecycle qa pending",
+            "2.0.0",
         ):
             self.assertIn(phrase, plain)
 
