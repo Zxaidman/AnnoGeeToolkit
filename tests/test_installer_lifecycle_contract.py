@@ -200,6 +200,15 @@ class InstallerLifecycleContractTests(unittest.TestCase):
         ):
             self.assertIn(token, self.overlay)
 
+    def test_lifecycle_command_line_include_defers_code_until_after_root_script(self):
+        # ISCC --include is a leading #include.  The lifecycle overlay contains
+        # [Code], so it must make subsequently processed signing/main lines insert
+        # before itself.  Otherwise a [Setup] overlay can land inside the Pascal
+        # compilation stream and fail with a misleading "BEGIN expected" error.
+        lines = [line.strip() for line in self.overlay.splitlines() if line.strip()]
+        self.assertEqual(lines[-1], "#insert 0")
+        self.assertIn("[Code]", self.overlay)
+
     def test_base_and_signed_builds_compile_lifecycle_overlay(self):
         base_compile = _function(self.base, "compile_inno")
         signed_compile = _function(self.signed, "compile_signed_inno")
@@ -210,6 +219,16 @@ class InstallerLifecycleContractTests(unittest.TestCase):
         self.assertIn("signing_include", signed_compile)
         self.assertIn("--signtool={}=", signed_compile)
 
+        # Ordering is part of the ISPP insertion contract. Lifecycle must be the
+        # first command-line include so its final #insert 0 applies to both the
+        # signing overlay (when present) and the root AnonGee.iss script.
+        lifecycle_token = '"--include={}".format(lifecycle_include)'
+        signing_token = '"--include={}".format(signing_include)'
+        self.assertLess(
+            signed_compile.index(lifecycle_token),
+            signed_compile.index(signing_token),
+        )
+
     def test_lifecycle_document_covers_all_required_scenarios(self):
         plain = self.docs.lower().replace("*", "").replace("`", "")
         for phrase in (
@@ -219,12 +238,11 @@ class InstallerLifecycleContractTests(unittest.TestCase):
             "bridge runtime state",
             "intentionally preserved",
             "release_ready = false",
+            "2.0.0",
         ):
             self.assertIn(phrase, plain)
 
-        # Pin the upgrade contract semantically rather than to one sentence.
-        # The documentation may use an arrow, a heading, or prose to describe
-        # the same archived-release -> candidate scenario.
+        # Pin the actual upgrade contract, not one exact prose sentence.
         self.assertIn("archived 1.26.1", plain)
         self.assertIn("upgrade", plain)
         self.assertIn("2.0.0", plain)
