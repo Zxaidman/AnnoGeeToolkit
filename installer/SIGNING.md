@@ -1,11 +1,13 @@
 # AnonGee Authenticode Signing
 
-Pipeline milestone: **0.7.0 — workstation-proven**  
+Authenticode milestone: **0.7.0 — workstation-proven**  
+Current integrated release pipeline: **0.8.0**  
+Current signed manifest schema: **1.4.0**  
 Public-trust adoption: **Deferred**  
 Self-signed certificate provisioning: **Proven on the Windows workstation**  
 Self-signed end-to-end signed build: **Passed on the Windows workstation (2026-09-07)**
 
-The 0.7.0 Authenticode path can be exercised end-to-end at no certificate cost using a self-signed development certificate. This validates SignTool discovery, SHA-256 signing, RFC 3161 timestamping, Inno Setup signing of Setup + uninstaller, and final Windows Authenticode verification.
+The Authenticode capability was introduced and proven in 0.7.0. Release pipeline 0.8.0 keeps the same signing, timestamping, and verification contract and adds lifecycle/version safety around it.
 
 A self-signed build is **not** a public release. The pipeline marks it `release_ready: false`, renames the EXE with `-SELF-SIGNED-TEST`, and writes `test-signing-manifest.json`. A self-signed identity is rejected by the formal signed-release path unless `--allow-self-signed-test` is explicitly supplied.
 
@@ -29,7 +31,7 @@ signtool verify /pa /all /v                    PASS
 Final self-signed test manifest                release_ready = false
 ```
 
-Observed test artifact:
+Observed original 0.7 proof artifact:
 
 ```text
 AnonGee-Setup-1.26.1-SELF-SIGNED-TEST.exe
@@ -39,7 +41,16 @@ SHA-256: f309f75d09ba2bc3a8ee1c613b733642cba4cf74e62da9e660c2afdd355a4395
 
 That hash identifies only this self-signed validation artifact. It is **not** the historical official `1.26.1` release artifact and must not be published as one.
 
-During the signed wrapper run, the reused base 0.6 release verifier may print an intermediate `Release ready: YES` for its temporary production-named artifact. The signed-test wrapper then verifies Authenticode, renames the artifact, rewrites the manifest as `test-signing-manifest.json`, and the **final authoritative state is `release_ready: false`**. A self-signed test must never be treated as a public release.
+The integrated 0.8 pipeline was also exercised successfully before the 2.0.0 candidate bump:
+
+```text
+AnonGee-Setup-1.26.1-SELF-SIGNED-TEST.exe
+Size:    110.74 MiB
+SHA-256: 5f94ec9c9e4bdfcc7162500737fa33fd2c1691c60eebf987ca384bd246972315
+Release ready: NO — self-signed local test only
+```
+
+Pipeline 0.8.0 deliberately holds the base manifest at `release_ready: false` before Authenticode verification. The misleading intermediate `Release ready: YES` seen in the earlier 0.7 implementation is no longer part of the current signed-build behavior.
 
 ## Normal unsigned release
 
@@ -48,6 +59,8 @@ The ordinary release builder does not require any certificate:
 ```powershell
 py -3.12 .\installer\build_release.py
 ```
+
+A formal product build must use a product version newer than the last published `1.26.1`. The current candidate is `2.0.0`.
 
 ## Free local Authenticode validation
 
@@ -63,7 +76,7 @@ Private key      Non-exportable
 Store            Cert:\CurrentUser\My
 ```
 
-The helper and signed builder both validate the Code Signing EKU. Some PowerShell/certificate-provider combinations can leave the convenience property `EnhancedKeyUsageList` empty even when the certificate contains the correct X.509 extension. For that reason the current implementation also parses the persisted Enhanced Key Usage extension directly:
+The helper and signed builder both validate the Code Signing EKU. Some PowerShell/certificate-provider combinations can leave the convenience property `EnhancedKeyUsageList` empty even when the certificate contains the correct X.509 extension. For that reason the implementation also parses the persisted Enhanced Key Usage extension directly:
 
 ```text
 X.509 extension OID  2.5.29.37
@@ -73,19 +86,25 @@ Code Signing EKU     1.3.6.1.5.5.7.3.3
 From the repository root:
 
 ```powershell
-$cert = & .\installer\create_test_signing_certificate.ps1 `
-    -TrustForLocalVerification
-
-$env:ANONGEE_SIGN_CERT_SHA1 = $cert.Thumbprint
+$env:ANONGEE_SIGN_CERT_SHA1 = "YOUR_DEVELOPMENT_CERTIFICATE_THUMBPRINT"
 
 py -3.12 .\installer\build_signed_release.py `
     --allow-self-signed-test
 ```
 
-Expected test outputs:
+If a development certificate does not exist yet, provision one with:
+
+```powershell
+$cert = & .\installer\create_test_signing_certificate.ps1 `
+    -TrustForLocalVerification
+
+$env:ANONGEE_SIGN_CERT_SHA1 = $cert.Thumbprint
+```
+
+Expected test outputs for the current candidate:
 
 ```text
-installer\output\AnonGee-Setup-<product-version>-SELF-SIGNED-TEST.exe
+installer\output\AnonGee-Setup-2.0.0-SELF-SIGNED-TEST.exe
 installer\output\test-signing-manifest.json
 ```
 
@@ -93,6 +112,7 @@ The manifest must contain:
 
 ```text
 release_ready = false
+release_readiness_reason = self-signed local test only
 authenticode.signing_profile = self-signed-test
 authenticode.local_windows_policy_verified = true
 authenticode.certificate.self_signed = true
@@ -106,6 +126,17 @@ installer\output\release-manifest.json
 ```
 
 Archive or move the existing EXE **and** its manifest first.
+
+## Lifecycle integration in 0.8
+
+Both unsigned and signed 0.8 builds include `installer/lifecycle-version.iss`. The signed compile therefore carries both overlays:
+
+```text
+lifecycle-version.iss
+signing-authenticode.iss
+```
+
+The lifecycle overlay classifies fresh install, same-version reinstall, upgrade, and blocked downgrade before the normal Revit/pyRevit prerequisite flow continues. Signing does not bypass or weaken those installer lifecycle rules.
 
 ## Security warning during local trust
 
@@ -311,7 +342,7 @@ The formal path signs both Setup and Inno's embedded uninstaller, timestamps the
 
 ## Manifest contract
 
-Signing manifest schema is **1.3.0**. Authenticode evidence records:
+Current signed manifest schema is **1.4.0** under release pipeline **0.8.0**. Authenticode evidence records:
 
 - certificate subject, issuer, SHA-1 thumbprint, store and expiration;
 - whether the certificate is self-signed;
@@ -320,7 +351,8 @@ Signing manifest schema is **1.3.0**. Authenticode evidence records:
 - RFC 3161 timestamp URL and SHA-256 timestamp digest;
 - final Setup signature verification;
 - confirmation that Inno was asked to sign its uninstaller;
-- signing profile (`self-signed-test` or `formal`).
+- signing profile (`self-signed-test` or `formal`);
+- final `release_readiness_reason`.
 
 Self-signed test mode can never set `release_ready: true`.
 

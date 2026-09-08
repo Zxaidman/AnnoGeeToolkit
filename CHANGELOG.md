@@ -35,6 +35,50 @@ of view of someone using the thing rather than someone reading the diff:
 
 ---
 
+## 2.0.0
+
+**Changed**
+
+- **The Dev ribbon was reorganised into stack columns.** Under this repository's
+  existing SemVer contract a tab/ribbon reorganisation is a MAJOR extension
+  change, so the product advances from the last published `1.26.1` to `2.0.0`.
+- **Windows Setup now has an explicit lifecycle contract.** Installer/release
+  milestone `0.8.0` distinguishes fresh install, same-version reinstall and
+  forward upgrade, and blocks downgrades for installers built with the 0.8
+  lifecycle overlay. The stable `AppId` remains the same so a newer version is
+  the same Windows application rather than a side-by-side product.
+- **The AnonGee extension remains replace-all on install/reinstall/upgrade.**
+  Bridge runtime state under `%LOCALAPPDATA%\Zxaidman\AnonGee\bridge` is
+  preserved, and pyRevit remains an independent prerequisite rather than
+  something AnonGee uninstall owns.
+- **Release pipeline `0.8.0` integrates the workstation-proven Authenticode path
+  introduced in `0.7.0`.** Self-signed local builds remain permanently
+  non-release-ready; publicly trusted signing remains deferred.
+- **The bridge runtime default is the canonical local path**
+  `%LOCALAPPDATA%\Zxaidman\AnonGee\bridge`, with `ANONGEE_BRIDGE_HOME` retained
+  as the explicit override.
+
+**Added**
+
+- `installer/lifecycle-version.iss`, compiled into unsigned and signed Setup
+  builds, reads the existing AnonGee uninstall registration and reports
+  `fresh-install`, `same-version-reinstall`, `upgrade`, or `blocked` lifecycle
+  mode before the normal prerequisite flow continues.
+- Static installer lifecycle and signing contracts now pin product identity,
+  immutable extension replacement, bridge preservation, version reuse guards,
+  signing readiness, and the self-signed development certificate path.
+- CAD2BIM continued to gain model/view helpers and more complete compound slab
+  opening handling; detailed tool-level evolution remains in its own project
+  history and tests.
+
+**Fixed**
+
+- Repeated CAD2BIM console messages are consolidated, and abutting compound
+  slab void components such as L/C shapes are handled as one opening rather
+  than competing rectangular cuts.
+- Bridge Windows-path documentation no longer produces Python invalid-escape
+  warnings during normal use or contract tests.
+
 ## 1.26.1
 
 **Fixed**
