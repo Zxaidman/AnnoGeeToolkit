@@ -44,6 +44,7 @@ PIPELINE_VERSION = "0.8.0"
 MANIFEST_SCHEMA_VERSION = "1.2.0"
 EXPECTED_INSTALLER_MILESTONE = "0.8.0"
 LAST_PUBLISHED_PRODUCT_VERSION = "1.26.1"
+LIFECYCLE_INCLUDE = "lifecycle-version.iss"
 EXPECTED_INNO_MAJOR = 7
 EXPECTED_MIN_PYREVIT_VERSION = "6.1.0"
 EXPECTED_PYREVIT_COMPATIBILITY_VERSION = "6.5.5"
@@ -435,10 +436,22 @@ def run_payload_builder(repo_root: Path, strict_git: bool) -> None:
         )
 
 
-def compile_inno(iscc: Path, iss_path: Path, repo_root: Path) -> None:
+def compile_inno(
+    iscc: Path,
+    iss_path: Path,
+    lifecycle_include: Path,
+    product_version: str,
+    repo_root: Path,
+) -> None:
     print("\n=== 2/3 COMPILE INNO SETUP ===")
-    command = [str(iscc), str(iss_path)]
+    command = [
+        str(iscc),
+        "--define=AnonGeeProductVersion={}".format(product_version),
+        "--include={}".format(lifecycle_include),
+        str(iss_path),
+    ]
     print("Command: {}".format(subprocess.list2cmdline(command)))
+    print("Lifecycle overlay: {}".format(lifecycle_include))
     result = subprocess.run(command, cwd=repo_root, check=False)
     if result.returncode != 0:
         raise ReleaseBuildError(
@@ -605,9 +618,15 @@ def main() -> int:
         repo_root = find_repo_root(Path(__file__))
         installer_dir = repo_root / "installer"
         iss_path = installer_dir / "AnonGee.iss"
+        lifecycle_include = installer_dir / LIFECYCLE_INCLUDE
 
         print("AnonGee Release Pipeline {}".format(PIPELINE_VERSION))
         print("Repository: {}".format(repo_root))
+
+        if not lifecycle_include.is_file():
+            raise ReleaseBuildError(
+                "Installer lifecycle overlay is missing: {}".format(lifecycle_include)
+            )
 
         source_state = verify_source_state(repo_root, allow_dirty=args.allow_dirty)
         branch, commit, changed_entries = source_state
@@ -640,7 +659,13 @@ def main() -> int:
 
         strict_git = not args.allow_dirty
         run_payload_builder(repo_root, strict_git)
-        compile_inno(iscc, iss_path, repo_root)
+        compile_inno(
+            iscc,
+            iss_path,
+            lifecycle_include,
+            installer["product_version"],
+            repo_root,
+        )
         verify_output(
             repo_root,
             extension,
