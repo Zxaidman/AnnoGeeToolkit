@@ -43,6 +43,39 @@ class WhatGetsSaved(unittest.TestCase):
             self.assertTrue(settings.saveable(name), name)
             self.assertFalse(settings.restorable(name), name)
 
+    def test_the_blanket_note_figures_are_saved_but_never_restored(self):
+        # they are read off THIS sheet's "ALL BEAMS ARE 750MM IN DEPTH U.N.O."
+        # note, so putting last week's 750 back on a drawing that says 600
+        # would give every unlabelled beam a wrong depth and say nothing --
+        # exactly what DETECTED_NAMES exists to stop
+        for name in ("tb_blanket_beam_depth", "tb_blanket_slab_thk"):
+            self.assertTrue(settings.saveable(name), name)
+            self.assertFalse(settings.restorable(name), name)
+
+    def test_the_blanket_note_tick_is_a_preference_and_comes_back(self):
+        # whether to honour blanket notes AT ALL is the user's habit, not a
+        # fact about the drawing in front of them
+        self.assertTrue(settings.saveable("chk_blanket_note"))
+        self.assertTrue(settings.restorable("chk_blanket_note"))
+
+    def test_the_blanket_note_preview_is_never_captured(self):
+        # lbl_* is what the dialog computed from the drawing; restoring it
+        # would put another sheet's words on this one
+        self.assertFalse(settings.saveable("lbl_blanket_note"))
+
+    def test_a_settings_file_carries_the_blanket_figures_as_a_record(self):
+        # saved but not restored: the file is still a COMPLETE record of the
+        # run, which is what makes it worth reading back after a bad build
+        data = settings.payload({"tb_blanket_beam_depth": "750",
+                                 "tb_blanket_slab_thk": "125",
+                                 "chk_blanket_note": True},
+                                version="0.0.0")
+        reloaded = json.loads(json.dumps(data))
+        controls, _layers, _texts = settings.sections(reloaded)
+        self.assertEqual(controls["tb_blanket_beam_depth"], "750")
+        self.assertEqual(controls["tb_blanket_slab_thk"], "125")
+        self.assertIs(controls["chk_blanket_note"], True)
+
     def test_a_missing_name_is_neither(self):
         self.assertFalse(settings.saveable(""))
         self.assertFalse(settings.saveable(None))
@@ -59,6 +92,41 @@ class WhatGetsSaved(unittest.TestCase):
                      "tb_name_wall_struct", "tb_name_wall_arch"):
             self.assertTrue(settings.saveable(name), name)
             self.assertTrue(settings.restorable(name), name)
+
+    def test_the_column_or_wall_choice_rides_the_snapshot(self):
+        # the Build > Structure three-way is a PREFERENCE (how this office
+        # wants its vertical members built), not something read off the
+        # drawing, so all three buttons save AND restore. A name that drifted
+        # into DETECTED_NAMES would put the run back on Column every session
+        # without saying so.
+        for name in ("rb_vertical_column", "rb_vertical_wall",
+                     "rb_vertical_combine"):
+            self.assertTrue(settings.saveable(name), name)
+            self.assertTrue(settings.restorable(name), name)
+
+    def test_a_file_saved_before_the_choice_existed_restores_column(self):
+        # the round trip a user actually has: last week's settings file has no
+        # rb_vertical_* key at all, so nothing is put back and the XAML's own
+        # IsChecked="True" on Column stands -- today's behaviour, unchanged.
+        controls, _layers, _texts = settings.sections(
+            {"schema": 4, "controls": {"chk_columns": True}})
+        self.assertEqual([name for name in controls
+                          if name.startswith("rb_vertical_")], [])
+
+    def test_the_choice_survives_a_file_on_disk(self):
+        data = settings.payload({"rb_vertical_column": False,
+                                 "rb_vertical_wall": False,
+                                 "rb_vertical_combine": True},
+                                version="0.86.0")
+        folder = tempfile.mkdtemp()
+        try:
+            path = os.path.join(folder, "settings.json")
+            self.assertIsNone(settings.write(path, data))
+            controls, _layers, _texts = settings.sections(settings.read(path))
+            self.assertEqual(controls["rb_vertical_combine"], True)
+            self.assertEqual(controls["rb_vertical_column"], False)
+        finally:
+            shutil.rmtree(folder)
 
 
 class MatchingASavedComboLabel(unittest.TestCase):
@@ -165,6 +233,51 @@ class PayloadShape(unittest.TestCase):
         self.assertEqual(settings.hatch_mappings(old), {})
         self.assertEqual(settings.advanced_overrides(old),
                          {"beam_heal_mm": 400.0})
+
+    def test_the_hatch_section_carries_a_split_row_key(self):
+        # schema 4: where a drawing's legend gives one layer several
+        # meanings the table splits it into "<layer>|<PATTERN>" rows, and
+        # the file keys them the same way -- test14's HAT, four rows, three
+        # of them sunk and GOST_GLASS ("SLAB AT BEAM BOTTOM") not
+        data = settings.payload({"a": 1}, hatches={"HAT|ANGLE": "sunk",
+                                                   "HAT|ANSI37": "sunk",
+                                                   "HAT|HONEY": "sunk",
+                                                   "HAT|GOST_GLASS": "unmapped",
+                                                   "S-FND-FOLD": "fold"})
+        self.assertEqual(data["schema"], 4)
+        reloaded = settings.hatch_mappings(json.loads(json.dumps(data)))
+        self.assertEqual(reloaded["HAT|ANGLE"], "sunk")
+        self.assertEqual(reloaded["HAT|GOST_GLASS"], "unmapped")
+        # a plain layer key rides the same section, unchanged
+        self.assertEqual(reloaded["S-FND-FOLD"], "fold")
+
+    def test_a_key_is_never_taken_apart_on_its_separator(self):
+        # an xref layer is legitimately named "PLAN|HAT": the accessor hands
+        # keys back verbatim, and the dialog matches a row against the key it
+        # wrote for that row, so nothing has to guess where a layer ends
+        data = settings.payload({}, hatches={"PLAN|HAT": "sunk",
+                                             "PLAN|HAT|ANGLE": "fold"})
+        self.assertEqual(settings.hatch_mappings(data),
+                         {"PLAN|HAT": "sunk", "PLAN|HAT|ANGLE": "fold"})
+
+    def test_a_schema_3_file_of_plain_layer_keys_loads_unchanged(self):
+        # the file every v0.73..0.79 run wrote: all its keys are layers, and
+        # they still restore the rows that were not split. The split rows are
+        # keyed differently ON PURPOSE -- a stale "HAT -> sunk" is the coarse
+        # answer the split exists to replace, and letting it reach the split
+        # rows would put "sunk" back on GOST_GLASS
+        old = {"schema": 3, "version": "0.79.0",
+               "controls": {"chk_beams": True},
+               "layers": {"S-COLS": "column"}, "texts": {},
+               "hatches": {"S-FND-FOLD": "fold", "HAT": "sunk"},
+               "advanced": {}}
+        controls, layer_map, texts = settings.sections(old)
+        self.assertEqual(controls, {"chk_beams": True})
+        self.assertEqual(layer_map, {"S-COLS": "column"})
+        self.assertEqual(texts, {})
+        saved = settings.hatch_mappings(old)
+        self.assertEqual(saved, {"S-FND-FOLD": "fold", "HAT": "sunk"})
+        self.assertEqual(saved.get("HAT|ANGLE"), None)
 
     def test_hatch_mappings_of_rubbish_is_an_empty_dict(self):
         for junk in (None, [], "text", {"hatches": "not a dict"},

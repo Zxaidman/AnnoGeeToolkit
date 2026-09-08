@@ -27,13 +27,22 @@ placement, the way the column builder attaches FAMILY_TOP_LEVEL_PARAM. The
 `structural` flag on Create is the kind: it files the wall under structure for
 the analytical model, the same reason footings set FLOOR_PARAM_IS_STRUCTURAL.
 
+Both ends of every placed wall have their JOIN DISALLOWED. A wall joins its
+neighbours by default and Revit then extends, trims and mitres the pair, which
+means a corner looks right whatever centrelines it was handed -- and stops
+looking right the moment the model changes around it. The drawing shows square
+ends and a corner filled by ONE of the two walls, and that is exactly the shape
+`wall_plan.close_wall_corners` has already cut into the centrelines before they
+arrive here (one member run out to the other's far face, the other stopped on
+its side). Leaving the join on would let Revit re-mitre over the top of it.
+
 This module performs Revit writes and must run inside a Transaction.
 """
 
 import math
 
 from Autodesk.Revit.DB import (BuiltInParameter, FilteredElementCollector,
-                               Line, Wall, WallKind, WallType, XYZ)
+                               Line, Wall, WallKind, WallType, WallUtils, XYZ)
 
 from ..compat import get_element_name
 from .. import config
@@ -46,6 +55,9 @@ _MM = config.MM_PER_FT
 # The shortest REAL wall in the corpus is a 250 mm drawn nib (findings #12),
 # so 50 discards nothing the planner emits from a drawing.
 _MIN_WALL_LENGTH_MM = 50.0
+
+# Revit's own wall-end indices, the ones WallUtils takes.
+_WALL_START, _WALL_END = 0, 1
 
 
 def wall_types(doc):
@@ -193,6 +205,29 @@ def _attach_top(instance, top_level):
     return None
 
 
+def _disallow_joins(instance):
+    """Square both ends of a placed wall. None, or why one of them refused.
+
+    `WallUtils.DisallowWallJoinAtEnd` takes a PLACED wall and an end index, so
+    this runs after `Wall.Create` -- and after the top constraint, for the same
+    reason the constraint runs after the create: neither exists to be set until
+    the wall does. Both ends every time, because a wall the planner shaped to
+    butt at one end and run through at the other must keep both shapes; Revit
+    re-mitres whichever end it is still allowed to.
+
+    A refusal is a sentence, not an exception. A wall standing with Revit's own
+    mitre still on it is a wall in the right place at the right width, which
+    beats a rolled-back batch.
+    """
+    for end in (_WALL_START, _WALL_END):
+        try:
+            WallUtils.DisallowWallJoinAtEnd(instance, end)
+        except Exception:
+            return ("a wall end would not take a disallowed join: Revit keeps "
+                    "its own mitre there")
+    return None
+
+
 def place_walls(doc, segments, base_type_id, base_level_id, top_level_id=None,
                 height_mm=None, structural=True):
     """The walls of ONE kind, based on `base_level_id`.
@@ -202,6 +237,12 @@ def place_walls(doc, segments, base_type_id, base_level_id, top_level_id=None,
     to `top_level_id` when it sits above the base -- structural walls rise
     base-to-top like columns, arch walls run to the level above -- else the
     wall stands unconnected at `height_mm` (the dialog's storey height).
+
+    Every wall placed here has its JOIN DISALLOWED at both ends, after the
+    create and after the top constraint. The centrelines already carry the
+    corner the drawing shows (`wall_plan.close_wall_corners` has run one member
+    out to the other's far face and stopped the other on its side), and leaving
+    the join on would hand that corner straight back to Revit to re-mitre.
 
     Returns {"created": [ids], "skipped": [reasons], "errors": [reasons],
     "notes": [...]} -- the builders' shared shape, one bad segment never
@@ -254,6 +295,9 @@ def place_walls(doc, segments, base_type_id, base_level_id, top_level_id=None,
                 problem = _attach_top(instance, top_level)
                 if problem and problem not in result["skipped"]:
                     result["skipped"].append(problem)
+            problem = _disallow_joins(instance)
+            if problem and problem not in result["skipped"]:
+                result["skipped"].append(problem)
             result["created"].append(instance.Id)
         except Exception as placement_error:
             result["errors"].append(str(placement_error))

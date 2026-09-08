@@ -2,9 +2,26 @@
 .env
 __pycache__
 bin
+tools/_runtime_backups/*
+tools/_runtime_work/*
+build/
+.py3_previous_swap/
+installer/payload/
+installer/output/
+installer/prerequisites/**/*.exe
+
+# --- Code-signing private material ---
+# Public certificates/notices may be committed deliberately, but private key
+# containers must never enter the repository.
+*.pfx
+*.p12
+*.pvk
+*.key
+installer/signing/private/
 
 # --- Extended Python & Caching ---
-*.py[cod]
+*.pyo
+*.pyc
 *$py.class
 .pytest_cache/
 .mypy_cache/

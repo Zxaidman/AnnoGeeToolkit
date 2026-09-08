@@ -1,0 +1,125 @@
+title: RC Automation
+author: AnonGee
+tooltip: |
+  Read an Excel reinforcement schedule, check it, work out what every existing
+  footing would get, and place the reinforcement.
+
+  Nothing is written until Create, and Create does exactly what the plan showed.
+  The whole run lands as ONE undo step.
+
+  What it does
+    • Loads a schedule workbook (.xlsx / .xlsm) and validates it against
+      BS 8666:2020 — bar sizes, shape codes, cover that leaves room for steel,
+      spacing wider than the bar, ties that are actually closed links,
+      confinement zones, and cages that fit the column they are drawn in.
+    • Reports every finding against the cell it came from, so a problem can be
+      typed straight into Excel's Name Box.
+    • Works out what the schedule would build: how many bars, and how many
+      Revit elements those become. A layer whose bars are all the same length
+      is one element; a tapered pad's are not, and it says so.
+    • Probes the model read-only for the levels and rebar bar types the
+      workbook names, and for whether the footings and columns it would host
+      into can take reinforcement at all — a floor that is not flagged
+      structural cannot, which is the failure worth finding early.
+
+  Creating reinforcement
+    • Plan reinforcement — matches every footing, works out its bars, and says
+      why anything is being skipped. Still writes nothing.
+    • Create rebar — places what the plan showed, after a confirmation naming
+      the counts. Chunked, so a failure rolls back that chunk and the rest of
+      the run continues; assimilated, so Ctrl+Z reverses all of it at once.
+    • A footing that already carries reinforcement is left alone. Tick
+      "Replace mine" to rebuild the bars this tool placed earlier — bars added
+      by hand are never touched.
+    • Every bar is stamped as this tool's work, so a later run can tell the
+      difference.
+
+  Reinforcement
+    • Shape codes build the bar: 21 turns both ends up, 11 turns one, 00 runs
+      straight. A layer with no room to bend is placed straight and says so.
+    • The scheduled cover is written onto the footing itself, as cover types,
+      created if the project has none — one per face, named for it: FOOTING
+      TOP, FOOTING BOTTOM, FOOTING ALL SIDE. Two faces at the same distance
+      still get their own type, so Other Faces never reads FOOTING TOP.
+    • Bends stay inside the cover. A straight end stops on the cover plane,
+      where its end face is what cover measures; a turned-up leg stops half a
+      bar short, because there the barrel is.
+    • Placed bars are constrained to the host's cover, so editing a footing
+      updates its reinforcement rather than leaving it behind. Each handle
+      takes the cover face it is nearest — which on a tapered pad is the
+      sloping edge, and is what makes a varying set actually vary.
+    • A layer is cut at the outline's vertices and each stretch becomes its
+      own set — a set cannot follow a change of slope. A gabled pad gives a
+      plain set across the rectangle and a varying set over the gable one way,
+      and two varying sets either side of the apex the other way.
+    • A varied region is placed with Varying Rebar Set turned on, so Revit
+      lengths each bar from its constraints. Orthogonal regions get it off.
+    • Bars are shown unobscured in the active view, the way step five of the
+      manual workflow leaves them.
+
+  Creating footings
+    • Pads are floors, so an Outline in the placement sheet is sketched as
+      drawn — a combined pad or a cut corner is scheduled, not approximated.
+    • Every pad is flagged structural, without which Revit accepts no
+      reinforcement at all and nothing looks wrong.
+    • A floor type is duplicated per thickness and reused, so a second run adds
+      no types. A mark already on a foundation is left alone.
+    • Position comes from a grid crossing, or from X/Y millimetres — which is
+      the only one that works in a model with no grids in it yet.
+
+  The project's own schedule fields
+    • ID, ID_LIC, ID_V, ITEM and LEVEL_V are written onto every footing, and
+      onto every bar along with Host Category and Host Mark. A pad at grid C-1
+      of type F2 reads ID=F2, ID_LIC=C-1, ID_V=F2-C1, ITEM=2400x2400x750; its
+      bottom mat reads ID_V=B1-X, ITEM=#12-16T@200.
+    • A bar takes ID, ID_LIC and LEVEL_V from its host, so the two cannot
+      disagree about the level or the grid. ITEM prints the model's name for
+      the bar type, not the workbook's.
+    • Parameters chooses what happens when the project does not have them:
+      fill only what is bound, create the missing ones as shared parameters
+      (inside the same undo step), or skip them entirely. Probe the model to
+      see which are there.
+
+  Level names
+    • Matched rather than demanded: "Ground" finds "00 Ground Lvl."; "Level 1"
+      and "L1" find "01 1st Floor Lvl." by storey number. Two candidates are
+      named rather than picked between.
+    • An optional LEVELS sheet settles what matching cannot reach — two
+      columns, the name the schedule uses and the name this model uses.
+
+  What it will NOT do
+    • Create columns. Their reinforcement is worked out but not yet placed.
+    • Lap or start column main bars. Bars stop at the pour; the report says so
+      rather than guessing a lap length.
+    • Change an element that disagrees with the schedule. Differences are
+      reported; the model is not rewritten.
+
+  Modes
+    • Create structure and reinforcement — footings, then their rebar.
+    • Reinforce existing structure — rebar into what is already modelled.
+    • Reconcile against the model — compare, do not overwrite. Report only.
+
+  Sheets it reads
+    FOOTING_TYPES, FOOTING_PLACEMENT, FOOTING_REBAR,
+    COLUMN_TYPES, COLUMN_PLACEMENT, COLUMN_REBAR.
+    Plus an optional INFO cover sheet carrying the project, the units and the
+    standard — keeping those off the data sheets leaves them as pure tables, so
+    Excel's own filter and sort still work. A title block above the header
+    reads too, the way a real schedule arrives.
+    All lengths in millimetres.
+
+  What it will open
+    • An .xlsx or .xlsm workbook.
+    • A folder holding one .txt or .csv file per sheet — which is the shape
+      Revit's own schedule export writes.
+    • A single .csv or .txt holding every sheet, separated by '#SHEET,<name>'
+      rows.
+
+  Notes
+    • Modeless — Revit stays interactive while the window is open.
+    • Runs on the CPython 3 engine; reading a workbook uses the bundled
+      openpyxl.
+    • Every control has a tooltip. Export report writes the findings and the
+      probe beside the workbook.
+
+  Version: 0.7.0

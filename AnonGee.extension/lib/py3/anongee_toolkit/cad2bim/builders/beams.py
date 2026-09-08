@@ -37,6 +37,48 @@ _DEPTH_PARAM_NAMES = ("h", "depth", "d", "Depth", "H", "D")
 _MIN_BEAM_LENGTH_MM = 50.0   # ignore slivers shorter than this
 
 
+def _sink(instance, drop_mm):
+    """Sink the beam `drop_mm` through its `z Offset Value`. A problem, or None.
+
+    THE PARAMETER IS THE OWNER'S INSTRUCTION, verbatim: "its sunk value should
+    use Z Offset Value only for sunk or rise not the Start/End Level Offset."
+    Lowering the driving curve is what Revit records as Start and End Level
+    Offset, which is the pair their properties palette showed at 0.000 while a
+    beam that should have been 150 down had not moved at all. `Z_OFFSET_VALUE`
+    is the parameter that means "this member sits below its level", and it
+    leaves the analytical line where the drawing put it.
+
+    THE SIGN, and why the justification does not change it. `z Justification`
+    chooses WHICH datum of the section sits on the location line -- Top,
+    Centre, Bottom, Origin -- and `z Offset Value` then shifts the member from
+    that datum along the model's +Z. So the offset counts UP whatever the
+    justification reads, and DOWN is negative. The owner's screenshot reads
+    `Top`: the beam's top face is on the level, and -150 takes that face, and
+    with it the whole unchanged section, 150 below -- top and soffit down
+    together, which is the sunken-slab detail this pass exists to build. A
+    legend row that prices a RISE arrives here as a negative depth and comes
+    out positive, up, by the same arithmetic and with nothing special about it.
+
+    Best-effort but never silent: a family whose `z Offset Value` will not take
+    the number leaves a beam sitting a step too high, and that is invisible in
+    plan, so the caller reports it the way `builders/slabs._offset` does.
+    """
+    if not drop_mm:
+        return None
+    try:
+        parameter = instance.get_Parameter(BuiltInParameter.Z_OFFSET_VALUE)
+    except Exception:
+        parameter = None
+    if parameter is not None and not parameter.IsReadOnly:
+        try:
+            parameter.Set(-mm_to_internal(drop_mm))
+            return None
+        except Exception:
+            pass
+    return ("could not sink a beam by {0:.0f} mm: its z Offset Value would "
+            "not take the number, so it sits at its level".format(drop_mm))
+
+
 def _set_mark(instance, mark):
     """Stamp the instance 'Mark' parameter (e.g. B1) when a mark was resolved."""
     if not mark:
@@ -61,8 +103,21 @@ def structural_framing_symbols(doc):
     return sorted(rows, key=lambda pair: pair[0])
 
 
-def place_beams(doc, segments, base_symbol_id, level_id):
+def place_beams(doc, segments, base_symbol_id, level_id, drops=None):
     """Place a beam for each segment along its centerline at level_id.
+
+    `drops` is {segment index: depth_mm} from `fold_plan.beam_drops` -- the
+    beams a sunk STRIP names and the beams a sunk BAY's hatch is drawn over. A
+    SUNK BEAM KEEPS ITS DEPTH AND ITS WHOLE BODY DROPS: the section is
+    untouched, so top and soffit move down together the way the sunken-slab
+    detail shows. The beam is not deepened to reach back up to the level, and
+    it is not cut in two where the strip ends -- both were considered and ruled
+    out, so this is one number per beam and no geometry.
+
+    THE DRIVING LINE STAYS ON THE LEVEL. The drop is the instance's `z Offset
+    Value` and nothing else (see `_sink`), because moving the curve is what
+    Revit records as Start and End Level Offset, and the owner asked for the
+    other parameter by name.
 
     Runs inside a caller-owned Transaction. One bad segment never fails the batch.
     """
@@ -75,10 +130,11 @@ def place_beams(doc, segments, base_symbol_id, level_id):
     cache = {}
     result = {"created": [], "skipped": [], "errors": [], "notes": []}
 
-    for segment in segments:
+    for index, segment in enumerate(segments):
         try:
             sx, sy, _sz = segment["start"]
             ex, ey, _ez = segment["end"]
+            drop_mm = (drops or {}).get(index) or 0.0
             # Recompute length from the LIVE endpoints: snap_beam_ends_to_columns may pull an
             # end onto a column centre AFTER length_mm was stored, so the cached length is
             # stale. A beam whose ends collapsed onto one column would slip past a stale-length
@@ -101,11 +157,18 @@ def place_beams(doc, segments, base_symbol_id, level_id):
             if not symbol.IsActive:
                 symbol.Activate()
                 doc.Regenerate()
-            curve = Line.CreateBound(XYZ(sx, sy, elevation), XYZ(ex, ey, elevation))
+            # ON the level, always -- a sunk beam is sunk by _sink below, and a
+            # curve laid below the level is exactly the Start/End Level Offset
+            # the owner asked this pass to stop writing.
+            curve = Line.CreateBound(XYZ(sx, sy, elevation),
+                                     XYZ(ex, ey, elevation))
             instance = doc.Create.NewFamilyInstance(
                 curve, symbol, level, StructuralType.Beam)
             _set_mark(instance, segment.get("mark"))
             _disallow_joins(instance)
+            problem = _sink(instance, drop_mm)
+            if problem:
+                result["skipped"].append(problem)
             result["created"].append(instance.Id)
         except Exception as placement_error:
             result["errors"].append(str(placement_error))

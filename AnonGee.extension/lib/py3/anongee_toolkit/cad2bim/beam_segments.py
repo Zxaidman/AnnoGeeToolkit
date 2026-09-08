@@ -81,7 +81,8 @@ def _ring_keeps_all_points(xy, ring, tol_ft):
 
 
 def build_beam_segments(records, circles=None, limits=None, standards=None,
-                        texts=None, tolerances=None, schedule=None):
+                        texts=None, tolerances=None, schedule=None,
+                        blanket_depth_mm=None):
     """Derive straight beam centerlines from beam-category geometry.
 
     When `texts` (sized DXF marks, internal feet) are given, each segment is
@@ -89,6 +90,20 @@ def build_beam_segments(records, circles=None, limits=None, standards=None,
     DEPTH = the larger -- the depth a 2D outline cannot provide on its own.
     `tolerances` (config.DEFAULTS overrides) tunes the parallel-pair band, the
     arc junction/concentric tolerances, snap and mark radius.
+
+    `blanket_depth_mm` is the sheet's "ALL BEAMS ARE 750MM IN DEPTH U.N.O." note,
+    applied LAST and only to beams no label reached. Three states:
+
+        None  -- read the note out of `texts` (what an offline harness holding
+                 the whole drawing gets for free, and what makes the default
+                 visible in the sweep and the export)
+        > 0   -- use this figure whatever the sheet says (the dialog's box)
+        0     -- no blanket default at all (the dialog's tick, off)
+
+    A caller that narrows `texts` to the ROUTED beam labels must pass the figure
+    explicitly: the note is a SHEET note, written on a general-notes layer that
+    is routed to nothing, so leaving it to be discovered inside a routed subset
+    would find it in the harnesses and never in Revit.
 
     Three sources: (1) closed thin outlines -> one centerline along the long axis;
     multi-segment rectilinear outlines decompose into straight beams. (2) PAIRS of
@@ -313,8 +328,42 @@ def build_beam_segments(records, circles=None, limits=None, standards=None,
     if curved_segments:
         review.append("{0} curved beam(s) detected".format(len(curved_segments)))
 
+    # LAST, and only where nothing else spoke: the sheet's blanket note. "Unless
+    # noted otherwise" makes it the fallback by definition, so every label, every
+    # schedule row and every edge-pair confirmation above has already had its say
+    # -- a beam that carries its own depth keeps it, and only a beam with none
+    # takes the sheet's figure. Running it here rather than in the builder is what
+    # puts it in the export and the sweep, where it can be checked without Revit.
+    blanket = _blanket_depth(blanket_depth_mm, texts)
+    if blanket:
+        defaulted = 0
+        for segment in segments + curved_segments:
+            if segment.get("depth_mm") is None:
+                segment["depth_mm"] = blanket
+                defaulted += 1
+        if defaulted:
+            # a status count, NOT a review line: `review` means "needing
+            # review, not placed" in the export, and these beams are placed
+            # and correctly sized -- just sized by the sheet rather than a label
+            status["blanket_depth"] = defaulted
+
     return {"segments": segments, "curved_segments": curved_segments,
-            "status_counts": dict(status), "review": review}
+            "status_counts": dict(status), "review": review,
+            "blanket_depth_mm": blanket}
+
+
+def _blanket_depth(blanket_depth_mm, texts):
+    """The blanket depth to apply: the caller's figure, or the sheet's own note.
+
+    None means "nobody has read the note yet, so read it here"; any number the
+    caller gives is taken as final, INCLUDING 0, which is how the dialog turns
+    the whole thing off. A sheet whose notes disagree settles nothing and
+    `sheet_defaults` returns None for the depth -- refusing is the point, so
+    that None becomes no blanket depth rather than a guess.
+    """
+    if blanket_depth_mm is not None:
+        return float(blanket_depth_mm) if blanket_depth_mm > 0 else 0.0
+    return marks.sheet_defaults(texts)["beam_depth_mm"] or 0.0
 
 
 def _group_arc_edges(arcs, center_tol_ft, radius_tol_ft):

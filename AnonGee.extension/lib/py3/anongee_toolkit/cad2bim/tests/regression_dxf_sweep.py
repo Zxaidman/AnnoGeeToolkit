@@ -32,10 +32,11 @@ import _golden
 import _loader
 
 
-(report, layers, marks, dxf_reader, slab_outlines, foundation_plan,
- fold_plan, legend, wall_plan) = _loader.load(
+(report, layers, marks, dxf_reader, slab_outlines, slab_stops,
+ foundation_plan, fold_plan, legend, wall_plan) = _loader.load(
     "report", "classify.layers", "classify.marks", "readers.dxf_reader",
-    "slab_outlines", "foundation_plan", "fold_plan", "legend", "wall_plan")
+    "slab_outlines", "slab_stops", "foundation_plan", "fold_plan", "legend",
+    "wall_plan")
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _CAD = os.path.join(_HERE, "fixtures", "cad")
@@ -106,13 +107,24 @@ def _measure(path):
         loops, result.records, beams, result.texts, column_rects=footprints)
     if recovered:
         loops = list(loops) + list(recovered)
-    labelled = slab_outlines.apply_slab_labels(loops, result.texts)
+    # The drawing's own SLAB SCHEDULE, exactly as _create_slabs reads it: a
+    # Mark|Thk table sizes a bay whose label carries only a mark. test16 is why
+    # this is measured rather than left to the AST pin -- its S1..S6 table sat
+    # unread while 201 labels used those marks, and nothing offline could see it.
+    slab_schedule = dict(
+        (mark, thickness)
+        for mark, thickness in marks.parse_thickness_schedule(
+            result.texts).items()
+        if str(mark)[:1].upper() == "S" and str(mark)[1:2].isdigit())
+    labelled = slab_outlines.apply_slab_labels(loops, result.texts,
+                                               schedule=slab_schedule)
 
     # FOUNDATIONS, read the way run_builders reads them: the outlines off the
     # foundation layer, sized by the notes routed off the foundation TEXT layer.
-    # Two drawings reach this at all -- test10, which carries the convention,
-    # and Test0, whose S-FNDN linework closes into faces that nothing labels and
-    # which must therefore plan nothing.
+    # Three drawings reach this -- test10, which carries the convention; test16,
+    # which carries it with the marks written UNDER the rings and sized from a
+    # schedule; and Test0, whose S-FNDN linework closes into faces that nothing
+    # labels and which must therefore plan nothing.
     foundation_texts = [t for t in result.texts
                         if layers.classify_text_layer(t.layer_key)
                         == layers.CATEGORY_FOUNDATION_TEXT]
@@ -120,17 +132,32 @@ def _measure(path):
     # The crossed-out faces: X-marked parts the raft is cast AROUND rather
     # than over. test10 measures 2 -- the corridor's north and south parts.
     foundation_cutouts = foundation_plan.cutouts(result.records)
-    foundation_plans = foundation_plan.plan_foundations(result.records,
-                                                        foundation_texts)
+    # The F/RF block of the drawing's own schedule, from the WHOLE FILE the way
+    # `_create_footings` reads it: the table is on `G-ANNO-SCHD`, never on the
+    # foundation notes' own layer, so a schedule read off `foundation_texts`
+    # comes back empty and every F-marked ring stays unsized. test16 is the one
+    # fixture that has one -- F1 500, F2 550, F3 600, RF1 1200, RF2 1200 -- and
+    # `foundation_planned_sized` is what proves it arrived.
+    foundation_schedule = dict(
+        (mark, thickness)
+        for mark, thickness in marks.parse_thickness_schedule(
+            result.texts).items()
+        if str(mark)[:1].upper() in ("F", "R"))
+    foundation_plans = foundation_plan.plan_foundations(
+        result.records, foundation_texts, schedule=foundation_schedule)
     regions = _regions_by_category(result.regions)
     # THE LEGEND, read the way the pushbutton reads it before the dialog:
     # swatch pattern -> legend text -> meaning, translated into per-layer
-    # proposals. test9 is the only fixture that carries one -- 14 rows across
-    # its three tower legends -- and its ambiguity (the same pattern meaning
-    # different things per tower) plus the one-layer rule leave exactly ONE
-    # proposal standing (ASPHALT -> cutout on PI_SHEAR WALL CUTOUT).
+    # proposals. Two fixtures carry one. test9 has 14 rows across three tower
+    # legends, and its ambiguity (the same pattern meaning different things
+    # per tower) plus the one-layer rule leave exactly ONE proposal standing
+    # (ASPHALT -> cutout on PI_SHEAR WALL CUTOUT). test14 has 8 rows drawn
+    # three times, agreeing, and leaves one too (HAT -> sunk) plus the three
+    # SUNK depths -- which is the number `legend_steps` pins: a row read but
+    # stripped of its depth would still show 24 entries and 1 proposal.
     legend_entries = legend.read(result.regions, result.texts)
     legend_proposals = legend.propose(legend_entries, result.regions)
+    legend_depths, _legend_depth_notes = legend.legend_steps(legend_entries)
     # FOLDS AND SUNK BAYS. The hatches are classified the way the pipeline
     # classifies them -- through the HATCH mapping's own default, apart from
     # geometry and text -- then stepped against the outlines they sit in.
@@ -167,6 +194,10 @@ def _measure(path):
         if len(pieces) > 1:
             outlines_divided += 1
 
+    sunk = _sunk_pass(result, legend_entries, legend_proposals, legend_depths,
+                      labelled, beams)
+    stops = _stops_pass(result, legend_entries, legend_depths, labelled, beams)
+
     return {
         "records": len(result.records),
         "texts": len(result.texts),
@@ -188,6 +219,7 @@ def _measure(path):
         "slab_loops_recovered_from_notes": len(recovered or []),
         "slab_loops_total": len(labelled),
         "slab_loops_marked": sum(1 for s in labelled if s.get("mark")),
+        "slab_schedule_rows": len(slab_schedule),
         "slab_loops_sized": sum(1 for s in labelled
                                 if s.get("thickness_mm") is not None),
         "foundation_records": sum(
@@ -198,6 +230,7 @@ def _measure(path):
             1 for _r, _z, source in foundation_outlines if source == "drawn"),
         "foundation_cutouts": len(foundation_cutouts),
         "foundation_texts": len(foundation_texts),
+        "foundation_schedule_rows": len(foundation_schedule),
         "foundation_planned": len(foundation_plans),
         "foundation_planned_sized": sum(
             1 for p in foundation_plans if p.get("thickness_mm") is not None),
@@ -208,6 +241,9 @@ def _measure(path):
         "sunk_regions": regions.get(layers.CATEGORY_SUNK, 0),
         "legend_entries": len(legend_entries),
         "legend_proposals": len(legend_proposals["mapping"]),
+        "legend_reports": len(legend_proposals["reports"]),
+        "legend_steps": len(legend_depths),
+        "legend_step_depth_mm_total": round(sum(legend_depths.values()), 1),
         "steps_planned": len(steps["steps"]),
         "steps_skipped": len(steps["skipped"]),
         "step_supports": sum(len(s["supports"]) for s in steps["steps"]),
@@ -216,6 +252,49 @@ def _measure(path):
         "step_depth_mm_total": round(sum(s["depth_mm"] for s in steps["steps"]), 1),
         "foundation_profiles": profile_count,
         "foundation_outlines_divided": outlines_divided,
+        "sunk_bays": sunk["bays"],
+        "sunk_strips": sunk["strips"],
+        "sunk_unpriced_patterns": sunk["unpriced"],
+        "sunk_slab_steps": sunk["steps"],
+        "sunk_slab_step_supports": sunk["supports"],
+        "sunk_slab_steps_skipped": sunk["steps_skipped"],
+        "sunk_slab_step_depth_mm_total": sunk["depth_total"],
+        "sunk_slab_defs": sunk["defs"],
+        "sunk_beams_dropped": sunk["dropped"],
+        "sunk_beams_dropped_by_strips": sunk["dropped_by_strips"],
+        "sunk_beam_drop_mm_total": sunk["drop_total"],
+        "sunk_strips_on_no_beam": sunk["strips_skipped"],
+        "sunk_dropped_area_m2": sunk["dropped_area_m2"],
+        "sunk_slab_step_notes": sunk["notes"],
+        "slab_stop_records": sum(
+            1 for r in result.records
+            if r.category == layers.CATEGORY_SLAB_STOP),
+        "slab_stop_rings": stops["rings"],
+        "slab_cutouts_crossed": stops["crossed"],
+        "slab_cutout_holes": stops["holes"],
+        # THE X PAIRED WITH NOTHING BUT ITS TWIN. `cutout_cross_marks` is every
+        # X the drawing carries, ring or no ring, and it is the number a change
+        # to the pairing rule moves first -- before any of it reaches a bay.
+        # `free_cutouts_read` is the share of them that no ring and no bay is
+        # drawn around, which is the reading v0.92.0 added, and the difference
+        # between the two is what `slab_cutouts_crossed` and
+        # `cutout_bays_by_cross` were already accounting for.
+        "cutout_cross_marks": stops["cross_marks"],
+        "free_cutouts_read": stops["free_cutouts"],
+        "free_cutout_holes": stops["free_cutout_holes"],
+        "slab_bays_divided_by_cutouts": stops["divided"],
+        "stair_bays_withdrawn": stops["stair_bays"],
+        "stair_area_m2": stops["stair_area_m2"],
+        "cutout_bays_withdrawn": stops["cutout_bays"],
+        "cutout_bays_by_cross": stops["cutout_bays_by_cross"],
+        "cutout_bays_by_text": stops["cutout_bays_by_text"],
+        "cutout_bay_area_m2": stops["cutout_bay_area_m2"],
+        "cutout_texts": stops["cutout_texts"],
+        "chajjas": stops["chajjas"],
+        "chajja_offset_mm_total": stops["chajja_offset_total"],
+        "chajja_holes": stops["chajja_holes"],
+        "slab_stop_notes": stops["notes"],
+        "slab_defs_built": stops["built"],
         "wall_records": sum(
             1 for r in result.records
             if r.category in (layers.CATEGORY_STRUCT_WALL,
@@ -228,6 +307,119 @@ def _measure(path):
         "wall_skipped": len(walls["skipped"]),
         "wall_length_m": round(sum(s["length_mm"]
                                    for s in walls["segments"]) / 1000.0, 1),
+    }
+
+
+def _sunk_pass(result, entries, proposals, depths, slab_defs, beams):
+    """What the legend's SUNK depths would build, the way the run builds it.
+
+    The hatch routing the dialog carries is the name convention with the
+    LEGEND'S proposal laid over it -- that is how the pushbutton seeds the
+    window -- so the mapping is rebuilt here that way before anything is
+    split. Only then does the pattern price each hatch: test14's one routed
+    layer holds three sunk depths and a fourth meaning that is no step at all.
+
+    Applied AFTER the foundation step measurement above, deliberately: that one
+    pins what the name convention alone routes, and re-categorising the regions
+    first would quietly change the number it reports.
+    """
+    mapping = layers.build_default_hatch_mapping(
+        [region.layer_key for region in result.regions])
+    mapping.update(proposals["mapping"])
+    layers.apply_mapping(result.regions, mapping)
+    swatch_ids = set(id(entry["swatch"]) for entry in entries)
+    split = fold_plan.sunk_split(result.regions, depths, swatch_ids)
+    # Both halves of the hatch reading, the way the beam pass asks it: a sunk
+    # STRIP names its beam, and a sunk BAY's hatch overhangs the members
+    # bounding the bay by their half widths and sinks those too.
+    drops = fold_plan.beam_drops(beams, split["strips"], split["bays"])
+    strips_only = fold_plan.beam_drops(beams, split["strips"])
+    steps = fold_plan.sunk_bay_steps(slab_defs, split["bays"])
+    defs, _notes = fold_plan.slab_defs_with_steps(slab_defs, steps["steps"])
+    return {
+        "bays": len(split["bays"]),
+        "strips": len(split["strips"]),
+        "unpriced": len(split["skipped"]),
+        "steps": len(steps["steps"]),
+        "supports": sum(len(s["supports"]) for s in steps["steps"]),
+        "steps_skipped": len(steps["skipped"]),
+        "depth_total": round(sum(s["depth_mm"] for s in steps["steps"]), 1),
+        "defs": len(defs),
+        "dropped": len(drops["drops"]),
+        # The strips ALONE, kept beside the total: a change to the bay reading
+        # and a change to the strip reading both move `dropped`, and only the
+        # pair says which one did.
+        "dropped_by_strips": len(strips_only["drops"]),
+        "drop_total": round(sum(drops["drops"].values()), 1),
+        "strips_skipped": len(drops["skipped"]),
+        # THE GEOMETRY IS THE BAY'S, NOT THE HATCH'S, and this is the number
+        # that says so: the concrete the sunk pass actually lays. It is the one
+        # metric a hatch outline creeping back in would move, where the counts
+        # would not -- test14's hatches are within 14% of their bays by area on
+        # the median, so only the total tells them apart.
+        "dropped_area_m2": round(sum(fold_plan.area_m2(s["dropped"]["ring"])
+                                     for s in steps["steps"]), 1),
+        "notes": len(steps["notes"]),
+    }
+
+
+def _stops_pass(result, entries, depths, slab_defs, beams):
+    """What the SLAB-STOP pass makes of the drawing, and what the run builds.
+
+    Measured on the same `slab_defs` the sunk pass above is measured on, so the
+    two halves are pinned apart and a number that moves says which half moved.
+    `built` is the one number that pins the CHAIN the pushbutton runs -- stops
+    first, then the steps against what survives -- because the order is a
+    decision in its own right (a hole cut into a bay a staircase then withdraws
+    is work thrown away, and the console would have reported it).
+
+    THE BEAM DROPS RIDE IN, the way `_create_slabs` hands them to `_slab_stops`:
+    a chajja hangs at the soffit of the beam it is cast off, and a beam under a
+    sunk hatch has moved down since v0.88.0. Measured here and not only in a
+    unit test because the number that proves it -- `chajja_offset_mm_total` --
+    is a sum over a whole drawing's ledges, and only the fixture has one.
+
+    The regions arrive already re-categorised by `_sunk_pass`, which is the
+    routing the run uses; nothing here re-maps them.
+    """
+    swatch_ids = set(id(entry["swatch"]) for entry in (entries or []))
+    split = fold_plan.sunk_split(result.regions, depths, swatch_ids)
+    drops = fold_plan.beam_drops(beams, split["strips"], split["bays"])
+    stopped, report = slab_outlines.apply_slab_stops(
+        slab_defs, result.records, result.texts, regions=result.regions,
+        beam_segments=beams, legend_entries=entries, skip_ids=swatch_ids,
+        sheet_texts=result.texts, beam_drops=drops["drops"])
+    steps = fold_plan.sunk_bay_steps(stopped, split["bays"])
+    built, _notes = fold_plan.slab_defs_with_steps(stopped, steps["steps"])
+    return {
+        "rings": len(slab_stops.slab_stop_rings(result.records)),
+        "crossed": report["crossed"],
+        "holes": report["holes"],
+        "cross_marks": report["cross_marks"],
+        "free_cutouts": report["free_cutouts"],
+        "free_cutout_holes": report["free_cutout_holes"],
+        "divided": report["divided"],
+        "stair_bays": report["stair_bays"],
+        "stair_area_m2": report["stair_area_m2"],
+        "cutout_bays": report["cutout_bays"],
+        "cutout_bays_by_cross": report["cutout_bays_by_cross"],
+        "cutout_bays_by_text": report["cutout_bays_by_text"],
+        "cutout_bay_area_m2": report["cutout_bay_area_m2"],
+        # EVERY text in the drawing the cutout vocabulary catches, whether or
+        # not it lands in a bay. This is the number a false positive moves
+        # first -- a beam or slab label the words started matching shows up
+        # here on a drawing that has no cutouts at all, before it ever deletes
+        # a floor.
+        "cutout_texts": len(slab_stops.cutout_texts(result.texts)),
+        "chajjas": report["chajjas"],
+        "chajja_offset_total": round(sum(
+            d["offset_mm"] for d in stopped if d.get("part") == "chajja"), 1),
+        # THE SECOND FLOOR THAT USED TO BE CAST OVER EACH LEDGE. A chajja
+        # standing inside a bay is cut out of it; this counts how many, and it
+        # is the number that goes back to zero if the subtraction is ever lost.
+        "chajja_holes": report["chajja_holes"],
+        "notes": len(report["notes"]),
+        "built": len(built),
     }
 
 

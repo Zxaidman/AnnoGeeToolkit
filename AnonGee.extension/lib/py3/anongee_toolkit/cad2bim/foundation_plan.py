@@ -41,11 +41,12 @@ the inner outline is cast as its own slab inside.
 
 A CROSSED-OUT face is the drawing's way of saying "no concrete here at all".
 The convention is the standard opening symbol: two straight strokes spanning
-the face corner-to-corner, an X -- test10 draws them on "A-DETL", a detail
-layer no category claims, over the north and south parts of the corridor
-strip. A nested face carrying the X is a CUTOUT: it is never an element, it
-never completes a neighbour through the step-line dissolve, and its ring
-becomes a hole of the plan that contains it. Read any other way the raft was
+the face corner-to-corner, an X -- test10 draws them on "A-CUTOUT", over the
+north and south parts of the corridor strip. A nested face carrying the X is a
+CUTOUT: it is never an element, it never completes a neighbour through the
+step-line dissolve, and its ring becomes a hole of the plan that contains it.
+The reading itself lives in `slab_graph` now, shared with the slab-stop pass
+that voids a crossed ring on the floor plan. Read any other way the raft was
 cast solid over the crossed-out parts -- the user found the corridor filled in
 Revit against a drawing that crosses it out. Both strokes must reach the
 corners (within `_CUTOUT_MARK_MM`), one per diagonal: a single slash is a
@@ -79,6 +80,12 @@ from .geom import shapes
 from .slab_graph import (_centroid, _cluster_nodes, _dedup_ring, _dist,
                          _is_simple_ring, _next_ccw, _point_in_ring,
                          _signed_area)
+# The X symbol moved to slab_graph so the slab-stop pass reads it the same way
+# (slab_graph, "the X symbol"). Re-exported under the names this module has
+# always used, so nothing here -- or in its tests -- changed by a byte.
+from .slab_graph import (_CUTOUT_MARK_MM,                         # noqa: F401
+                         cross_strokes as _cross_strokes,
+                         crossed as _crossed)
 
 _MM = config.MM_PER_FT
 
@@ -95,10 +102,21 @@ _MIN_AREA_M2 = 0.25
 # The categories whose LINES may complete an outline without being one.
 _STEP_CATEGORIES = (CATEGORY_FOLD, CATEGORY_SUNK)
 
-# How close a cross stroke's end must land to the face corner it claims. The
-# fixture's strokes hit their corners exactly; 50 mm forgives an annotator's
-# snap without letting a slash across half the face count as the symbol.
-_CUTOUT_MARK_MM = 50.0
+# HOW FAR OUTSIDE ITS RING A MARK MAY BE DRAWN. test10 writes the note inside
+# the footing; test16 writes it UNDER the footing, and every one of its 73
+# marks therefore sat inside no ring at all -- so `labelled` came out zero, the
+# drawing was judged not to carry the convention, and 73 drawn footings built
+# nothing (the owner: "for footing it is not making it using footing outline at
+# all in test16").
+#
+# Measured on test16: 68 of its 70 marks sit EXACTLY 285 mm below the ring they
+# name, the other two 2813 and 12258; the nearest-ring gaps run 87, 115, 285 mm
+# and nothing lies between 115 and 285. The rule below is flat anywhere from
+# 300 to 2000 mm -- 73 of 73 rings labelled, no ring taking two marks, no ring
+# taking two different marks -- so this value is the middle of a plateau, not
+# an edge. It is also a third of the smallest footing in the corpus (1500 mm
+# square), so a mark cannot reach past the footing it is drawn under.
+_LABEL_REACH_MM = 500.0
 
 
 def apply_tolerances(tolerances):
@@ -246,27 +264,6 @@ def _faces(segments, flags, strokes=(), drawn=()):
     return out, cutout_rings
 
 
-def _cross_strokes(records):
-    """[(a, b)] -- every straight two-point record, whatever its layer.
-
-    A LINE, or a polyline holding exactly two points. Category is deliberately
-    not consulted: the cross is drawn on an annotation layer ("A-DETL" in the
-    fixture) that maps to nothing, and the strokes prove themselves by landing
-    on a face's corners, not by where they live.
-    """
-    out = []
-    for record in (records or []):
-        if getattr(record, "kind", None) not in ("line", "polyline"):
-            continue
-        points = getattr(record, "points", None) or []
-        if len(points) != 2:
-            continue
-        a, b = (points[0][0], points[0][1]), (points[1][0], points[1][1])
-        if _dist(a, b) > 1e-9:
-            out.append((a, b))
-    return out
-
-
 def _split_off_cutouts(faces, nodes, strokes, drawn):
     """(faces without the crossed-out ones, their rings as holes-to-be).
 
@@ -304,30 +301,6 @@ def _split_off_cutouts(faces, nodes, strokes, drawn):
         simplified = shapes.simplify_ring(rings[index])
         cut.append(simplified if len(simplified) >= 3 else rings[index])
     return keep, cut
-
-
-def _crossed(ring, strokes):
-    """True when two strokes span the face corner-to-corner -- the X symbol.
-
-    The face's CORNERS are what the strokes are measured against, not its
-    vertices: the walk stops wherever the linework was split, so a straight
-    side can carry mid-edge vertices the drawing does not have. Four corners,
-    two diagonals, one stroke per diagonal, each end within `_CUTOUT_MARK_MM`
-    of the corner it claims. One diagonal alone is not the symbol.
-    """
-    corners = shapes.simplify_ring(ring)
-    if len(corners) != 4:
-        return False
-    tol = config.mm_to_ft(_CUTOUT_MARK_MM)
-
-    def lands(stroke, a, b):
-        p, q = stroke
-        return ((_dist(p, a) <= tol and _dist(q, b) <= tol)
-                or (_dist(p, b) <= tol and _dist(q, a) <= tol))
-
-    return all(any(lands(stroke, corners[first], corners[first + 2])
-                   for stroke in strokes)
-               for first in (0, 1))
 
 
 def _split_at_endpoints(segments, flags, tol_ft):
@@ -473,13 +446,19 @@ def _stitch(face_a, face_b, outline_edges):
 
 
 def plan_foundations(records, texts, category=CATEGORY_FOUNDATION,
-                     regions=None):
+                     regions=None, schedule=None):
     """[{ring, z, mark, thickness_mm, steps, source, labels, holes, kind}] for
     the DRAWN foundations.
 
     `texts` are the foundation notes -- the caller routes them by layer, the
     way slab notes are routed, because that is what tells `foundation_labels`
     a bare "1200MM THK" is a raft rather than a slab.
+
+    `schedule` is {mark: thickness_mm} from the drawing's own FOUNDATION
+    schedule -- test16 draws one beside its slab schedule, F1 500 / F2 550 /
+    F3 600 / RF1 1200 / RF2 1200, in the same Mark|Thk shape. It sizes a ring
+    whose label carries only a mark, and it is asked LAST: a note written on
+    the ring itself is the more specific statement and keeps its figure.
 
     `regions` are the reader's hatches, already classified. A region routed
     to CATEGORY_CUTOUT -- a legend proposal or an explicit dialog pick -- is
@@ -519,12 +498,20 @@ def plan_foundations(records, texts, category=CATEGORY_FOUNDATION,
             size = abs(_signed_area(ring))
             if best_area is None or size < best_area:
                 best, best_area = index, size
+        if best is None:
+            best = _ring_labelled_from_outside((point[0], point[1]), rings)
         if best is not None:
             assigned[best].append((text, note))
     plans = []
     for index, (ring, z, source) in enumerate(rings):
         inside = assigned[index]
         mark, thickness = _size_from(inside, ring)
+        if thickness is None and mark is not None:
+            # the schedule speaks only where the ring itself did not
+            entry = (schedule or {}).get(mark)
+            if entry is not None:
+                thickness = (entry[0] if isinstance(entry, (tuple, list))
+                             else entry)
         steps = [{"step_mm": note["step_mm"], "step_kind": note["step_kind"],
                   # The note's THK is the DROPPED slab's own thickness: the
                   # folds repeat their raft's 750, but the sunk bay says 500
@@ -588,10 +575,18 @@ def _kind(plan):
         crossed-out corridor -- is a raft by construction: a pad with an
         opening let into it is not a thing an engineer draws.
 
+      * THE MARK. `RF1` is the drawing saying "raft" in its own words, and it
+        outranks the area: test16's two RF rings are L-shaped, 50.9 and 49.8
+        m2, so the 60 m2 line would call both of them pads while the drawing
+        labels them rafts and its schedule prices them at 1200 mm -- twice
+        what its deepest pad takes.
+
     The column-derived path never reaches here and is always "pad": a pad
     invented by growing a column footprint cannot be a raft, whatever its
     area -- that filter is the whole point of `col_region_max_side_mm`.
     """
+    if str(plan.get("mark") or "")[:2].upper() == "RF":
+        return "raft"
     if plan.get("holes"):
         return "raft"
     if area_m2(plan["ring"]) >= config.DEFAULTS["raft_min_area_m2"]:
@@ -686,6 +681,71 @@ def _hole_cutouts(plans, cutout_rings):
                 parent, parent_area = plan, area
         if parent is not None:
             parent["holes"].append(ring)
+
+
+def _ring_labelled_from_outside(point, rings):
+    """The ring a note DRAWN BESIDE it names, or None when nothing is near.
+
+    Asked only after the containing-ring pass found nothing, so a drawing that
+    writes its notes inside its outlines (test10, all 17) never reaches here.
+
+    The note belongs to the ring it is written UNDER before the ring it is
+    merely near, and that order is what makes stacked footings work. test16
+    draws its 1800 mm pads in pairs 400 mm apart and puts each mark 285 mm
+    below its own pad -- which leaves the upper pad's mark 115 mm above the
+    LOWER pad's top edge. Nearest-wins hands that mark to the pad below, which
+    then holds two marks while the pad it belongs to holds none: measured, five
+    pairs on test16 exactly. Reading "under" first gives all 73 rings one mark
+    each, no ring two, and no ring two different ones.
+
+    "Under" is deliberately the note's x inside the ring's x-span and the
+    ring's bottom edge above the note -- the shape of a mark written beneath
+    the thing it names -- and the fall-back to plain nearest keeps the three
+    test16 marks that are written elsewhere (measured: three F3s with no ring
+    above them at all).
+    """
+    reach = _LABEL_REACH_MM / _MM
+    under = under_gap = None
+    near = near_gap = None
+    for index, (ring, _z, _source) in enumerate(rings):
+        gap = _gap_to_ring(point, ring)
+        if gap > reach:
+            continue
+        if near is None or gap < near_gap:
+            near, near_gap = index, gap
+        if not _lies_under(point, ring):
+            continue
+        if under is None or gap < under_gap:
+            under, under_gap = index, gap
+    return under if under is not None else near
+
+
+def _gap_to_ring(point, ring):
+    """How far `point` sits from the ring's boundary, in internal feet."""
+    best = None
+    count = len(ring)
+    for index in range(count):
+        ax, ay = ring[index][0], ring[index][1]
+        bx, by = ring[(index + 1) % count][0], ring[(index + 1) % count][1]
+        ux, uy = bx - ax, by - ay
+        length2 = ux * ux + uy * uy
+        if length2 <= 0.0:
+            gap = _dist((point[0], point[1]), (ax, ay))
+        else:
+            along = ((point[0] - ax) * ux + (point[1] - ay) * uy) / length2
+            along = max(0.0, min(1.0, along))
+            gap = _dist((point[0], point[1]),
+                        (ax + along * ux, ay + along * uy))
+        if best is None or gap < best:
+            best = gap
+    return best if best is not None else float("inf")
+
+
+def _lies_under(point, ring):
+    """Is the point written beneath this ring -- inside its x, below its foot?"""
+    xs = [p[0] for p in ring]
+    ys = [p[1] for p in ring]
+    return min(xs) <= point[0] <= max(xs) and point[1] <= min(ys)
 
 
 def _parsed_labels(texts):

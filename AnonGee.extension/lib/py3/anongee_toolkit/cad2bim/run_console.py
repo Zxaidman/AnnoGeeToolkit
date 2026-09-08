@@ -78,16 +78,67 @@ def _say(msg=""):
     _OUT.say(msg)
 
 
-def _say_error(msg=""):
-    """An ERROR line, in red, so it stands apart from the notes around it.
+def _say_each(prefix, messages):
+    """Say each DISTINCT message once, with a count when it repeated.
 
-    pyRevit's output window is an HTML view and renders markup printed into it,
-    which is the one way to colour a line without importing pyrevit modules
-    (those crash the CPython3 engine; see the pushbutton header). The wrapping
-    happens at say-time so a buffered error is revealed red too.
+    A skip list is one message per skipped thing, and on a big drawing that is
+    the same sentence hundreds of times over. test17 printed
+
+        step: a fold region of 0.9 m2 sits inside no outline: nothing to step
+
+    roughly two hundred times in a row, burying the twelve lines around it that
+    said something. Counting the repeats says exactly as much in one line.
+
+    First-appearance order is kept: the console is read top to bottom as the
+    run's story, and sorting it by frequency would scramble that.
     """
-    _OUT.say('<span style="color:#c00000;font-weight:bold">{0}</span>'
-             .format(msg))
+    seen, order = {}, []
+    for message in messages or []:
+        text = str(message)
+        if text not in seen:
+            order.append(text)
+            seen[text] = 0
+        seen[text] += 1
+    for text in order:
+        times = seen[text]
+        _say("{0}{1}{2}".format(
+            prefix, text, "" if times == 1 else "  [x{0}]".format(times)))
+
+
+# The mark an error line carries. It is TEXT, not markup: see `_say_error`.
+ERROR_MARK = "!! "
+
+
+def _say_error(msg=""):
+    """An ERROR line, marked so it stands apart from the notes around it.
+
+    THIS PRINTED HTML AND THE HTML DID NOT RENDER. The belief was that pyRevit's
+    output window is an HTML view and colours markup printed into it, so an
+    error was wrapped in a red-and-bold `<span>`. Under the CPython3 engine it
+    is not: the owner's console shows the tag itself, so every error line read
+
+        <span style="color:#c00000;font-weight:bold"> slab: ... DECLINED ...</span>
+
+    -- the tag competing for attention with the sentence it was supposed to
+    emphasise, on the lines that matter most. Worse, the message was ESCAPED to
+    protect markup that was never interpreted, so an error quoting a Revit
+    string containing `&`, `<` or `>` reached the screen as `&amp;` and `&lt;`.
+    Both are gone. A mark is TEXT now, which needs nothing to render it.
+
+    Red would still be better than a mark, and there is no way to get it from
+    here: colour would mean importing pyRevit's output module, and the pyRevit
+    IronPython modules crash this engine (see the pushbutton header). A mark
+    every console shows beats a colour this one does not.
+
+    EVERY LINE IS MARKED ON ITS OWN. A Revit exception arrives as a paragraph --
+    message, then "Parameter name:", then a stack -- and a single mark in front
+    of the first line leaves the rest looking like ordinary notes.
+    """
+    for line in str(msg).split("\n"):
+        if not line.strip():
+            _OUT.say("")
+            continue
+        _OUT.say(ERROR_MARK + line)
 
 
 class _NullProgress(object):

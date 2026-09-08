@@ -22,12 +22,18 @@ _SCRIPT = os.path.join(_BUTTON, "script.py")
 _WINDOW = os.path.normpath(os.path.join(_HERE, "..", "ui_window.py"))
 # ...and the element-creation drivers moved beside them
 _BUILDERS = os.path.normpath(os.path.join(_HERE, "..", "run_builders.py"))
+_DIALOGS = os.path.normpath(os.path.join(_HERE, "..", "ui_dialogs.py"))
 # the wall builder itself: imports Revit at module level, so text-only here
 _WALLS_BUILDER = os.path.normpath(os.path.join(_HERE, "..", "builders",
                                                "walls.py"))
+# ...and the column builder, which since the three-way choice is also where a
+# vertical member is routed to one builder or the other
+_COLUMNS_BUILDER = os.path.normpath(os.path.join(_HERE, "..", "builders",
+                                                 "columns.py"))
 _XAML = os.path.join(_BUTTON, "ui.xaml")
 _LINK_XAML = os.path.join(_BUTTON, "link_options.xaml")
 _ADV_XAML = os.path.join(_BUTTON, "advanced.xaml")
+_ELAPSED_XAML = os.path.join(_BUTTON, "elapsed.xaml")
 
 _RESOURCES = os.path.normpath(os.path.join(
     _HERE, "..", "..", "..", "..", "..", "Resources"))
@@ -117,6 +123,12 @@ def _window_source():
 def _builders_source():
     """The element-creation drivers: one transaction and one outcome per kind."""
     with open(_BUILDERS, "rb") as handle:
+        return handle.read().decode("utf-8")
+
+
+def _dialogs_source():
+    """The window plumbing: loading a .xaml, and the windows built on top."""
+    with open(_DIALOGS, "rb") as handle:
         return handle.read().decode("utf-8")
 
 
@@ -499,10 +511,42 @@ class TheLegendProposalReachesTheDialog(unittest.TestCase):
     def test_the_builder_hands_the_regions_to_the_cutout_machinery(self):
         # a hatch the dialog routed to "cutout" must reach plan_foundations,
         # where it holes the plan containing it (test_foundation_plan pins
-        # the behaviour; this pins the hand-over)
-        self.assertIn("foundation_plan.plan_foundations(records or [], "
-                      "texts or [],", _builders_source())
-        self.assertIn("regions=regions or []", _builders_source())
+        # the behaviour; this pins the hand-over). Pinned on the ARGUMENTS
+        # rather than the call's exact text -- the literal broke on a
+        # reformat that changed nothing about what is handed over.
+        call = _builders_source().split(
+            "foundation_plan.plan_foundations(", 1)
+        self.assertEqual(len(call), 2, "the foundation pass is never planned")
+        call = call[1][:400]
+        self.assertIn("records or []", call)
+        self.assertIn("texts or []", call)
+        self.assertIn("regions=regions or []", call)
+
+    def test_the_foundation_schedule_reaches_the_rings(self):
+        # test16 draws an F/RF Mark|Thk block beside its slab one: a ring
+        # labelled only "F2" is sized from it, and by nothing else
+        call = _builders_source().split(
+            "foundation_plan.plan_foundations(", 1)[1][:900]
+        self.assertIn("schedule=marks.parse_thickness_schedule(", call)
+
+    def test_that_schedule_is_read_from_the_file_not_the_routed_notes(self):
+        # `texts` here is the FOUNDATION routing -- S-FND-IDEN alone -- and
+        # test16 draws its table on G-ANNO-SCHD, so reading the schedule off
+        # the notes returns {} and every F-marked ring stays unsized
+        call = _builders_source().split(
+            "foundation_plan.plan_foundations(", 1)[1][:900]
+        schedule = call.split("schedule=marks.parse_thickness_schedule(", 1)[1]
+        self.assertIn("schedule_texts", schedule[:60])
+
+    def test_the_pushbutton_hands_both_passes_the_whole_file(self):
+        # one list, defined once beside dxf_texts and kept apart from it: the
+        # per-plan readings (the legend, the blanket note) must keep seeing
+        # their own storey, which is why sheet_texts is NOT widened instead
+        source = _script_source()
+        self.assertIn("file_texts = schedule_source or dxf_texts", source)
+        self.assertEqual(source.count("schedule_texts=file_texts"), 2,
+                         "the slab pass and the footing pass must both be "
+                         "handed the file's texts for their schedules")
 
 
 class TheHatchLayersHaveTheirOwnTable(unittest.TestCase):
@@ -532,8 +576,8 @@ class TheHatchLayersHaveTheirOwnTable(unittest.TestCase):
 
     def test_the_rows_are_built_from_the_regions_only(self):
         script = _script_source()
-        self.assertIn("layers.build_default_hatch_mapping(hatch_names)",
-                      script)
+        self.assertIn("layers.hatch_rows(dxf_result.regions,", script)
+        self.assertIn("layers.default_hatch_row_mapping(hatch_table)", script)
         self.assertIn("layers.HATCH_CATEGORIES", script)
         # ...and the geometry rows are records-only again: the v0.69.7 merge
         # of region counts into the geometry table is gone
@@ -541,9 +585,12 @@ class TheHatchLayersHaveTheirOwnTable(unittest.TestCase):
 
     def test_the_regions_never_consult_the_geometry_mapping(self):
         script = _script_source()
-        self.assertIn('layers.apply_mapping(dxf_result.regions, '
-                      'selections["hatch_mapping"])', script)
+        self.assertRegex(script, r'layers\.apply_hatch_mapping\('
+                                 r'dxf_result\.regions,\s*'
+                                 r'selections\["hatch_mapping"\]\)')
         self.assertNotIn('apply_mapping(dxf_result.regions, '
+                         'selections["mapping"])', script)
+        self.assertNotIn('apply_hatch_mapping(dxf_result.regions, '
                          'selections["mapping"])', script)
 
     def test_the_mapping_is_persisted_and_restored(self):
@@ -556,6 +603,131 @@ class TheHatchLayersHaveTheirOwnTable(unittest.TestCase):
             "\n    def ", 1)[0]
         self.assertIn("settings.hatch_mappings(data)", restore)
         self.assertIn("self._hatch_combos", restore)
+
+
+class TheHatchTableSplitsWhereTheLegendDoes(unittest.TestCase):
+    """One row per layer, until the drawing's own legend gives it several.
+
+    BUG-6: test14's HAT carries ANGLE, ANSI37 and HONEY (three sunk depths --
+    150, 75 and 50 mm) plus GOST_GLASS ("SLAB AT BEAM BOTTOM", not a step at
+    all), and a per-layer row can only say HAT -> sunk. The rule and its
+    measured corpus effect are unit-tested in test_hatch_rows.py; what no
+    offline harness can reach is the WPF window, so every wire from the split
+    to the row, the mark and the depth box is pinned as text here. Each of
+    them degrades SILENTLY if cut: the dialog opens with a coarser table and
+    nobody is told.
+    """
+
+    def test_the_pushbutton_shapes_the_table_from_the_legend(self):
+        script = _script_source()
+        self.assertIn("layers.hatch_meanings(legend_entries)", script)
+        self.assertIn("layers.hatch_rows(dxf_result.regions,", script)
+        # the rows the window is handed are the SPLIT rows, keyed by row
+        self.assertIn('hatch_rows = [(row["key"], row["count"])', script)
+        self.assertIn("layers.default_hatch_row_mapping(hatch_table)", script)
+        # ...and the legend is read before any of it
+        self.assertLess(script.index("legend.read(dxf_result.regions"),
+                        script.index("layers.hatch_rows(dxf_result.regions"))
+
+    def test_a_split_layer_is_proposed_one_pattern_at_a_time(self):
+        script = _script_source()
+        # the whole-sheet per-layer proposal skips a layer that split...
+        self.assertIn("if layer_name in split_layers:", script)
+        # ...and each split row gets the same translation over its own
+        # pattern's legend rows alone, marked with its own evidence
+        self.assertRegex(script, r'legend\.propose\(\[entry for entry in '
+                                 r'legend_entries\s*if entry\["pattern"\] == '
+                                 r'row\["pattern"\]\]')
+        self.assertIn('default_hatch_mapping[row["key"]] = category', script)
+        self.assertIn('legend_notes[row["key"]] = own["rows"][row["layer"]]',
+                      script)
+
+    def test_the_depths_are_read_and_handed_over_by_pattern(self):
+        script = _script_source()
+        self.assertIn("legend.legend_steps(legend_entries)", script)
+        self.assertIn("hatch_step_depths=hatch_step_depths", script)
+        self.assertIn("hatch_row_patterns=hatch_row_patterns", script)
+
+    def test_the_window_takes_the_patterns_and_the_depths(self):
+        window = _window_source()
+        self.assertIn("hatch_row_patterns=None, hatch_step_depths=None",
+                      window)
+        self.assertIn("self._hatch_step_depths = dict(hatch_step_depths or {})",
+                      window)
+        block = window.split("class CadToBimWindow", 1)[1].split(
+            "def __init__(", 1)[1].split("\n    def ", 1)[0]
+        self.assertIn("row_patterns=hatch_row_patterns", block)
+        self.assertIn("depth_store=self._hatch_depth_boxes", block)
+
+    def test_the_row_builder_grows_a_fourth_column_for_the_depths(self):
+        block = _window_source().split("def _build_rows(", 1)[1].split(
+            "\n    def ", 1)[0]
+        # three columns as before for the geometry and text tables, four when
+        # a depth store is handed in (the hatch table only)
+        self.assertIn("(None, 70, 180) if depth_store is None "
+                      "else (None, 70, 180, 70)", block)
+        self.assertIn("self._depth_box(", block)
+
+    def test_the_depth_box_belongs_to_the_pattern_not_the_row(self):
+        block = _window_source().split("def _depth_box(", 1)[1].split(
+            "\n    def ", 1)[0]
+        self.assertIn("if pattern in self._hatch_step_depths", block)
+        self.assertIn("depth_store.append((tuple(carried), box)", block)
+        # a row whose patterns carry no legend depth shows no box at all
+        self.assertIn("return None", block)
+
+    def test_the_depths_ride_collect_under_their_own_key(self):
+        window = _window_source()
+        collect = window.split("def _collect(", 1)[1].split("\n    def ",
+                                                            1)[0]
+        # the key the fold machinery reads: {pattern: depth mm}
+        self.assertIn('"hatch_step_depths": self._read_hatch_depths()',
+                      collect)
+        block = window.split("def _read_hatch_depths(", 1)[1].split(
+            "\n    def ", 1)[0]
+        self.assertIn("depths = dict(self._hatch_step_depths)", block)
+        self.assertIn("for patterns, box in self._hatch_depth_boxes:", block)
+        # an unreadable box keeps the legend's own figure
+        self.assertIn("self._read_float(box, depths.get(pattern))", block)
+
+    def test_an_edited_depth_survives_the_draw_stairs_round_trip(self):
+        # the depths are NOT in the settings snapshot (they are this
+        # drawing's, not the office's) -- so the preset has to carry them
+        # itself, or a trip out to the view to draw stair outlines silently
+        # resets every depth the user changed
+        block = _window_source().split("def _apply_preset(", 1)[1].split(
+            "\n    def ", 1)[0]
+        self.assertIn('preset.get("hatch_step_depths")', block)
+        restore = _window_source().split("def _restore_hatch_depths(",
+                                         1)[1].split("\n    def ", 1)[0]
+        self.assertIn("for patterns, box in self._hatch_depth_boxes:",
+                      restore)
+
+    def test_the_table_says_what_a_split_row_is(self):
+        with open(_XAML, "rb") as handle:
+            source = handle.read().decode("utf-8")
+        self.assertIn('Text="Depth mm"', source)
+        prose = [element.get("Text") for element in _body_iter(_XAML)
+                 if "layer|PATTERN" in (element.get("Text") or "")]
+        self.assertEqual(len(prose), 1, "the split is unexplained on the tab")
+        self.assertIn("legend", prose[0])
+        self.assertIn("negative", prose[0])
+
+    def test_the_hatch_header_row_matches_the_rows_beneath_it(self):
+        # the built rows are (name, count, meaning, depth); a header grid
+        # that still had three columns would sit over the wrong cells
+        header = None
+        for element in _body_iter(_XAML):
+            if element.tag.endswith("Grid"):
+                captions = [child.get("Text") for child in element.iter()
+                            if child.get("Text")]
+                if "Hatch layer" in captions:
+                    header = element
+        self.assertIsNotNone(header, "the hatch table has no header row")
+        columns = [child for child in header.iter()
+                   if child.tag.endswith("ColumnDefinition")]
+        self.assertEqual([child.get("Width") for child in columns],
+                         ["*", "70", "180", "70"])
 
 
 class TheDrawStairsRoundTripKeepsTheWholeDialog(unittest.TestCase):
@@ -718,7 +890,9 @@ class TheDrawnFoundationsReachTheBuilder(unittest.TestCase):
         source = _script_source()
         self.assertIn("transform.apply_to_records(text_affine, dxf_result.regions)",
                       source, "hatches are never moved into model coordinates")
-        self.assertIn("layers.apply_mapping(dxf_result.regions", source,
+        # apply_HATCH_mapping, not apply_mapping: a hatch row may be keyed by
+        # (layer, pattern), and only the hatch version looks there
+        self.assertIn("layers.apply_hatch_mapping(dxf_result.regions", source,
                       "hatches are never classified, so no fold is a fold")
 
     def test_each_storey_keeps_the_hatches_drawn_on_it(self):
@@ -887,6 +1061,364 @@ class TheWallsReachTheBuilder(unittest.TestCase):
         self.assertIn("key = (kind, int(round(width_mm)))", source)
         self.assertIn("naming.struct_wall_type_name(", source)
         self.assertIn("naming.arch_wall_type_name(", source)
+
+
+class TheColumnOrWallChoiceIsWired(unittest.TestCase):
+    """Build > Structure's three-way: Column, Wall, or Combine (smart).
+
+    "currently vertical members are being made using only Structure Column,
+    but i want one toggle ... to use Structural Wall entire instead" -- the
+    user's words. Column stays the DEFAULT, so a run nobody re-configures is
+    the run it has always been; every link below fails quietly if cut, which
+    is why each is pinned rather than trusted.
+    """
+
+    _WPF = "{http://schemas.microsoft.com/winfx/2006/xaml/presentation}"
+    _KEY = "{http://schemas.microsoft.com/winfx/2006/xaml}Name"
+
+    _BUTTONS = ("rb_vertical_column", "rb_vertical_wall",
+                "rb_vertical_combine")
+
+    def _radios(self):
+        return dict((el.get(self._KEY), el) for el in _body_iter(_XAML)
+                    if el.get(self._KEY) in self._BUTTONS)
+
+    def _columns_source(self):
+        with open(_COLUMNS_BUILDER, "rb") as handle:
+            return handle.read().decode("utf-8")
+
+    def test_all_three_buttons_are_on_the_structure_sub_tab(self):
+        homes = _tab_homes()
+        for control in self._BUTTONS:
+            self.assertEqual(homes.get(control), "Build > Structure",
+                             "%s sits on %r" % (control, homes.get(control)))
+
+    def test_they_are_one_group_so_only_one_can_be_chosen(self):
+        radios = self._radios()
+        self.assertEqual(sorted(radios), sorted(self._BUTTONS))
+        groups = set(el.get("GroupName") for el in radios.values())
+        self.assertEqual(len(groups), 1,
+                         "the three readings are not one group: %s" % groups)
+        self.assertNotIn(None, groups, "a radio with no GroupName is a tick")
+
+    def test_column_is_the_one_checked_in_the_xaml(self):
+        # the whole no-surprise guarantee rests on this line: a user who never
+        # opens the row gets Structural Columns, exactly as before
+        radios = self._radios()
+        checked = [name for name, el in radios.items()
+                   if el.get("IsChecked") == "True"]
+        self.assertEqual(checked, ["rb_vertical_column"])
+
+    def test_the_window_binds_all_three_and_emits_the_mode(self):
+        window = _window_source()
+        for control in self._BUTTONS:
+            self.assertIn('find("%s")' % control, window,
+                          "%s is decoration" % control)
+        collect = window.split("def _collect(", 1)[1].split("\n    def ", 1)[0]
+        self.assertIn('"vertical_member_mode"', collect,
+                      "the choice never leaves the dialog")
+
+    def test_the_dialog_names_the_modes_from_the_planner_not_by_hand(self):
+        # three string literals in the window and a fourth in the planner is
+        # how a renamed mode becomes a silently-ignored one
+        window = _window_source()
+        for constant in ("wall_plan.MODE_COLUMN", "wall_plan.MODE_WALL",
+                         "wall_plan.MODE_COMBINE"):
+            self.assertIn(constant, window, constant)
+
+    def test_the_reader_falls_back_to_column(self):
+        window = _window_source()
+        block = window.split("def _vertical_member_mode(", 1)[1].split(
+            "\n    def ", 1)[0]
+        self.assertIn("return wall_plan.MODE_COLUMN", block,
+                      "no button checked must mean the run it always was")
+
+    def test_the_help_prose_states_both_rules_in_the_users_terms(self):
+        prose = [(el.get("Text") or "") for el in ET.parse(_XAML).iter(
+            self._WPF + "TextBlock")
+            if "length-to-thickness" in (el.get("Text") or "")]
+        self.assertEqual(len(prose), 1, "the L/B note appears once")
+        text = prose[0]
+        # the ratio rule, in the words the user gave (ElementTree hands back
+        # the DECODED text, so the &lt;/&gt; the XAML carries read as < and >)
+        for phrase in ("aspect ratio of the cross-section",
+                       "L/B < 4", "L/B >= 4",
+                       "axial compression",
+                       "in-plane bending and shear",
+                       "IS 456", "IS 13920", "ACI 318"):
+            self.assertIn(phrase, text, phrase)
+        # ...and the mark rule beside it
+        for phrase in ("C1 is a Column", "SW1 or W1 is a Wall"):
+            self.assertIn(phrase, text, phrase)
+
+    def test_the_help_prose_wears_the_help_style(self):
+        for element in ET.parse(_XAML).iter(self._WPF + "TextBlock"):
+            text = element.get("Text") or ""
+            if "length-to-thickness" not in text and (
+                    "no L/B and no long axis" not in text):
+                continue
+            self.assertEqual(element.get("Style"),
+                             "{StaticResource HelpText}", text[:48])
+
+    def test_the_classifier_is_offline_and_carries_its_codes(self):
+        # the rule lives in classify/marks.py, which imports nothing but re --
+        # so it is unit-tested outside Revit (test_vertical_members)
+        with open(os.path.normpath(os.path.join(
+                _HERE, "..", "classify", "marks.py")), "rb") as handle:
+            source = handle.read().decode("utf-8")
+        self.assertIn("WALL_ASPECT_RATIO = 4.0", source)
+        self.assertNotIn("Autodesk.Revit", source)
+
+    def test_the_split_is_offline_too(self):
+        with open(os.path.normpath(os.path.join(_HERE, "..", "wall_plan.py")),
+                  "rb") as handle:
+            source = handle.read().decode("utf-8")
+        self.assertIn("def split_vertical_members(", source)
+        self.assertIn("def rect_wall_segment(", source)
+        self.assertNotIn("Autodesk.Revit", source)
+
+    def test_each_kind_goes_to_its_own_builder(self):
+        # the point of the whole exercise: a member built as a wall is named
+        # by the Naming tab's structural-wall row and sized through a wall
+        # type's compound structure, never by the column template
+        source = self._columns_source()
+        block = source.split("def place_vertical_members(", 1)[1].split(
+            "\ndef ", 1)[0]
+        self.assertIn("wall_plan.split_vertical_members(", block)
+        self.assertIn("place_columns(doc, column_sections", block)
+        self.assertIn("walls.place_walls(", block)
+        self.assertIn("structural=True", block)
+
+    def test_the_walls_ride_apart_from_the_columns(self):
+        # "created" stays the columns: the material pass reads it as the
+        # column ids, and a wall type keeps no structural material parameter
+        block = self._columns_source().split(
+            "def place_vertical_members(", 1)[1].split("\ndef ", 1)[0]
+        self.assertIn('result["wall_ids"] = outcome["created"]', block)
+        self.assertNotIn('result["created"] + outcome["created"]', block)
+
+    def test_a_missing_wall_type_builds_columns_and_says_so(self):
+        # place_walls raises on a base type it cannot resolve; losing a whole
+        # mode to an empty picker on another group would be the silent kind
+        block = self._columns_source().split(
+            "def place_vertical_members(", 1)[1].split("\ndef ", 1)[0]
+        self.assertIn("wall_type_id is None", block)
+        self.assertIn("built as columns instead", block)
+
+    def test_the_split_speaks_every_time(self):
+        block = self._columns_source().split(
+            "def place_vertical_members(", 1)[1].split("\ndef ", 1)[0]
+        self.assertIn('result["notes"]', block)
+        self.assertIn('split["console"]', block)
+
+    def test_the_run_routes_through_the_three_way(self):
+        # The whole feature is inert if _create_columns still calls the column
+        # builder directly: the mode would be collected, persisted, shown, and
+        # never consulted. Wall mode would silently build columns.
+        block = _builders_source().split("def _create_columns(", 1)[1].split(
+            "\ndef ", 1)[0]
+        self.assertIn("columns.place_vertical_members(", block)
+        self.assertNotIn("columns.place_columns(", block)
+
+
+class TheSlabScheduleReachesTheSlabs(unittest.TestCase):
+    """test16 carries a Mark|Thk slab schedule and the floors kept the default
+    type. The parser is unit-tested in test_thickness_schedule; this pins the
+    two links that make it reach a slab, both of which fail silently -- a
+    schedule nobody reads and a bay nobody sizes look identical in the model.
+    """
+
+    def test_the_slab_pass_reads_the_thickness_table(self):
+        block = _builders_source().split("def _create_slabs(", 1)[1].split(
+            "\ndef ", 1)[0]
+        self.assertIn("marks.parse_thickness_schedule(", block,
+                      "the slab pass never reads a Mark|Thk schedule, so a "
+                      "drawing that has one still falls back to the note")
+
+    def test_it_is_read_from_the_whole_file_not_the_storey(self):
+        # the table sits on its own annotation layer, outside every plan on the
+        # sheet: measured on test16, the file reads 11 Mark|Thk rows and each of
+        # its five storeys reads NONE, while four of them carry 62, 62, 62 and
+        # 15 S-marks on the plan. Reading it off the storey sizes nothing.
+        block = _builders_source().split("def _create_slabs(", 1)[1].split(
+            "\ndef ", 1)[0]
+        call = block.split("marks.parse_thickness_schedule(", 1)[1][:60]
+        self.assertIn("schedule_texts", call)
+
+    def test_the_thickness_wins_over_a_section_sharing_the_mark(self):
+        # a thickness stated against the mark beats the first dimension of any
+        # section that happens to carry it: assignment, not setdefault
+        block = _builders_source().split("def _create_slabs(", 1)[1].split(
+            "\ndef ", 1)[0]
+        tail = block.split("marks.parse_thickness_schedule(", 1)[1][:400]
+        self.assertIn("slab_schedule[mark] = thickness", tail)
+
+
+class TheBlanketNoteReachesTheBuilders(unittest.TestCase):
+    """The sheet's "ALL BEAMS ARE 750MM IN DEPTH U.N.O." wiring, pinned as text.
+
+    The parser and both planners are unit-tested offline (test_blanket_notes)
+    and the sweep counts what they size, but the wiring between them is
+    Revit-side and every link in it fails QUIETLY:
+
+      * read the note out of the ROUTED beam labels instead of the whole
+        sheet, and it is found in every offline harness and never once in
+        Revit -- a general note sits on a general-notes layer, which is routed
+        to nothing;
+      * drop `blanket_depth_mm` / `blanket_thickness_mm` at a call and the
+        dialog's box and tick become decoration while the planners quietly
+        keep reading the sheet;
+      * drop the two report lines and hundreds of members take a depth nobody
+        was told about -- the same class of silent wrong answer as the
+        invented pads in v0.68.1.
+    """
+
+    def _function(self, source, name):
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.FunctionDef) and node.name == name:
+                return node
+        self.fail("no %s" % name)
+
+    def _call(self, node, name):
+        """The call to `name` (plain or dotted) inside `node`."""
+        for inner in ast.walk(node):
+            if not isinstance(inner, ast.Call):
+                continue
+            func = inner.func
+            called = (func.id if isinstance(func, ast.Name)
+                      else getattr(func, "attr", None))
+            if called == name:
+                return inner
+        return None
+
+    def test_the_controls_live_with_what_is_shared_by_every_element(self):
+        # Moved off Structure at the owner's word: one note governs beams AND
+        # slabs, so it belongs where the level pair and the grids are, not
+        # inside either element's own group.
+        homes = _tab_homes()
+        for control in ("chk_blanket_note", "tb_blanket_beam_depth",
+                        "tb_blanket_slab_thk", "lbl_blanket_note"):
+            self.assertEqual(homes.get(control), "Build > General",
+                             "%s sits on %r" % (control, homes.get(control)))
+
+    def test_the_window_binds_all_four_and_emits_the_three_keys(self):
+        window = _window_source()
+        for control in ("chk_blanket_note", "tb_blanket_beam_depth",
+                        "tb_blanket_slab_thk", "lbl_blanket_note"):
+            self.assertIn('find("%s")' % control, window,
+                          "%s is in the XAML but never bound" % control)
+        collect = window.split("def _collect(", 1)[1].split("\n    def ", 1)[0]
+        for key in ('"blanket_notes"', '"blanket_beam_depth_mm"',
+                    '"blanket_slab_thickness_mm"'):
+            self.assertIn(key, collect, "%s never leaves the dialog" % key)
+
+    def test_the_note_is_read_from_the_whole_sheet_before_any_routing(self):
+        # THE bug this pin exists for: beam_texts is the routed beam-label
+        # subset and the sheet's general note is not in it, so reading the
+        # note from there would find it in the sweep and never in Revit
+        script = _script_source()
+        self.assertIn("marks.sheet_defaults(dxf_result.texts)", script,
+                      "the blanket note is not read from the whole drawing")
+        self.assertIn("blanket_note=blanket_note", script,
+                      "the dialog is never shown what the sheet proposed")
+
+    def test_the_beam_pass_is_handed_the_figure_not_left_to_find_it(self):
+        call = self._call(self._function(_script_source(), "_build_one_storey"),
+                          "build_beam_segments")
+        self.assertIsNotNone(call, "_build_one_storey never builds beams")
+        self.assertIn("blanket_depth_mm", [k.arg for k in call.keywords],
+                      "build_beam_segments is called without the blanket "
+                      "depth: the dialog's box and tick reach nothing")
+
+    def test_the_slab_pass_is_handed_the_figure_too(self):
+        call = self._call(self._function(_builders_source(), "_create_slabs"),
+                          "apply_slab_labels")
+        self.assertIsNotNone(call, "the slab pass never labels its loops")
+        self.assertIn("blanket_thickness_mm", [k.arg for k in call.keywords],
+                      "apply_slab_labels is called without the blanket "
+                      "thickness")
+
+    def test_the_hatches_and_the_sheet_reach_both_sunk_passes(self):
+        # The whole sunk pass is inert without these four keywords, and inert
+        # silently: every creator has a `regions=None` default, so a missing
+        # argument reads as "this drawing has no hatches" rather than as a bug.
+        # The legend prices a pattern and the hatch says which member is priced,
+        # so a pass handed one without the other can do nothing either.
+        storey = self._function(_script_source(), "_build_one_storey")
+        beams = self._call(storey, "_create_beams")
+        self.assertIsNotNone(beams, "_build_one_storey never creates beams")
+        beam_kwargs = [k.arg for k in beams.keywords]
+        self.assertIn("regions", beam_kwargs,
+                      "the beam pass is not handed the hatches: a beam under a "
+                      "sunk strip can never be dropped")
+        self.assertIn("texts", beam_kwargs,
+                      "the beam pass is not handed the sheet's texts, so the "
+                      "legend that prices the strip cannot be read")
+        slabs = self._call(storey, "_create_slabs")
+        self.assertIsNotNone(slabs, "_build_one_storey never creates slabs")
+        slab_kwargs = [k.arg for k in slabs.keywords]
+        self.assertIn("regions", slab_kwargs,
+                      "the slab pass is not handed the hatches: no bay can step")
+        # NOT `texts`: slab_texts is narrowed by routing and may no longer hold
+        # the legend block, which is exactly what prices the bay.
+        self.assertIn("sheet_texts", slab_kwargs,
+                      "the slab pass is handed only its routed texts, which "
+                      "cannot be trusted to still carry the legend")
+        # and NOT `sheet_texts` either for the SCHEDULE: that list is this
+        # storey's, and a Mark|Thk table is drawn once for the sheet, outside
+        # every plan on it -- test16's five storeys read none of its 11 rows
+        self.assertIn("schedule_texts", slab_kwargs,
+                      "the slab pass reads its schedule from the storey, so a "
+                      "multi-storey sheet's table reaches no bay at all")
+
+    def test_one_function_turns_the_tick_and_the_boxes_into_one_number(self):
+        # the dialog cannot send None, so the (tick, box) -> tri-state mapping
+        # has to live in ONE place both passes call, or the two kinds drift
+        self.assertIn("def blanket_mm(selections, key):", _builders_source())
+        self.assertIn("def storey_blanket_mm(selections, key, note_key, texts):",
+                      _builders_source())
+        # both kinds go through the per-storey wrapper, so a sheet whose plans
+        # carry different notes builds each plan to its own
+        self.assertIn('"blanket_slab_thickness_mm", "slab_thickness_mm"',
+                      _builders_source())
+        self.assertIn('"blanket_beam_depth_mm", "beam_depth_mm"',
+                      _script_source())
+
+    def test_both_counts_are_said_out_loud(self):
+        # a default applied silently is a default nobody can check
+        self.assertIn('.get("blanket_depth", 0)', _script_source())
+        self.assertIn("took the sheet's blanket depth", _script_source())
+        self.assertIn("took the sheet's blanket thickness", _builders_source())
+
+    def test_plans_that_differ_are_said_plainly_and_read_one_by_one(self):
+        # Notes that disagree ACROSS PLANS are not a contradiction to refuse:
+        # test14 writes 750/125 on two plans and 600/150 on the third, and the
+        # owner confirmed that is deliberate. Nothing is settled for the SHEET,
+        # which leaves the box empty on purpose, and each storey then reads the
+        # note inside its own plan -- so this is a note, not an error.
+        script = _script_source()
+        self.assertIn('for key, values in blanket_note["conflicts"]:', script)
+        block = script.split('blanket_note["conflicts"]', 1)[1][:900]
+        self.assertNotIn("_say_error(", block,
+                         "plans that legitimately differ are reported as a "
+                         "refusal, which is no longer what happens")
+        self.assertIn("each plan will use the note drawn inside it", block)
+
+    def test_the_figures_come_from_this_drawing_not_from_the_last_run(self):
+        # restoring last week's 750 onto a sheet that says 600 would put a
+        # wrong depth on every unlabelled beam and say nothing -- so the two
+        # boxes join the storey-detection controls: saved, never restored.
+        # The TICK is a preference and restores normally.
+        with open(os.path.normpath(os.path.join(_HERE, "..", "settings.py")),
+                  "rb") as handle:
+            settings_source = handle.read().decode("utf-8")
+        block = settings_source.split("DETECTED_NAMES = frozenset(", 1)[1]
+        block = block.split("))", 1)[0]
+        for name in ("tb_blanket_beam_depth", "tb_blanket_slab_thk"):
+            self.assertIn(name, block,
+                          "%s would be restored from another drawing" % name)
+        self.assertNotIn("chk_blanket_note", block,
+                         "the tick is a preference, not a drawing fact")
 
 
 class StoreyTableIsSelectable(unittest.TestCase):
@@ -1314,6 +1846,161 @@ class TheDialogsSpeakTheTheme(unittest.TestCase):
                                  "editable combo %r does not wear the "
                                  "editable-capable template"
                                  % combo.get(self._NAME))
+
+
+class TheRunGoesToAViewItCanLinkInto(unittest.TestCase):
+    """BUG-25. Every link the owner starts from a schedule or a sheet died on
+    `ArgumentException: The view is not printable`, and his fix was to move him
+    rather than tell him. The rule is unit-tested in test_views; this pins the
+    two Revit calls that act on it, both of which fail silently if they drift.
+    """
+
+    def test_the_host_view_is_settled_BEFORE_the_dxf_is_linked(self):
+        source = _script_source()
+        self.assertIn("_ensure_link_host_view(doc, uidoc)", source,
+                      "the run never checks whether the active view can host "
+                      "the link")
+        self.assertLess(source.index("_ensure_link_host_view(doc, uidoc)"),
+                        source.index("dxf_linker.link_dxf("),
+                        "the view must be settled before Link is called, not "
+                        "after it has already thrown")
+
+    def test_it_asks_the_shared_rule_rather_than_re_deciding_here(self):
+        block = _builders_source().split("def _ensure_link_host_view(", 1)[1]
+        block = block.split("\ndef ", 1)[0]
+        self.assertIn("views.can_host_link(", block)
+        self.assertIn("views.choose_host(", block)
+
+    def test_a_view_TEMPLATE_is_never_offered_as_the_host(self):
+        block = _builders_source().split("def _ensure_link_host_view(", 1)[1]
+        block = block.split("\ndef ", 1)[0]
+        self.assertIn("not v.IsTemplate", block)
+
+    def test_the_switch_is_on_the_UI_document_not_the_database_one(self):
+        # doc.ActiveView is read-only; only uidoc.ActiveView moves the user
+        block = _builders_source().split("def _ensure_link_host_view(", 1)[1]
+        block = block.split("\ndef ", 1)[0]
+        self.assertIn("uidoc.ActiveView = chosen", block)
+
+
+class TheRunEndsShowingTheModel(unittest.TestCase):
+    """FEAT-11: "auto open the 3D view if not active by user and zoom to fit"."""
+
+    def test_both_finishes_show_the_model(self):
+        # the multi-storey path and the single-storey path each end on their
+        # own line, and a fix applied to one of them only is the usual bug
+        self.assertEqual(_script_source().count("_show_the_model(doc, uidoc)"), 2)
+
+    def test_it_opens_a_3D_view_and_zooms_it(self):
+        block = _builders_source().split("def _show_the_model(", 1)[1]
+        block = block.split("\ndef ", 1)[0]
+        self.assertIn("views.choose_3d(", block)
+        self.assertIn("uidoc.ActiveView = candidates[index]", block)
+        self.assertIn("_zoom_to_model(doc, uidoc)", block)
+
+    def test_the_zoom_frames_the_MODEL_not_the_link_and_the_datums(self):
+        # the owner, on the first one: "it also takes LinkedCAD and Level or
+        # Grid on Zoom to fit, what actually want was it should only zoom to
+        # fit BIM model"
+        block = _builders_source().split("def _zoom_to_model(", 1)[1]
+        block = block.split("\ndef ", 1)[0]
+        self.assertIn("views.counts_as_model(", block)
+        self.assertIn("ImportInstance", block,
+                      "the linked DXF must be excluded by type, not by name")
+        self.assertIn("ZoomAndCenterRectangle(box[0], box[1])", block)
+
+    def test_a_model_with_nothing_to_frame_still_zooms(self):
+        block = _builders_source().split("def _zoom_to_model(", 1)[1]
+        block = block.split("\ndef ", 1)[0]
+        self.assertIn("ZoomToFit()", block,
+                      "an empty run must still frame something")
+
+
+class TheRunSaysHowLongItTook(unittest.TestCase):
+    """FEAT-12: the elapsed-time window, its headline and its three exits."""
+
+    def test_the_clock_starts_on_the_first_line_of_the_command(self):
+        # "from when user click the run command" -- before any dialog
+        body = _script_source().split("def main():", 1)[1][:600]
+        self.assertIn("clicked_at = time.time()", body)
+
+    def test_the_build_is_timed_separately_from_the_dialogs(self):
+        source = _script_source()
+        self.assertIn("build_started = time.time()", source)
+        self.assertLess(source.index('selections = window.result'),
+                        source.index("build_started = time.time()"),
+                        "the build clock must start when the settings window "
+                        "closes, not while the user is still reading it")
+
+    def test_both_finishes_report_the_time(self):
+        # the calls, not the definition line that shares the signature
+        calls = [line for line in _script_source().splitlines()
+                 if line.strip() == "_report_elapsed(clicked_at, build_started)"]
+        self.assertEqual(len(calls), 2,
+                         "the multi-storey finish and the single-storey finish "
+                         "must both report the time")
+
+    def test_the_window_carries_the_headline_and_the_countdown(self):
+        names = _xaml_names(_ELAPSED_XAML)
+        for control in ("txt_elapsed", "txt_breakdown", "txt_countdown",
+                        "btn_close"):
+            self.assertIn(control, names,
+                          "elapsed.xaml has no {0}".format(control))
+
+    def test_the_time_is_the_biggest_boldest_thing_on_it(self):
+        # the owner asked for it "in BOLD and BIGGER", so this is the feature,
+        # not styling: a headline that quietly loses its size is the bug
+        root = ET.parse(_ELAPSED_XAML).getroot()
+        key = "{http://schemas.microsoft.com/winfx/2006/xaml}Name"
+        headline = [el for el in _body_iter(_ELAPSED_XAML)
+                    if el.get(key) == "txt_elapsed"]
+        self.assertEqual(len(headline), 1)
+        self.assertEqual(headline[0].get("FontWeight"), "Bold")
+        self.assertGreaterEqual(float(headline[0].get("FontSize") or 0), 24.0)
+
+    def test_it_closes_three_ways(self):
+        block = _dialogs_source().split("def show_elapsed(", 1)[1]
+        block = block.split("\ndef ", 1)[0]
+        self.assertIn("DispatcherTimer", block, "nothing closes it on its own")
+        self.assertIn("Key.Escape", block, "Esc does not close it")
+        self.assertIn("button.Click += close", block, "the button does not")
+
+    def test_the_window_stays_up_long_enough_to_read(self):
+        # the owner's number: "make dialog box stay upto 30s, because 10s go by
+        # very quickly". One line holds it, which is the line he was told to edit.
+        self.assertIn("ELAPSED_AUTO_CLOSE_SECONDS = 30", _dialogs_source())
+        self.assertIn("auto_close_seconds=ELAPSED_AUTO_CLOSE_SECONDS",
+                      _dialogs_source(),
+                      "the window must take the constant as its default, or "
+                      "editing that one line changes nothing")
+
+    def test_the_headline_is_the_BUILD_and_the_parts_are_underneath(self):
+        # his call after seeing the first one: the big number is the build
+        # alone, with the dialog time and the total below it
+        block = _dialogs_source().split("def _elapsed_parts(", 1)[1]
+        block = block.split("\ndef ", 1)[0]
+        self.assertIn("views.format_elapsed(build_seconds)", block)
+        names = _xaml_names(_ELAPSED_XAML)
+        self.assertIn("txt_waiting", names)
+        self.assertIn("txt_total", names)
+
+    def test_the_caption_figures_are_red_and_bold_but_caption_sized(self):
+        key = "{http://schemas.microsoft.com/winfx/2006/xaml}Name"
+        fields = dict((el.get(key), el) for el in _body_iter(_ELAPSED_XAML)
+                      if el.get(key) in ("txt_waiting", "txt_total",
+                                         "txt_elapsed"))
+        for name in ("txt_waiting", "txt_total"):
+            self.assertEqual(fields[name].get("FontWeight"), "Bold")
+            self.assertIn("VividRed", fields[name].get("Foreground") or "")
+            # caption-sized means it takes the caption style rather than a
+            # size of its own -- the headline is the only thing with one
+            self.assertIsNone(fields[name].get("FontSize"))
+        self.assertIsNotNone(fields["txt_elapsed"].get("FontSize"))
+
+    def test_a_failed_stopwatch_never_costs_the_owner_a_good_build(self):
+        block = _dialogs_source().split("def show_elapsed(", 1)[1]
+        block = block.split("\ndef ", 1)[0]
+        self.assertIn("except Exception", block)
 
 
 if __name__ == "__main__":

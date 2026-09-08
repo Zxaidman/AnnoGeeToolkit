@@ -32,6 +32,7 @@ __min_revit_ver__ = 2022
 import os
 import re
 import sys
+import time
 import traceback
 
 import clr
@@ -119,7 +120,7 @@ from anongee_toolkit import cad2bim
 from anongee_toolkit.cad2bim import (advanced, compat, config, floor_plans,
                                      foundation_plan, legend, naming, prefs,
                                      report, settings, slab_outlines,
-                                     stair_layout)
+                                     stair_layout, views)
 from anongee_toolkit.cad2bim.geom import transform, compare
 from anongee_toolkit.cad2bim.classify import layers, marks
 from anongee_toolkit.cad2bim.readers import geometry_reader, dxf_reader, dxf_linker
@@ -136,7 +137,8 @@ try:
     from anongee_toolkit.cad2bim.run_builders import (   # noqa: F401
         _create_grids, _create_columns, _create_beams, _create_footings,
         _create_slabs, _create_stairs, _create_walls, _apply_materials,
-        _colour_open_views, _strip_ids)
+        _colour_open_views, _ensure_link_host_view, _show_the_model,
+        _strip_ids, blanket_mm, storey_blanket_mm)
     # builders.walls is new with v0.76.0, so it rides the guard: a stale
     # library reports through _library_mismatch instead of raw-tracebacking
     # on the module-level import below
@@ -144,16 +146,21 @@ try:
     from anongee_toolkit.cad2bim.run_picking import _draw_stair_outlines
     from anongee_toolkit.cad2bim.ui_window import (CadToBimWindow,
                                                    LinkOptionsDialog)
-    from anongee_toolkit.cad2bim.ui_dialogs import _alert, _error, _save_json
+    from anongee_toolkit.cad2bim.ui_dialogs import (_alert, _error,
+                                                    _save_json,
+                                                    show_elapsed)
     from anongee_toolkit.cad2bim.run_console import (      # noqa: F401
-        _OUT, _say, _progress, _open_progress, _close_progress, _storey_span,
-        _READ_STEPS, _BUILD_STEPS)
+        _OUT, _say, _say_error, _progress, _open_progress, _close_progress,
+        _storey_span, _READ_STEPS, _BUILD_STEPS)
 except ImportError as import_error:
     _MISSING_MODULE = str(import_error)
 
     # Fallbacks, so the run can still SAY what went wrong: every one of these
     # names is used before -- and by -- the mismatch report itself.
     def _say(message=""):
+        print(message)
+
+    def _say_error(message=""):
         print(message)
 
     def _alert(title, message):
@@ -201,6 +208,7 @@ if _MISSING_MODULE is None:
 # a build with "module has no attribute" (0.67.1, mid multi-storey run).
 _REQUIRED = ((naming, ("level_name", "next_level_names", "ordinal")),
              (report, ("recover_face_columns", "build_beam_segments")),
+             (marks, ("sheet_defaults",)),
              (slab_outlines, ("loops_for_unclaimed_notes",)),
              (settings, ("payload", "restorable")),
              (materials, ("apply", "apply_grade")))
@@ -317,6 +325,11 @@ def _grid_axis_positions(records):
 
 
 def main():
+    # FEAT-12's stopwatch. The owner asked for the time "from when user click
+    # the run command", so it starts on the first line the command runs, before
+    # any dialog, and `build_started` below splits out the part that was work.
+    clicked_at = time.time()
+    build_started = None
     uidoc = getattr(__revit__, "ActiveUIDocument", None)
     if uidoc is None or uidoc.Document is None:
         _alert("No document", "Open a Revit project before running CAD to BIM.")
@@ -345,6 +358,14 @@ def main():
         return
 
     # 1. Pick the DXF + its unit + positioning, then link it (own transaction).
+    #    A schedule or a sheet cannot host a linked DXF -- Revit refuses the
+    #    argument outright -- so the run moves itself to a view that can before
+    #    it asks the user anything (BUG-25).
+    if not _ensure_link_host_view(doc, uidoc):
+        _alert("No view to link into",
+               "This model has no plan or 3D view that can host a linked DXF. "
+               "Open one and run CAD to BIM again.")
+        return
     active_view_name = getattr(getattr(doc, "ActiveView", None), "Name", "-")
     options = LinkOptionsDialog(active_view_name)
     options.show()
@@ -439,13 +460,7 @@ def main():
     # merge of hatch-only layers into the GEOMETRY rows meant routing a hatch
     # could re-route linework on the same layer. The rows come ONLY from
     # dxf_result.regions (the Revit API cannot read a hatch inside a link).
-    region_counts = {}
-    for region in dxf_result.regions:
-        region_counts[region.layer_key] = region_counts.get(region.layer_key,
-                                                            0) + 1
-    hatch_names = sorted(region_counts)
-    hatch_rows = [(name, region_counts[name]) for name in hatch_names]
-    default_hatch_mapping = layers.build_default_hatch_mapping(hatch_names)
+    #
     # The LEGEND, if the drawing carries one (test9's convention): swatch
     # pattern -> legend text -> meaning, inherited by every plan hatch of the
     # pattern. The result is a PROPOSAL into the dialog, never a silent
@@ -454,21 +469,65 @@ def main():
     # the geometry one), the rows are marked, and the user can still change
     # them. Regions and texts are already through the affine here, so the
     # pairing distances are real millimetres.
-    legend_notes = {}
     legend_entries = legend.read(dxf_result.regions, dxf_result.texts)
+    # ...and the legend is also what decides the SHAPE of the table. A layer
+    # it gives several meanings to becomes one row per pattern (test14's HAT:
+    # three sunk depths and a beam-bottom slab, four rows); every other layer
+    # keeps its single row (layers.hatch_rows carries the measurement).
+    hatch_table = layers.hatch_rows(dxf_result.regions,
+                                    layers.hatch_meanings(legend_entries))
+    hatch_rows = [(row["key"], row["count"]) for row in hatch_table]
+    hatch_row_patterns = dict((row["key"], row["patterns"])
+                              for row in hatch_table)
+    default_hatch_mapping = layers.default_hatch_row_mapping(hatch_table)
+    split_layers = sorted(set(row["layer"] for row in hatch_table
+                              if row["pattern"]))
+    legend_notes = {}
+    hatch_step_depths = {}
     if legend_entries:
         proposal = legend.propose(legend_entries, dxf_result.regions)
         _say("Legend: {0} entr{1} read from the drawing.".format(
             len(legend_entries),
             "y" if len(legend_entries) == 1 else "ies"))
+        for layer_name in split_layers:
+            _say("  legend: {0} carries more than one meaning -- one row per "
+                 "pattern ({1})".format(
+                     layer_name, ", ".join(row["pattern"] for row in hatch_table
+                                           if row["layer"] == layer_name)))
         for layer_name in sorted(proposal["mapping"]):
+            if layer_name in split_layers:
+                continue      # its rows are proposed one pattern at a time
             default_hatch_mapping[layer_name] = proposal["mapping"][layer_name]
             legend_notes[layer_name] = proposal["rows"][layer_name]
             _say("  legend: {0} {1}".format(layer_name,
                                             proposal["rows"][layer_name]))
+        # A SPLIT layer's rows get the SAME translation, one pattern at a
+        # time: propose() re-run over that pattern's legend rows alone. It is
+        # the per-layer proposal without the coarseness -- test14's ANGLE,
+        # ANSI37 and HONEY rows each land on sunk with their own evidence,
+        # and GOST_GLASS ("SLAB AT BEAM BOTTOM", report-only) lands on
+        # nothing and keeps the convention's guess.
+        for row in hatch_table:
+            if not row["pattern"]:
+                continue
+            own = legend.propose([entry for entry in legend_entries
+                                  if entry["pattern"] == row["pattern"]],
+                                 dxf_result.regions)
+            category = own["mapping"].get(row["layer"])
+            if not category:
+                continue
+            default_hatch_mapping[row["key"]] = category
+            legend_notes[row["key"]] = own["rows"][row["layer"]]
+            _say("  legend: {0} {1}".format(row["key"],
+                                            own["rows"][row["layer"]]))
+        # The step DEPTHS the legend states, keyed by PATTERN -- which is the
+        # grain they are stated at ({ANSI37: -75, ANGLE: -150, HONEY: -50} on
+        # test14) and the grain the dialog now shows them at. Negative is
+        # down; the boxes are a proposal like everything else here.
+        hatch_step_depths, depth_notes = legend.legend_steps(legend_entries)
         for line in proposal["reports"]:
             _say("  legend: {0}".format(line))
-        for line in proposal["notes"]:
+        for line in list(proposal["notes"]) + list(depth_notes):
             _say("  legend: {0}".format(line))
     column_symbols = columns.structural_column_symbols(doc)
     level_options = columns.levels(doc)
@@ -516,6 +575,32 @@ def main():
     for note in storey_detection.notes:
         _say("  storey: {0}".format(note))
 
+    # The sheet's own blanket note ("ALL BEAMS ARE 750MM IN DEPTH U.N.O.") sets
+    # the default for every member the plan did not size. Read from the WHOLE
+    # drawing's text, before any routing: a general note sits on a general-notes
+    # layer, which is routed to nothing, so reading it out of the routed beam or
+    # slab labels would find it in the offline harnesses and never here. Read
+    # once for the sheet -- it is a sheet fact, not a per-storey one -- and
+    # handed to the dialog as a PROPOSAL the user can overrule or refuse.
+    blanket_note = marks.sheet_defaults(dxf_result.texts)
+    for key, value in (("beam_depth_mm", "beam depth"),
+                       ("slab_thickness_mm", "slab thickness")):
+        if blanket_note[key] is not None:
+            _say("sheet note: {0} {1:g}mm unless noted otherwise".format(
+                value, blanket_note[key]))
+    for key, values in blanket_note["conflicts"]:
+        # Notes that disagree ACROSS PLANS are not a conflict, they are three
+        # plans each stating its own: test14 writes 750 deep / 125 thick on its
+        # first and refuge floors and 600 / 150 on the typical one. So nothing
+        # is settled for the SHEET -- which leaves the dialog's box empty on
+        # purpose -- and every storey then reads the note inside its own plan.
+        # A figure typed into the box still overrules all of them at once.
+        _say("sheet note: this drawing's {0} notes differ across its plans "
+             "({1}) -- each plan will use the note drawn inside it; type a "
+             "figure on Build > General to overrule them all".format(
+                 "beam depth" if key == "beam_depth_mm" else "slab thickness",
+                 ", ".join("{0:g}mm".format(v) for v in values)))
+
     # The dialog can hand the view back so the user DRAWS the stair outlines:
     # it closes, the outlines are picked in the model, and it reopens with every
     # setting restored. Anything else falls straight through to the build.
@@ -543,7 +628,10 @@ def main():
                                 hatch_categories=list(
                                     layers.HATCH_CATEGORIES),
                                 default_hatch_mapping=default_hatch_mapping,
-                                hatch_notes=legend_notes)
+                                hatch_notes=legend_notes,
+                                hatch_row_patterns=hatch_row_patterns,
+                                hatch_step_depths=hatch_step_depths,
+                                blanket_note=blanket_note)
         window.show()
         if not window.result:
             return   # cancelled -- nothing was flushed, console stays closed
@@ -556,6 +644,7 @@ def main():
         preset["stair_regions"] = stair_regions
 
     selections = window.result
+    build_started = time.time()
     _open_progress("build")
     layers.apply_mapping(revit_result.records, selections["mapping"])
     # the DXF records carry the markers a Revit import drops, so they get the
@@ -564,8 +653,12 @@ def main():
     # ...and the hatches take THEIR OWN mapping -- the third table on the
     # Layers tab -- which is what tells a fold region from a sunk one and
     # both from the column fill, without ever consulting (or disturbing) the
-    # geometry mapping for the layer of the same name.
-    layers.apply_mapping(dxf_result.regions, selections["hatch_mapping"])
+    # geometry mapping for the layer of the same name. It is applied by
+    # apply_hatch_mapping, not apply_mapping, because a hatch row may be
+    # keyed by (layer, pattern): "HAT|ANGLE" answers for the pattern and
+    # plain "HAT" for the whole layer, the narrower answer first.
+    layers.apply_hatch_mapping(dxf_result.regions,
+                               selections["hatch_mapping"])
     # The Multi-storey tab picks the boundary/origin layers BY NAME (they differ
     # per drawing), so route them here -- after the layer table, so an explicit
     # pick always wins over the naming convention.
@@ -666,7 +759,9 @@ def main():
             _export_storeys(storey_payloads, revit_result.source_name,
                             _export_name(path, selections))
         _colour_open_views(doc, uidoc, selections)
+        _show_the_model(doc, uidoc)
         _OUT.finish(all_outcomes)
+        _report_elapsed(clicked_at, build_started)
         return
 
     outcomes = _build_one_storey(doc, revit_result, dxf_result.texts, selections,
@@ -675,7 +770,21 @@ def main():
                                  transform_method=transform_method,
                                  hatches=dxf_result.regions)
     _colour_open_views(doc, uidoc, selections)
+    _show_the_model(doc, uidoc)
     _OUT.finish(outcomes)
+    _report_elapsed(clicked_at, build_started)
+
+
+def _report_elapsed(clicked_at, build_started):
+    """How long the run took, on the console and in its own window (FEAT-12)."""
+    total = time.time() - clicked_at
+    build = None if build_started is None else time.time() - build_started
+    _say("time: {0} from the click{1}".format(
+        views.format_elapsed(total),
+        "" if build is None else ", {0} building".format(
+            views.format_elapsed(build))))
+    show_elapsed(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              "elapsed.xaml"), total, build)
 
 
 class _StoreyResult(object):
@@ -776,6 +885,16 @@ def _build_one_storey(doc, revit_result, texts, selections, schedule_source=None
     standards = selections.get("standards")
     tolerances = selections.get("tolerances") or {}
     dxf_texts = texts
+    # THE WHOLE FILE, for the tables that are drawn once for the sheet. A
+    # SCHEDULE sits beside the plans and inside none of them, so on a
+    # multi-storey drawing no storey's own texts hold it -- measured on test16,
+    # the sheet reads eleven Mark|Thk rows and each of its five storeys reads
+    # none, while four of them carry 62, 62, 62 and 15 S-marks on the plan.
+    # `schedule_source` is that list; it is what the COLUMN schedule has always
+    # fallen back to, for this exact reason. Kept apart from `dxf_texts` so the
+    # per-plan readings -- the legend, the blanket note the owner asked to be
+    # read per plan -- keep seeing their own storey and nothing else.
+    file_texts = schedule_source or dxf_texts
 
     _progress(1, _BUILD_STEPS, "build columns")
     sections = report.build_column_sections(revit_result.records, limits, standards,
@@ -832,14 +951,24 @@ def _build_one_storey(doc, revit_result, texts, selections, schedule_source=None
     # beam is sized from its label -- an inline "B1 300x600" OR a mark-only "B1" via the
     # schedule. Pass beam labels + the schedule so each segment gets its width/depth + mark.
     _progress(2, _BUILD_STEPS, "build beams")
-    beam_segments = report.build_beam_segments(revit_result.records,
-                                               sections.get("circles"),
-                                               limits, standards,
-                                               texts=beam_texts, tolerances=tolerances,
-                                               schedule=schedule)
+    # The blanket depth rides in as a NUMBER, not as text to search: `beam_texts`
+    # is the routed beam-label subset and the sheet's general note is not in it,
+    # so leaving the planner to find the note would quietly find nothing here.
+    beam_segments = report.build_beam_segments(
+        revit_result.records, sections.get("circles"), limits, standards,
+        texts=beam_texts, tolerances=tolerances, schedule=schedule,
+        blanket_depth_mm=storey_blanket_mm(
+            selections, "blanket_beam_depth_mm", "beam_depth_mm", dxf_texts))
     sized_beams = beam_segments["status_counts"].get("text_sized", 0)
     if sized_beams:
         _say("beams: sized {0} segment(s) from labels (width + depth)".format(sized_beams))
+    # ...and the ones no label reached, which took the sheet's word instead.
+    # Said out loud: a depth applied silently is a depth nobody can check.
+    blanket_beams = beam_segments["status_counts"].get("blanket_depth", 0)
+    if blanket_beams:
+        _say("beams: {0} unlabelled segment(s) took the sheet's blanket depth "
+             "of {1:g}mm".format(blanket_beams,
+                                 beam_segments["blanket_depth_mm"]))
 
     # Grid-line axis positions (internal feet) -> snap text-corrected column
     # centres onto the grid (columns sit on grid intersections).
@@ -957,15 +1086,24 @@ def _build_one_storey(doc, revit_result, texts, selections, schedule_source=None
         outcomes["columns"] = _create_columns(doc, sections, selections)
     _progress(5, _BUILD_STEPS, "create beams")
     if selections["create_beams"]:
-        outcomes["beams"] = _create_beams(doc, beam_segments, selections)
+        # The hatches and the SHEET's texts ride along so a beam covered by a
+        # sunk strip can be dropped: the legend prices the pattern, and the
+        # strip says which member the price belongs to.
+        outcomes["beams"] = _create_beams(doc, beam_segments, selections,
+                                          regions=hatches, texts=dxf_texts)
     # SLABS: outlines from the slab-edge (A-FLOR) rings, falling back to the
     # PLACED beams + column footprints when the DWG has no slab layer;
     # thickness/mark from "S1 150 THK" / "150 THK." notes anywhere in the text.
     _progress(6, _BUILD_STEPS, "create slabs")
     if selections["create_slabs"]:
+        # `sheet_texts` is deliberately NOT `slab_texts`: that list is narrowed
+        # by routing and cannot be trusted to still hold the legend block, which
+        # is what prices a sunk bay.
         outcomes["slabs"] = _create_slabs(doc, revit_result.records, slab_beam_segments,
                                           slab_texts, selections, schedule,
-                                          column_rects=column_footprints)
+                                          column_rects=column_footprints,
+                                          regions=hatches, sheet_texts=dxf_texts,
+                                          schedule_texts=file_texts)
     # STAIRS (option 1, parametric): a STAIRCASE / ST-n text marks the bay; a
     # generic dog-leg from the Staircase tab numbers is laid out inside it.
     _progress(7, _BUILD_STEPS, "create stairs")
@@ -993,7 +1131,8 @@ def _build_one_storey(doc, revit_result, texts, selections, schedule_source=None
         outcomes["footings"] = _create_footings(doc, sections, selections,
                                                 records=revit_result.records,
                                                 texts=foundation_texts,
-                                                regions=hatches)
+                                                regions=hatches,
+                                                schedule_texts=file_texts)
     _progress(_BUILD_STEPS, _BUILD_STEPS, "materials")
     applied = _apply_materials(doc, outcomes, selections)
     if applied:

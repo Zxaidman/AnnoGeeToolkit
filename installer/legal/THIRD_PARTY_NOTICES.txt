@@ -1,0 +1,165 @@
+ANONGEE TOOLKIT THIRD-PARTY NOTICES
+
+This file identifies third-party software currently bundled with or used by
+AnonGee Toolkit's CPython 3.12 runtime and installer prerequisites. These
+components are not owned by Zxaidman merely because they are distributed with
+AnonGee Toolkit.
+
+The applicable third-party license controls for each component. Where a wheel
+or installed distribution includes LICENSE, COPYING, NOTICE, AUTHORS, or other
+license files in its package metadata, those upstream files are authoritative
+and should be retained in release payloads.
+
+This inventory is based on tools/requirements.txt for the AnonGee runtime used
+by installer milestone 0.4.0, plus the pinned pyRevit prerequisite. It should
+be regenerated or reviewed whenever requirements or prerequisites change.
+
+COMPONENT INVENTORY
+===================
+
+certifi 2026.7.22
+  License: MPL-2.0
+  Notes: Mozilla Public License 2.0.
+
+cffi 2.1.1
+  License: MIT-0
+  Notes: Current package metadata identifies the Zero-Clause-style MIT-0
+         license. Retain the upstream LICENSE file.
+
+charset-normalizer 3.5.1
+  License: MIT
+
+clr_loader 0.3.1
+  License: MIT
+
+et_xmlfile 2.0.0
+  License: MIT
+
+ezdxf 1.4.4
+  License: MIT
+
+fonttools 4.63.0
+  License: MIT
+
+idna 3.19
+  License: BSD-3-Clause
+
+numpy 2.5.2
+  License: BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0
+  Notes: NumPy wheels contain multiple bundled components under compatible
+         licenses. Retain NumPy's included license files and notices. Some
+         platform wheels may also contain separately licensed runtime pieces;
+         the license files included in the actual wheel are authoritative.
+
+openpyxl 3.1.5
+  License: MIT
+
+pandas 3.0.5
+  License: BSD-3-Clause
+
+pycparser 3.0
+  License: BSD-3-Clause
+
+pyparsing 3.3.2
+  License: MIT
+
+python-dateutil 2.9.0.post0
+  License: BSD-3-Clause and/or Apache-2.0
+  Notes: The project documents historical BSD-3-Clause licensing and later
+         contributions under a dual Apache-2.0 / BSD-3-Clause model. Retain
+         the upstream LICENSE files supplied with the distribution.
+
+pythonnet 3.1.0
+  License: MIT
+
+pywin32 312
+  License: Mixed; package metadata identifies PSF licensing and the project
+           contains files under additional compatible licenses.
+  Notes: The pywin32 project states that license files in its source/package
+         tree and per-file copyright notices are authoritative. Preserve all
+         license metadata supplied with the installed wheel.
+
+requests 2.34.2
+  License: Apache-2.0
+
+shapely 2.1.2
+  License: BSD-3-Clause
+  Notes: Shapely wheels may include native GEOS runtime components and related
+         notices. Retain the license/notices included with the actual wheel.
+
+six 1.17.0
+  License: MIT
+
+typing_extensions 4.16.0
+  License: PSF-2.0
+
+tzdata 2026.3
+  License: Apache-2.0
+
+urllib3 2.7.0
+  License: MIT
+
+xlwings 0.36.17
+  License: BSD-3-Clause for the open-source xlwings package portions.
+  Important: xlwings PRO is subject to separate commercial/non-commercial
+             licensing. AnonGee Toolkit must not depend on or redistribute
+             PRO-only functionality unless separately licensed for that use.
+
+PYREVIT
+=======
+
+pyRevit is a separate third-party framework and prerequisite used to host the
+current AnonGee Toolkit extension. pyRevit is not owned by Zxaidman and is
+licensed under its own terms, including GNU GPL version 3 for the pyRevit
+project.
+
+Installer milestone 0.4.0 embeds the official signed per-user pyRevit
+6.5.5.26237 installer as an unmodified prerequisite build input. AnonGee Setup
+may run that installer automatically when pyRevit is missing or when a safely
+repairable incompatible per-user pyRevit installation is detected.
+
+AnonGee's proprietary EULA applies only to AnonGee-owned software. It does not
+replace, narrow, or override rights granted directly by pyRevit's GPLv3
+license. Uninstalling AnonGee does not uninstall pyRevit because pyRevit is an
+independent prerequisite and may be used by other Revit extensions.
+
+Before any public or commercial distribution of an AnonGee Setup executable
+that embeds pyRevit, the release process must also preserve the applicable
+pyRevit GPLv3 license/notices and satisfy the GPLv3 corresponding-source
+obligations for the exact pyRevit binary being redistributed. Do not rely on
+AnonGee's proprietary source repository as a substitute for pyRevit's own
+license and source obligations.
+
+AUTODESK REVIT
+==============
+
+Autodesk Revit is a separate Autodesk product and is not distributed as part
+of AnonGee Toolkit. Autodesk trademarks and software remain the property of
+their respective owners and are governed by Autodesk's own license terms.
+
+NO LICENSE OVERRIDE
+===================
+
+Nothing in the AnonGee Toolkit proprietary source license or EULA restricts
+rights granted directly by an applicable third-party license, and nothing in
+this notice grants additional rights to AnonGee Toolkit's proprietary source
+code.
+
+RELEASE CHECKLIST
+=================
+
+Before each production release:
+
+1. Compare this inventory with tools/requirements.txt.
+2. Confirm the packaged versions match the pinned requirements.
+3. Preserve upstream LICENSE/COPYING/NOTICE files present in wheel metadata.
+4. Review native-library notices for NumPy, Shapely, pywin32, and any newly
+   added binary dependencies.
+5. If pyRevit or another GPL-covered prerequisite is bundled, preserve its
+   license/notices and satisfy the corresponding-source obligations for the
+   exact redistributed binary.
+6. Re-review xlwings usage to confirm no PRO-only feature is being packaged or
+   relied upon without the appropriate license.
+
+This notice is an engineering license inventory, not a substitute for legal
+review before large-scale commercial distribution.

@@ -1,0 +1,181 @@
+ANONGEE TOOLKIT END USER LICENSE AGREEMENT
+
+Copyright © 2026 Zxaidman. All rights reserved.
+
+IMPORTANT: READ THIS AGREEMENT BEFORE INSTALLING OR USING ANONGEE TOOLKIT.
+BY INSTALLING OR USING THE SOFTWARE, YOU AGREE TO THESE TERMS.
+
+1. DEFINITIONS
+
+"Software" means the packaged or compiled AnonGee Toolkit distribution,
+including its installer and original AnonGee components, but excluding
+third-party components that are governed by their own licenses.
+
+"Personal Non-Commercial Use" means use by one individual solely for personal,
+learning, evaluation, experimentation, or other non-commercial purposes that
+are not performed for or on behalf of an employer, business, client,
+organization, professional practice, governmental body, or other entity.
+
+"Commercial or Organizational Use" means use for or on behalf of any employer,
+company, partnership, client, professional practice, organization,
+governmental body, or other entity, including use connected with paid work,
+professional services, business operations, revenue generation, or internal
+organizational productivity.
+
+2. PERSONAL NON-COMMERCIAL LICENSE
+
+Subject to this Agreement, an individual is granted a limited, revocable,
+non-exclusive, non-transferable license to install and use the Software without
+charge solely for Personal Non-Commercial Use.
+
+Personal Non-Commercial Use does not include use:
+
+- for an employer;
+- for a business or organization;
+- for a paying or commercial client;
+- as part of paid professional services;
+- to generate commercial revenue;
+- to perform organizational production work; or
+- on behalf of another person or entity for commercial benefit.
+
+3. COMMERCIAL AND ORGANIZATIONAL USE
+
+Commercial or Organizational Use requires a separate valid commercial license
+or written authorization from Zxaidman before such use begins.
+
+An employee's, contractor's, consultant's, or owner's personal installation
+does not convert Commercial or Organizational Use into Personal
+Non-Commercial Use.
+
+Commercial licenses may be offered under separate terms, including per-user,
+per-seat, per-company, subscription, perpetual, reseller, distributor, OEM,
+source-access, royalty, revenue-share, or other negotiated arrangements.
+
+4. OWNERSHIP
+
+The Software and the original AnonGee source code, documentation, designs,
+branding, build tooling, and other original materials are owned or controlled
+by Zxaidman to the extent protected by applicable law. The Software is
+licensed, not sold.
+
+This Agreement transfers no ownership interest in AnonGee Toolkit.
+
+5. SOURCE CODE
+
+This Agreement grants no right to obtain, copy, publish, disclose, distribute,
+sublicense, sell, or commercially exploit the proprietary AnonGee source code.
+Source-code access, if granted, is governed by separate written terms.
+
+6. RESTRICTIONS
+
+Except where expressly authorized in writing or where a restriction cannot
+lawfully be enforced, you may not:
+
+- redistribute, resell, sublicense, rent, lease, or commercially distribute the
+  Software;
+- repackage the Software or offer it as part of another product or service;
+- remove or obscure copyright, license, attribution, or proprietary notices;
+- represent yourself or another party as the owner of AnonGee Toolkit;
+- use the Software in violation of applicable law; or
+- circumvent technical restrictions intended to enforce licensing or protect
+  the integrity of the Software.
+
+Nothing in this section restricts rights granted directly by a third-party
+license for the applicable third-party component.
+
+7. REDISTRIBUTION, RESELLERS, AND DISTRIBUTORS
+
+Redistribution, resale, sublicensing, OEM distribution, bundled distribution,
+or distribution to customers or third parties requires prior written
+authorization from Zxaidman.
+
+Authorized resellers, distributors, commercial partners, and source-access
+partners are governed by separate written agreements, which may include fees,
+royalties, revenue sharing, territory, branding, support, reporting, or other
+commercial terms.
+
+8. THIRD-PARTY SOFTWARE
+
+AnonGee Toolkit may depend on or bundle third-party software, libraries,
+runtimes, frameworks, or tools. Those components remain governed by their
+respective licenses and copyright notices. This Agreement does not reduce or
+replace rights granted by an applicable third-party license.
+
+Third-party notices supplied with the Software form part of the distribution
+materials and should be reviewed together with this Agreement.
+
+9. UPDATES AND CHANGES
+
+Updates, upgrades, patches, replacement installers, or new major versions may
+be subject to additional or revised terms. A later release does not create an
+obligation to provide updates, maintenance, support, backward compatibility,
+or continued availability unless separately agreed in writing.
+
+10. SUPPORT
+
+No support, service level, maintenance, training, customization, or response
+time is included unless expressly offered or agreed in writing.
+
+11. TERMINATION
+
+This license terminates automatically if you materially breach this Agreement
+and do not cure the breach where cure is legally required or expressly allowed.
+Upon termination, you must stop using the Software and remove copies in your
+possession or control, except for copies you are legally required to retain.
+
+Separate commercial agreements may provide different termination terms and, if
+so, those terms control for the licensed commercial use.
+
+12. DISCLAIMER OF WARRANTY
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE SOFTWARE IS PROVIDED
+"AS IS" AND "AS AVAILABLE," WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE, ACCURACY, NON-INFRINGEMENT, RELIABILITY, OR UNINTERRUPTED
+OPERATION.
+
+ANONGEE TOOLKIT AUTOMATES ACTIONS IN AUTODESK REVIT. USERS REMAIN RESPONSIBLE
+FOR REVIEWING OUTPUTS, MODEL CHANGES, ENGINEERING OR DESIGN DECISIONS, PROJECT
+REQUIREMENTS, AND BACKUPS BEFORE RELYING ON RESULTS.
+
+13. LIMITATION OF LIABILITY
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, ZXAIDMAN SHALL NOT BE LIABLE
+FOR INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, CONSEQUENTIAL, OR PUNITIVE
+DAMAGES, OR FOR LOSS OF DATA, MODELS, PROJECT FILES, PROFITS, REVENUE,
+BUSINESS, OR OPPORTUNITY ARISING FROM OR RELATED TO THE SOFTWARE.
+
+WHERE LIABILITY CANNOT BE EXCLUDED, IT IS LIMITED TO THE MAXIMUM EXTENT
+PERMITTED BY APPLICABLE LAW. A SEPARATE COMMERCIAL AGREEMENT MAY PROVIDE
+DIFFERENT LIABILITY TERMS AND, IF SO, THOSE TERMS CONTROL FOR THAT COMMERCIAL
+LICENSE.
+
+14. SEVERABILITY
+
+If any provision of this Agreement is held unenforceable, the remaining
+provisions remain in effect to the maximum extent permitted by law.
+
+15. ENTIRE AGREEMENT AND COMMERCIAL TERMS
+
+For a Personal Non-Commercial Use license, this Agreement is the agreement
+between the user and Zxaidman concerning the Software, together with applicable
+third-party licenses.
+
+For a separately licensed commercial customer, reseller, distributor, OEM,
+or source-access partner, the separately signed written agreement controls to
+the extent it conflicts with this EULA.
+
+16. GOVERNING LAW
+
+The governing law and dispute forum for commercial licenses should be stated in
+the applicable commercial agreement. No specific jurisdiction is designated by
+this general EULA at this development stage, except to the extent mandatory law
+applies.
+
+17. LICENSING CONTACT
+
+Permission for commercial, organizational, reseller, distributor, OEM,
+source-access, or other expanded use must be obtained directly from Zxaidman
+or an expressly authorized licensing representative.
+
+END OF AGREEMENT

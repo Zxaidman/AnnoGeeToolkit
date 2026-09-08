@@ -1,0 +1,39 @@
+title: Bridge Listener
+author: AnonGee
+tooltip: |
+  Watch for bridge jobs and run them, in a small modeless window that shows
+  each one as it arrives.
+
+  An Excel button writes a job into a folder. pyRevit serves the HTTP route on
+  IronPython, where the CPython toolkit does not exist, so the route only ever
+  writes the file — this is the half that notices and does the work.
+
+  How it watches
+    • Revit's Idling event fires when Revit has nothing else to do, which is
+      also the only moment the API may be used.
+    • The Idling callback does the cheapest possible thing: a timestamp check,
+      then one directory listing. Work never happens there — a job that took a
+      minute would freeze Revit for a minute.
+    • Finding a job, it claims it and raises an external event. That is where
+      Revit lets go of the UI and where the job actually runs.
+    • Claiming is an atomic rename, so two Revit sessions watching one folder
+      never run the same job twice.
+
+  Where jobs live
+    %LOCALAPPDATA%\Zxaidman\AnonGee\bridge by default. ANONGEE_BRIDGE_HOME
+    remains the explicit override for development or managed deployments.
+    %APPDATA%\AnonGee\bridge is used only if LOCALAPPDATA is unavailable; the
+    normal runtime no longer scans the historical roaming bridge tree.
+    Bridge Check reports where this session thinks that is.
+
+  What it will run
+    Only commands that are both declared and built. The dialog lists both, so a
+    command that is scheduled but not written says so rather than failing.
+
+  Notes
+    • Nothing is written to the model except by a command that says it writes,
+      and a job's dry run is on unless it is switched off.
+    • A job that fails becomes a result file saying so. The listener does not
+      stop — one bad job must not take the next five with it.
+
+  Version: 0.4.1

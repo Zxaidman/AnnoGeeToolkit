@@ -29,7 +29,7 @@ from System.Windows.Controls import (Grid as WpfGrid, ColumnDefinition, TextBloc
 from System.Windows.Media import Brushes
 
 from . import (advanced, config, floor_plans, naming, prefs, report, settings,
-               stair_layout)
+               stair_layout, wall_plan)
 from .builders import materials
 from .classify import layers
 from .readers import dxf_linker
@@ -298,11 +298,17 @@ class CadToBimWindow(object):
                  saved_settings=None, layer_notes=None,
                  hatch_layer_rows=None, hatch_categories=None,
                  default_hatch_mapping=None, hatch_notes=None,
-                 wall_type_options=None):
+                 hatch_row_patterns=None, hatch_step_depths=None,
+                 wall_type_options=None, blanket_note=None):
         self.result = None
         self._combos = []
         self._text_combos = []
         self._hatch_combos = []
+        # The legend's step depths, keyed by PATTERN ({ANSI37: -75.0, ...} on
+        # test14) -- the grain the drawing states them at. The boxes below
+        # edit them; the seed stands wherever a box is empty or unreadable.
+        self._hatch_step_depths = dict(hatch_step_depths or {})
+        self._hatch_depth_boxes = []
         saved_naming = saved_naming or naming.DEFAULTS
         saved_standards = saved_standards or {}
         self._saved_standards = saved_standards
@@ -320,10 +326,15 @@ class CadToBimWindow(object):
         # HATCH layers get a table OF THEIR OWN: a hatch is a region meaning
         # (column fill / fold / sunk / cutout), not an element category, so
         # routing one can never re-route the linework on a like-named layer.
-        # The LEGEND proposals seed THIS mapping and mark THESE rows.
+        # The LEGEND proposals seed THIS mapping and mark THESE rows -- and
+        # where the legend gives one layer several meanings the row is a
+        # (layer, pattern) one, keyed "<layer>|<PATTERN>", carrying that
+        # pattern's own depth box.
         self._build_rows(find("hatch_rows"), hatch_layer_rows or [],
                          hatch_categories or [], default_hatch_mapping or {},
-                         self._hatch_combos, row_notes=hatch_notes)
+                         self._hatch_combos, row_notes=hatch_notes,
+                         row_patterns=hatch_row_patterns,
+                         depth_store=self._hatch_depth_boxes)
 
         self.cb_family = find("cb_family")
         self.cb_circular_family = find("cb_circular_family")
@@ -353,10 +364,28 @@ class CadToBimWindow(object):
 
         self.chk_grids = find("chk_grids")
         self.chk_columns = find("chk_columns")
+        # WHAT a vertical member is built as (Build > Structure). Column is
+        # first here and IsChecked in the XAML, so a user who never touches the
+        # row -- and a settings file saved before this row existed -- gets
+        # exactly the run every earlier version gave them.
+        self.vertical_member_buttons = [
+            (find("rb_vertical_column"), wall_plan.MODE_COLUMN),
+            (find("rb_vertical_wall"), wall_plan.MODE_WALL),
+            (find("rb_vertical_combine"), wall_plan.MODE_COMBINE),
+        ]
         self.chk_beams = find("chk_beams")
         self.chk_slabs = find("chk_slabs")
         self.chk_stairs = find("chk_stairs")
         self.chk_export = find("chk_export")
+        # The sheet's blanket note ("ALL BEAMS ARE 750MM IN DEPTH U.N.O."),
+        # already read off this drawing's text by the pushbutton. The boxes are
+        # a PROPOSAL the user can overrule, the way the legend proposes a hatch
+        # mapping rather than applying one.
+        self.chk_blanket_note = find("chk_blanket_note")
+        self.tb_blanket_beam_depth = find("tb_blanket_beam_depth")
+        self.tb_blanket_slab_thk = find("tb_blanket_slab_thk")
+        self.lbl_blanket_note = find("lbl_blanket_note")
+        self._show_blanket_note(blanket_note)
         self.tb_stair_count = find("tb_stair_count")
         self.tb_stair_waist = find("tb_stair_waist")
         self.cb_stair_source = find("cb_stair_source")
@@ -613,23 +642,37 @@ class CadToBimWindow(object):
         return mapping
 
     def _build_rows(self, panel, layer_rows, categories, default_mapping,
-                    combo_store, row_notes=None):
+                    combo_store, row_notes=None, row_patterns=None,
+                    depth_store=None):
         """One row per layer: name, count, category combo. Appends (layer, combo)
         to combo_store so the caller can read the chosen mapping back.
 
-        `row_notes` ({layer: note}) marks the rows whose default came from
+        `layer_rows` is [(row key, count)] -- the key IS the layer name for
+        the geometry and text tables, and for a hatch row it may be the split
+        "<layer>|<PATTERN>" the legend justified.
+
+        `row_notes` ({row key: note}) marks the rows whose default came from
         somewhere the user should know about -- the LEGEND proposals. The row
-        shows a `*` after the layer name and carries the note as its tooltip
-        (name and combo both), so the proposal is visible where it can still
-        be changed; the combo stays an ordinary combo.
+        shows a `*` after the name and carries the note as its tooltip (name
+        and combo both), so the proposal is visible where it can still be
+        changed; the combo stays an ordinary combo.
+
+        `depth_store` turns on the fourth column, the HATCH table's own: a
+        box per row whose pattern the legend gave a step depth, seeded with
+        that depth and appended as (patterns, box) so `_collect` can read it
+        back. `row_patterns` ({row key: patterns}) is what says which
+        patterns a row covers -- an unsplit row covers all of its layer's,
+        and no key is ever taken apart to find out.
         """
         label_style = _theme_style(self.window, "TextLabel")
         caption_style = _theme_style(self.window, "TextCaption")
         combo_style = _theme_style(self.window, "InputComboBox")
+        box_style = _theme_style(self.window, "InputTextBox")
+        widths = (None, 70, 180) if depth_store is None else (None, 70, 180, 70)
         for layer, count in layer_rows:
             row = WpfGrid()
             row.Margin = Thickness(0, 2, 0, 2)
-            for width in (None, 70, 180):   # None -> star column
+            for width in widths:            # None -> star column
                 column = ColumnDefinition()
                 column.Width = (GridLength(1, GridUnitType.Star) if width is None
                                 else GridLength(width))
@@ -664,8 +707,38 @@ class CadToBimWindow(object):
             row.Children.Add(name_block)
             row.Children.Add(count_block)
             row.Children.Add(combo)
+            if depth_store is not None:
+                depth_box = self._depth_box((row_patterns or {}).get(layer),
+                                            depth_store, box_style)
+                if depth_box is not None:
+                    WpfGrid.SetColumn(depth_box, 3)
+                    row.Children.Add(depth_box)
             panel.Children.Add(row)
             combo_store.append((layer, combo))
+
+    def _depth_box(self, patterns, depth_store, box_style):
+        """The step-depth box for one hatch row, or None where there is none.
+
+        A depth belongs to a PATTERN -- the legend states it there and
+        `legend_steps` returns it there -- so a row gets a box only when a
+        pattern it covers carries one, and the box then drives every such
+        pattern on the row. An unsplit row can only cover patterns that agree
+        (that is exactly why it was not split), so one box is never two
+        answers. Millimetres, negative down; empty where the drawing said
+        nothing.
+        """
+        carried = [pattern for pattern in (patterns or ())
+                   if pattern in self._hatch_step_depths]
+        if not carried:
+            return None
+        box = TextBox()
+        _apply_style(box, box_style)
+        box.Text = "{0:g}".format(self._hatch_step_depths[carried[0]])
+        box.ToolTip = ("Step depth in mm for {0}, read from this drawing's "
+                       "legend -- negative is down. Change it to overrule "
+                       "the legend.".format(", ".join(carried)))
+        depth_store.append((tuple(carried), box))
+        return box
 
     def _init_sizing(self):
         """Seed the limit fields from defaults and two-way link each slider+input."""
@@ -804,6 +877,40 @@ class CadToBimWindow(object):
                                                        d["stair_arrival_merge_mm"]),
         }
 
+    def _show_blanket_note(self, blanket_note):
+        """Seed the blanket-note boxes and preview from what THIS sheet said.
+
+        `blanket_note` is `marks.sheet_defaults` run over the whole drawing:
+        {"beam_depth_mm": .., "slab_thickness_mm": .., "conflicts": [...]}. A
+        figure the sheet settled fills its box, so the user sees the proposal
+        before it is used and can type over it. A figure the sheet did NOT
+        settle -- no note, or notes that disagree -- leaves its box empty, and
+        an empty box applies no blanket default at all. That is the whole
+        refusal made visible: on a sheet whose notes disagree the preview names
+        every figure it offered and nothing is applied until the user picks one.
+        """
+        found = blanket_note or {}
+        depth = found.get("beam_depth_mm")
+        thickness = found.get("slab_thickness_mm")
+        self.tb_blanket_beam_depth.Text = ("" if depth is None
+                                           else "{0:g}".format(depth))
+        self.tb_blanket_slab_thk.Text = ("" if thickness is None
+                                         else "{0:g}".format(thickness))
+        said = []
+        if depth is not None:
+            said.append("beams {0:g}mm deep".format(depth))
+        if thickness is not None:
+            said.append("slabs {0:g}mm thick".format(thickness))
+        lines = ["this sheet says: " + ", ".join(said)] if said else []
+        for key, values in found.get("conflicts") or []:
+            lines.append(
+                "this sheet's {0} notes DISAGREE ({1}) -- none of them is "
+                "applied; type the one you want".format(
+                    "beam depth" if key == "beam_depth_mm" else "slab thickness",
+                    ", ".join("{0:g}mm".format(value) for value in values)))
+        self.lbl_blanket_note.Text = "\n".join(
+            lines or ["this sheet carries no blanket note."])
+
     def _storey_mm(self):
         """Top minus base level elevation in mm, or None before both are picked."""
         base = self._level_elevations.get(self.cb_base_level.SelectedItem)
@@ -852,6 +959,18 @@ class CadToBimWindow(object):
             if button.IsChecked:
                 return shape
         return stair_layout.SHAPE_U
+
+    def _vertical_member_mode(self):
+        """How Build > Structure builds a vertical member (Column by default).
+
+        The fallback is deliberate rather than defensive: with no button
+        checked -- which is what a settings file written before this row existed
+        restores -- the run must be the one it has always been.
+        """
+        for button, mode in self.vertical_member_buttons:
+            if button.IsChecked:
+                return mode
+        return wall_plan.MODE_COLUMN
 
     def _read_limits(self):
         defaults = report.DEFAULT_LIMITS
@@ -903,6 +1022,38 @@ class CadToBimWindow(object):
         self._remember_conventions()
         self.window.Close()
 
+    def _read_hatch_depths(self):
+        """{pattern: depth mm} -- the legend's step depths as the dialog
+        leaves them.
+
+        Keyed by PATTERN because that is what a depth belongs to: the same
+        pattern means the same drop wherever it is hatched, which is why
+        `legend_steps` is keyed that way and why the fold machinery reads it
+        that way. A box that does not read as a number keeps the legend's own
+        figure -- the same forgiveness `_read_float` extends everywhere else
+        -- and a pattern with no box at all keeps it untouched.
+        """
+        depths = dict(self._hatch_step_depths)
+        for patterns, box in self._hatch_depth_boxes:
+            for pattern in patterns:
+                depths[pattern] = self._read_float(box, depths.get(pattern))
+        return depths
+
+    def _restore_hatch_depths(self, depths):
+        """Put edited step depths back on their boxes (the stair round trip).
+
+        By PATTERN, like everything else about a depth, and only where this
+        drawing still has a box for it: a preset from another shape of table
+        lands what it recognises and leaves the rest on the legend's figure.
+        """
+        if not depths:
+            return
+        for patterns, box in self._hatch_depth_boxes:
+            for pattern in patterns:
+                if depths.get(pattern) is not None:
+                    box.Text = "{0:g}".format(depths[pattern])
+                    break
+
     def _collect(self, mapping=None, text_mapping=None, hatch_mapping=None,
                  action=None):
         """Every dialog value as one dict -- shared by Run and the draw button
@@ -927,8 +1078,12 @@ class CadToBimWindow(object):
             "mapping": mapping,
             "text_mapping": text_mapping,
             "hatch_mapping": hatch_mapping,
+            "hatch_step_depths": self._read_hatch_depths(),
             "create_grids": bool(self.chk_grids.IsChecked),
             "create_columns": bool(self.chk_columns.IsChecked),
+            # ...and, of the members that tick builds, which of them are
+            # Structural Columns and which Structural Walls
+            "vertical_member_mode": self._vertical_member_mode(),
             "create_beams": bool(self.chk_beams.IsChecked),
             "create_slabs": bool(self.chk_slabs.IsChecked),
             "create_stairs": bool(self.chk_stairs.IsChecked),
@@ -982,6 +1137,16 @@ class CadToBimWindow(object):
                 self.cb_struct_wall_type.SelectedItem),
             "arch_wall_type_id": self._wall_ids.get(
                 self.cb_arch_wall_type.SelectedItem),
+            # the sheet's blanket note: the tick is the off switch, and each
+            # box is 0 ("the sheet did not settle this, so apply nothing")
+            # until either the drawing's own proposal or the user fills it
+            "blanket_notes": bool(self.chk_blanket_note.IsChecked),
+            "blanket_beam_depth_mm": self._read_float(
+                self.tb_blanket_beam_depth,
+                config.DEFAULTS["blanket_beam_depth_mm"]),
+            "blanket_slab_thickness_mm": self._read_float(
+                self.tb_blanket_slab_thk,
+                config.DEFAULTS["blanket_slab_thickness_mm"]),
             "create_footings": bool(self.chk_footings.IsChecked),
             "footing_symbol_id": self._footing_ids.get(
                 self.cb_footing_family.SelectedItem),
@@ -1026,6 +1191,11 @@ class CadToBimWindow(object):
         drawing itself (settings.DETECTED_NAMES) stays with the drawing.
         """
         self._restore_controls(preset.get("preset_payload") or {})
+        # The step depths are not in the snapshot -- they are read off this
+        # drawing's legend, not carried between drawings -- but this round
+        # trip IS the same drawing, so a depth the user edited before going
+        # out to the view has to come back with everything else.
+        self._restore_hatch_depths(preset.get("hatch_step_depths"))
         saved_rows = preset.get("storey_settings") or []
         if saved_rows and self._storey_plans:
             self._storey_rows = [
@@ -1311,8 +1481,12 @@ class CadToBimWindow(object):
         text_map = dict((layer, str(combo.SelectedItem))
                         for layer, combo in self._text_combos
                         if combo.SelectedItem is not None)
-        hatch_map = dict((layer, str(combo.SelectedItem))
-                         for layer, combo in self._hatch_combos
+        # the hatch table is keyed by ROW, which is the layer -- or the
+        # "<layer>|<PATTERN>" of a row the drawing's legend split. Both are
+        # plain strings, so the file carries either without a shape change;
+        # the DEPTHS are deliberately not captured (see _restore_controls).
+        hatch_map = dict((row_key, str(combo.SelectedItem))
+                         for row_key, combo in self._hatch_combos
                          if combo.SelectedItem is not None)
         return settings.payload(values, layer_map, text_map,
                                 _version(),
@@ -1336,9 +1510,22 @@ class CadToBimWindow(object):
                 continue
             if _set_control_value(self.window.FindName(name), value):
                 landed += 1
-        # the hatch table restores like the other two: by LAYER NAME, and a
-        # file older than schema 3 carries no section, so it lands nothing
-        # and the convention's guess stands
+        # The hatch table restores like the other two: by ROW KEY, and a file
+        # older than schema 3 carries no section at all, so it lands nothing
+        # and the convention's guess stands.
+        #
+        # A row the legend SPLIT is keyed "<layer>|<PATTERN>" and is restored
+        # by that key alone -- an older file's plain "HAT -> sunk" does not
+        # reach it. That is deliberate: the layer-wide answer is the coarse
+        # one this split exists to replace (it would put "sunk" back on
+        # test14's GOST_GLASS rows, which mean SLAB AT BEAM BOTTOM), and a
+        # settings file already outvotes a legend proposal where the keys DO
+        # meet. Unsplit rows are unchanged.
+        #
+        # The legend's step DEPTHS are not restored either, and not saved:
+        # they are read off THIS drawing's legend on every open, so putting
+        # last week's -150 on a drawing whose legend says -75 would be the
+        # blanket-note trap (settings.DETECTED_NAMES) with a hatch on it.
         for store, saved in ((self._combos, layer_map),
                              (self._text_combos, text_map),
                              (self._hatch_combos,

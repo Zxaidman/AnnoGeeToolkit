@@ -35,6 +35,16 @@ A wall arrives three ways in this corpus, and all three appear in one drawing
       - each pair spans the UNION of its two faces, so a face notched short on
         one side still lands the wall on its true extent.
 
+One last pass runs over the finished centrelines: the CORNERS. Revit joins
+wall ends by default and mitres them, which hides whatever the planner handed
+it; disallowing the join (which is what the drawing actually shows) exposes it,
+and a corner where both walls stop at the junction leaves a square hole exactly
+one wall thick. `close_wall_corners` shapes each meeting the way the drawing
+draws it -- ONE member runs through to the other's far face, the other butts on
+its side -- so the L reads solid before the join is ever disallowed. Which one
+runs through is measured, never assumed, and a corner the measurement cannot
+settle is reported rather than guessed.
+
 A CUTOUT layer's linework is never a wall. test9's `PI_SHEAR WALL CUTOUT`
 carries ten closed quads 240..500 wide -- indistinguishable from real wall
 outlines by any width rule -- and its own legend says what they are: "HATCH
@@ -55,6 +65,7 @@ import re
 from collections import Counter
 
 from . import config
+from .classify import marks
 from .classify.layers import CATEGORY_ARCH_WALL, CATEGORY_STRUCT_WALL
 from .geom import shapes
 
@@ -98,15 +109,60 @@ _TAPER_FRACTION = 0.05
 # decline to build what the layer's own name calls a hole.
 _CUTOUT_TOKEN = re.compile(r"cut[\s_-]*out", re.IGNORECASE)
 
+# ---- the corner constants, all measured over the four wall-bearing fixtures
+
+# Two centrelines this far off parallel MEET; anything flatter is one wall
+# continuing into the next. Every real corner in the corpus is at 90 or at 79.7
+# degrees (Project1 and test8 both carry the 10.3-degree rotated run), and a
+# wall's own collinear pieces sit under the pair pass's 3-degree tolerance, so
+# the whole band from 3 to 79.7 is empty. 20, 30 and 45 find the same 136
+# meetings in test8; only at 10 do two of the rotated runs start reading as
+# corners of each other.
+_JUNCTION_MIN_ANGLE_DEG = 20.0
+
+# How far past the other member's far face an end may sit and still belong to
+# this corner. The rotated corners overshoot by 13.7 mm (a reach of 89.9 where
+# the face is at 76.2) and nothing else lands until half a wall further out:
+# 15 and 30 admit exactly the same corners, 5 loses the rotated ones, and 60
+# starts admitting walls that merely pass nearby.
+_JUNCTION_SLACK_MM = 30.0
+
+# Two decisions that put the same end within this of each other are the same
+# decision -- one corner seen from both sides, not two corners fighting over an
+# end. Disagreement wider than this is three or more walls at one point.
+_JUNCTION_AGREE_MM = 1.0
+
+# Runs closer than this in length are a TIE: test8's shafts are square, four
+# 3150 x 150 walls to a box, and nothing in the drawing says which of two
+# identical runs is the one that carries through. Reported, never guessed.
+_JUNCTION_TIE_MM = 1.0
+
+# A cut that would leave less wall than `builders.walls._MIN_WALL_LENGTH_MM`
+# is refused whole: the builder would skip the remainder as a sliver, and a
+# corner shaped by deleting one of its two walls is not a shaped corner.
+_JUNCTION_MIN_REMAINDER_MM = 50.0
+
+# A member is the column rectangle the drawing drew, so its extent is not the
+# planner's to move: a wall stops on a column, never the other way about.
+_FIXED_SOURCE = "member"
+
+_SIN_JUNCTION = math.sin(math.radians(_JUNCTION_MIN_ANGLE_DEG))
+
 
 def plan_walls(records, texts=None, tolerances=None):
-    """{"segments": [...], "skipped": [...]} for the wall-category linework.
+    """{"segments": [...], "skipped": [...], "junctions": {...}} for the walls.
 
     Each segment carries `start`/`end` (the centreline, internal feet),
     `width_mm`, `length_mm`, `kind` ("structural" | "arch"), `layer`, and
     `source` ("outline" for a wall read off a closed ring, "pair" for one
     built from two faces). Everything consumed that plans nothing lands in
     `skipped` with a reason -- nothing is dropped in silence.
+
+    The centrelines come back CORNERED (`close_wall_corners`): where two of
+    them meet, one runs through to the other's far face and the other stops on
+    its side, so the L stands solid once the builder disallows the join. No
+    segment is added or dropped by that pass -- only ends move -- and every
+    corner it could not settle is counted in `junctions["unresolved"]`.
 
     `texts` is accepted for parity with the other planners and RESERVED: no
     fixture carries a wall-sizing note today (test9's wall texts are legend
@@ -181,7 +237,9 @@ def plan_walls(records, texts=None, tolerances=None):
                             "kind": kind, "length_mm": length_mm,
                             "start": [a[0], a[1], face["z"]],
                             "end": [b[0], b[1], face["z"]]})
-    return {"segments": segments, "skipped": skipped}
+    cornered = close_wall_corners(segments)
+    return {"segments": cornered["segments"], "skipped": skipped,
+            "junctions": cornered["junctions"]}
 
 
 def _outline_walls(points, z, kind, layer, min_ft, max_ft):
@@ -399,3 +457,483 @@ def _wall_segment(start, end, width_ft, z, layer, kind, source):
 
 def _dist(a, b):
     return math.hypot(b[0] - a[0], b[1] - a[1])
+
+
+# ------------------------------------------------- the corners the walls make
+# Everything above reads ONE wall at a time. This section reads the drawing's
+# corners, and it exists because of what happens in Revit afterwards.
+#
+# Revit joins wall ends by default and mitres whatever it is given, so a corner
+# looks right no matter how the two centrelines actually end. Disallow the join
+# -- which is what the drawing shows, a wall with square ends -- and the mitre
+# goes with it: two walls that both stopped at the crossing leave a hole one
+# wall thick square, and two that both ran to the other's far face stand one on
+# top of the other in the corner.
+#
+# The corpus says what a drawn corner really is. Measured across the four
+# wall-bearing fixtures, an end that meets another wall sits at reach/need
+# = -1.0 or +1.0 and almost nowhere else: hard against the other's NEAR face
+# (it butts) or out at its FAR face (it runs through). That is not a coincidence
+# -- it is what the ring decomposition and the face union already produce -- so
+# the shape to build is the shape the drafter drew:
+#
+#     ONE member runs through to the other's far face; the other stops on its
+#     side. The corner cell is covered once, by exactly one wall.
+#
+# What varies is WHICH, and the corpus contains every way of getting it wrong:
+# both through (test9's 11/18, Project1's two jamb legs, 58 of test8's corners),
+# neither through (test9's 2/10 -- a 240 x 160 hole, the user's own screenshot),
+# and a stem driven through its host (15 in test8). All three are the same
+# defect and take the same repair: pick the member that runs through, put its
+# end on the far face, and put the other's end on the near face.
+#
+# Kinds do not mix. A structural and an architectural wall are pooled apart by
+# the builders and, in test8, are frequently the SAME wall drawn on both
+# conventions (a 250 S-RCC-WALL quad with a 150 arch trace 50 mm off its
+# centreline, findings #12) -- butting one onto the other would be nonsense.
+
+
+def close_wall_corners(segments):
+    """The planner's centrelines, re-cut so every corner reads as drawn.
+
+    Returns {"segments": [...], "junctions": {...}}. The segments are copies;
+    only `start`, `end` and `length_mm` differ, and only where a corner said
+    so. The junction report carries `found`, `resolved`, `by_rule` (which rule
+    settled how many corners) and `unresolved` ([{reason, count}]) -- a corner
+    nothing here can settle is left exactly as the drawing drew it and named
+    out loud, because a guessed corner is worse than a reported one.
+
+    Which member runs through, in order:
+
+      * a COLUMN never moves. `split_vertical_members` lays a member's
+        centreline down the rectangle the drawing drew, so that extent IS the
+        drawing's own statement; the wall stops on the column's face.
+      * the DRAWN EXTENT where it already says so -- exactly one of the two
+        reaching the other's far face is the drafter having assigned the corner
+        already, and re-deciding it would only churn. This is the rule that
+        leaves test16 and Project1's parapet untouched to the millimetre.
+      * a drawn OUTLINE over a face pair: a closed ring is measured geometry,
+        a pair is inferred from two faces.
+      * the LONGER RUN, which is what a corner looks like when nothing else
+        distinguishes the two.
+    """
+    out = [dict(segment) for segment in segments]
+    rules = Counter()
+    unresolved = Counter()
+    found = 0
+    pools = {}
+    for index, segment in enumerate(out):
+        pools.setdefault(segment.get("kind"), []).append(index)
+    for kind in sorted(pools, key=str):
+        indices = pools[kind]
+        frames = dict((index, _corner_frame(out[index])) for index in indices)
+        decisions = []
+        for a in range(len(indices)):
+            for b in range(a + 1, len(indices)):
+                i, j = indices[a], indices[b]
+                corner = _meeting(i, j, out[i], out[j], frames[i], frames[j])
+                if corner is None:
+                    continue
+                found += 1
+                rule, outcome = _corner_decision(corner)
+                if rule is None:
+                    unresolved[outcome] += 1
+                else:
+                    decisions.append((rule, outcome))
+        _cut_corners(out, frames, decisions, rules, unresolved)
+    return {"segments": out,
+            "junctions": {"found": found,
+                          "resolved": sum(rules.values()),
+                          "by_rule": dict(rules),
+                          "unresolved": [{"reason": reason, "count": count}
+                                         for reason, count
+                                         in sorted(unresolved.items())]}}
+
+
+def _corner_frame(segment):
+    """(origin x, origin y, unit x, unit y, length) of a segment, in feet."""
+    sx, sy = segment["start"][0], segment["start"][1]
+    ex, ey = segment["end"][0], segment["end"][1]
+    length = math.hypot(ex - sx, ey - sy)
+    if length <= 0.0:
+        return (sx, sy, 1.0, 0.0, 0.0)
+    return (sx, sy, (ex - sx) / length, (ey - sy) / length, length)
+
+
+def _meeting(i, j, seg_i, seg_j, frame_i, frame_j):
+    """What two centrelines do where they cross, or None if they do not meet.
+
+    `reach` is how far past the crossing a member must run to clear the OTHER
+    member's far face: half that other's width, divided by the sine of the
+    angle between them, so a 79.7-degree corner gets the 1.6% more that it
+    geometrically needs. `role` says how each member arrives -- by an end, with
+    the overshoot that end currently has past the crossing (signed outward, so
+    -reach is hard against the near face and +reach is out at the far one), or
+    straight through.
+    """
+    ix, iy, iux, iuy, li = frame_i
+    jx, jy, jux, juy, lj = frame_j
+    sin = iux * juy - iuy * jux
+    if abs(sin) < _SIN_JUNCTION or li <= 0.0 or lj <= 0.0:
+        return None                 # collinear: one wall continuing, not a corner
+    dx, dy = jx - ix, jy - iy
+    t = (dx * juy - dy * jux) / sin
+    u = (dx * iuy - dy * iux) / sin
+    reach_i = (seg_j["width_mm"] / _MM / 2.0) / abs(sin)
+    reach_j = (seg_i["width_mm"] / _MM / 2.0) / abs(sin)
+    role_i = _corner_role(t, li, reach_i)
+    role_j = _corner_role(u, lj, reach_j)
+    if role_i is None or role_j is None:
+        return None                 # the crossing is off the end of one of them
+    return [{"index": i, "segment": seg_i, "at": t, "role": role_i,
+             "reach": reach_i, "length": li},
+            {"index": j, "segment": seg_j, "at": u, "role": role_j,
+             "reach": reach_j, "length": lj}]
+
+
+def _corner_role(t, length, reach):
+    """("start"|"end", overshoot) | ("through", None) | None, for one member.
+
+    `t` is where the crossing sits along the member. An end within `reach` of
+    it (plus the slack) OWNS the crossing; a crossing further in than that at
+    both ends means the member runs straight through; anything else means this
+    member is not at this corner at all.
+    """
+    band = reach + config.mm_to_ft(_JUNCTION_SLACK_MM)
+    at_start = -band <= t <= band
+    at_end = length - band <= t <= length + band
+    if at_start and at_end:
+        # a member shorter than the band reaches both ways: the nearer end wins
+        at_end = (length - t) < t
+        at_start = not at_end
+    if at_start:
+        return ("start", t)
+    if at_end:
+        return ("end", length - t)
+    if band < t < length - band:
+        return ("through", None)
+    return None
+
+
+def _corner_decision(corner):
+    """(rule, [((index, end), parameter)]) for one corner, or (None, why not).
+
+    A parameter is a distance along that member's OWN centreline from its start
+    point: where the end has to move to. An end belonging to a column member is
+    never proposed -- the drawing drew that rectangle.
+    """
+    first, second = corner
+    ends = [side for side in corner if side["role"][0] != "through"]
+    if not ends:
+        return None, ("two walls cross and neither ends at the crossing: "
+                      "which of them is cut is not the drawing's to say")
+    if len(ends) == 1:
+        # A TEE. The host runs through by construction, so only the STEM moves,
+        # onto the host's near face -- which is where 25 of test8's 39 tees
+        # already sit and where 14 more are driven into the host's body.
+        return ("a tee: the stem stops on the host's face",
+                _corner_targets([(ends[0], -ends[0]["reach"])]))
+    fixed = [side for side in corner
+             if side["segment"].get("source") == _FIXED_SOURCE]
+    if len(fixed) == 2:
+        return None, ("two column members meet: a member's extent is the "
+                      "drawing's own, so neither is the one to cut")
+    agree = config.mm_to_ft(_JUNCTION_AGREE_MM)
+    spans = [side["role"][1] >= side["reach"] - agree for side in corner]
+    sources = [side["segment"].get("source") for side in corner]
+    if fixed:
+        through, rule = fixed[0], "a column runs through and the wall stops on it"
+    elif spans[0] != spans[1]:
+        through = first if spans[0] else second
+        rule = "the drawn extent already spans the corner"
+    elif (sources[0] == "outline") != (sources[1] == "outline"):
+        through = first if sources[0] == "outline" else second
+        rule = "the drawn outline runs through"
+    elif abs(first["length"] - second["length"]) > config.mm_to_ft(
+            _JUNCTION_TIE_MM):
+        through = first if first["length"] > second["length"] else second
+        rule = "the longer run continues"
+    else:
+        return None, ("two walls of equal length meet: neither of them is "
+                      "the longer run")
+    return rule, _corner_targets(
+        [(side, side["reach"] if side is through else -side["reach"])
+         for side in corner])
+
+
+def _corner_targets(moves):
+    """[((index, end), parameter)] -- where each end of a corner must land.
+
+    The signed reach is the whole of it. +reach puts the end past the crossing
+    on the other member's FAR face, so that member runs through and fills the
+    corner; -reach puts it short of the crossing on the NEAR face, so it butts.
+    The 150 mm the user measured in the hole is the distance between those two
+    answers for a 150 wall: 75 out to the crossing, and 75 more to the far
+    face. A column member is not proposed at all -- it is already the drawing.
+    """
+    targets = []
+    for side, reach in moves:
+        if side["segment"].get("source") == _FIXED_SOURCE:
+            continue
+        end = side["role"][0]
+        targets.append(((side["index"], end),
+                        side["at"] + reach if end == "end"
+                        else side["at"] - reach))
+    return targets
+
+
+def _cut_corners(segments, frames, decisions, rules, unresolved):
+    """Apply the decisions whose ends agree; report and drop the ones that do not.
+
+    Two decisions may claim one end -- the same corner reached from both sides
+    agrees to the millimetre, three walls at one point do not. A decision whose
+    end is contested is dropped WHOLE (half a shaped corner is not a shaped
+    corner), and dropping it can free its partner's end, so the check repeats
+    until nothing more breaks. The same loop refuses a cut that would leave
+    less wall than the builder's own sliver floor, which would shape a corner
+    by deleting one of the two walls that make it.
+    """
+    agree = config.mm_to_ft(_JUNCTION_AGREE_MM)
+    floor = config.mm_to_ft(_JUNCTION_MIN_REMAINDER_MM)
+    alive = [True] * len(decisions)
+    for _pass in range(len(decisions) + 1):
+        claims = {}
+        for number, (_rule, targets) in enumerate(decisions):
+            if not alive[number]:
+                continue
+            for key, parameter in targets:
+                claims.setdefault(key, []).append((number, parameter))
+        broken = {}
+        for key, entries in claims.items():
+            values = [parameter for _number, parameter in entries]
+            if max(values) - min(values) <= agree:
+                continue
+            for number, _parameter in entries:
+                broken[number] = ("three or more walls meet at one corner: "
+                                  "which of them runs through is not the "
+                                  "drawing's to say")
+        cuts = {}
+        for (index, end), entries in claims.items():
+            cuts.setdefault(index, {})[end] = entries
+        for index, ends in cuts.items():
+            start = ends["start"][0][1] if "start" in ends else 0.0
+            finish = ends["end"][0][1] if "end" in ends else frames[index][4]
+            if finish - start >= floor:
+                continue
+            for entries in ends.values():
+                for number, _parameter in entries:
+                    broken[number] = (
+                        "a corner would leave less wall than the builder "
+                        "places: the two ends are left exactly as drawn")
+        if not broken:
+            break
+        for number in broken:
+            alive[number] = False
+            unresolved[broken[number]] += 1
+    touched = set()
+    for number, (rule, targets) in enumerate(decisions):
+        if not alive[number]:
+            continue
+        rules[rule] += 1
+        for (index, end), parameter in targets:
+            ox, oy, ux, uy, _length = frames[index]
+            segments[index][end] = [ox + ux * parameter, oy + uy * parameter,
+                                    segments[index][end][2]]
+            touched.add(index)
+    for index in touched:
+        segments[index]["length_mm"] = _dist(segments[index]["start"],
+                                             segments[index]["end"]) * _MM
+
+
+# ------------------------------------------ the vertical members: column or wall
+# Everything above plans walls from the WALL layers. This last section answers a
+# different question about the COLUMN layers: the user's three-way choice on
+# Build > Structure, where a recovered vertical member may be built as a
+# Structural Column (what the run has always done), as a Structural Wall, or --
+# "Combine" -- as whichever of the two `marks.vertical_kind` says it is.
+#
+# The split is Revit-free on purpose. It reads the section dicts the column pass
+# already produced and hands back the same two shapes the two builders already
+# take: a sections dict for `builders.columns.place_columns`, and the planner's
+# own segment list for `builders.walls.place_walls`. Neither builder learns a
+# new trick; only the routing is new.
+
+MODE_COLUMN = "column"
+MODE_WALL = "wall"
+MODE_COMBINE = "combine"
+
+# Column FIRST and by default: it is what every run before this one did, so a
+# saved settings file with no mode in it, an empty string, or a value from a
+# newer build all land on today's behaviour rather than on a surprise.
+MODES = (MODE_COLUMN, MODE_WALL, MODE_COMBINE)
+
+
+def normalise_mode(mode):
+    """One of MODES, defaulting to MODE_COLUMN for anything unrecognised.
+
+    Anything at all may arrive here -- a hand-edited settings file, a number, a
+    value a newer build writes -- and every one of them has to land on the
+    reading this project has always used rather than raise mid-run.
+    """
+    try:
+        text = str(mode or "").strip().lower()
+    except Exception:
+        return MODE_COLUMN
+    return text if text in MODES else MODE_COLUMN
+
+
+def rect_wall_segment(rect):
+    """One recovered vertical member as a wall centreline, or None.
+
+    A wall is a LINE and a width; a column section is a centre and two sides. The
+    conversion is the one the planner already uses on a drawn wall outline
+    (`beam_centerline_from_rect`), applied to a member instead: the centreline
+    runs along the member's LONG axis through its centre, and the wall's width is
+    the SHORT side -- the thickness B of the L/B rule, which is exactly the
+    dimension a wall type's compound structure carries.
+
+    Direction follows the same convention `builders.columns` places a column
+    with. An OrientedRect brings its own `long_axis_deg` (its dict reports the
+    short side as width and the long side as height, so the angle IS the long
+    axis); a plain axis-aligned Rectangle carries none, and its long axis is X
+    when it is wider than it is deep, else Y.
+
+    None for a member with no length or no thickness to build from.
+    """
+    width_mm = float(rect.get("width_mm") or 0.0)
+    height_mm = float(rect.get("height_mm") or 0.0)
+    thickness_mm = min(width_mm, height_mm)
+    length_mm = max(width_mm, height_mm)
+    if thickness_mm <= 0.0 or length_mm <= 0.0:
+        return None
+    centre = rect.get("center") or [0.0, 0.0, 0.0]
+    cx, cy = centre[0], centre[1]
+    z = centre[2] if len(centre) > 2 else 0.0
+    long_axis_deg = rect.get("long_axis_deg")
+    if long_axis_deg is None:
+        long_axis_deg = 0.0 if width_mm >= height_mm else 90.0
+    half_ft = (length_mm / _MM) / 2.0
+    dx = math.cos(math.radians(long_axis_deg)) * half_ft
+    dy = math.sin(math.radians(long_axis_deg)) * half_ft
+    segment = _wall_segment((cx - dx, cy - dy), (cx + dx, cy + dy),
+                            thickness_mm / _MM, z,
+                            rect.get("layer") or "(column member)",
+                            "structural", "member")
+    # The measured section is authoritative -- the centreline is derived from it,
+    # so rounding it back out of two endpoints would only lose digits.
+    segment["length_mm"] = length_mm
+    segment["mark"] = rect.get("mark")
+    return segment
+
+
+def split_vertical_members(sections, mode, region_max_side_mm=None):
+    """Route the recovered vertical members to the column or the wall builder.
+
+    Returns {"sections": <a sections dict carrying only the COLUMN members>,
+             "segments": [wall centrelines], "counts": {...},
+             "console": [lines]}.
+
+    `sections` is never mutated: the column half is a shallow copy whose entries
+    hold only the rectangles that stayed columns, so `place_columns` sees exactly
+    what it always saw in column mode and a subset of it otherwise.
+
+    Two things are decided BEFORE the kind question, and in every mode:
+
+      * a rectangle whose SMALLER side exceeds `region_max_side_mm` is a
+        lift/stair region rather than a member (2700 x 3300, 5700 x 3300). It
+        stays on the column path so `place_columns` goes on skipping it and
+        saying so, instead of wall mode casting a 2700 mm thick wall out of a
+        stair void;
+      * a ROUND column stays a column, always. A circle has no L/B and no long
+        axis, so there is no ratio to test and no centreline to lay a wall
+        along. It is not counted as a decision because nothing decided it.
+    """
+    chosen = normalise_mode(mode)
+    region_max = (_cfg_region_max() if region_max_side_mm is None
+                  else float(region_max_side_mm))
+    counts = {"column": 0, "wall": 0, "column_mark": 0, "column_ratio": 0,
+              "wall_mark": 0, "wall_ratio": 0, "region": 0,
+              "circles": len(sections.get("circles") or [])}
+    entries = []
+    segments = []
+    for entry in sections.get("entries") or []:
+        kept = []
+        for rect in entry.get("rectangles") or []:
+            kind, why = _member_kind(rect, chosen, region_max, counts)
+            if kind == marks.KIND_WALL:
+                segment = rect_wall_segment(rect)
+                if segment is not None:
+                    segments.append(segment)
+                    counts["wall"] += 1
+                    if why:
+                        counts["wall_" + why] += 1
+                    continue
+                # no length or no thickness: nothing to lay a centreline along,
+                # so it goes back to the builder that can still report it
+                why = ""
+            kept.append(rect)
+            counts["column"] += 1
+            if why:
+                counts["column_" + why] += 1
+        if kept:
+            new_entry = dict(entry)
+            new_entry["rectangles"] = kept
+            entries.append(new_entry)
+    column_sections = dict(sections)
+    column_sections["entries"] = entries
+    return {"sections": column_sections, "segments": segments,
+            "counts": counts, "console": _split_console(chosen, counts)}
+
+
+def _member_kind(rect, mode, region_max, counts):
+    """(kind, why) for one member under `mode`; why is "" when nothing decided."""
+    width_mm = float(rect.get("width_mm") or 0.0)
+    height_mm = float(rect.get("height_mm") or 0.0)
+    if min(width_mm, height_mm) > region_max:
+        counts["region"] += 1
+        return marks.KIND_COLUMN, ""
+    # In the two whole-hearted modes the CHOICE decided, not the drawing, so
+    # neither reason bucket is credited -- the console must not report a member
+    # as "named by its mark" when the mark was never consulted.
+    if mode == MODE_COLUMN:
+        return marks.KIND_COLUMN, ""
+    if mode == MODE_WALL:
+        return marks.KIND_WALL, ""
+    return marks.vertical_kind(rect.get("mark"), width_mm, height_mm)
+
+
+def _split_console(mode, counts):
+    """What the run says out loud about the split -- grouped, never silent."""
+    if mode == MODE_COLUMN:
+        lines = ["Structural Column for every vertical member (the default): "
+                 "{0} placed as columns.".format(counts["column"])]
+    elif mode == MODE_WALL:
+        lines = ["Structural Wall for every vertical member: {0} placed as "
+                 "walls, {1} kept as columns.".format(counts["wall"],
+                                                      counts["column"])]
+    else:
+        lines = ["Combine (smart): {0} column(s) + {1} wall(s) from {2} "
+                 "vertical member(s).".format(
+                     counts["column"], counts["wall"],
+                     counts["column"] + counts["wall"])]
+        lines.append("  columns: {0} named by their mark, {1} by L/B < "
+                     "{2:g}.".format(counts["column_mark"],
+                                     counts["column_ratio"],
+                                     marks.WALL_ASPECT_RATIO))
+        lines.append("  walls: {0} named by their mark, {1} by L/B >= "
+                     "{2:g}.".format(counts["wall_mark"], counts["wall_ratio"],
+                                     marks.WALL_ASPECT_RATIO))
+    if counts["region"]:
+        lines.append("  {0} oversized outline(s) left to the column pass as "
+                     "lift/stair regions, not members.".format(
+                         counts["region"]))
+    if counts["circles"]:
+        lines.append("  {0} round column(s) stay columns: a circle has no L/B "
+                     "and no long axis to lay a wall along.".format(
+                         counts["circles"]))
+    return lines
+
+
+def _cfg_region_max():
+    """The lift/stair region threshold, when the caller passed none."""
+    return float(config.DEFAULTS["col_region_max_side_mm"])

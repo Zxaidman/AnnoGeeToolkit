@@ -185,6 +185,132 @@ def _save_json(default_name):
     return None
 
 
+# HOW LONG THE ELAPSED-TIME WINDOW STAYS UP, in seconds. The owner's number:
+# "make dialog box stay upto 30s, because 10s go by very quickly". Change it
+# here and nowhere else -- `show_elapsed` takes it as a default argument, so
+# this line is the only place the figure is written.
+ELAPSED_AUTO_CLOSE_SECONDS = 30
+
+
+def show_elapsed(xaml_path, total_seconds, build_seconds=None,
+                 auto_close_seconds=ELAPSED_AUTO_CLOSE_SECONDS):
+    """The run's own stopwatch, shown once the model is built (FEAT-12).
+
+    The owner asked for "how much time it tooks in BOLD and BIGGER ... close in
+    10s after showing and can also be close manually or by pressing esc key", so
+    the time is the headline, the window counts itself down in the corner where
+    the countdown can be watched rather than guessed at, and three things close
+    it: the timer, the button, and Esc.
+
+    Esc is wired BOTH ways on purpose. `IsCancel` closes a window shown with
+    ShowDialog, and the KeyDown handler covers it when it is not -- one line
+    against a window the owner cannot dismiss the way he was told he could.
+
+    Never raises. A stopwatch that throws would lose a build that worked.
+    """
+    from System.Windows.Threading import DispatcherTimer
+    from System.Windows.Input import Key
+    from System import TimeSpan
+    from . import views
+
+    try:
+        window = _load_window(xaml_path)
+        elapsed = window.FindName("txt_elapsed")
+        breakdown = window.FindName("txt_breakdown")
+        countdown = window.FindName("txt_countdown")
+        button = window.FindName("btn_close")
+
+        # THE HEADLINE IS THE BUILD, not the total: the owner's call after the
+        # first one, because the total counts the minutes he spent reading the
+        # Link Options and settings dialogs. Both parts are underneath it.
+        waiting = window.FindName("txt_waiting")
+        total_field = window.FindName("txt_total")
+        headline, dialogs = _elapsed_parts(total_seconds, build_seconds)
+        if elapsed is not None:
+            elapsed.Text = headline
+        if waiting is not None:
+            waiting.Text = dialogs
+        if total_field is not None:
+            total_field.Text = views.format_elapsed(total_seconds)
+        if breakdown is not None:
+            breakdown.Text = _elapsed_breakdown(total_seconds, build_seconds)
+
+        state = {"left": int(auto_close_seconds), "closed": False}
+
+        def close(*_args):
+            if state["closed"]:
+                return
+            state["closed"] = True
+            try:
+                timer.Stop()
+            except Exception:
+                pass
+            window.Close()
+
+        def tick(*_args):
+            state["left"] -= 1
+            if state["left"] <= 0:
+                close()
+            elif countdown is not None:
+                countdown.Text = "closes in {0}s  ·  Esc".format(state["left"])
+
+        def on_key(_sender, args):
+            if args.Key == Key.Escape:
+                close()
+
+        timer = DispatcherTimer()
+        timer.Interval = TimeSpan.FromSeconds(1)
+        timer.Tick += tick
+        if countdown is not None:
+            countdown.Text = "closes in {0}s  ·  Esc".format(state["left"])
+        if button is not None:
+            button.Click += close
+        window.KeyDown += on_key
+        timer.Start()
+        window.ShowDialog()
+    except Exception as error:                       # never lose a good build
+        _say("timing: the elapsed-time window could not be shown ({0})".format(
+            error))
+
+
+def _elapsed_parts(total_seconds, build_seconds):
+    """(headline, time in the dialogs) for the window's two red figures.
+
+    The headline is the BUILD. When nothing timed the build -- a run that ended
+    before the settings window closed -- the total is all there is, and it goes
+    in the headline rather than leaving it empty.
+    """
+    from . import views
+    if build_seconds is None:
+        return views.format_elapsed(total_seconds), "-"
+    try:
+        waiting = float(total_seconds) - float(build_seconds)
+    except (TypeError, ValueError):
+        return views.format_elapsed(build_seconds), "-"
+    return (views.format_elapsed(build_seconds),
+            views.format_elapsed(max(0.0, waiting)))
+
+
+def _elapsed_breakdown(total_seconds, build_seconds):
+    """The caption under the headline: what the total was actually spent on.
+
+    "From when the user clicks the run command" is the owner's measure and it is
+    the big number, but it counts the time he spent in the Link Options dialog
+    and the settings window -- reading, not building. Saying which part was the
+    build keeps the headline honest without replacing it.
+    """
+    from . import views
+    if build_seconds is None:
+        return "from the moment you clicked CAD to BIM"
+    try:
+        waiting = float(total_seconds) - float(build_seconds)
+    except (TypeError, ValueError):
+        return "from the moment you clicked CAD to BIM"
+    if waiting < 0:
+        waiting = 0.0
+    return "the build alone; the total is from the moment you clicked CAD to BIM"
+
+
 def _select_containing(combo, keywords):
     """Select the first combo item whose label contains any keyword (lowercased).
 

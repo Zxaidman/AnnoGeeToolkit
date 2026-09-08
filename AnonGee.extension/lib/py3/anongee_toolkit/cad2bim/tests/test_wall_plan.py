@@ -183,8 +183,13 @@ class FacePairs(unittest.TestCase):
                          (150.0, 150.0), (3660.0, 150.0)])
         plan = wall_plan.plan_walls([outer, inner])
         self.assertEqual(plan["skipped"], [])
+        # The union puts all three on their OUTER extent (800 / 3660 / 8990),
+        # and the corner pass then stands the two short legs off the spine's
+        # face -- the longer run continues -- which lands them on 650 and 3510:
+        # the INNER face lengths the drawing itself drew. Three walls, one
+        # corner cell each, covered once.
         self.assertEqual(sorted(round(s["length_mm"]) for s in
-                                plan["segments"]), [800, 3660, 8990])
+                                plan["segments"]), [650, 3510, 8990])
         for seg in plan["segments"]:
             self.assertAlmostEqual(seg["width_mm"], 150.0, places=1)
             self.assertEqual(seg["kind"], "structural")
@@ -223,7 +228,10 @@ class FacePairs(unittest.TestCase):
         self.assertEqual(len(plan["segments"]), 2)
         self.assertTrue(all(149.0 <= w <= 151.0 for w in widths), widths)
         angled = max(plan["segments"], key=lambda s: s["length_mm"])
-        self.assertAlmostEqual(angled["length_mm"], 1084.6, delta=0.5)
+        # The pair pass spans it 1084.6, which overshoots the other leg's far
+        # face by 13.7 at 79.7 degrees; the corner pass pulls it back ONTO
+        # that face, so the two legs meet without standing in each other.
+        self.assertAlmostEqual(angled["length_mm"], 1070.9, delta=0.5)
         for skip in plan["skipped"]:
             self.assertIn("end cap", skip["reason"])
 
@@ -339,7 +347,9 @@ class WhatIsRefused(unittest.TestCase):
         record = _line((0.0, 0.0), (3000.0, 0.0), layer="S-BEAM",
                        category=layers.CATEGORY_BEAM)
         plan = wall_plan.plan_walls([record])
-        self.assertEqual(plan, {"segments": [], "skipped": []})
+        self.assertEqual(plan["segments"], [])
+        self.assertEqual(plan["skipped"], [])
+        self.assertEqual(plan["junctions"]["found"], 0)
 
 
 class TheToleranceRoute(unittest.TestCase):

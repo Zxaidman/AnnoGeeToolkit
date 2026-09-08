@@ -814,10 +814,12 @@
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="70"/>
                                 <ColumnDefinition Width="180"/>
+                                <ColumnDefinition Width="70"/>
                             </Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="Hatch layer" Style="{StaticResource TextCaption}"/>
                             <TextBlock Grid.Column="1" Text="Regions" Style="{StaticResource TextCaption}"/>
                             <TextBlock Grid.Column="2" Text="Meaning" Style="{StaticResource TextCaption}"/>
+                            <TextBlock Grid.Column="3" Text="Depth mm" Style="{StaticResource TextCaption}"/>
                         </Grid>
                         <Border BorderBrush="{StaticResource BrushLightBorder}" BorderThickness="1"
                                 CornerRadius="5" Background="{StaticResource BrushPureWhite}"
@@ -826,6 +828,8 @@
                                 <StackPanel x:Name="hatch_rows" Orientation="Vertical"/>
                             </ScrollViewer>
                         </Border>
+                        <TextBlock Text="One row per hatch layer - except where the drawing's own legend gives a layer several meanings, which splits it into a row per pattern written layer|PATTERN. A row marked * was proposed by that legend; hover it to read the words it came from. Depth mm is the legend's own step figure for that pattern, negative meaning down: change it to overrule the drawing, and leave it alone where the legend said nothing."
+                                   Style="{StaticResource HelpText}" Margin="0,4,0,0"/>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
@@ -870,6 +874,34 @@
                         <TextBlock Text="The level pair is shared by every element in the run, architectural ones included."
                                    Style="{StaticResource HelpText}" Margin="0,4,0,0"/>
                         <Rectangle Style="{StaticResource SectionDivider}" Margin="0,16,0,8"/>
+                        <!-- The sheet's own blanket note. It governs beams AND slabs, so
+                             it belongs with what is shared by every element rather
+                             than inside either one's group. Left empty, each plan
+                             uses the note drawn inside it. -->
+                        <GroupBox Header="Sheet note (unless noted otherwise)" Margin="0,0,0,8">
+                        <StackPanel Orientation="Vertical">
+                        <CheckBox x:Name="chk_blanket_note" Content="Use the sheet's blanket note as the default size" IsChecked="True"/>
+                        <Grid Margin="24,4,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="140"/>
+                                <ColumnDefinition Width="70"/>
+                                <ColumnDefinition Width="140"/>
+                                <ColumnDefinition Width="70"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Beam depth" Style="{StaticResource TextLabel}" VerticalAlignment="Center"/>
+                            <TextBox   Grid.Row="0" Grid.Column="1" x:Name="tb_blanket_beam_depth" Style="{StaticResource InputTextBox}" Margin="0,2,8,2"/>
+                            <TextBlock Grid.Row="0" Grid.Column="2" Text="Slab thickness" Style="{StaticResource TextLabel}" VerticalAlignment="Center"/>
+                            <TextBox   Grid.Row="0" Grid.Column="3" x:Name="tb_blanket_slab_thk" Style="{StaticResource InputTextBox}" Margin="0,2"/>
+                        </Grid>
+                        <TextBlock x:Name="lbl_blanket_note" Text="-" Style="{StaticResource HelpText}" Margin="24,4,0,0"/>
+                        <TextBlock Text="A drawing that writes &quot;ALL BEAMS ARE 750MM IN DEPTH U.N.O.&quot; is giving a DEFAULT, not an instruction: a beam or bay the plan sized on its own keeps that size, and only one the plan left silent takes the figure here. Leave the boxes EMPTY and each plan uses the note drawn inside it, so a sheet whose plans differ -- 750 deep on one floor, 600 on another -- builds each floor to its own. Type a figure to overrule every plan at once, or untick above to ignore blanket notes entirely. The line above says what this drawing proposed."
+                                   Style="{StaticResource HelpText}" Margin="24,4,0,0"/>
+                        </StackPanel>
+                        </GroupBox>
+                        <Rectangle Style="{StaticResource SectionDivider}" Margin="0,16,0,8"/>
                         <CheckBox x:Name="chk_grids" Content="Create grids (from grid lines)" IsChecked="True"/>
                     </StackPanel>
                 </ScrollViewer>
@@ -897,7 +929,15 @@
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="Round family" Style="{StaticResource TextLabel}" VerticalAlignment="Center"/>
                             <ComboBox  Grid.Row="1" Grid.Column="1" x:Name="cb_circular_family" Style="{StaticResource InputComboBox}" Margin="0,2"/>
                         </Grid>
-                        <TextBlock Text="Base and top level for the columns are picked on the General sub-tab; they are shared by every element in the run."
+                        <TextBlock Text="Build each vertical member as" Style="{StaticResource TextLabel}" Margin="24,8,0,2"/>
+                        <StackPanel Orientation="Horizontal" Margin="24,0,0,0">
+                            <RadioButton x:Name="rb_vertical_column" GroupName="vertical_member" IsChecked="True" Content="Column" Margin="0,0,20,0" ToolTip="Every vertical member becomes a Structural Column. This is what every earlier run did."/>
+                            <RadioButton x:Name="rb_vertical_wall" GroupName="vertical_member" Content="Wall" Margin="0,0,20,0" ToolTip="Every vertical member becomes a Structural Wall instead, at the type picked under Structural walls below."/>
+                            <RadioButton x:Name="rb_vertical_combine" GroupName="vertical_member" Content="Combine (smart)" ToolTip="Decide member by member: the mark first, then the length-to-thickness ratio L/B."/>
+                        </StackPanel>
+                        <TextBlock Text="Column is the default and leaves every existing run untouched. Wall builds the same members as structural walls instead. Combine decides one member at a time, on two rules. The MARK comes first, because a drawing that names a member has already said what it is: a mark reading C1 is a Column, SW1 or W1 is a Wall, and a mark that says neither (a beam's B12, a slab's S1) leaves the decision to the ratio. Then the aspect ratio of the cross-section -- the length-to-thickness ratio (L/B): a Column (or wall pier) has L/B &lt; 4, its length less than 4 times its thickness, designed primarily for axial compression and localised bending; a Shear Wall has L/B &gt;= 4, 4 or more times its thickness, designed to resist major lateral forces through in-plane bending and shear (IS 456, IS 13920, ACI 318)."
+                                   Style="{StaticResource HelpText}" Margin="24,4,0,0"/>
+                        <TextBlock Text="A member built as a wall lays its centreline along its LONG axis, at its short side's thickness, and takes the base wall type and the Naming tab's structural-wall row from the Structural walls group below -- so it is named and sized as a wall, not as a column. A round column has no L/B and no long axis to lay a centreline along, so it stays a column in every mode. Base and top level for both are picked on the General sub-tab; they are shared by every element in the run."
                                    Style="{StaticResource HelpText}" Margin="24,4,0,0"/>
                         </StackPanel>
                         </GroupBox>
@@ -916,7 +956,7 @@
                             </Grid.RowDefinitions>
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="Beam family" Style="{StaticResource TextLabel}" VerticalAlignment="Center"/>
                             <ComboBox  Grid.Row="0" Grid.Column="1" x:Name="cb_beam_family" Style="{StaticResource InputComboBox}" Margin="0,2"/>
-                            <TextBlock Grid.Row="1" Grid.Column="1" Text="Placed at the columns' top level. Depth from text marks where found, else from the chosen type."
+                            <TextBlock Grid.Row="1" Grid.Column="1" Text="Placed at the columns' top level. Depth from text marks where found, then from the sheet note above, else from the chosen type."
                                        Style="{StaticResource HelpText}" Margin="0,4,0,0"/>
                         </Grid>
                         </StackPanel>
@@ -936,7 +976,7 @@
                             </Grid.RowDefinitions>
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="Floor type" Style="{StaticResource TextLabel}" VerticalAlignment="Center"/>
                             <ComboBox  Grid.Row="0" Grid.Column="1" x:Name="cb_floor_type" Style="{StaticResource InputComboBox}" Margin="0,2"/>
-                            <TextBlock Grid.Row="1" Grid.Column="1" Text="Outline from the slab-edge layer, else from closed beam bays. Thickness from THK notes duplicates the type; placed at the top level."
+                            <TextBlock Grid.Row="1" Grid.Column="1" Text="Outline from the slab-edge layer, else from closed beam bays. Thickness from THK notes, then from the sheet note above, duplicates the type; placed at the top level."
                                        Style="{StaticResource HelpText}" Margin="0,4,0,0"/>
                         </Grid>
                         </StackPanel>

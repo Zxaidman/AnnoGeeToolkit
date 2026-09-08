@@ -195,5 +195,61 @@ class IrregularProfiles(unittest.TestCase):
         self.assertEqual(collinear["status"], "degenerate")
 
 
+class DraftingNoiseIsNotAnAngle(unittest.TestCase):
+    """A ring that MEANT to be rectilinear and missed by a fraction of a
+    millimetre is a rectilinear column, not an angled one.
+
+    The case is test14, reported from Revit: six L-shaped columns per storey
+    placed as big TILTED blocks. The rings miss is_rectilinear by 0.4 mm of
+    drafting noise, and the non-rectilinear branch fits a MINIMUM-AREA box --
+    which for an L is both rotated and far bigger than the column
+    (1166 x 3905 mm placed where the legs are 300 mm wide).
+    """
+
+    def test_the_reported_test14_column_is_an_l_again(self):
+        # The ring exactly as the drawing carries it, off-axis where it drifts:
+        # x wanders 110960.71 -> 110961.10 over a 1747 mm edge (0.013 deg).
+        noisy = _ring((110960.71, 29765.68), (110961.10, 28018.90),
+                      (110661.10, 28018.90), (110661.10, 29467.35),
+                      (108961.10, 29467.35), (108961.10, 29765.68))
+        result = shapes.parse_column_polyline(noisy)
+        self.assertEqual(result["status"], "composite")
+        self.assertTrue(result["axis_snapped"])
+        # The two legs of the L -- a 300-wide upright and a 1700-long arm --
+        # never the one 2000 x 1747 block a min-area box makes of them.
+        sizes = sorted(_wh_c(r)[:2] for r in result["rectangles"])
+        self.assertEqual(sizes, [(300, 1747), (1700, 298)])
+
+    def test_a_genuinely_rotated_column_keeps_its_oriented_box(self):
+        # 10 degrees off axis: 400x900 rotated about its centre. Its corners are
+        # tens of millimetres from any shared axis, so no snap can reach them.
+        import math
+        angle = math.radians(10.0)
+        cos_a, sin_a = math.cos(angle), math.sin(angle)
+        corners = [(-200, -450), (200, -450), (200, 450), (-200, 450)]
+        turned = [(x * cos_a - y * sin_a + 50000, x * sin_a + y * cos_a + 50000)
+                  for x, y in corners]
+        result = shapes.parse_column_polyline(_ring(*turned))
+        self.assertEqual(result["status"], "oriented_rect")
+        self.assertNotIn("axis_snapped", result)
+
+    def test_the_snap_stops_inside_the_measured_empty_band(self):
+        # Corpus measurement: noise ends under 1 mm, nothing at all lies between
+        # 1 and 2 mm, real angles start at 2 mm. A 3 mm wander is real geometry
+        # and must survive as an oriented box.
+        noise = _ring((0, 0), (0.4, 3000), (300.4, 3000), (300, 0))
+        self.assertEqual(shapes.parse_column_polyline(noise)["status"],
+                         "rectangle")
+        real = _ring((0, 0), (3.0, 3000), (303.0, 3000), (300, 0))
+        self.assertEqual(shapes.parse_column_polyline(real)["status"],
+                         "oriented_rect")
+
+    def test_an_exact_ring_is_not_reported_as_snapped(self):
+        exact = shapes.parse_column_polyline(
+            _ring((0, 0), (800, 0), (800, 200), (200, 200), (200, 600), (0, 600)))
+        self.assertEqual(exact["status"], "composite")
+        self.assertFalse(exact["axis_snapped"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

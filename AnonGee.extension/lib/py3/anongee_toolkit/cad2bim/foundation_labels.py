@@ -30,10 +30,14 @@ import re
 FOLD = "fold"
 SUNK = "sunk"
 
-# "F3", "F12" -- a foundation mark is the letter F and a number. Anchored to the
-# start so "REF3" is not a mark, and the letter is fixed so a beam's "B1" or a
-# column's "C1" cannot be read as a foundation.
-_MARK = r"(?P<mark>F\d+)"
+# "F3", "F12", "RF1" -- a foundation mark is F, or RF for a raft, and a number.
+# Anchored at both ends by every pattern below, so "REF3" is not a mark, and the
+# letters are fixed so a beam's "B1" or a column's "C1" cannot be read as a
+# foundation. RF is here because test16 draws two of them, on the two 7100 x
+# 10400 mm rings that are plainly its rafts, and its own schedule prices them
+# (RF1 1200, RF2 1200) -- while `F\d+` alone left both rings nameless and both
+# schedule rows unreachable.
+_MARK = r"(?P<mark>R?F\d+)"
 
 # "1500MM THK", "1500 THK", "1500mm thk." -- MM optional, trailing dot allowed.
 _THICKNESS = r"(?P<thickness>\d+(?:\.\d+)?)\s*(?:MM)?\s*THK\.?"

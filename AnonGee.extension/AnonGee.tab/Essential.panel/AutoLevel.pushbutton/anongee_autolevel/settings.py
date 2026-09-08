@@ -6,17 +6,22 @@ anything about a particular model. Ids are deliberately not stored: a view
 family type id means nothing in the next project, so view types and templates
 are remembered by name and re-matched when the model loads.
 
-Stored as JSON under the user's roaming profile, beside pyRevit's own data:
+Stored as JSON under the canonical AnonGee roaming profile:
 
-    %APPDATA%/AnonGee/autolevel_settings.json
+    %APPDATA%/Zxaidman/AnonGee/BIM-Toolkit/autolevel_settings.json
+
+Older AnonGee builds stored the Windows file at
+``%APPDATA%/AnonGee/autolevel_settings.json``. On first read, that file is
+copied to the canonical location when no new-location file exists. The legacy
+copy is intentionally left untouched during the migration period.
 
 Every entry point returns rather than raises. Preferences are a convenience;
 a read-only profile or a corrupt file must not stop the tool from opening.
 """
 
 import os
+import shutil
 
-FOLDER = "AnonGee"
 FILENAME = "autolevel_settings.json"
 
 # The shipped defaults, and the whitelist of what is allowed to persist —
@@ -52,15 +57,44 @@ DEFAULTS = {
 }
 
 
+def _base():
+    return (os.environ.get("APPDATA") or os.environ.get("XDG_CONFIG_HOME")
+            or os.path.expanduser("~"))
+
+
 def folder():
     """The directory the settings file lives in, without creating it."""
-    base = (os.environ.get("APPDATA") or os.environ.get("XDG_CONFIG_HOME")
-            or os.path.expanduser("~"))
-    return os.path.join(base, FOLDER)
+    return os.path.join(_base(), "Zxaidman", "AnonGee", "BIM-Toolkit")
 
 
 def path():
     return os.path.join(folder(), FILENAME)
+
+
+def _legacy_path():
+    """Pre-canonical roaming path, or None when APPDATA is unavailable."""
+    appdata = os.environ.get("APPDATA")
+    if not appdata:
+        return None
+    return os.path.join(appdata, "AnonGee", FILENAME)
+
+
+def _migrate_legacy_if_needed(target):
+    """Copy old settings once; migration failure must never block the tool."""
+    if os.path.isfile(target):
+        return
+    legacy = _legacy_path()
+    if not legacy or not os.path.isfile(legacy):
+        return
+    try:
+        directory = os.path.dirname(target)
+        if directory and not os.path.isdir(directory):
+            os.makedirs(directory)
+        shutil.copy2(legacy, target)
+    except Exception:
+        # Best-effort only. The old file remains intact and a later save can
+        # still create the canonical settings file.
+        pass
 
 
 def defaults():
@@ -77,6 +111,7 @@ def load():
     """
     settings = defaults()
     target = path()
+    _migrate_legacy_if_needed(target)
     if not os.path.isfile(target):
         return settings, ""
     try:

@@ -106,5 +106,125 @@ class Storing(unittest.TestCase):
         self.assertEqual(_golden.load(nested), {"A": {"x": 1}})
 
 
+class TheGatePrintsEveryNumberThatMoved(unittest.TestCase):
+    """`differences()` naming all eight is no use if the runner shows one.
+
+    It printed the traceback's LAST line, which is the last moved number and
+    nothing above it. A sweep run reported `foundation_profiles: 0 -> 73` on its
+    own while the failure it came from also held `foundation_planned: 0 -> 73` --
+    two changes, one shown, and the hidden one would have been blessed unread.
+    """
+
+    def setUp(self):
+        import run_regressions
+        self.runner = run_regressions
+
+    def _trace(self, *moved):
+        # the shape unittest produces for assertEqual(moved, [], msg)
+        return ("Traceback (most recent call last):\n"
+                "  File \"regression_dxf_sweep.py\", line 446, in test_it\n"
+                "    self.assertEqual(moved, [], ...)\n"
+                "AssertionError: Lists differ: [...] != []\n"
+                "\n+ []\n- [...] : the DXF sweep moved:\n  "
+                + "\n  ".join(moved))
+
+    def test_every_moved_number_is_printed_not_only_the_last(self):
+        lines = self.runner._moved_lines(self._trace(
+            "Test16.foundation_planned: 0 -> 73",
+            "Test16.foundation_profiles: 0 -> 73"))
+        self.assertEqual(lines, ["Test16.foundation_planned: 0 -> 73",
+                                 "Test16.foundation_profiles: 0 -> 73"])
+
+    def test_the_unittest_list_diff_above_the_message_is_left_out(self):
+        lines = self.runner._moved_lines(self._trace("Test1.beams: 8 -> 9"))
+        self.assertEqual(lines, ["Test1.beams: 8 -> 9"])
+
+    def test_a_very_long_diff_is_capped_and_says_how_many_it_hid(self):
+        moved = ["Test{0}.beams: 1 -> 2".format(n) for n in range(70)]
+        lines = self.runner._moved_lines(self._trace(*moved), cap=60)
+        self.assertEqual(len(lines), 61)
+        self.assertEqual(lines[-1], "... and 10 more")
+
+    def test_an_error_with_no_diff_still_shows_its_last_line(self):
+        trace = ("Traceback (most recent call last):\n"
+                 "  File \"x.py\", line 1, in test_it\n"
+                 "ValueError: the reader could not open the fixture")
+        self.assertEqual(
+            self.runner._moved_lines(trace),
+            ["ValueError: the reader could not open the fixture"])
+
+
+class TheGateSaysHowBigItsCorpusActuallyIs(unittest.TestCase):
+    """The leg labels were typed once and then quietly went stale.
+
+    The screen said "29 archived exports", "17 fixture drawings" and "4 storey
+    stacks" while the legs were replaying 31, 22 and 7. Nothing failed -- a
+    label cannot fail -- which is exactly why it drifted for so long, and a gate
+    that misreports the size of its own corpus makes its green line mean less
+    than the reader thinks it does. So the size is counted at print time now.
+    """
+
+    def setUp(self):
+        import run_regressions
+        self.runner = run_regressions
+
+    def test_the_size_is_counted_off_the_corpus_not_typed_into_the_label(self):
+        import regression_dxf_sweep
+        title = self.runner._leg_title(
+            "DXF sweep", "regression_dxf_sweep", ("_fixtures", "fixture drawings"))
+        self.assertIn("({0} fixture drawings)".format(
+            len(regression_dxf_sweep._fixtures())), title)
+
+    def test_every_leg_reports_a_size_so_none_is_silently_uncounted(self):
+        for name, module, counts in self.runner.LEGS:
+            self.assertIsNotNone(counts, name)
+            title = self.runner._leg_title(name, module, counts)
+            self.assertRegex(title, r"\(\d+ [a-z ]+\)$", name)
+
+    def test_a_leg_whose_corpus_cannot_be_counted_still_runs_and_reports(self):
+        # No archive on this machine, a helper renamed: the leg loses its size,
+        # never the run. Dying here would lose the measurement entirely.
+        title = self.runner._leg_title(
+            "DXF sweep", "regression_dxf_sweep", ("_gone", "fixture drawings"))
+        self.assertEqual(title.strip(), "DXF sweep")
+
+    def test_two_exports_of_one_drawing_at_one_version_pick_the_same_one(self):
+        """test14 is exported at 0.95.0 by BOTH the stair and footing buttons.
+
+        The tie went to whichever `os.walk` reached first, and walk order is not
+        promised by any filesystem -- so a fresh clone could measure the other
+        file and the gate would report movement that no code caused.
+        """
+        import regression_slab_fingerprints as fingerprints
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder, True)
+        for name in ("0.95.0_stair_test14_with_textmode.json",
+                     "0.95.0_footing_test14_with_textmode.json",
+                     "0.94.0_slab_test14_with_textmode.json"):
+            with open(os.path.join(folder, name), "w") as handle:
+                handle.write("{}")
+
+        original = fingerprints._EXPORTS
+        fingerprints._EXPORTS = folder
+        try:
+            picked = set()
+            for _attempt in range(5):
+                picked.add(os.path.basename(fingerprints._corpus()["test14"]))
+        finally:
+            fingerprints._EXPORTS = original
+
+        self.assertEqual(len(picked), 1, "the tie is broken differently: " + repr(picked))
+        # and it is one of the two NEWEST, never the 0.94.0 underneath them
+        self.assertIn(picked.pop(), ("0.95.0_stair_test14_with_textmode.json",
+                                     "0.95.0_footing_test14_with_textmode.json"))
+
+    def test_the_labels_line_up_so_the_times_form_a_column(self):
+        widths = set()
+        for name, module, counts in self.runner.LEGS:
+            title = self.runner._leg_title(name, module, counts)
+            widths.add(len(title.split("(")[0]))
+        self.assertEqual(len(widths), 1, "leg names are not padded alike")
+
+
 if __name__ == "__main__":
     unittest.main()

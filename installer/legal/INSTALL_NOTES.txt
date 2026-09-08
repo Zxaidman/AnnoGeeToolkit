@@ -1,0 +1,66 @@
+AnonGee Toolkit 1.26.1
+
+SUPPORTED ENVIRONMENT
+
+• Windows 10/11 x64
+• Autodesk Revit 2025
+• pyRevit 6.1.x–6.3.x or 6.5.0–6.5.5 are accepted without warning
+• pyRevit 6.4.x is not supported
+• Newer unvalidated pyRevit 6.x may be allowed with a warning
+• pyRevit 7.x and later are not currently supported
+• Standalone Python is not required
+
+PYREVIT PREREQUISITE
+
+AnonGee Setup milestone 0.6.0 includes the official signed per-user
+pyRevit 6.5.5 installer as a prerequisite.
+
+• If pyRevit is not installed, Setup installs pyRevit 6.5.5 automatically.
+• During prerequisite installation, the pyRevit progress window remains
+  visible so the user can see that Setup is actively working.
+• If one or more incompatible per-user pyRevit versions are detected, Setup
+  asks for explicit permission before changing the pyRevit environment.
+• Choosing Yes first runs the registered Windows uninstaller for every
+  incompatible per-user pyRevit entry, verifies those entries are gone, then
+  installs/repairs pyRevit 6.5.5 and verifies the final environment before
+  installing AnonGee.
+• This purge-before-repair step is intentional because older and newer pyRevit
+  releases can have separate Windows product registrations while sharing the
+  same %APPDATA%\pyRevit-Master application directory.
+• Choosing No closes AnonGee Setup without changing pyRevit or installing
+  AnonGee.
+• Existing compatible pyRevit installations are left unchanged when no stale
+  incompatible per-user registration is present.
+• If a compatible pyRevit registration exists beside an incompatible stale
+  per-user version, Setup still reinstalls/repairs 6.5.5 after cleanup because
+  the old uninstaller may remove files from their shared pyRevit-Master folder.
+• Newer unvalidated pyRevit 6.x installations are not downgraded.
+• An incompatible all-users pyRevit installation is not modified by this
+  per-user Setup. Ask your BIM/IT administrator to update it, then run Setup
+  again.
+• If AnonGee Setup itself is run silently, an incompatible existing per-user
+  pyRevit is not modified because explicit repair consent cannot be obtained.
+
+pyRevit is a separate third-party project and remains subject to its own
+GPLv3 license and notices. AnonGee Toolkit's proprietary EULA does not replace
+or restrict pyRevit's license rights.
+
+INSTALLATION LOCATIONS
+
+AnonGee Toolkit installs its pyRevit extension into:
+%APPDATA%\pyRevit\Extensions\AnonGee.extension
+
+Installer-owned support files are stored under:
+%LOCALAPPDATA%\Zxaidman\AnonGee\BIM-Toolkit
+
+Roaming AnonGee Toolkit settings are stored under:
+%APPDATA%\Zxaidman\AnonGee\BIM-Toolkit
+
+RC Automation bridge IPC/runtime state is stored under:
+%LOCALAPPDATA%\Zxaidman\AnonGee\bridge
+
+Legacy %APPDATA%\AnonGee\bridge state is migrated best-effort on first bridge
+use. The ANONGEE_BRIDGE_HOME environment variable remains an explicit override
+for development or managed deployments.
+
+Please close Autodesk Revit before continuing.
