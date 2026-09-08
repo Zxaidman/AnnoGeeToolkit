@@ -215,14 +215,19 @@ class InstallerLifecycleContractTests(unittest.TestCase):
         for phrase in (
             "clean install",
             "same-version reinstall",
-            "upgrade from the archived 1.26.1 installer",
             "uninstall",
             "bridge runtime state",
             "intentionally preserved",
             "release_ready = false",
-            "2.0.0",
         ):
             self.assertIn(phrase, plain)
+
+        # Pin the upgrade contract semantically rather than to one sentence.
+        # The documentation may use an arrow, a heading, or prose to describe
+        # the same archived-release -> candidate scenario.
+        self.assertIn("archived 1.26.1", plain)
+        self.assertIn("upgrade", plain)
+        self.assertIn("2.0.0", plain)
 
 
 if __name__ == "__main__":
