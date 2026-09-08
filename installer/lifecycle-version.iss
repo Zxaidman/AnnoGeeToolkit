@@ -258,3 +258,9 @@ begin
   if not WizardSilent then
     MsgBox(MessageText, mbInformation, MB_OK);
 end;
+
+; ISCC --include is processed before the root script. Keep this directive as
+; the final non-empty line: it makes every subsequently processed line (the
+; signing overlay, when present, and AnonGee.iss) insert before this [Code]
+; block. Final compiler order is therefore Setup/main first, lifecycle Code last.
+#insert 0
