@@ -206,7 +206,7 @@ class InstallerLifecycleContractTests(unittest.TestCase):
         # therefore be a Pascal Script fragment, not another ISS [Code] section.
         lines = [line.strip() for line in self.overlay.splitlines() if line.strip()]
         self.assertEqual(lines[-1], "#insert 0")
-        self.assertNotIn("[Code]", self.overlay)
+        self.assertIsNone(re.search(r"(?m)^\s*\[Code\]\s*$", self.overlay))
         self.assertIsNone(re.search(r"(?m)^\s*;", self.overlay))
         self.assertIn("function AGLifecycleUninstallKey", self.overlay)
         self.assertIn("function AGLifecycleTargetVersion", self.overlay)
