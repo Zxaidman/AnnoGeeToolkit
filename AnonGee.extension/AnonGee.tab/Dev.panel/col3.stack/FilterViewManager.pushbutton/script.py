@@ -61,10 +61,10 @@ from System.Windows.Markup import XamlReader                   # noqa: E402
 __title__ = "Filter\nView Manager"
 __author__ = "AnonGee"
 
-#: The version is declared once, in ``anongee_filterrules/__init__.py``, and
-#: shown in the window header. ``bundle.yaml`` and ``CHANGELOG.md`` are held to
-#: it by ``tests/test_filterview_ui.py``, so the badge cannot lie about which
-#: build is running -- quote it when reporting anything.
+# The version is declared once, in anongee_filterrules/__init__.py, and shown in
+# the window header. bundle.yaml and CHANGELOG.md are held to it by
+# tests/test_filterview_ui.py, so the badge cannot lie about which build is
+# running -- quote it when reporting anything.
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
