@@ -38,13 +38,14 @@ __author__ = "AnonGee"
 #:   MINOR  a new capability. Everything already saved still works.
 #:   PATCH  a fix. Nothing new to learn.
 #:
-#: 0.0.1 means the bundle exists and nothing runs. 0.1.0 will be the first
-#: build that applies a rule to a view.
-VERSION = "0.0.1"
+#: 0.0.2 means the bundle exists and what it will do is agreed and written
+#: down. 0.1.0 will be the first build that applies a rule to a view.
+VERSION = "0.0.2"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-DOCS = ("METHODOLOGY.md", "todo-list.md", "CHANGELOG.md")
+DOCS = ("PRD.md", "ARCHITECTURE.md", "FOLDER_STRUCTURE.md",
+        "METHODOLOGY.md", "todo-list.md", "CHANGELOG.md")
 
 
 def documents():
@@ -58,7 +59,8 @@ def run():
     dialog.MainContent = (
         "This ribbon slot is a scaffold. The tool it will hold saves "
         "Category › Family › Type › Parameter rules as named "
-        "buttons, and pressing one shows only what the rule matches.\n\n"
+        "buttons; pressing one temporarily isolates its matches in the "
+        "active view.\n\n"
         "What is written down so far lives beside this script:\n  {0}\n\n"
         "Folder:\n  {1}".format("\n  ".join(documents()) or "(nothing yet)",
                                 HERE))

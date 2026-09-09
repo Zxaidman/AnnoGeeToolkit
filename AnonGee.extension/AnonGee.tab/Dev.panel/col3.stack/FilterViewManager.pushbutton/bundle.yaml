@@ -16,16 +16,19 @@ tooltip: |
     • The buttons are meant to live in a dockable panel beside Properties and
       the Project Browser, not only in a dialog.
 
-  What is NOT decided yet
-    • Whether pressing a rule isolates temporarily or writes a real view
-      filter into the project — the two behave differently on save, on print
-      and on Reset.
-    • Whether the dockable panel ships with the first build. Registering one is
-      a startup-time job, not a pushbutton job.
+  Settled 2026-09-09
+    • Saving a rule applies nothing — it adds a button to the list.
+    • Pressing one TEMPORARILY ISOLATES, in the active view only. Nothing is
+      written to the project; no filter appears in the project's Filters list.
+    • Any parameter may be used; the ones Revit will not accept in a native
+      view filter are flagged rather than hidden.
+    • Rules live in %APPDATA%/Zxaidman/AnonGee/BIM-Toolkit, so they follow you
+      to the next project. A per-project override is wanted, not yet specified.
+    • The modeless window ships first; the dockable panel follows.
 
   Read before building
     METHODOLOGY.md   how this repository works and what this tool must obey
     todo-list.md     the queue, one ID per item
     CHANGELOG.md     what each build changed
 
-  Version: 0.0.1
+  Version: 0.0.2

@@ -39,67 +39,87 @@ report or the screenshot says so. A green test suite is not verification.
 **An ID is unique within this file.** A reference across files is written in
 full — *Bridge · FEAT-17*, *RC Automation · CRIT-1*.
 
-Current build: **0.0.1** (extension 2.0.0). Scaffold only — no tool code, no
-tests, nothing has run in Revit.
+Current build: **0.0.2** (extension 2.0.0). Documented, not built — PRD,
+architecture and folder structure agreed; no tool code, no tests, nothing has
+run in Revit.
 
 ---
 
 ## 1. Critical
 
-### CRIT-1 — what pressing a rule actually does is not decided · `pending`
+### CRIT-1 — what pressing a rule does · `done — answered 2026-09-09`
 
-Revit offers two mechanisms and they are different products:
+**Answered by the project owner.** Saving a rule **applies nothing**; it adds an
+item to the list the dockable panel shows. Pressing a rule **temporarily
+isolates, in the active view only**.
 
-- **`View.IsolateElementsTemporary(ids)`** — session-only, does not print, does
-  not survive save, cleared by Revit's own *Reset Temporary Hide/Isolate*,
-  works on **any** parameter because it is just a set of ids.
-- **`ParameterFilterElement` + `View.AddFilter` / `SetFilterVisibility`** —
-  permanent, prints, survives save, leaves a named filter in the project's
-  Filters list, and only accepts parameters Revit considers filterable
-  (**CRIT-2**).
+So the mechanism is `View.IsolateElementsTemporary(ids)` — session-only, does
+not print, does not survive save, cleared by Revit's own *Reset Temporary
+Hide/Isolate*, and works on **any** parameter because it is just a set of ids.
+Nothing is written into the project's Filters list, so the tool never changes
+what a colleague sees when they open the model.
 
-The idea says the *rules* carry across sessions and projects. It does not say
-the *applied state* does. Until this is settled the UI cannot be drawn, because
-the two need different controls, different warnings and different undo stories.
+`ParameterFilterElement` is **out of scope**. It stays recorded as FEAT-13
+because CRIT-2's answer keeps the door open for it, not because it is wanted.
 
-**Blocks:** FEAT-1, FEAT-3, FEAT-5.
-**Needs:** the project owner's answer. See METHODOLOGY §13.1.
+**Unblocks:** FEAT-1, FEAT-3, FEAT-5.
 
-### CRIT-2 — not every parameter can drive a native view filter · `pending`
+### CRIT-2 — not every parameter can drive a native view filter · `done — answered 2026-09-09`
 
+**Answered by the project owner.** Offer **any parameter on the element**, and
+**flag** the ones Revit will not accept in a `ParameterFilterElement`. A flagged
+parameter still makes a perfectly good rule button, because CRIT-1 settled that
+a button isolates rather than writing a view filter.
+
+The flag is therefore **informational today and load-bearing later** — it is
+exactly the check FEAT-13 would need, so it is cheap to carry now and expensive
+to retrofit.
+
+**Still needs proving in Revit:** that
 `ParameterFilterUtilities.GetFilterableParametersInCommon(doc, categoryIds)`
-returns a set smaller than "every parameter on the element"
-(**unverified — Revit API behaviour, must be proved in Revit**).
+returns what is expected for a real category set, and how it behaves for a
+multi-category rule. Until that runs in a model the flag is drawn from an API
+contract, not from a measurement — so the first build shows it and says where it
+came from rather than asserting it.
 
-Two possible answers, and they give different tools:
+**Unblocks:** FEAT-2.
 
-- **Filterable only** — the picker is honest, every rule can become a real view
-  filter, and the parameter list is narrower than the idea implies.
-- **Any parameter** — the picker matches the idea, and any rule using a
-  non-filterable parameter can only ever isolate, never write a view filter.
+### CRIT-3 — the dockable panel still needs a startup component · `pending`
 
-**Blocks:** CRIT-1, FEAT-2.
-**Proof needed:** run `GetFilterableParametersInCommon` against Walls in a real
-model and compare the result with the full parameter list. Screenshot or report.
+**Partly answered, and one part of the answer was wrong — the correction is the
+finding.**
 
-### CRIT-3 — the dockable panel is a startup problem, not a pushbutton one · `pending`
+The project owner's answer was that the panel *"does not need to start with
+Revit, only when user click the pushbutton"*. That is right about **visibility**
+and wrong about **registration**, and Revit separates the two:
 
-A dockable pane must be registered through `IExternalApplication.OnStartup`,
-before any document opens (**unverified in this repo — no provider exists
-anywhere in the tree**). A pushbutton runs far too late.
+- **Registration** — `RegisterDockablePane` must be called from
+  `IExternalApplication.OnStartup`, before any document is open. A pushbutton
+  runs far too late; Revit refuses. (**Revit API contract — must be proved in
+  this pyRevit version before 0.2.0 is scheduled.**)
+- **Visibility** — a registered pane is *hidden* until something calls
+  `DockablePane(guid).Show()`. That call is fine from a pushbutton.
 
-The only startup hook this extension has is `AnonGee.extension/startup.py`, and
-its own docstring records that pyRevit runs startup scripts on the **core
-engine, which is IronPython**, so it cannot import the CPython 3 toolkit in
-`lib/py3`.
+So the owner's requirement is satisfiable exactly as stated: nothing appears
+until the button is pressed. It still costs a startup-time component, and
+registration is cheap — no UI, no document, no toolkit.
 
-`Resources/Panels.xaml` already ships `DockablePanelTemplate` and
-`tests/test_scripts.py` already lists `IDockablePaneProvider` among the
-interfaces the Python.NET rules apply to — so the repository anticipated this
-and nothing has used it yet.
+**The engine question is answered, and it was measured, not assumed.**
+`docs/specs/2026-08-22-excel-revit-platform-architecture.md` §2a records
+`/anongee/ping` reporting from inside `startup.py`:
 
-**Recommendation:** schedule separately from the rule engine. The pushbutton can
-ship and be useful without it. See METHODOLOGY §6.
+```json
+"engine":  {"implementation": "IronPython", "version": "2.7.12 … on .NET 8.0.30"}
+"toolkit": {"importable": false, "error": "No module named anongee_toolkit"}
+```
+
+pyRevit loads `startup.py` on its **core engine, IronPython 2.7**, and `lib/py3`
+is not on that engine's path. So the dock panel cannot import
+`anongee_toolkit`, and the architecture's answer to the same problem applies
+unchanged: **share a folder, not a module.** See `ARCHITECTURE.md` §3.
+
+**Blocks:** FEAT-10 only. It does **not** block 0.1.0 — the modeless window
+ships first (the owner's answer to question 3).
 
 ---
 
@@ -119,16 +139,18 @@ nothing here is agreed until it says so.
 | --- | --- | --- |
 | FEAT-1 | Category → Family → Type cascade picker, correct for both system and loadable families (METHODOLOGY §13.3) | `pending` |
 | FEAT-2 | Parameter conditions on a rule — operator set, value parsing without `re`, units recorded with the number (§13.4) | `pending` |
-| FEAT-3 | Apply a rule to the active view | `pending` |
+| FEAT-3 | Apply a rule to the active view — `IsolateElementsTemporary`, active view only (CRIT-1) | `pending` |
 | FEAT-4 | Name and save a rule; rules survive the Revit session **and** open in another project — strings only, never `ElementId`s (§13.5) | `pending` |
 | FEAT-5 | The saved rules as pressable buttons in a modeless window | `pending` |
 | FEAT-6 | Clear / restore the view to what it was before a rule was pressed | `pending` |
 | FEAT-7 | Edit, rename, duplicate, delete and reorder saved rules | `pending` |
 | FEAT-8 | Live match count before applying, debounced (`ui/dialogs.DebounceTimer`) | `pending` |
 | FEAT-9 | Select the matched elements in Revit (`revit/selection.set_selection`) | `pending` |
-| FEAT-10 | The dockable panel — blocked on CRIT-3 | `pending` |
+| FEAT-10 | The dockable panel — hidden until the pushbutton shows it, docked under the ribbon by default, re-dockable left/right like Properties. Blocked on CRIT-3 | `pending` |
 | FEAT-11 | Apply a rule across several views at once, skipping views that cannot take filters (§13.7) | `pending` |
 | FEAT-12 | Import / export a rule set, so an office shares one | `pending` |
+| FEAT-13 | Convert a saved rule into a real `ParameterFilterElement` in the project — only possible for rules whose every parameter passed the CRIT-2 flag. Not wanted today; recorded because CRIT-2's answer paid for it | `pending` |
+| FEAT-14 | Per-project rule store overriding the machine one — location and precedence still to be discussed (owner's answer to question 4) | `pending` |
 
 ---
 
@@ -156,18 +178,35 @@ Nothing. The bundle exists; pressing it says so.
 
 ## 6. Owner's list
 
-Reserved for what the project owner sends next.
+**Answered 2026-09-09.** Kept in full, because what was asked is part of the
+record and one answer needed correcting.
 
-**Open question 1.** CRIT-1 — isolate, or write a real view filter?
+| # | Question | Answer |
+| --- | --- | --- |
+| 1 | Isolate, or write a real view filter? | **Isolate**, active view only. Saving adds a button; pressing it isolates. CRIT-1. |
+| 2 | May a rule write into the project's Filters list? | **No.** Nothing is written to the project. Recorded as FEAT-13 for later. |
+| 3 | Dockable panel in the first build? | **No** — modeless window first, panel after. But it still needs a startup component; see the correction in CRIT-3. |
+| 4 | Where do rules live? | **`%APPDATA%/Zxaidman/AnonGee/BIM-Toolkit/*.json`**, machine-level. A **per-project override** is wanted; its location and precedence are still to be discussed → FEAT-14. |
 
-**Open question 2.** Should a rule be able to write into the *project's* Filters
-list (visible to everyone who opens the model), or must it stay a personal
-overlay?
+### Still open, and needed before FEAT-14 is built
 
-**Open question 3.** Is the dockable panel wanted in the first build (CRIT-3
-says it costs a startup-time component and an engine question), or is a modeless
-window enough to start?
+1. **Where does a per-project rule store live?** Three candidates, and they
+   behave differently: a JSON file beside the `.rvt` (visible, editable, easy to
+   lose in a move), Extensible Storage inside the `.rvt` (travels with the
+   model, invisible outside Revit, needs a schema GUID that can never change),
+   or a path the user points at per project (a shared network folder — which is
+   how an office actually shares one).
+2. **Precedence when both stores hold a rule of the same name** — does the
+   project win, does the machine win, or are both shown with their source
+   marked? Both-shown is the only one that never silently loses a rule.
 
-**Open question 4.** Rules stored per machine (`%APPDATA%`, like
-`cad2bim/prefs.py`), per project (inside the `.rvt`), or both with the machine
-set as the default and a per-project override?
+### Answered by reading, not by asking
+
+**The dock panel's shape.** The owner asked for it *"below ribbon, narrow
+height, length being viewport"* **and** *"just like property or project browser,
+dock left or right"*. Revit gives both for free: register with
+`DockPosition.Top` and it opens as a horizontal strip across the drawing area,
+and the user can re-dock it left or right like any Revit pane. Nothing special
+is needed — but the layout has to survive both shapes, and §12.4 of the brand
+guidelines only covers the tall one (`MinWidth=240 / MaxWidth=360`). Recorded as
+a design-system reconciliation item in `ARCHITECTURE.md` §7.
