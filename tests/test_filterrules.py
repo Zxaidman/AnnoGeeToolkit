@@ -1071,7 +1071,7 @@ class SharedCoreTests(unittest.TestCase):
         import anongee_filterrules
         version = anongee_filterrules.VERSION
         button = os.path.join(_ROOT, "AnonGee.extension", "AnonGee.tab",
-                              "Dev.panel", "col3.stack",
+                              "Dev.panel",
                               "FilterViewManager.pushbutton")
 
         # The script does not RE-DECLARE the number -- it imports it, which is

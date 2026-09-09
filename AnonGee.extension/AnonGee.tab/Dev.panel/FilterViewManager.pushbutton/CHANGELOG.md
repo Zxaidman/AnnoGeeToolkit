@@ -15,6 +15,41 @@ holds Auto Level Manager's four copies together.
 
 ---
 
+## 0.1.1 - 2026-09-09
+
+**The button was not on the ribbon.** Everything in 0.1.0 was built, tested and
+merged, and Revit showed nothing -- no error, no warning, just an absent tool.
+
+**Cause: it was alone in a stack.** `RibbonPanel.AddStackedItems()` has
+overloads for **two** items and for **three**, and none for one. pyRevit cannot
+build a one-item stack, so it skips it and everything inside goes with it.
+`Dev.panel` already had three full stacks, so 0.1.0 opened a `col3.stack` for
+this one button -- and that is precisely what made it invisible.
+
+The evidence was in the repository the whole time: every stack that works holds
+three, except `BIM.stack` which holds two. None holds one.
+
+**Fixed by putting the button directly on the panel**, which is what
+`AutoLevel` does on Essential and `cad2bim` does on Core. `col3.stack` is gone
+and `Dev.panel`'s layout names `Testing`, `col1`, `col2`, `FilterViewManager`.
+
+**And by a test, because nothing else could have caught it.**
+`tests/test_repo_docs.py` now refuses any `.stack` that does not hold two or
+three child bundles. Proved to bite by putting the button back in a stack of
+one.
+
+**`METHODOLOGY.md` said the wrong rule.** It read *"a stack takes at most three
+buttons"*, which is true and useless -- the limit that mattered was the floor,
+not the ceiling. It now says two or three, never one, and says what happens when
+you get it wrong.
+
+### Also
+
+- **The README's tool count is checked now.** It said 30 over 31 rows: this
+  branch moved 29 → 30 and `claude/cad2bim` added CAD2BIM Audit without touching
+  the number, so neither side was wrong alone. A gate holds the stated count to
+  the row count.
+
 ## 0.1.0 - 2026-09-09
 
 The window. The first build a person would call the tool: build a rule, name

@@ -53,9 +53,20 @@ FilterViewManager.pushbutton/
 and `.splitbutton` nest buttons under one slot. A `.panel` holds them all, and
 must be declared in `extension.json`.
 
-**A stack takes at most three buttons.** `Dev.panel` already has three full
-stacks (`Testing`, `col1`, `col2`), which is why this tool opens a fourth,
-`col3.stack`. That is a layout decision, not a technical one — see §12.
+**A stack takes exactly two or three buttons — never one.** Revit's
+`RibbonPanel.AddStackedItems()` has overloads for two items and for three, and
+none for one, so pyRevit cannot build a one-item stack: it skips it, and the
+button never reaches the ribbon. There is no error anywhere; the tool is simply
+not there.
+
+This was learned the expensive way. `Dev.panel` already had three full stacks
+(`Testing`, `col1`, `col2`), so 0.1.0 put this tool in a `col3.stack` of its
+own — and it was **invisible in Revit** for exactly that reason. A button with
+no stack-mate goes **directly on the panel**, which is what `AutoLevel` does on
+Essential and `cad2bim` does on Core.
+
+`tests/test_repo_docs.py` now refuses any `.stack` that does not hold two or
+three child bundles.
 
 Titles split over two ribbon lines with a real newline:
 `title: "Filter\nView Manager"` — **double-quoted**, because unquoted YAML
@@ -431,7 +442,7 @@ Match it. A document here that reads like release copy is out of place.
 
 ## 12. Where this tool lands, and why
 
-**Ribbon slot:** `Dev.panel/col3.stack/FilterViewManager.pushbutton`.
+**Ribbon slot:** `Dev.panel/FilterViewManager.pushbutton`.
 
 - **Dev.panel**, because Dev is where "generators, the design system, and the
   reference patterns new tools are built from" live, and because a tool with no
@@ -440,8 +451,9 @@ Match it. A document here that reads like release copy is out of place.
   next to `FilterParameter.splitbutton`, which is its nearest relative — is the
   natural move once it is confirmed working, and that is a MAJOR extension
   change under the repo's own table.
-- **A new `col3.stack`**, because `Testing`, `col1` and `col2` each already hold
-  the maximum of three buttons.
+- **Directly on the panel, not in a stack.** `Testing`, `col1` and `col2` each
+  already hold three, and a stack of one cannot be built at all (§2) — it was
+  in a `col3.stack` for one build and did not appear in Revit.
 
 **What was deliberately not done in this scaffold:**
 
