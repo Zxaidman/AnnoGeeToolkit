@@ -13,7 +13,7 @@ A professional suite of structural and architectural BIM automation tools for **
 
 ## ✨ Tools Overview
 
-The extension adds an **AnonGee** tab to the Revit ribbon with four panels and 29 tools.
+The extension adds an **AnonGee** tab to the Revit ribbon with four panels and 30 tools.
 
 ### 🟢 Essential Panel
 
@@ -91,6 +91,7 @@ Generators, the design system, and the reference patterns new tools are built fr
 | **CPython3 engine** | Engine health check. Reports whether the CPython 3 engine is a fresh load or a reused instance (and how many runs this session), which third-party libraries resolve, and whether the Revit API bridge responds. |
 | **Create Button** | Scaffold a new pyRevit pushbutton: collects the tab / panel / group / metadata in a brand-themed dialog, writes the folder, script, icon and `bundle.yaml`, then asks pyRevit to reload. |
 | **Extract Template** | Writes everything the open model contains to a Markdown file, so a `.rvt` can be read, diffed and discussed by anyone who does not have Revit open. |
+| **Filter View Manager** | *Scaffold — in development, does nothing yet.* Will save `Category > Family > Type > Parameter` rules as named buttons, so pressing one shows only what the rule matches in the view. Pressing it today reports the version and points at the documentation beside it ([methodology](AnonGee.extension/AnonGee.tab/Dev.panel/col3.stack/FilterViewManager.pushbutton/METHODOLOGY.md) · [changelog](AnonGee.extension/AnonGee.tab/Dev.panel/col3.stack/FilterViewManager.pushbutton/CHANGELOG.md)). |
 | **Modeless Window** | Reference implementation of the modeless (non-blocking) window pattern — `window.Show()`, an `IExternalEventHandler` bridge marshalling every Revit call onto Revit's primary thread, and the session-state rules that go with it. |
 | **RC Automation** | Reads an Excel reinforcement schedule, checks it, works out what every existing footing would become, and reconciles the workbook against the model before a transaction is opened. Held to the same **BS 8666:2020** module the BBS Generator ships. |
 

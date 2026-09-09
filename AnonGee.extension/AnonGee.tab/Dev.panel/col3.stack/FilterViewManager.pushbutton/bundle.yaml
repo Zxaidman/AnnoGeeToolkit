@@ -1,0 +1,31 @@
+title: "Filter\nView Manager"
+author: AnonGee
+tooltip: |
+  Saved, rule-based views. Build a rule down Category > Family > Type >
+  Parameter, name it, and it becomes a button you press to show only what the
+  rule matches in the active view.
+
+  Not built yet. This bundle is the scaffold only — pressing it says so and
+  points at the documentation beside it.
+
+  What is agreed so far
+    • A rule is Category > Family > Type > Parameter conditions, e.g.
+      Walls > Basic Wall > 100mm Gypsum Wall > Area > 100 m².
+    • A saved rule is a named button that outlives the Revit session and
+      follows the user to another project.
+    • The buttons are meant to live in a dockable panel beside Properties and
+      the Project Browser, not only in a dialog.
+
+  What is NOT decided yet
+    • Whether pressing a rule isolates temporarily or writes a real view
+      filter into the project — the two behave differently on save, on print
+      and on Reset.
+    • Whether the dockable panel ships with the first build. Registering one is
+      a startup-time job, not a pushbutton job.
+
+  Read before building
+    METHODOLOGY.md   how this repository works and what this tool must obey
+    todo-list.md     the queue, one ID per item
+    CHANGELOG.md     what each build changed
+
+  Version: 0.0.1
