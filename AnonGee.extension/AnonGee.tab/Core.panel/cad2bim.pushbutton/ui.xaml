@@ -779,6 +779,7 @@
                             <TextBlock Grid.Column="1" Text="Curves" Style="{StaticResource TextCaption}"/>
                             <TextBlock Grid.Column="2" Text="Category" Style="{StaticResource TextCaption}"/>
                         </Grid>
+                        <StackPanel x:Name="layer_bulk" Orientation="Horizontal" Margin="0,0,0,4"/>
                         <Border BorderBrush="{StaticResource BrushLightBorder}" BorderThickness="1"
                                 CornerRadius="5" Background="{StaticResource BrushPureWhite}"
                                 Padding="8" MaxHeight="240">
@@ -799,6 +800,7 @@
                             <TextBlock Grid.Column="1" Text="Labels" Style="{StaticResource TextCaption}"/>
                             <TextBlock Grid.Column="2" Text="Routing" Style="{StaticResource TextCaption}"/>
                         </Grid>
+                        <StackPanel x:Name="text_bulk" Orientation="Horizontal" Margin="0,0,0,4"/>
                         <Border BorderBrush="{StaticResource BrushLightBorder}" BorderThickness="1"
                                 CornerRadius="5" Background="{StaticResource BrushPureWhite}"
                                 Padding="8" MaxHeight="170">
@@ -821,6 +823,7 @@
                             <TextBlock Grid.Column="2" Text="Meaning" Style="{StaticResource TextCaption}"/>
                             <TextBlock Grid.Column="3" Text="Depth mm" Style="{StaticResource TextCaption}"/>
                         </Grid>
+                        <StackPanel x:Name="hatch_bulk" Orientation="Horizontal" Margin="0,0,0,4"/>
                         <Border BorderBrush="{StaticResource BrushLightBorder}" BorderThickness="1"
                                 CornerRadius="5" Background="{StaticResource BrushPureWhite}"
                                 Padding="8" MaxHeight="170">

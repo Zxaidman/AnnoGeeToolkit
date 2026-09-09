@@ -8,12 +8,13 @@ Nothing is deleted to make the list look shorter.
 file before it is built, argued about, or written into any other document. Standing instruction
 from the project owner, and it is what keeps this list the queue rather than a summary of one.
 
-Current build: **v0.96.6** (branch `claude/cad2bim`, restarted from `main` after PR #10 merged).
-1244 unit tests, 3 regression legs green over 31 archived exports, 22 fixture drawings and 8 storey
-stacks. Baselines re-blessed this round for two reasons, both attributed: the owner's **0.96.5
-test14 export** is the first to carry cutout linework, so `link_cross_marks` reads 82 where it read
-0; and the **BUG-27 column fix** ripples downstream through the trim footprints, costing Test8 one
-slab def and 4.2 m² and Project1 one and 2.8 m² while Project1 gains four correctly sized beams. The branch also carries the rc-automation merge and the 1.26.1
+Current build: **v0.96.7** (branch `claude/cad2bim`, restarted from `main` after PR #10 merged).
+1283 unit tests, 3 regression legs green over 31 archived exports, **23** fixture drawings and 13
+storey stacks. All three baselines re-blessed this round and every move is the owner's own fixtures:
+he added `StructuralPlan-Test17-clean.dxf` (a new drawing to the sweep) and pushed 0.96.6 exports of
+test14 and test17, the latter now 13 storeys where the old one was 16. The new baseline pins the
+fault BUG-33 is about: test17's `loops_from_edges_per_storey` is **zero on every one of the 13
+storeys**. The branch also carries the rc-automation merge and the 1.26.1
 extension identity. Longer records: `../../../../../task_plan.md`, `findings.md`, `progress.md` at the
 repository root.
 
@@ -118,7 +119,71 @@ for every other pre-P1 file.
 
 ## 2. Errors and bugs
 
-### FEAT-13 — Map many layers at once, not one at a time · `pending`
+### BUG-33 — test17 builds no slab at all, and said nothing about it · `building`
+
+**The owner, with the Saturday deadline on it:** "test17 only columns are made and that still not
+correct. some beams are drawn, no slab is drawn, some wall is drawn."
+
+**Measured off his 0.96.4 export: every one of the sixteen storeys reports `created: 0, skipped: 0,
+errors: 0` for slabs**, and the slab report carries none of its usual counters — so no slab loop was
+ever formed, and the pass had nothing to try.
+
+**The cause is a layer that never reaches the slab reader.** In the DXF, test17's slab edges come off
+three layers — `DROP SLAB` (2549 records), `B-300xSLAB THK.` (460) and `SLAB THK.` (62), 3071
+records between them, and the DXF sweep reads **1056 slab loops from edges**. In his Revit run the
+link delivered **not one** slab-edge record: the export's geometry is `wall 258, beam 293, stair 40,
+column 169` and nothing else, with `B-300xSLAB THK.` arriving as a BEAM. `slab_loops_from_edges`
+therefore returns nothing, the chain falls back to `placed_members`, and that closes no face either.
+
+**Two things follow, and both are done:**
+
+  * **the run now says so.** `finish`'s docstring has always promised that "a category that produced
+    nothing while it was asked for" counts as failure, and the code only ever checked errors and
+    rollbacks — so sixteen storeys of no slabs ended in silence and he found it by looking at the
+    model. An outcome exists only when the user ticked that category, so an outcome that created
+    nothing IS one that was asked for and got nothing. The console opens and names the category;
+  * **FEAT-13** makes the mapping fixable in one gesture rather than one layer at a time.
+
+**Narrowed on his 0.96.6 run of the CLEAN drawing (`StructuralPlan-Test17-clean.dxf`).** He redrew it
+with proper layer names and the slab layers are there: `DROP SLAB` (1004 records),
+`S-SLAB-PROJECTION` (787) and `SLAB THK.` (62), **1853 records the default mapping routes to slab
+edge on the DXF side**. The link still delivered none — its geometry is `S-BEAM 221, S-COLUMN 175,
+S-CUTOUT 176, S-STAIR 40, NON STR. RCC WALL 34` and nothing else — and slabs came back
+`created: 0` on 12 of 13 storeys again.
+
+**It is not a saved setting.** `script.py` rebuilds `default_mapping` from the run's own layer names
+every time, so nothing carries over from an earlier session; the dialog would show `DROP SLAB` as
+slab edge unless it is not in the list at all. Which leaves the layers not reaching the LINK — the
+run already has the line for that, `Layers present in the DXF but not in the Revit link (still
+mappable)`, and it was written into the deferred console that a run with no errors never opened.
+
+**That is now visible**: a category asked for and built nothing opens the console, and that line is in
+it. **Needed from the owner:** the console from one test17 run on v0.96.7 — it will name the layers
+the link is missing, and there is nothing more to guess at until it does.
+
+### FEAT-15 — A wall under a beam stops at the beam's soffit · `pending`
+
+**The owner:** "if both beam and wall are on same place which is most of the cases, then wall height
+top offset should be minus beam depth so it does not overlaps with beam."
+
+Where a wall and a beam occupy the same line, the wall's top offset comes down by the beam's depth,
+so the two do not model the same concrete twice. Wants the beam that actually sits over each wall,
+which is the same "which member is above this one" question `_carrying_beam` answers for chajjas —
+so the rule has a precedent to follow rather than being invented.
+
+### FEAT-14 — Read a wall by its HATCH and a beam by its MARK when the outline is gone · `pending`
+
+**The owner:** "in some case inside Revit linked cad wall outline might remove beam outline if both
+are overlapping similar is true in vice-versa, in that case we will use wall hatch to identify if
+wall exist there or not. and beam mark to identify if beam exist or not."
+
+A second witness for each member, for where the link has eaten the first. This is the same shape as
+the fix that closed BUG-24 — the drawing states a thing more than once, and the reader should not
+depend on the one statement Revit happens to drop. Related evidence already in hand: test17's console
+reports `8957 in DXF missing/merged in Revit, 3002 clipped`, so the loss is measured, not suspected.
+
+
+### FEAT-13 — Map many layers at once, not one at a time · `testing`
 
 **The owner:** "i want to add in layer, text and hatch mapping is that there should be option to
 select multiple items just like windows explorer (using ctrl, shift click etc to select multi) and
@@ -136,6 +201,24 @@ assignment is the slowest part of a run.
 to add one, shift-click for a run, ctrl-A for all — and one assignment applied to every selected row
 at once. WPF gives the selection for nothing (`SelectionMode="Extended"`); the work is the apply
 step and making it clear how many rows a choice is about to change.
+
+---
+
+**BUILT in v0.96.7.** Each table gets a bar above it: a category combo, **Apply to selected**,
+**Select all**, **Clear**, and a line saying how many rows are selected — the button acts on rows
+that may be scrolled out of sight, so "14 rows selected" is a sentence to check before pressing it.
+Rows select with the Explorer rules he asked for: plain click takes one, ctrl-click toggles one,
+shift-click takes the run from the last plain click, ctrl-shift adds a run to what is there.
+
+**The rules are in `selection.py`, not in the window.** `ui_window` imports `System.Windows` at
+module level and so cannot be imported by a test at all — only its source can be pinned, and a pin
+reads names, not behaviour, which is exactly how the zoom shipped broken (BUG-29). 27 tests run the
+real rules; five AST pins hold the three links to the window that have failed silently in this
+project before — a bar that is never built, a table that never gets one, and an Apply that writes
+the wrong row (`combo_store` is indexed by row offset, not bare row number).
+
+A click that lands on a row's own combo is left to the combo, so changing one row still works
+exactly as it did. **Waiting on:** the owner's next run, and test17 is the drawing that needs it.
 
 ### BUG-29 — The zoom never framed the model once · `testing`
 
@@ -237,6 +320,31 @@ more beams (128 → 132). The direction is right: a slab should not be cast over
 column is actually placed at.
 
 **Waiting on:** the owner's next Revit run on test14's 16 similar columns.
+
+---
+
+**v0.96.7 — HIS REPORT: "still shows test14 column still has gap while overlap is not there." The
+overlaps are gone and the gaps are a DIFFERENT JOINT.** Measured: of the gaps left on test14, the
+repeating one is **27 gaps of exactly 50 mm between a column piece and the BEAM beside it** — three
+per plan at each of nine places — plus 9 of 100 mm. Between the pieces of a column there are none:
+that count is still 0, which is what v0.96.6 fixed.
+
+**And a correction to this entry's own measurements.** They were taken through
+`build_column_sections(texts=all texts)`, which is what the sweep and my probes do — **the product
+passes `texts=None`** and applies labels later through `correct_columns_with_text` on layer-ROUTED
+column texts. So `_apply_column_marks` never runs in a real run, and half of what this entry
+measured was a path the tool does not take. What DOES run in production is the standards snap in
+`_filter_column_entries`, which v0.96.6 fixed, and `correct_columns_with_text`, which deliberately
+leaves a cluster of three or more pieces alone (`len(near) > 2: continue`).
+
+**A cascade was tried and thrown away.** Letting a boxed-in piece take its label and having its legs
+follow to the new faces moved the 50 mm gaps from 27 to 18 but put 3 overlaps back — not clearly
+better, and unproven against the production path. Reverted rather than shipped.
+
+**Needed from the owner, and it is one question:** in image 2's `50.087`, is the gap between a column
+and a BEAM, or between two pieces of one column? If it is column-to-beam, the beam is 350 wide where
+the column is drawn 300, and the two are each being built to their own label — which may be the
+drawing rather than the tool.
 
 ### BUG-26 — test17 refuses 78 slab profiles and takes eight minutes · `done`
 

@@ -215,7 +215,7 @@
     "loops_from_edges": 0,
     "loops_from_edges_area_m2": 0,
     "loops_from_placed_members": 116,
-    "loops_from_placed_members_area_m2": 810.4,
+    "loops_from_placed_members_area_m2": 810.5,
     "records": 649,
     "sized_beams": 229,
     "storey": "LAYOUT AT 1ST FLOOR LVL. (T1)"
@@ -255,21 +255,21 @@
     "storey": "GROUND FLOOR LEVEL"
   },
   "test17": {
-    "beams": 485,
+    "beams": 470,
     "column_circles": 0,
-    "column_footprints": 177,
-    "column_rectangles": 177,
-    "link_cross_marks": 0,
-    "link_cutout_strokes": 0,
-    "loops_from_beam_graph": 25,
-    "loops_from_beam_graph_area_m2": 35.3,
+    "column_footprints": 290,
+    "column_rectangles": 290,
+    "link_cross_marks": 88,
+    "link_cutout_strokes": 192,
+    "loops_from_beam_graph": 2,
+    "loops_from_beam_graph_area_m2": 0.8,
     "loops_from_edges": 0,
     "loops_from_edges_area_m2": 0,
     "loops_from_placed_members": 0,
     "loops_from_placed_members_area_m2": 0,
-    "records": 764,
+    "records": 789,
     "sized_beams": 0,
-    "storey": "%%U(TOWER 1)- 6TH , 8TH FLOOR ROOF SLAB (REFUGE FLOOR)"
+    "storey": "%%U(TOWER 1)- GROUND FLOOR ROOF SLAB"
   },
   "test18_fragmanted": {
     "beams": 21,

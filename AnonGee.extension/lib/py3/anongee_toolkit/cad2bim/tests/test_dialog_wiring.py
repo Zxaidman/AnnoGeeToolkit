@@ -2003,5 +2003,50 @@ class TheRunSaysHowLongItTook(unittest.TestCase):
         self.assertIn("except Exception", block)
 
 
+class TheMappingTablesTakeManyRowsAtOnce(unittest.TestCase):
+    """FEAT-13, pinned rather than run: `ui_window` cannot be imported offline.
+
+    The owner: "there should be option to select multiple items just like
+    windows explorer ... because in test17 i have to manually assign B-200x500
+    or etc one at a time which is inefficient though i can also change the layer
+    names to one singular beam layer but that will defeat our actual purpose."
+
+    The RULES are unit-tested for real in `test_selection`; these hold the three
+    links between them and the window, each of which has failed silently before
+    in this project: a bulk bar that is never built, a table that never gets
+    one, and an Apply that writes the wrong row.
+    """
+
+    def test_all_three_tables_are_given_a_bulk_bar(self):
+        source = _window_source()
+        for name in ("layer_bulk", "text_bulk", "hatch_bulk"):
+            self.assertIn('bulk_bar=find("%s")' % name, source)
+
+    def test_the_rules_come_from_the_selection_module_not_from_here(self):
+        source = _window_source()
+        self.assertIn("from . import (advanced", source)
+        self.assertIn("selection", source.split("class ", 1)[0])
+        for call in ("selection.click(", "selection.describe(",
+                     "selection.select_all(", "selection.apply_to("):
+            self.assertIn(call, source)
+
+    def test_apply_writes_through_the_row_offset_not_the_bare_index(self):
+        # combo_store is appended to per table; indexing it by the row number
+        # alone would write another table's row.
+        self.assertIn("combo_store[offset + index][1].SelectedItem",
+                      _window_source())
+
+    def test_a_click_on_the_combo_is_left_to_the_combo(self):
+        source = _window_source()
+        self.assertIn("args.OriginalSource", source)
+        self.assertIn("isinstance(source, (ComboBox, TextBox))", source)
+
+    def test_the_modifier_reads_never_raise(self):
+        source = _window_source()
+        for name in ("_ctrl_held", "_shift_held"):
+            block = source.split("def %s(" % name, 1)[1].split("\ndef ", 1)[0]
+            self.assertIn("except Exception", block)
+
+
 if __name__ == "__main__":
     unittest.main()
