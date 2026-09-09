@@ -22,7 +22,7 @@ number is wrong.
 | Tool | Version | Changelog |
 | ---- | ------- | --------- |
 | Auto Level Manager | 2.0.0 | [`AutoLevel.pushbutton/CHANGELOG.md`](AnonGee.extension/AnonGee.tab/Essential.panel/AutoLevel.pushbutton/CHANGELOG.md) |
-| Filter View Manager | 0.1.0 | [`FilterViewManager.pushbutton/CHANGELOG.md`](AnonGee.extension/AnonGee.tab/Dev.panel/col3.stack/FilterViewManager.pushbutton/CHANGELOG.md) |
+| Filter View Manager | 0.1.1 | [`FilterViewManager.pushbutton/CHANGELOG.md`](AnonGee.extension/AnonGee.tab/Dev.panel/FilterViewManager.pushbutton/CHANGELOG.md) |
 | RC Automation | 0.7.0 | [`RC Automation.pushbutton/CHANGELOG.md`](AnonGee.extension/AnonGee.tab/Dev.panel/col2.stack/RC%20Automation.pushbutton/CHANGELOG.md) |
 | CAD2BIM Audit | 0.2.0 | [`CAD2BIM Audit.pushbutton/CHANGELOG.md`](AnonGee.extension/AnonGee.tab/Core.panel/CAD2BIM%20Audit.pushbutton/CHANGELOG.md) |
 
@@ -68,6 +68,16 @@ of view of someone using the thing rather than someone reading the diff:
 
 **Fixed**
 
+- **A stack holding one button is skipped by pyRevit entirely.**
+  `RibbonPanel.AddStackedItems()` has overloads for two items and three, and
+  none for one, so the stack and everything in it never reaches the ribbon —
+  with no error anywhere. Filter View Manager shipped into a `col3.stack` of its
+  own and was invisible in Revit because of it. It now sits directly on
+  `Dev.panel`, and `tests/test_repo_docs.py` refuses any stack that does not
+  hold two or three children.
+- **The README's tool count is held to the number of rows it lists.** It read
+  "30 tools" over 31 rows, because two branches each added a tool without
+  touching the number.
 - **Six dead links in this changelog.** The 2.0.0 ribbon reorganisation moved
   `RC Automation.pushbutton` into `col2.stack` and every link to its changelog
   kept pointing at the old path.

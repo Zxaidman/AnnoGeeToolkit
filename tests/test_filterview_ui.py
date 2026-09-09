@@ -31,7 +31,7 @@ import xml.etree.ElementTree as ET
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _BUTTON = os.path.join(_ROOT, "AnonGee.extension", "AnonGee.tab", "Dev.panel",
-                       "col3.stack", "FilterViewManager.pushbutton")
+                       "FilterViewManager.pushbutton")
 _XAML = os.path.join(_BUTTON, "ui.xaml")
 _SCRIPT = os.path.join(_BUTTON, "script.py")
 

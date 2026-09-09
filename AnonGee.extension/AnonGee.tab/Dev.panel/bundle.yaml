@@ -1,9 +1,15 @@
 title: Dev
-# The panel's direct children are stacks, so the layout names stacks.
-# It listed three BUTTONS until 2026-09-09 -- all three inside Testing.stack --
-# so it named nothing at panel level and the order fell to discovery.
+# The panel's direct children are three stacks and one standalone button, so
+# the layout names those. It listed three BUTTONS until 2026-09-09 -- all three
+# inside Testing.stack -- so it named nothing at panel level and the order fell
+# to discovery.
+#
+# Filter View Manager is NOT in a stack. Revit's RibbonPanel.AddStackedItems()
+# has overloads for two and three items only, so a one-item stack cannot be
+# built: pyRevit skips it and the button never reaches the ribbon. It had its
+# own col3.stack for one build and was invisible in Revit because of it.
 layout:
   - Testing
   - col1
   - col2
-  - col3
+  - FilterViewManager

@@ -36,8 +36,10 @@ AnonGee.extension/
 │       ├── provider.py                         IDockablePaneProvider
 │       └── pane.xaml                           the button strip
 │
-└── AnonGee.tab/Dev.panel/col3.stack/
+└── AnonGee.tab/Dev.panel/
     └── FilterViewManager.pushbutton/       ← CPython 3, the window
+                                            (on the panel, NOT in a stack: a
+                                             one-item stack cannot be built)
         ├── bundle.yaml                         ✅ exists
         ├── icon.png                            ✅ exists
         ├── script.py                           ✅ exists (scaffold)
