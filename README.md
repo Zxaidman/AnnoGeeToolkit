@@ -164,9 +164,14 @@ This builds the pinned CPython 3.12 runtime used by the extension. Release paylo
 
 ### Tests
 
-Some tools keep their Revit-free logic in plain Python modules so it can be exercised without opening Revit. Run the applicable unit suite from the repository root using the project-standard Python environment.
+Some tools keep their Revit-free logic in plain Python modules so it can be exercised without opening Revit. Run the whole suite from the repository root:
 
-`tests/test_repo_docs.py` holds this README and the [root changelog](CHANGELOG.md) to what is actually on the ribbon — every `.pushbutton` on disk has to be documented, every panel has to be declared in `extension.json`, and the changelog has to lead with the version `extension.json` states. `tests/test_autolevel.py` covers the Auto Level Manager's text detection, naming, plan model and stack-drawing camera. `tests/test_autolevel_ui.py` checks its XAML and Python wiring statically, against the delivery rules in §12.7–§12.9 of the brand guidelines and against the failures that are expensive to find inside Revit:
+```bash
+python3 -m unittest discover -s tests -t .    # every test file
+python3 tests/test_repo_docs.py               # one file, unchanged
+```
+
+`tests/test_repo_docs.py` holds this README and the [root changelog](CHANGELOG.md) to what is actually on the ribbon — every `.pushbutton` on disk has to be documented, every panel has to be declared in `extension.json`, and the changelog has to lead with the version `extension.json` states. It also holds two things the 2.0.0 ribbon reorganisation broke silently: every markdown link into `AnonGee.extension/` has to resolve, and every name in a panel's `bundle.yaml` `layout:` has to be a direct child of that panel — a layout naming a button nested inside a stack looks obeyed and does nothing. `tests/test_autolevel.py` covers the Auto Level Manager's text detection, naming, plan model and stack-drawing camera. `tests/test_autolevel_ui.py` checks its XAML and Python wiring statically, against the delivery rules in §12.7–§12.9 of the brand guidelines and against the failures that are expensive to find inside Revit:
 
 - every `FindName` lookup resolves and every named control is used;
 - every `{Binding}` path has a matching `__slots__` entry;

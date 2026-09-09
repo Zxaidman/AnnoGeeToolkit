@@ -1,5 +1,9 @@
 title: Dev
+# The panel's direct children are stacks, so the layout names stacks.
+# It listed three BUTTONS until 2026-09-09 -- all three inside Testing.stack --
+# so it named nothing at panel level and the order fell to discovery.
 layout:
-  - CPython3 engine
-  - Modeless
-  - Brand Guidelines
+  - Testing
+  - col1
+  - col2
+  - col3
