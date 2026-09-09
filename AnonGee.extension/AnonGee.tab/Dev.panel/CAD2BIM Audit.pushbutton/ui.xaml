@@ -1,0 +1,156 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="CAD to BIM — Audit"
+        Width="620" SizeToContent="Height"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="NoResize"
+        Background="#FFFFFFFF"
+        UseLayoutRounding="True"
+        FontFamily="Inter, Segoe UI, Calibri" FontSize="12">
+
+    <Window.Resources>
+        <!-- Brand tokens, inlined: runtime-merged dictionaries do not resolve
+             inside Revit's pyRevit sandbox (Brand Guidelines 12.3 / 12.7.B). -->
+        <SolidColorBrush x:Key="VividRed" Color="#FFE02020"/>
+        <SolidColorBrush x:Key="CharcoalBlack" Color="#FF141414"/>
+        <SolidColorBrush x:Key="MidGrey" Color="#FF6B7280"/>
+        <SolidColorBrush x:Key="LightBorder" Color="#FFE2E4EA"/>
+        <SolidColorBrush x:Key="OffWhite" Color="#FFF4F4F6"/>
+
+        <Style x:Key="SectionHeader" TargetType="TextBlock">
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{StaticResource CharcoalBlack}"/>
+            <Setter Property="Margin" Value="0,14,0,6"/>
+        </Style>
+        <Style x:Key="Hint" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource MidGrey}"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="Margin" Value="0,2,0,0"/>
+        </Style>
+        <Style TargetType="CheckBox">
+            <Setter Property="Margin" Value="0,4,0,0"/>
+            <Setter Property="Foreground" Value="{StaticResource CharcoalBlack}"/>
+        </Style>
+        <Style TargetType="RadioButton">
+            <Setter Property="Margin" Value="0,4,0,0"/>
+            <Setter Property="Foreground" Value="{StaticResource CharcoalBlack}"/>
+        </Style>
+        <Style x:Key="PrimaryButton" TargetType="Button">
+            <Setter Property="Background" Value="{StaticResource VividRed}"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="22,7"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Chrome" Background="{TemplateBinding Background}"
+                                CornerRadius="3" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="#FFC41A1A"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="QuietButton" TargetType="Button">
+            <Setter Property="Background" Value="{StaticResource OffWhite}"/>
+            <Setter Property="Foreground" Value="{StaticResource CharcoalBlack}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource LightBorder}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="14,6"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+    </Window.Resources>
+
+    <StackPanel Margin="22,18,22,18">
+
+        <TextBlock Text="CAD to BIM — Audit" FontSize="18" FontWeight="Bold"
+                   Foreground="{StaticResource CharcoalBlack}"/>
+        <TextBlock Style="{StaticResource Hint}"
+                   Text="Reads the drawing, the Revit link and the model independently, then reports what each has, what is missing, and what was built wrong. It does not change anything cad2bim built."/>
+
+        <!-- ── 1. the drawing ─────────────────────────────────────────── -->
+        <TextBlock Style="{StaticResource SectionHeader}" Text="1.  The DXF"/>
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBox x:Name="DxfPath" Grid.Column="0" Padding="6,5" IsReadOnly="True"
+                     BorderBrush="{StaticResource LightBorder}"
+                     Background="{StaticResource OffWhite}"/>
+            <Button x:Name="BrowseDxf" Grid.Column="1" Margin="8,0,0,0"
+                    Content="Browse…" Style="{StaticResource QuietButton}"/>
+        </Grid>
+        <CheckBox x:Name="WantDxf" IsChecked="True"
+                  Content="Stage A — read the DXF twice (full census, and through cad2bim's reader)"/>
+
+        <!-- ── 2. the Revit link ──────────────────────────────────────── -->
+        <TextBlock Style="{StaticResource SectionHeader}" Text="2.  The Revit link"/>
+        <RadioButton x:Name="LinkNew" GroupName="LinkMode" IsChecked="True"
+                     Content="Link a fresh copy of this DXF  (the only thing this tool writes)"/>
+        <RadioButton x:Name="LinkExisting" GroupName="LinkMode"
+                     Content="Use a CAD link already in the model  (read-only)"/>
+        <ComboBox x:Name="ExistingLinks" Margin="20,4,0,0" Padding="6,4"
+                  IsEnabled="False"/>
+        <RadioButton x:Name="LinkNone" GroupName="LinkMode"
+                     Content="Skip the link — audit the DXF on its own"/>
+        <Grid Margin="0,8,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" Margin="0,0,6,0">
+                <TextBlock Text="Drawing unit" Style="{StaticResource Hint}"/>
+                <ComboBox x:Name="Unit" Padding="6,4"/>
+            </StackPanel>
+            <StackPanel Grid.Column="1" Margin="6,0,0,0">
+                <TextBlock Text="Positioning" Style="{StaticResource Hint}"/>
+                <ComboBox x:Name="Placement" Padding="6,4"/>
+            </StackPanel>
+        </Grid>
+        <CheckBox x:Name="ThisViewOnly" Content="Current view only"/>
+
+        <!-- ── 3. the model ───────────────────────────────────────────── -->
+        <TextBlock Style="{StaticResource SectionHeader}" Text="3.  The model"/>
+        <CheckBox x:Name="WantModel" IsChecked="True"
+                  Content="Stage C — sweep the document for placed structural elements"/>
+        <TextBlock Style="{StaticResource Hint}"
+                   Text="A whole-document sweep. In a model with pre-existing content, that content is listed and reported as 'orphan'."/>
+
+        <!-- ── 4. what cad2bim intended ───────────────────────────────── -->
+        <TextBlock Style="{StaticResource SectionHeader}" Text="4.  The cad2bim run  (optional)"/>
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBox x:Name="JsonPath" Grid.Column="0" Padding="6,5" IsReadOnly="True"
+                     BorderBrush="{StaticResource LightBorder}"
+                     Background="{StaticResource OffWhite}"/>
+            <Button x:Name="BrowseJson" Grid.Column="1" Margin="8,0,0,0"
+                    Content="Browse…" Style="{StaticResource QuietButton}"/>
+        </Grid>
+        <TextBlock Style="{StaticResource Hint}"
+                   Text="A cad2bim export tells 'never seen' from 'seen and refused' from 'asked for and not created'. Without it those three look identical."/>
+
+        <!-- ── run ─────────────────────────────────────────────────────── -->
+        <Border BorderBrush="{StaticResource LightBorder}" BorderThickness="0,1,0,0"
+                Margin="0,18,0,0" Padding="0,14,0,0">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="Cancel" Content="Cancel"
+                        Style="{StaticResource QuietButton}" Margin="0,0,10,0"/>
+                <Button x:Name="Run" Content="Run audit"
+                        Style="{StaticResource PrimaryButton}"/>
+            </StackPanel>
+        </Border>
+    </StackPanel>
+</Window>

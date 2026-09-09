@@ -1,0 +1,37 @@
+title: CAD2BIM Audit
+author: AnonGee
+min_revit_version: 2022
+tooltip: |
+  Read the same job four ways and report where it went wrong.
+
+  cad2bim's own JSON says what a run decided. It cannot say where a member was
+  lost, because by the time it is written everything the run discarded is gone —
+  and a column missing from the model looks identical whether the DXF never had
+  it, the reader dropped it, Revit's import mangled it, or a builder refused it.
+
+  This reads the job independently at every stage and puts the answers side by
+  side:
+
+    A  the DXF through ezdxf        what the drawing HAS
+    B  the same DXF linked in Revit what Revit SEES
+    C  the model                    what got BUILT
+    D  a cad2bim JSON (optional)    what the run INTENDED
+
+  A and B are each read TWICE — once by a full-fidelity walker, once through
+  cad2bim's own reader — so the difference measures the reader rather than the
+  drawing. That is how it finds what nothing else can: entity types the DXF
+  reader drops outright, geometry nested past its depth limit, hatch islands
+  discarded, bulged polylines flattened to straight chords, and the solids and
+  meshes an imported hatch becomes, which cad2bim's geometry_reader ignores by
+  design and therefore never classifies or builds.
+
+  Writes an .xlsx (Summary, Findings, Reconciliation, a sheet per structural
+  category, and the raw per-stage tables) plus a JSON sidecar for diffing
+  between versions.
+
+  Separate from cad2bim and read-only against it: it calls that package's
+  readers, and changes nothing in it. The only thing it writes to the model is
+  the DXF link, in its own transaction, and only if you ask for a fresh one —
+  choose an existing link and the whole run is read-only.
+
+  Version: 0.1.0
