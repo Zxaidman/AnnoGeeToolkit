@@ -28,7 +28,8 @@ from System.Windows.Controls import (Grid as WpfGrid, ColumnDefinition, TextBloc
                                      ComboBox, TextBox, CheckBox, ListBoxItem)
 from System.Windows.Media import Brushes
 
-from . import (advanced, config, floor_plans, naming, prefs, report, settings,
+from . import (advanced, config, floor_plans, naming, prefs, report, selection,
+               settings,
                stair_layout, wall_plan)
 from .builders import materials
 from .classify import layers
@@ -301,6 +302,7 @@ class CadToBimWindow(object):
                  hatch_row_patterns=None, hatch_step_depths=None,
                  wall_type_options=None, blanket_note=None):
         self.result = None
+        self._spreading = False
         self._combos = []
         self._text_combos = []
         self._hatch_combos = []
@@ -669,6 +671,7 @@ class CadToBimWindow(object):
         combo_style = _theme_style(self.window, "InputComboBox")
         box_style = _theme_style(self.window, "InputTextBox")
         widths = (None, 70, 180) if depth_store is None else (None, 70, 180, 70)
+        rows = []
         for layer, count in layer_rows:
             row = WpfGrid()
             row.Margin = Thickness(0, 2, 0, 2)
@@ -713,8 +716,62 @@ class CadToBimWindow(object):
                 if depth_box is not None:
                     WpfGrid.SetColumn(depth_box, 3)
                     row.Children.Add(depth_box)
-            panel.Children.Add(row)
+            item = ListBoxItem()
+            item.Content = row
+            item.Padding = Thickness(4, 1, 4, 1)
+            # A REAL ListBoxItem in an Extended-selection ListBox, which is how
+            # this dialog's own storey table works and how the reference
+            # `OneFilterParameter.pushbutton` does its grid. WPF then owns the
+            # clicking and Explorer's rules come for nothing: a plain click takes
+            # one row, ctrl-click toggles one, shift-click takes the run between.
+            # The first attempt hand-rolled those on mouse events and got them
+            # wrong -- plain clicks accumulated and ctrl-click would not take a
+            # row back out.
+            #
+            # NO preview handler, deliberately, unlike the storey table: that one
+            # forces selection on any click because it is SINGLE-select, and
+            # forcing it here would override the modifiers and put the same bug
+            # back. So a click on the row selects it and a click on the combo is
+            # the combo's -- which is what makes changing one row on its own
+            # still work.
+            panel.Items.Add(item)
             combo_store.append((layer, combo))
+            rows.append((item, combo))
+            combo.SelectionChanged += self._spread_to_selection(rows)
+
+    def _spread_to_selection(self, rows):
+        """One combo changed: if its row is selected, every selected row follows.
+
+        The owner's rule, and it replaces the Apply button this had before:
+        "instead of having apply to selected button and separate dropdown, it
+        should use any selected item dropdown if one change all the select
+        should also change."
+
+        A change on an UNSELECTED row is that row's own business and spreads to
+        nothing, which is what keeps single-row editing working exactly as it
+        did.
+
+        `_spreading` stops the echo: setting the other combos raises
+        SelectionChanged on each of them, and without the guard the first change
+        would fan out and every echo would fan out again.
+        """
+        def handler(sender, _args):
+            if getattr(self, "_spreading", False):
+                return
+            value = sender.SelectedItem
+            if value is None:
+                return
+            following = selection.spread(
+                [(item.IsSelected, combo) for item, combo in rows], sender)
+            if not following:
+                return
+            self._spreading = True
+            try:
+                for index in following:
+                    rows[index][1].SelectedItem = value
+            finally:
+                self._spreading = False
+        return handler
 
     def _depth_box(self, patterns, depth_store, box_style):
         """The step-depth box for one hatch row, or None where there is none.

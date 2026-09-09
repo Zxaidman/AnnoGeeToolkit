@@ -33,6 +33,7 @@ class _DeferredOut(object):
         self._buf = []
         self.live = False
         self.failed = False
+        self.empty = []
 
     def say(self, msg=""):
         if self.live:
@@ -56,19 +57,65 @@ class _DeferredOut(object):
         An outcome with errors, a rollback, or a category that produced nothing
         while it was asked for all count as failure -- those are exactly the
         runs where the console is worth opening.
+
+        THE THIRD OF THOSE WAS ONLY EVER IN THIS DOCSTRING. The code checked
+        errors and rollbacks and nothing else, so a category that built not one
+        element ended the run in silence -- and the owner's test17 built **zero
+        slabs on all sixteen storeys**, reported 0 errors and 0 skips, and said
+        nothing at all. He found it by looking at the model.
+
+        An outcome only exists when the user ticked that category (`script.py`
+        builds the dict behind `if selections["create_slabs"]` and its
+        siblings), so "an outcome that created nothing" IS "asked for and got
+        nothing", with no guessing about intent. Zero created with zero skipped
+        and zero errors is the strongest form of it: the pass did not even
+        find anything to try, which is a fault upstream of the builder --
+        almost always a layer that reached it unmapped.
         """
-        pending = list((outcomes or {}).values())
+        self.empty = []
+        pending = [(name, value) for name, value in (outcomes or {}).items()]
         while pending:                      # per-storey runs nest one level
-            outcome = pending.pop()
+            name, outcome = pending.pop()
             if not isinstance(outcome, dict):
                 continue
             if outcome.get("errors") or outcome.get("rolled_back"):
                 self.failed = True
-            pending.extend(v for v in outcome.values() if isinstance(v, dict))
+            if _built_nothing(outcome):
+                self.failed = True
+                self.empty.append(name)
+            pending.extend((key, value) for key, value in outcome.items()
+                           if isinstance(value, dict))
+        if self.empty:
+            self.say("")
+            self.say("NOTHING WAS BUILT for: {0}. The console is open because "
+                     "of it -- a category that was asked for and produced no "
+                     "element is a failed run, whatever the error count says. "
+                     "The usual cause is a layer that reached the builder "
+                     "unmapped: check the layer table against the counts above."
+                     .format(", ".join(sorted(set(self.empty)))))
         if self.failed:
             self.flush()
         else:
             self._buf = []
+
+
+def _built_nothing(outcome):
+    """True when a requested category produced no element at all.
+
+    Only an outcome that COUNTS creations is judged: `created` is the key every
+    builder reports and nothing else has it, so a nested detail dict or a
+    materials tally is never mistaken for a category that failed.
+
+    Zero created is the whole test. A pass that skipped things tried and said
+    why; a pass that created nothing did not put one element in the model, and
+    that is what the user is looking at when they say it did not work.
+    """
+    if "created" not in outcome:
+        return False
+    try:
+        return int(outcome.get("created") or 0) <= 0
+    except (TypeError, ValueError):
+        return False
 
 
 _OUT = _DeferredOut()

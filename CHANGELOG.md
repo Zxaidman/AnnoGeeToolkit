@@ -22,7 +22,7 @@ number is wrong.
 | Tool | Version | Changelog |
 | ---- | ------- | --------- |
 | Auto Level Manager | 2.0.0 | [`AutoLevel.pushbutton/CHANGELOG.md`](AnonGee.extension/AnonGee.tab/Essential.panel/AutoLevel.pushbutton/CHANGELOG.md) |
-| RC Automation | 0.7.0 | [`RC Automation.pushbutton/CHANGELOG.md`](AnonGee.extension/AnonGee.tab/Dev.panel/RC%20Automation.pushbutton/CHANGELOG.md) |
+| RC Automation | 0.7.0 | [`RC Automation.pushbutton/CHANGELOG.md`](AnonGee.extension/AnonGee.tab/Dev.panel/col2.stack/RC%20Automation.pushbutton/CHANGELOG.md) |
 | CAD2BIM Audit | 0.1.0 | [`CAD2BIM Audit.pushbutton/CHANGELOG.md`](AnonGee.extension/AnonGee.tab/Dev.panel/CAD2BIM%20Audit.pushbutton/CHANGELOG.md) |
 
 Both levels use [semantic versioning](https://semver.org), read from the point
@@ -1198,7 +1198,7 @@ first real job was in flight.
   parameters (`ID`, `ID_LIC`, `ID_V`, `ITEM`, `LEVEL_V`, plus `Host Category`
   and `Host Mark` on bars) are filled in — with a Parameters box choosing
   whether missing ones are created as shared parameters or left alone. See
-  [`RC Automation.pushbutton/CHANGELOG.md`](AnonGee.extension/AnonGee.tab/Dev.panel/RC%20Automation.pushbutton/CHANGELOG.md).
+  [`RC Automation.pushbutton/CHANGELOG.md`](AnonGee.extension/AnonGee.tab/Dev.panel/col2.stack/RC%20Automation.pushbutton/CHANGELOG.md).
 
 **Added**
 
@@ -1248,7 +1248,7 @@ first real job was in flight.
 - **RC Automation 0.4.0** bends the bars, keeps them inside the concrete, writes
   the scheduled cover onto the footing, and constrains the reinforcement to it so
   editing a footing updates its steel. Full history in its own
-  [changelog](AnonGee.extension/AnonGee.tab/Dev.panel/RC%20Automation.pushbutton/CHANGELOG.md).
+  [changelog](AnonGee.extension/AnonGee.tab/Dev.panel/col2.stack/RC%20Automation.pushbutton/CHANGELOG.md).
 
 ---
 
@@ -1266,7 +1266,7 @@ first real job was in flight.
   rather than demanded: `Ground` finds `00 Ground Lvl.` and `Level 1` finds
   `01 1st Floor Lvl.` by storey number, with an optional `LEVELS` sheet for the
   ones matching cannot reach. Full history in its own
-  [changelog](AnonGee.extension/AnonGee.tab/Dev.panel/RC%20Automation.pushbutton/CHANGELOG.md).
+  [changelog](AnonGee.extension/AnonGee.tab/Dev.panel/col2.stack/RC%20Automation.pushbutton/CHANGELOG.md).
 
 ---
 
@@ -1285,7 +1285,7 @@ first real job was in flight.
   rolls back its chunk and the rest carries on. A footing that already carries
   reinforcement is left alone, and "Replace mine" rebuilds only the bars this
   tool stamped. Full history in its own
-  [changelog](AnonGee.extension/AnonGee.tab/Dev.panel/RC%20Automation.pushbutton/CHANGELOG.md).
+  [changelog](AnonGee.extension/AnonGee.tab/Dev.panel/col2.stack/RC%20Automation.pushbutton/CHANGELOG.md).
 - **Delimited schedules in one file.** A `.csv` or `.txt` holding every sheet,
   separated by `#SHEET,<name>` rows, alongside the folder-of-sheets layout.
 
@@ -1312,7 +1312,7 @@ first real job was in flight.
   came from. Works out what the schedule would build without building it,
   including whether a layer can ship as one Revit element or has to be
   individual bars. Full history in its own
-  [changelog](AnonGee.extension/AnonGee.tab/Dev.panel/RC%20Automation.pushbutton/CHANGELOG.md).
+  [changelog](AnonGee.extension/AnonGee.tab/Dev.panel/col2.stack/RC%20Automation.pushbutton/CHANGELOG.md).
 - **`anongee_toolkit.rc_automation`** — the schedule layer, with no Revit in it:
   workbook reading, validation, reconciliation against a model, and bar
   geometry. 343 tests now run without Revit.

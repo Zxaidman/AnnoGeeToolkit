@@ -61,6 +61,12 @@ def _body_iter(path):
     return walk(ET.parse(path).getroot())
 
 
+def _xaml_source():
+    """The dialog's .xaml as text, for pinning attributes rather than names."""
+    with open(_XAML, "rb") as handle:
+        return handle.read().decode("utf-8", "replace")
+
+
 def _xaml_names(*paths):
     """Every x:Name in the given .xaml files (all three dialogs by default)."""
     key = "{http://schemas.microsoft.com/winfx/2006/xaml}Name"
@@ -2001,6 +2007,60 @@ class TheRunSaysHowLongItTook(unittest.TestCase):
         block = _dialogs_source().split("def show_elapsed(", 1)[1]
         block = block.split("\ndef ", 1)[0]
         self.assertIn("except Exception", block)
+
+
+class TheMappingTablesTakeManyRowsAtOnce(unittest.TestCase):
+    """FEAT-13, second attempt, pinned rather than run.
+
+    The first one hand-rolled Explorer's click rules on mouse events. The owner:
+    "without Ctrl hold i can select multiple which is not good. and i could not
+    unselect it with ctrl + click ... it should follow `OneFilterParameter.
+    pushbutton` reference". So WPF owns the clicking now -- real ListBoxItems in
+    a `SelectionMode="Extended"` ListBox, which is what that reference uses and
+    what this dialog's own storey table has used all along.
+
+    These hold what is left: that the tables really are multi-select lists, that
+    the one rule still ours goes through `selection.spread`, and that the
+    hand-rolled machinery is gone rather than merely bypassed.
+    """
+
+    def test_all_three_tables_are_extended_selection_lists(self):
+        xaml = _xaml_source()
+        for name in ("layer_rows", "text_rows", "hatch_rows"):
+            block = xaml.split('x:Name="%s"' % name, 1)[1][:400]
+            self.assertIn('SelectionMode="Extended"', block, name)
+            self.assertIn("ListBox", xaml.split('x:Name="%s"' % name, 1)[0][-120:],
+                          name)
+
+    def test_the_rows_are_real_list_items_so_wpf_can_select_them(self):
+        source = _window_source()
+        block = source.split("def _build_rows(", 1)[1].split("\n    def ", 1)[0]
+        self.assertIn("ListBoxItem()", block)
+        self.assertIn("panel.Items.Add(item)", block)
+
+    def test_nothing_hand_rolls_the_click_rules_any_more(self):
+        source = _window_source()
+        for gone in ("_ctrl_held", "_shift_held", "ModifierKeys",
+                     "_wire_selection", "bulk_bar"):
+            self.assertNotIn(gone, source, "%s survived the rewrite" % gone)
+
+    def test_no_apply_button_or_second_dropdown_is_left_in_the_xaml(self):
+        xaml = _xaml_source()
+        for gone in ("layer_bulk", "text_bulk", "hatch_bulk"):
+            self.assertNotIn(gone, xaml)
+
+    def test_changing_a_selected_row_spreads_through_selection_spread(self):
+        source = _window_source()
+        self.assertIn("selection.spread(", source)
+        self.assertIn("combo.SelectionChanged += self._spread_to_selection",
+                      source)
+
+    def test_the_spread_cannot_echo_itself(self):
+        # Setting the other combos raises SelectionChanged on each of them.
+        block = _window_source().split("def _spread_to_selection(", 1)[1]
+        block = block.split("\n    def ", 1)[0]
+        self.assertIn("_spreading", block)
+        self.assertIn("finally:", block)
 
 
 if __name__ == "__main__":
