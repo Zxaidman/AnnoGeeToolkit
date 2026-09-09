@@ -1,0 +1,59 @@
+title: "Filter\nView Manager"
+author: AnonGee
+tooltip: |
+  Saved, rule-based views. Build a rule down Category > Family > Type >
+  Parameter, name it, and pressing it shows only what the rule matches in the
+  active view.
+
+  What pressing a rule does
+    • Temporarily isolates the matches, in the ACTIVE VIEW only.
+    • Writes NOTHING to the project. No view filter is created, nothing
+      appears in Manage > Filters, and a colleague opening the model sees no
+      trace that the tool was used.
+    • Lasts the Revit session. It does not print and does not survive a
+      save. Clear puts the view back, and so does Revit's own Reset Temporary
+      Hide/Isolate.
+
+  Building a rule
+    • Tick one or more categories. Family and Type are optional — leave them
+      on "any" and the rule matches everything in those categories.
+    • Basic Wall is a system family and appears in the Family list exactly
+      like a loadable one.
+    • Add parameter conditions, combined with All or Any. Every parameter the
+      categories carry is offered; the ones Revit would refuse in a native view
+      filter are marked "(no view filter)" and still work here, because
+      pressing a rule isolates rather than filtering.
+    • A value is stored in the unit you typed it in, so "Area > 100 m²" still
+      means 100 m² on an imperial project.
+    • A rule with no conditions matches everything in its cascade, which is a
+      legitimate rule — "all the structural columns".
+
+  Where rules live
+    • %APPDATA%/Zxaidman/AnonGee/BIM-Toolkit/filter_view_rules.json, so they
+      follow YOU into the next project and survive a Revit restart.
+    • A rules file beside the model is read as well, and those rules are
+      badged PROJECT. Both are shown; neither wins.
+    • A rule stores NAMES, never element ids — ids do not survive a session,
+      let alone another project.
+    • A rule whose type this project does not have is greyed and says what it
+      could not find. It is never deleted or rewritten.
+
+  Buttons
+    Count   how many elements match, changing nothing
+    Select  push the matches into Revit's selection
+    Apply   isolate them in the active view
+    Clear   put the view back
+
+  Notes
+    • Modeless — Revit stays interactive while the window is open. Pressing
+      the ribbon button again activates the open window rather than stacking a
+      second one.
+    • Runs on the CPython 3 engine. Every control has a tooltip.
+    • The rule engine is a separate package with 155 tests on it that need no
+      Revit; this window is the wiring.
+
+  Not built yet
+    The dockable panel that will hold the rule buttons beside Properties. It
+    needs a startup-time component, which is its own milestone.
+
+  Version: 0.1.1

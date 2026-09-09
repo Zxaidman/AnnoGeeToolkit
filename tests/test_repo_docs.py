@@ -22,6 +22,17 @@ reorganisation left ``Dev.panel/bundle.yaml`` listing three *buttons* that live
 inside ``Testing.stack``. pyRevit's layout names a panel's direct children, so
 it resolved to nothing and the ribbon order silently fell back to discovery
 order — a directive that looks obeyed and is not.
+
+**A stack holding one button.** Revit's ``RibbonPanel.AddStackedItems()`` has
+overloads for two items and for three, and none for one. pyRevit cannot build a
+one-item stack, so it skips it and the button never reaches the ribbon — no
+error, no warning, the tool is simply not there. Filter View Manager shipped
+into a ``col3.stack`` of its own and was invisible in Revit for exactly that
+reason, which nothing here could have caught until somebody looked at the
+ribbon.
+
+**A tool count that stopped counting.** The README says how many tools are on
+the ribbon, and two branches each added one without touching the number.
 """
 
 import json
@@ -249,6 +260,63 @@ class PanelLayoutTests(unittest.TestCase):
                                     "direct child".format(
                                         os.path.basename(folder), entry))
         self.assertEqual(problems, [], "; ".join(problems))
+
+
+def stack_folders():
+    """Every ``*.stack`` on the ribbon, as (folder, [child bundle names])."""
+    found = []
+    for root, dirs, _files in os.walk(_TAB):
+        for name in dirs:
+            if not name.endswith(".stack"):
+                continue
+            folder = os.path.join(root, name)
+            children = [child for child in sorted(os.listdir(folder))
+                        if "." in child and not child.endswith((".yaml", ".yml"))]
+            found.append((folder, children))
+    return sorted(found)
+
+
+def readme_tool_rows():
+    """Every ``| **Name** |`` row in the README's tool tables."""
+    return [line for line in _read(_README).splitlines()
+            if line.startswith("| **")]
+
+
+class StackShapeTests(unittest.TestCase):
+    """A stack holds two or three buttons. One is not a small stack; it is
+    a button that never appears.
+
+    ``RibbonPanel.AddStackedItems()`` has overloads for two items and for
+    three. There is no one-item form, so pyRevit skips the stack and the tool
+    is silently absent from the ribbon. Filter View Manager shipped that way
+    once, and nothing but opening Revit could have told anybody.
+    """
+
+    def test_there_are_stacks_to_check(self):
+        self.assertTrue(stack_folders())
+
+    def test_every_stack_holds_two_or_three_buttons(self):
+        problems = []
+        for folder, children in stack_folders():
+            if len(children) not in (2, 3):
+                problems.append("{0} holds {1}: {2}".format(
+                    os.path.basename(folder), len(children),
+                    ", ".join(children) or "nothing"))
+        self.assertEqual(problems, [],
+                         "a stack takes 2 or 3 items, never 1: " + "; ".join(problems))
+
+
+class ToolCountTests(unittest.TestCase):
+    """The README says how many tools there are, so it has to be true."""
+
+    def test_the_stated_count_matches_the_rows(self):
+        readme = _read(_README)
+        marker = "four panels and "
+        start = readme.index(marker) + len(marker)
+        stated = readme[start:readme.index(" tools", start)]
+        self.assertEqual(int(stated), len(readme_tool_rows()),
+                         "the README says {0} tools and lists {1} rows".format(
+                             stated, len(readme_tool_rows())))
 
 
 if __name__ == "__main__":                                    # pragma: no cover

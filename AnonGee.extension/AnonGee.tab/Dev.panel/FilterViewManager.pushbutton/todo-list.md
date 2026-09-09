@@ -138,15 +138,15 @@ nothing here is agreed until it says so.
 
 | ID | Feature | Phase |
 | --- | --- | --- |
-| FEAT-1 | Category → Family → Type cascade picker, correct for both system and loadable families (METHODOLOGY §13.3) | `testing` — `revit_query.categories/families/types` built; the probe shows them. No picker UI |
-| FEAT-2 | Parameter conditions on a rule — operator set, value parsing without `re`, units recorded with the number (§13.4) | `building` — the core half is done (13 operators, the unit table, `parse_number`); the picker is not |
-| FEAT-3 | Apply a rule to the active view — `IsolateElementsTemporary`, active view only (CRIT-1) | `testing` — `revit_apply.isolate`; the probe will run it |
-| FEAT-4 | Name and save a rule; rules survive the Revit session **and** open in another project — strings only, never `ElementId`s (§13.5) | `building` — `store` is done and tested, machine and project both; nothing writes to it yet |
-| FEAT-5 | The saved rules as pressable buttons in a modeless window | `pending` |
-| FEAT-6 | Clear / restore the view to what it was before a rule was pressed | `testing` — `revit_apply.clear`; the probe will run it |
-| FEAT-7 | Edit, rename, duplicate, delete and reorder saved rules | `building` — `RuleSet` does all five and is tested; no UI on it |
-| FEAT-8 | Live match count before applying, debounced (`ui/dialogs.DebounceTimer`) | `building` — `revit_query.count` is the number; the debounce and the window are not |
-| FEAT-9 | Select the matched elements in Revit (`revit/selection.set_selection`) | `pending` |
+| FEAT-1 | Category → Family → Type cascade picker, correct for both system and loadable families (METHODOLOGY §13.3) | `testing` — built, with a searchable category list whose ticks survive a search |
+| FEAT-2 | Parameter conditions on a rule — operator set, value parsing without `re`, units recorded with the number (§13.4) | `testing` — built; conditions are added one at a time and listed, not edited in a grid |
+| FEAT-3 | Apply a rule to the active view — `IsolateElementsTemporary`, active view only (CRIT-1) | `testing` — the Apply button |
+| FEAT-4 | Name and save a rule; rules survive the Revit session **and** open in another project — strings only, never `ElementId`s (§13.5) | `testing` — Save rule writes the machine store |
+| FEAT-5 | The saved rules as pressable buttons in a modeless window | `testing` — the list on the left; select one and press Apply |
+| FEAT-6 | Clear / restore the view to what it was before a rule was pressed | `testing` — the Clear button |
+| FEAT-7 | Edit, rename, duplicate, delete and reorder saved rules | `testing` — all five, and Delete asks first |
+| FEAT-8 | Live match count before applying, debounced (`ui/dialogs.DebounceTimer`) | `building` — the Count button gives the number on demand. It is not yet live-as-you-type, which is what the debounce is for |
+| FEAT-9 | Select the matched elements in Revit (`revit/selection.set_selection`) | `testing` — the Select button |
 | FEAT-10 | The dockable panel — hidden until the pushbutton shows it, docked under the ribbon by default, re-dockable left/right like Properties. Blocked on CRIT-3 | `pending` |
 | FEAT-11 | Apply a rule across several views at once, skipping views that cannot take filters (§13.7) | `pending` |
 | FEAT-12 | Import / export a rule set, so an office shares one | `pending` |
@@ -160,7 +160,8 @@ nothing here is agreed until it says so.
 **Only what a test can prove.** Nothing here has run inside Revit, and by this
 file's own rule that means none of it is verified — it is built, and green.
 
-**The pure rule core**, `AnonGee.extension/lib/anongee_filterrules`, 131 tests:
+**The whole rule engine**, `AnonGee.extension/lib/anongee_filterrules`, and
+**the window**. 183 tests:
 
 - `values` — `parse_number` (no `re`), the unit table (mm/cm/m/ft/in and their
   squares and cubes, degrees), 13 operators, a float tolerance so
