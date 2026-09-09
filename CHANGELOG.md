@@ -22,6 +22,7 @@ number is wrong.
 | Tool | Version | Changelog |
 | ---- | ------- | --------- |
 | Auto Level Manager | 2.0.0 | [`AutoLevel.pushbutton/CHANGELOG.md`](AnonGee.extension/AnonGee.tab/Essential.panel/AutoLevel.pushbutton/CHANGELOG.md) |
+| Filter View Manager | 0.1.0 | [`FilterViewManager.pushbutton/CHANGELOG.md`](AnonGee.extension/AnonGee.tab/Dev.panel/col3.stack/FilterViewManager.pushbutton/CHANGELOG.md) |
 | RC Automation | 0.7.0 | [`RC Automation.pushbutton/CHANGELOG.md`](AnonGee.extension/AnonGee.tab/Dev.panel/col2.stack/RC%20Automation.pushbutton/CHANGELOG.md) |
 
 Both levels use [semantic versioning](https://semver.org), read from the point
@@ -32,6 +33,59 @@ of view of someone using the thing rather than someone reading the diff:
 | **MAJOR** | A tool was removed or renamed, the tab was reorganised, or an installation step changed.          | The tool behaves differently on purpose — a workflow moved, or what it writes to the model changed shape. |
 | **MINOR** | A tool was added, or an existing one gained a capability.                                          | A new capability. Everything you already did still works.                        |
 | **PATCH** | Fixes only.                                                                                        | A fix. Nothing new to learn.                                                     |
+
+---
+
+## Unreleased — 2.1.0 candidate
+
+> Not a release. Adding a tool is a **MINOR** extension change under the table
+> above, so this is what `2.1.0` will say — but the product version is pinned to
+> the installer's `MyAppVersion` and to the signed-build identity by
+> `tests/test_installer_lifecycle_contract.py`, and `CONTRIBUTING.md` requires
+> explicit review for anything touching installer or deployment. The bump, the
+> `.iss` alignment and the contract update belong to a deliberate release step.
+>
+> The tool's own version moves independently and **is** released: Filter View
+> Manager 0.1.0.
+
+**Added**
+
+- **Filter View Manager** *(Dev panel, tool version 0.1.0)* — saved,
+  rule-based views. Build a rule down Category > Family > Type > Parameter,
+  name it, and pressing it temporarily isolates what it matches in the active
+  view. **It writes nothing to the project**: no view filter is created,
+  nothing appears in Manage > Filters, and a colleague opening the model sees
+  no trace. Rules live in `%APPDATA%` so they follow the user into the next
+  project, and a rules file beside the model is read alongside them.
+- **`AnonGee.extension/lib/anongee_filterrules`** — the tool's rule engine, and
+  the first package to live in `lib/` rather than `lib/py3`. It is written to
+  run on **both** engines, because the dockable panel that will hold the rule
+  buttons must be registered from `startup.py`, which pyRevit loads on
+  IronPython 2.7. `lib/` is the only folder both engines can import from. The
+  dual-engine contract is enforced statically, since no machine that runs the
+  test suite has IronPython on it.
+
+**Fixed**
+
+- **Six dead links in this changelog.** The 2.0.0 ribbon reorganisation moved
+  `RC Automation.pushbutton` into `col2.stack` and every link to its changelog
+  kept pointing at the old path.
+- **`Dev.panel/bundle.yaml`'s `layout:` named nothing.** It listed three
+  *buttons* that live inside `Testing.stack`; pyRevit's layout names a panel's
+  direct children, so it resolved to nothing and ribbon order fell back to
+  discovery. It now names the four stacks, in the order discovery was already
+  producing, so nothing visible moves.
+
+**Testing**
+
+- `tests/` is a package, so `python3 -m unittest discover -s tests -t .` runs
+  the whole suite in one command. It previously failed outright, and sixteen
+  files had to be run one at a time.
+- Two new gates in `tests/test_repo_docs.py`: every markdown link into
+  `AnonGee.extension/` has to resolve, and every panel layout entry has to name
+  a direct child of its panel.
+- `tests/test_filterrules.py` (155) and `tests/test_filterview_ui.py` (28).
+  1260 tests in total.
 
 ---
 

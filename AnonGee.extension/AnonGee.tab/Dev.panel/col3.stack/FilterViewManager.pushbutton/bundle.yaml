@@ -2,63 +2,58 @@ title: "Filter\nView Manager"
 author: AnonGee
 tooltip: |
   Saved, rule-based views. Build a rule down Category > Family > Type >
-  Parameter, name it, and it becomes a button you press to show only what the
-  rule matches in the active view.
+  Parameter, name it, and pressing it shows only what the rule matches in the
+  active view.
 
-  Not built yet. This bundle is the scaffold only — pressing it says so and
-  points at the documentation beside it.
+  What pressing a rule does
+    • Temporarily isolates the matches, in the ACTIVE VIEW only.
+    • Writes NOTHING to the project. No view filter is created, nothing
+      appears in Manage > Filters, and a colleague opening the model sees no
+      trace that the tool was used.
+    • Lasts the Revit session. It does not print and does not survive a
+      save. Clear puts the view back, and so does Revit's own Reset Temporary
+      Hide/Isolate.
 
-  What is agreed so far
-    • A rule is Category > Family > Type > Parameter conditions, e.g.
-      Walls > Basic Wall > 100mm Gypsum Wall > Area > 100 m².
-    • A saved rule is a named button that outlives the Revit session and
-      follows the user to another project.
-    • The buttons are meant to live in a dockable panel beside Properties and
-      the Project Browser, not only in a dialog.
+  Building a rule
+    • Tick one or more categories. Family and Type are optional — leave them
+      on "any" and the rule matches everything in those categories.
+    • Basic Wall is a system family and appears in the Family list exactly
+      like a loadable one.
+    • Add parameter conditions, combined with All or Any. Every parameter the
+      categories carry is offered; the ones Revit would refuse in a native view
+      filter are marked "(no view filter)" and still work here, because
+      pressing a rule isolates rather than filtering.
+    • A value is stored in the unit you typed it in, so "Area > 100 m²" still
+      means 100 m² on an imperial project.
+    • A rule with no conditions matches everything in its cascade, which is a
+      legitimate rule — "all the structural columns".
 
-  Settled 2026-09-09
-    • Saving a rule applies nothing — it adds a button to the list.
-    • Pressing one TEMPORARILY ISOLATES, in the active view only. Nothing is
-      written to the project; no filter appears in the project's Filters list.
-    • Any parameter may be used; the ones Revit will not accept in a native
-      view filter are flagged rather than hidden.
-    • Rules live in %APPDATA%/Zxaidman/AnonGee/BIM-Toolkit, so they follow you
-      to the next project. A per-project override is wanted, not yet specified.
-    • The modeless window ships first; the dockable panel follows.
+  Where rules live
+    • %APPDATA%/Zxaidman/AnonGee/BIM-Toolkit/filter_view_rules.json, so they
+      follow YOU into the next project and survive a Revit restart.
+    • A rules file beside the model is read as well, and those rules are
+      badged PROJECT. Both are shown; neither wins.
+    • A rule stores NAMES, never element ids — ids do not survive a session,
+      let alone another project.
+    • A rule whose type this project does not have is greyed and says what it
+      could not find. It is never deleted or rewritten.
 
-  What this button does TODAY
-    It is a PROBE, not the tool. It reads the model, builds a rule from what
-    it finds, says what that rule would match, and will isolate it if asked.
-    It writes nothing to the project.
+  Buttons
+    Count   how many elements match, changing nothing
+    Select  push the matches into Revit's selection
+    Apply   isolate them in the active view
+    Clear   put the view back
 
-    It reports
-      • the active view, and whether it can be isolated at all
-      • both rule stores and how many rules each holds
-      • every model category, then for Walls (or the first category with
-        elements): its families, its types, and every parameter split into
-        the ones Revit would accept in a view filter and the ones it would
-        not -- which is the question CRIT-2 has never had answered in a model
-      • the rule it built, what it resolves to, and how many elements match
-      • your own saved rules, checked against THIS model
-
-    The full report is written to a file and printed to the pyRevit console,
-    so it can be pasted rather than retyped.
-
-  Built so far
-    • The rule engine, whole: the rule model, value parsing, operators, units,
-      the JSON stores, the model queries and the isolate. 155 tests, none of
-      which need Revit.
-    • It lives in lib/anongee_filterrules, not beside this script, because the
-      dockable panel is registered from startup.py on IronPython and lib/ is
-      the only folder both engines can import from.
+  Notes
+    • Modeless — Revit stays interactive while the window is open. Pressing
+      the ribbon button again activates the open window rather than stacking a
+      second one.
+    • Runs on the CPython 3 engine. Every control has a tooltip.
+    • The rule engine is a separate package with 155 tests on it that need no
+      Revit; this window is the wiring.
 
   Not built yet
-    The modeless window -- the cascade picker, the live count, save and the
-    rule buttons. That is 0.1.0.
+    The dockable panel that will hold the rule buttons beside Properties. It
+    needs a startup-time component, which is its own milestone.
 
-  Read before building
-    METHODOLOGY.md   how this repository works and what this tool must obey
-    todo-list.md     the queue, one ID per item
-    CHANGELOG.md     what each build changed
-
-  Version: 0.0.4
+  Version: 0.1.0

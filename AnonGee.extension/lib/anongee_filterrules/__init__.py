@@ -60,9 +60,9 @@ start.
 #: MINOR  a new capability; everything already saved still works.
 #: PATCH  a fix.
 #:
-#: 0.0.4 is the whole rule engine -- the tested half and the Revit half --
-#: plus a probe button that exercises it. 0.1.0 is the modeless window.
-VERSION = "0.0.4"
+#: 0.1.0 is the first build a person would call the tool: a modeless window
+#: that builds a rule, saves it, and isolates what it matches.
+VERSION = "0.1.0"
 
 #: The pure half is imported freely. ``compat``, ``revit_query`` and
 #: ``revit_apply`` are NOT listed: they import ``Autodesk.Revit.DB`` at
