@@ -1,14 +1,18 @@
 # -*- coding: utf-8 -*-
-"""Explorer selection semantics for the mapping tables (FEAT-13).
+"""Which mapping rows follow when a selected row's category is changed (FEAT-13).
 
-The owner asked for the interaction he already knows -- "just like windows
-explorer (using ctrl, shift click etc to select multi)" -- so these hold the
-rules Explorer actually follows, not an approximation of them. The anchor is
-the part worth testing hardest: a run of shift-clicks must re-measure from the
-last PLAIN click, not creep along behind the last thing selected.
+The owner, after the first attempt: "it should use any selected item dropdown if
+one change all the select should also change" — and, on that attempt's selection
+handling, "without Ctrl hold i can select multiple which is not good ... i could
+not unselect it with ctrl + click".
 
-Standalone (no Revit, no WPF): `ui_window` cannot be imported by a test at all,
-which is why the arithmetic lives in `selection` and only the wiring is pinned.
+So the clicking is WPF's now (`SelectionMode="Extended"` over real
+ListBoxItems, the way `OneFilterParameter.pushbutton` and this dialog's own
+storey table do it) and is not tested here — there is nothing of ours to test in
+it. What IS ours is the fan-out, which is the difference between editing one
+layer and editing forty.
+
+Standalone (no Revit, no WPF).
 """
 
 import unittest
@@ -19,140 +23,62 @@ import _loader
 selection = _loader.load("selection")
 
 
-class APlainClick(unittest.TestCase):
+class _Combo(object):
+    """Stands in for a row's category combo. Identity is what matters."""
 
-    def test_selects_only_that_row(self):
-        chosen, anchor = selection.click({0, 1, 2}, 0, 5)
-        self.assertEqual(chosen, {5})
-        self.assertEqual(anchor, 5)
-
-    def test_on_an_already_selected_row_still_narrows_to_it(self):
-        chosen, _anchor = selection.click({3, 4, 5}, 3, 4)
-        self.assertEqual(chosen, {4})
-
-    def test_starts_the_range_where_it_landed(self):
-        _chosen, anchor = selection.click(set(), None, 7)
-        self.assertEqual(anchor, 7)
+    def __init__(self, value=None):
+        self.value = value
 
 
-class CtrlClick(unittest.TestCase):
+class WhenASelectedRowChanges(unittest.TestCase):
 
-    def test_adds_a_row_without_losing_the_others(self):
-        chosen, _anchor = selection.click({1, 2}, 1, 6, ctrl=True)
-        self.assertEqual(chosen, {1, 2, 6})
+    def setUp(self):
+        self.combos = [_Combo(), _Combo(), _Combo(), _Combo()]
 
-    def test_clicking_a_selected_row_takes_it_out(self):
-        chosen, _anchor = selection.click({1, 2, 6}, 1, 2, ctrl=True)
-        self.assertEqual(chosen, {1, 6})
+    def rows(self, *selected):
+        chosen = set(selected)
+        return [(index in chosen, combo)
+                for index, combo in enumerate(self.combos)]
 
-    def test_moves_the_range_start_to_the_row_it_touched(self):
-        # Explorer: ctrl-click a row, then shift-click another, and the range
-        # runs between those two.
-        chosen, anchor = selection.click({0}, 0, 4, ctrl=True)
-        self.assertEqual(anchor, 4)
-        chosen, _anchor = selection.click(chosen, anchor, 7, shift=True)
-        self.assertEqual(chosen, {4, 5, 6, 7})
+    def test_every_other_selected_row_follows(self):
+        rows = self.rows(0, 2, 3)
+        self.assertEqual(selection.spread(rows, self.combos[0]), [2, 3])
 
+    def test_the_sender_is_never_told_to_change_itself(self):
+        rows = self.rows(0, 1)
+        self.assertNotIn(0, selection.spread(rows, self.combos[0]))
 
-class ShiftClick(unittest.TestCase):
+    def test_unselected_rows_are_left_alone(self):
+        rows = self.rows(1, 2)
+        self.assertEqual(selection.spread(rows, self.combos[1]), [2])
 
-    def test_takes_everything_between_the_anchor_and_the_row(self):
-        chosen, _anchor = selection.click({2}, 2, 5, shift=True)
-        self.assertEqual(chosen, {2, 3, 4, 5})
+    def test_a_change_on_an_unselected_row_spreads_to_nothing(self):
+        # Editing one row on its own must keep working exactly as it did.
+        rows = self.rows(1, 2)
+        self.assertEqual(selection.spread(rows, self.combos[0]), [])
 
-    def test_works_upwards_as_well_as_downwards(self):
-        chosen, _anchor = selection.click({5}, 5, 2, shift=True)
-        self.assertEqual(chosen, {2, 3, 4, 5})
-
-    def test_replaces_the_selection_rather_than_adding_to_it(self):
-        chosen, _anchor = selection.click({9}, 2, 4, shift=True)
-        self.assertEqual(chosen, {2, 3, 4})
-
-    def test_a_second_shift_click_remeasures_from_the_same_anchor(self):
-        # The creep this guards against: shift to 6, then shift to 4, must give
-        # 2..4 and not 2..6 or 4..6.
-        chosen, anchor = selection.click({2}, 2, 6, shift=True)
-        self.assertEqual(chosen, {2, 3, 4, 5, 6})
-        chosen, _anchor = selection.click(chosen, anchor, 4, shift=True)
-        self.assertEqual(chosen, {2, 3, 4})
-
-    def test_ctrl_shift_adds_the_range_to_what_was_there(self):
-        chosen, _anchor = selection.click({9, 10}, 2, 4, ctrl=True, shift=True)
-        self.assertEqual(chosen, {2, 3, 4, 9, 10})
-
-    def test_with_no_anchor_it_behaves_like_a_plain_click(self):
-        chosen, anchor = selection.click(set(), None, 3, shift=True)
-        self.assertEqual(chosen, {3})
-        self.assertEqual(anchor, 3)
-
-    def test_shift_onto_the_anchor_itself_is_just_that_row(self):
-        chosen, _anchor = selection.click({1, 2, 3}, 2, 2, shift=True)
-        self.assertEqual(chosen, {2})
-
-
-class RowsThatAreNotThere(unittest.TestCase):
-
-    def test_an_index_past_the_end_changes_nothing(self):
-        chosen, anchor = selection.click({1}, 1, 99, count=10)
-        self.assertEqual((chosen, anchor), ({1}, 1))
-
-    def test_a_negative_index_changes_nothing(self):
-        chosen, anchor = selection.click({1}, 1, -1, count=10)
-        self.assertEqual((chosen, anchor), ({1}, 1))
-
-    def test_no_index_at_all_changes_nothing(self):
-        chosen, anchor = selection.click({1}, 1, None)
-        self.assertEqual((chosen, anchor), ({1}, 1))
-
-    def test_the_selection_comes_back_as_a_set_whatever_went_in(self):
-        chosen, _anchor = selection.click([1, 1, 2], 1, 3, ctrl=True)
-        self.assertEqual(chosen, {1, 2, 3})
-
-
-class SelectAll(unittest.TestCase):
-
-    def test_takes_every_row(self):
-        self.assertEqual(selection.select_all(4), {0, 1, 2, 3})
-
-    def test_an_empty_table_selects_nothing(self):
-        self.assertEqual(selection.select_all(0), set())
-        self.assertEqual(selection.select_all(None), set())
-
-
-class WhatTheBarSays(unittest.TestCase):
-    """The button acts on rows that may be scrolled out of sight."""
-
-    def test_nothing_selected_says_so(self):
-        self.assertEqual(selection.describe(set(), 10), "no rows selected")
-
-    def test_one_row_is_singular(self):
-        self.assertEqual(selection.describe({3}, 10), "1 row selected")
-
-    def test_several_rows_are_counted(self):
-        self.assertEqual(selection.describe({1, 2, 3}, 10), "3 rows selected")
-
-    def test_every_row_says_all_of_them(self):
-        self.assertEqual(selection.describe({0, 1, 2}, 3), "all 3 rows selected")
-
-
-class ApplyingOneChoiceToMany(unittest.TestCase):
-
-    def test_only_the_selected_rows_change(self):
-        rows = ["a", "b", "c", "d"]
-        self.assertEqual(selection.apply_to(rows, {1, 3}, "BEAM"),
-                         [(1, "BEAM"), (3, "BEAM")])
+    def test_the_only_selected_row_changes_nothing_else(self):
+        rows = self.rows(2)
+        self.assertEqual(selection.spread(rows, self.combos[2]), [])
 
     def test_they_come_back_in_table_order(self):
-        rows = ["a", "b", "c", "d", "e"]
-        got = selection.apply_to(rows, {4, 0, 2}, "SLAB")
-        self.assertEqual([index for index, _value in got], [0, 2, 4])
+        rows = self.rows(0, 1, 2, 3)
+        self.assertEqual(selection.spread(rows, self.combos[2]), [0, 1, 3])
 
-    def test_nothing_selected_changes_nothing(self):
-        self.assertEqual(selection.apply_to(["a", "b"], set(), "BEAM"), [])
+    def test_a_combo_from_another_table_spreads_to_nothing(self):
+        rows = self.rows(0, 1)
+        self.assertEqual(selection.spread(rows, _Combo()), [])
 
-    def test_a_selection_past_the_end_is_ignored(self):
-        self.assertEqual(selection.apply_to(["a"], {0, 9}, "BEAM"),
-                         [(0, "BEAM")])
+    def test_rows_that_hold_equal_values_are_still_told_apart(self):
+        # Identity, not equality: two layers can share a category and mean
+        # different rows.
+        same = [_Combo("BEAM"), _Combo("BEAM"), _Combo("BEAM")]
+        rows = [(True, same[0]), (True, same[1]), (False, same[2])]
+        self.assertEqual(selection.spread(rows, same[1]), [0])
+
+    def test_nothing_at_all_is_not_a_crash(self):
+        self.assertEqual(selection.spread([], _Combo()), [])
+        self.assertEqual(selection.spread(None, _Combo()), [])
 
 
 if __name__ == "__main__":

@@ -8,13 +8,12 @@ Nothing is deleted to make the list look shorter.
 file before it is built, argued about, or written into any other document. Standing instruction
 from the project owner, and it is what keeps this list the queue rather than a summary of one.
 
-Current build: **v0.96.7** (branch `claude/cad2bim`, restarted from `main` after PR #10 merged).
-1283 unit tests, 3 regression legs green over 31 archived exports, **23** fixture drawings and 13
-storey stacks. All three baselines re-blessed this round and every move is the owner's own fixtures:
-he added `StructuralPlan-Test17-clean.dxf` (a new drawing to the sweep) and pushed 0.96.6 exports of
-test14 and test17, the latter now 13 storeys where the old one was 16. The new baseline pins the
-fault BUG-33 is about: test17's `loops_from_edges_per_storey` is **zero on every one of the 13
-storeys**. The branch also carries the rc-automation merge and the 1.26.1
+Current build: **v0.96.8** (branch `claude/cad2bim`, restarted from `main` after PR #10 merged).
+1266 unit tests, 3 regression legs over 31 archived exports, 23 fixture drawings and 13 storey
+stacks. FEAT-13 was rebuilt this round on the pattern the dialog already had — the mapping tables
+are `SelectionMode="Extended"` ListBoxes now, so WPF owns the clicking, and the hand-rolled version
+v0.96.7 shipped is gone. test17 builds slabs at last (79–87 a storey off `slab_edges`), and its
+columns are all walls because the vertical-member toggle says so, not because anything is broken. The branch also carries the rc-automation merge and the 1.26.1
 extension identity. Longer records: `../../../../../task_plan.md`, `findings.md`, `progress.md` at the
 repository root.
 
@@ -119,7 +118,44 @@ for every other pre-P1 file.
 
 ## 2. Errors and bugs
 
-### BUG-33 — test17 builds no slab at all, and said nothing about it · `building`
+### FEAT-16 — `_START` and `_STOP` column layers say where a column begins and ends · `pending`
+
+**The owner:** "in column layers there two new Stop and Start layer which both should be treated
+differently stop means that layer column is stop on that particular floor means it can go above *(if
+is shows on ground level, then it can make above ground level to 1st level)*, similarly start means
+this layer column is start from this level. *(similarly ground level, it would start from ground
+level to 1st level not below it)*"
+
+**Measured on `StructuralPlan-Test17-clean.dxf`** — 361 records, both classified as `column` today
+and so treated identically, which is why they build wrong:
+
+| plan | `S-COLUM_STOP` | `S-COLUMN_START` |
+| --- | --- | --- |
+| GROUND FLOOR ROOF SLAB | **148** | 6 |
+| 1ST & 2ND FLOOR ROOF SLAB | 0 | 6 |
+| 3RD FLOOR ROOF SLAB | 4 | 2 |
+| 4TH … 10TH (one each) | 0 | 2 |
+| TERRACE SLAB LVL. | **135** | 0 |
+| OHWT BOTTOM / TOP SLAB | 24 / 26 | 0 |
+
+The shape of it reads true: columns stop in bulk where the structure changes — at ground and at the
+terrace — and start in twos and sixes where a new column is introduced part way up.
+
+**One question before this is built, because it decides 361 columns in a model that ships this week
+and getting it the wrong way round puts 148 of them on the wrong floor.** Both of the owner's
+examples are the ground plan and both come out "ground to 1st", so they do not separate the two
+rules. Which of these is meant:
+
+  * **A** — the layer names the column's OWN EXTENT: a `_STOP` column drawn on a plan is the LAST
+    storey it exists in, and a `_START` column is the FIRST. On the terrace plan, 135 `_STOP`
+    columns would then be the tower columns ending there.
+  * **B** — the layer names where the column is CUT from the default: `_STOP` ends a run that came
+    up from below, `_START` begins one that carries on above.
+
+**A** fits the counts as measured. It is not built on a guess.
+
+
+### BUG-33 — test17 builds no slab at all, and said nothing about it · `testing`
 
 **The owner, with the Saturday deadline on it:** "test17 only columns are made and that still not
 correct. some beams are drawn, no slab is drawn, some wall is drawn."
@@ -157,9 +193,29 @@ slab edge unless it is not in the list at all. Which leaves the layers not reach
 run already has the line for that, `Layers present in the DXF but not in the Revit link (still
 mappable)`, and it was written into the deferred console that a run with no errors never opened.
 
-**That is now visible**: a category asked for and built nothing opens the console, and that line is in
-it. **Needed from the owner:** the console from one test17 run on v0.96.7 — it will name the layers
-the link is missing, and there is nothing more to guess at until it does.
+**LARGELY FIXED, and his v0.96.7 console says so.** The layers reach the link now:
+`Layers present in the DXF but not in the Revit link (still mappable): B-200x400, Origin` — those
+two only — and each storey reads `by category: ... slab_edge 158 ...`. Slabs build:
+
+    Slabs -- source: slab_edges, loops: 153, thickness-noted: 153, created: 79, skipped: 0, errors: 6
+
+and the same shape repeats down the stack (87 created on most storeys, 66 on one). Every loop is
+accounted for: 79 built + 68 withdrawn as marked void + 6 refused = 153. The owner: "test17 now
+there is some improvement in beam and slab but still far from actual number".
+
+**What is left is two things, and they are separate:**
+
+  * **6 refused profiles per storey on the first plan**, all the same shape — `845 x 496 mm, 8
+    corner(s)`, "it comes back to a corner it has already been through". A repeating shape, not
+    scattered noise, so it is one rule to find. Tracked here until it is;
+  * **68 bays per storey withdrawn as marked void** on 10.1 m2. That is the drawing's crosses being
+    read, and it may be right — worth his eye before anything is changed.
+
+**And the columns are not a fault at all.** His console:
+`column: vertical members -- Structural Wall for every vertical member: 290 placed as walls, 0 kept
+as columns.` The Build tab's vertical-member toggle (WORK-18) is set to WALL for every one, so the
+run is doing exactly what it was asked and no columns are created anywhere. That is why "columns are
+still same". It is a setting, not code.
 
 ### FEAT-15 — A wall under a beam stops at the beam's soffit · `pending`
 
@@ -204,21 +260,31 @@ step and making it clear how many rows a choice is about to change.
 
 ---
 
-**BUILT in v0.96.7.** Each table gets a bar above it: a category combo, **Apply to selected**,
-**Select all**, **Clear**, and a line saying how many rows are selected — the button acts on rows
-that may be scrolled out of sight, so "14 rows selected" is a sentence to check before pressing it.
-Rows select with the Explorer rules he asked for: plain click takes one, ctrl-click toggles one,
-shift-click takes the run from the last plain click, ctrl-shift adds a run to what is there.
+**v0.96.7 GOT IT WRONG and v0.96.8 rewrote it on the reference.** The first attempt hand-rolled
+Explorer's click rules on mouse events, and every one of them misbehaved: "without Ctrl hold i can
+select multiple which is not good. and i could not unselect it with ctrl + click ... it should
+follow `OneFilterParameter.pushbutton` reference".
 
-**The rules are in `selection.py`, not in the window.** `ui_window` imports `System.Windows` at
-module level and so cannot be imported by a test at all — only its source can be pinned, and a pin
-reads names, not behaviour, which is exactly how the zoom shipped broken (BUG-29). 27 tests run the
-real rules; five AST pins hold the three links to the window that have failed silently in this
-project before — a bar that is never built, a table that never gets one, and an Apply that writes
-the wrong row (`combo_store` is indexed by row offset, not bare row number).
+He was right to point at that button, and the pattern was already in this dialog: its **storey table
+has used a real `ListBox` of `ListBoxItem`s since it was written**, with a comment saying exactly
+why — "A hand-rolled click handler on the row could not work". I built a fourth thing next to it
+instead of reading it.
 
-A click that lands on a row's own combo is left to the combo, so changing one row still works
-exactly as it did. **Waiting on:** the owner's next run, and test17 is the drawing that needs it.
+So WPF owns the clicking now. Each mapping row is a `ListBoxItem` in a `SelectionMode="Extended"`
+ListBox, which is what the reference's DataGrid does and what the storey table does, and Explorer's
+rules come for nothing: a plain click takes ONE row, ctrl-click toggles ONE, shift-click takes the
+run between. No preview handler, deliberately — the storey table forces selection on any click
+because it is single-select, and forcing it here would override the modifiers and put the same bug
+straight back.
+
+**The Apply button and its separate dropdown are gone**, per "it should use any selected item
+dropdown if one change all the select should also change": changing the category on a SELECTED row
+now sets every selected row. Changing one on an UNSELECTED row spreads to nothing, which is what
+keeps single-row editing working. `selection.py` shrank to that one rule — the only part still ours
+— with 9 tests on it, and six AST pins hold the wiring, including that the hand-rolled machinery is
+GONE rather than merely bypassed.
+
+**Waiting on:** the owner's next run. test17's layer list is the drawing that needs it.
 
 ### BUG-29 — The zoom never framed the model once · `testing`
 
@@ -341,10 +407,37 @@ leaves a cluster of three or more pieces alone (`len(near) > 2: continue`).
 follow to the new faces moved the 50 mm gaps from 27 to 18 but put 3 overlaps back — not clearly
 better, and unproven against the production path. Reverted rather than shipped.
 
-**Needed from the owner, and it is one question:** in image 2's `50.087`, is the gap between a column
-and a BEAM, or between two pieces of one column? If it is column-to-beam, the beam is 350 wide where
-the column is drawn 300, and the two are each being built to their own label — which may be the
-drawing rather than the tool.
+**ANSWERED, and it is neither of the two things this entry had been chasing.** The owner: "it beam
+and column junctions with both being 350 thk width vertical, horizontal it is beam length and column
+longer side gap is between junctions not because of width at all."
+
+So the two members are the SAME 350 thickness and the gap is along the beam's LENGTH where it meets
+the column — the beam stops short of the column face. Not a width disagreement, not a composite
+piece drifting off its neighbour. Every measurement in this entry above was of the wrong joint,
+which is why the numbers kept looking almost right.
+
+**MEASURED, and it is LINK-side only, which is why nothing offline showed it.** Beam ends against
+column faces on test14:
+
+  * from the **DXF**, on the production path (`texts=None`): 30 ends off a face at all, the largest
+    by **13 mm**. Nothing at 25 or 50;
+  * from the **LINK**, replayed out of his 0.96.7 export: the same shape appears at **25 mm**, and
+    the geometry is his sentence exactly —
+
+        beam w=350 d=750  end (40300, 19444) | column piece 500 x 350 at (40326, 19269)  gap 25.9
+        beam w=350 d=750  end (37801, 19444) | column piece 500 x 350 at (37276, 19269)  gap 24.8
+        beam w=300 d=750  end (56751, 25069) | column piece 300 x 700 at (56601, 25094)  gap 25.1
+
+Both members 350 thick, the gap along the beam's LENGTH at the junction, 25 mm — half of the 50 mm
+by which a piece resized about its centre moves each face. So the beam was trimmed against one
+version of the column's footprint and the column was placed at another.
+
+**Where to look, named rather than guessed:** `column_trim_footprints` reads `_bbox_half`, which
+reads `width_ft`/`height_ft` — the pair v0.96.6 started keeping in step with the millimetres. If the
+trim is computed before the resize and the placement after it, every junction is out by half the
+difference, which is what these numbers are. **Not changed this round**: it is a two-line change in a
+place that decides every beam end in the model, and it wants its own gate run rather than being
+squeezed in beside the dialog rewrite.
 
 ### BUG-26 — test17 refuses 78 slab profiles and takes eight minutes · `done`
 

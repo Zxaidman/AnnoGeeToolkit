@@ -779,13 +779,14 @@
                             <TextBlock Grid.Column="1" Text="Curves" Style="{StaticResource TextCaption}"/>
                             <TextBlock Grid.Column="2" Text="Category" Style="{StaticResource TextCaption}"/>
                         </Grid>
-                        <StackPanel x:Name="layer_bulk" Orientation="Horizontal" Margin="0,0,0,4"/>
                         <Border BorderBrush="{StaticResource BrushLightBorder}" BorderThickness="1"
                                 CornerRadius="5" Background="{StaticResource BrushPureWhite}"
                                 Padding="8" MaxHeight="240">
-                            <ScrollViewer VerticalScrollBarVisibility="Auto">
-                                <StackPanel x:Name="layer_rows" Orientation="Vertical"/>
-                            </ScrollViewer>
+                            <ListBox x:Name="layer_rows" Style="{StaticResource InputListBox}"
+                                     MaxHeight="240" HorizontalContentAlignment="Stretch"
+                                     SelectionMode="Extended"
+                                     ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
                         </Border>
 
                         <TextBlock Text="Text layers -> size-mark routing" Style="{StaticResource TextH3}"
@@ -800,13 +801,14 @@
                             <TextBlock Grid.Column="1" Text="Labels" Style="{StaticResource TextCaption}"/>
                             <TextBlock Grid.Column="2" Text="Routing" Style="{StaticResource TextCaption}"/>
                         </Grid>
-                        <StackPanel x:Name="text_bulk" Orientation="Horizontal" Margin="0,0,0,4"/>
                         <Border BorderBrush="{StaticResource BrushLightBorder}" BorderThickness="1"
                                 CornerRadius="5" Background="{StaticResource BrushPureWhite}"
                                 Padding="8" MaxHeight="170">
-                            <ScrollViewer VerticalScrollBarVisibility="Auto">
-                                <StackPanel x:Name="text_rows" Orientation="Vertical"/>
-                            </ScrollViewer>
+                            <ListBox x:Name="text_rows" Style="{StaticResource InputListBox}"
+                                     MaxHeight="170" HorizontalContentAlignment="Stretch"
+                                     SelectionMode="Extended"
+                                     ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
                         </Border>
 
                         <TextBlock Text="Hatch layers -> region meaning" Style="{StaticResource TextH3}"
@@ -823,13 +825,14 @@
                             <TextBlock Grid.Column="2" Text="Meaning" Style="{StaticResource TextCaption}"/>
                             <TextBlock Grid.Column="3" Text="Depth mm" Style="{StaticResource TextCaption}"/>
                         </Grid>
-                        <StackPanel x:Name="hatch_bulk" Orientation="Horizontal" Margin="0,0,0,4"/>
                         <Border BorderBrush="{StaticResource BrushLightBorder}" BorderThickness="1"
                                 CornerRadius="5" Background="{StaticResource BrushPureWhite}"
                                 Padding="8" MaxHeight="170">
-                            <ScrollViewer VerticalScrollBarVisibility="Auto">
-                                <StackPanel x:Name="hatch_rows" Orientation="Vertical"/>
-                            </ScrollViewer>
+                            <ListBox x:Name="hatch_rows" Style="{StaticResource InputListBox}"
+                                     MaxHeight="170" HorizontalContentAlignment="Stretch"
+                                     SelectionMode="Extended"
+                                     ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
                         </Border>
                         <TextBlock Text="One row per hatch layer - except where the drawing's own legend gives a layer several meanings, which splits it into a row per pattern written layer|PATTERN. A row marked * was proposed by that legend; hover it to read the words it came from. Depth mm is the legend's own step figure for that pattern, negative meaning down: change it to overrule the drawing, and leave it alone where the legend said nothing."
                                    Style="{StaticResource HelpText}" Margin="0,4,0,0"/>

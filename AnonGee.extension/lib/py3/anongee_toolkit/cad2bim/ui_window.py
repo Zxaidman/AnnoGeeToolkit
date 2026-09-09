@@ -25,9 +25,7 @@ import xml.etree.ElementTree as ElementTree
 from System.Windows import (Thickness, GridLength, GridUnitType,
                             VerticalAlignment, TextWrapping)
 from System.Windows.Controls import (Grid as WpfGrid, ColumnDefinition, TextBlock,
-                                     ComboBox, TextBox, CheckBox, ListBoxItem,
-                                     Button)
-from System.Windows.Input import Keyboard, ModifierKeys
+                                     ComboBox, TextBox, CheckBox, ListBoxItem)
 from System.Windows.Media import Brushes
 
 from . import (advanced, config, floor_plans, naming, prefs, report, selection,
@@ -118,22 +116,6 @@ def _theme_style(window, key):
 def _apply_style(control, style):
     if style is not None:
         control.Style = style
-
-
-def _ctrl_held():
-    """True while Ctrl is down. False rather than raising if WPF cannot say."""
-    try:
-        return bool(Keyboard.Modifiers & ModifierKeys.Control)
-    except Exception:
-        return False
-
-
-def _shift_held():
-    """True while Shift is down. False rather than raising if WPF cannot say."""
-    try:
-        return bool(Keyboard.Modifiers & ModifierKeys.Shift)
-    except Exception:
-        return False
 
 
 class LinkOptionsDialog(object):
@@ -320,6 +302,7 @@ class CadToBimWindow(object):
                  hatch_row_patterns=None, hatch_step_depths=None,
                  wall_type_options=None, blanket_note=None):
         self.result = None
+        self._spreading = False
         self._combos = []
         self._text_combos = []
         self._hatch_combos = []
@@ -338,10 +321,10 @@ class CadToBimWindow(object):
         find("source_text").Text = source_name
         self._build_rows(find("layer_rows"), layer_rows, categories,
                          default_mapping, self._combos,
-                         row_notes=layer_notes, bulk_bar=find("layer_bulk"))
+                         row_notes=layer_notes)
         self._build_rows(find("text_rows"), text_layer_rows or [],
                          text_categories or [], default_text_mapping or {},
-                         self._text_combos, bulk_bar=find("text_bulk"))
+                         self._text_combos)
         # HATCH layers get a table OF THEIR OWN: a hatch is a region meaning
         # (column fill / fold / sunk / cutout), not an element category, so
         # routing one can never re-route the linework on a like-named layer.
@@ -353,8 +336,7 @@ class CadToBimWindow(object):
                          hatch_categories or [], default_hatch_mapping or {},
                          self._hatch_combos, row_notes=hatch_notes,
                          row_patterns=hatch_row_patterns,
-                         depth_store=self._hatch_depth_boxes,
-                         bulk_bar=find("hatch_bulk"))
+                         depth_store=self._hatch_depth_boxes)
 
         self.cb_family = find("cb_family")
         self.cb_circular_family = find("cb_circular_family")
@@ -663,7 +645,7 @@ class CadToBimWindow(object):
 
     def _build_rows(self, panel, layer_rows, categories, default_mapping,
                     combo_store, row_notes=None, row_patterns=None,
-                    depth_store=None, bulk_bar=None):
+                    depth_store=None):
         """One row per layer: name, count, category combo. Appends (layer, combo)
         to combo_store so the caller can read the chosen mapping back.
 
@@ -734,122 +716,62 @@ class CadToBimWindow(object):
                 if depth_box is not None:
                     WpfGrid.SetColumn(depth_box, 3)
                     row.Children.Add(depth_box)
-            panel.Children.Add(row)
+            item = ListBoxItem()
+            item.Content = row
+            item.Padding = Thickness(4, 1, 4, 1)
+            # A REAL ListBoxItem in an Extended-selection ListBox, which is how
+            # this dialog's own storey table works and how the reference
+            # `OneFilterParameter.pushbutton` does its grid. WPF then owns the
+            # clicking and Explorer's rules come for nothing: a plain click takes
+            # one row, ctrl-click toggles one, shift-click takes the run between.
+            # The first attempt hand-rolled those on mouse events and got them
+            # wrong -- plain clicks accumulated and ctrl-click would not take a
+            # row back out.
+            #
+            # NO preview handler, deliberately, unlike the storey table: that one
+            # forces selection on any click because it is SINGLE-select, and
+            # forcing it here would override the modifiers and put the same bug
+            # back. So a click on the row selects it and a click on the combo is
+            # the combo's -- which is what makes changing one row on its own
+            # still work.
+            panel.Items.Add(item)
             combo_store.append((layer, combo))
-            rows.append(row)
+            rows.append((item, combo))
+            combo.SelectionChanged += self._spread_to_selection(rows)
 
-        if bulk_bar is not None:
-            self._wire_selection(bulk_bar, rows, combo_store, categories)
+    def _spread_to_selection(self, rows):
+        """One combo changed: if its row is selected, every selected row follows.
 
-    def _wire_selection(self, bulk_bar, rows, combo_store, categories):
-        """Explorer selection over `rows`, and one combo that sets all of them.
+        The owner's rule, and it replaces the Apply button this had before:
+        "instead of having apply to selected button and separate dropdown, it
+        should use any selected item dropdown if one change all the select
+        should also change."
 
-        FEAT-13. The owner assigns a category per layer and test17 has enough
-        layers to make that the slowest part of a run -- and flattening them
-        into one beam layer, as he pointed out himself, would throw away the
-        sizes the layer NAMES carry.
+        A change on an UNSELECTED row is that row's own business and spreads to
+        nothing, which is what keeps single-row editing working exactly as it
+        did.
 
-        The RULES ARE NOT HERE. `selection.click` holds them, because this
-        module imports `System.Windows` at the top and so cannot be imported by
-        a test at all; only its source can be pinned, and a pin reads names, not
-        behaviour, which is exactly how the zoom shipped broken. This function
-        is the wiring: mouse in, brush and combo out.
+        `_spreading` stops the echo: setting the other combos raises
+        SelectionChanged on each of them, and without the guard the first change
+        would fan out and every echo would fan out again.
         """
-        # combo_store holds (layer, combo) for every table, appended in row
-        # order; this table's rows start wherever it had reached, so a store
-        # that is ever shared cannot make the Apply button write the wrong row.
-        offset = len(combo_store) - len(rows)
-        state = {"chosen": set(), "anchor": None}
-
-        def paint():
-            for index, row in enumerate(rows):
-                row.Background = (Brushes.LightSteelBlue
-                                  if index in state["chosen"]
-                                  else Brushes.Transparent)
-            count_block.Text = selection.describe(state["chosen"], len(rows))
-
-        def clicked(index):
-            def handler(sender, args):
-                # A click that lands ON the combo is the user changing that one
-                # row, not selecting it -- let the combo have it.
-                source = args.OriginalSource
-                while source is not None:
-                    if isinstance(source, (ComboBox, TextBox)):
-                        return
-                    source = getattr(source, "Parent", None)
-                state["chosen"], state["anchor"] = selection.click(
-                    state["chosen"], state["anchor"], index,
-                    ctrl=_ctrl_held(), shift=_shift_held(), count=len(rows))
-                paint()
-            return handler
-
-        for index, row in enumerate(rows):
-            row.Background = Brushes.Transparent      # so the row is hit-testable
-            row.MouseLeftButtonDown += clicked(index)
-
-        label_style = _theme_style(self.window, "TextCaption")
-        combo_style = _theme_style(self.window, "InputComboBox")
-        button_style = _theme_style(self.window, "ButtonSecondary")
-
-        target = ComboBox()
-        _apply_style(target, combo_style)
-        target.Width = 180
-        for category in categories:
-            target.Items.Add(category)
-        if target.Items.Count:
-            target.SelectedIndex = 0
-        target.ToolTip = "The category to give every selected row"
-
-        apply_button = Button()
-        _apply_style(apply_button, button_style)
-        apply_button.Content = "Apply to selected"
-        apply_button.Margin = Thickness(6, 0, 0, 0)
-        apply_button.Padding = Thickness(8, 2, 8, 2)
-
-        all_button = Button()
-        _apply_style(all_button, button_style)
-        all_button.Content = "Select all"
-        all_button.Margin = Thickness(6, 0, 0, 0)
-        all_button.Padding = Thickness(8, 2, 8, 2)
-
-        none_button = Button()
-        _apply_style(none_button, button_style)
-        none_button.Content = "Clear"
-        none_button.Margin = Thickness(4, 0, 0, 0)
-        none_button.Padding = Thickness(8, 2, 8, 2)
-
-        count_block = TextBlock()
-        _apply_style(count_block, label_style)
-        count_block.Margin = Thickness(8, 0, 0, 0)
-        count_block.VerticalAlignment = VerticalAlignment.Center
-
-        def apply_now(_sender, _args):
-            value = target.SelectedItem
+        def handler(sender, _args):
+            if getattr(self, "_spreading", False):
+                return
+            value = sender.SelectedItem
             if value is None:
                 return
-            for index, chosen_value in selection.apply_to(
-                    rows, state["chosen"], value):
-                combo_store[offset + index][1].SelectedItem = chosen_value
-
-        def take_all(_sender, _args):
-            state["chosen"] = selection.select_all(len(rows))
-            state["anchor"] = 0 if rows else None
-            paint()
-
-        def take_none(_sender, _args):
-            state["chosen"], state["anchor"] = set(), None
-            paint()
-
-        apply_button.Click += apply_now
-        all_button.Click += take_all
-        none_button.Click += take_none
-
-        bulk_bar.Children.Add(target)
-        bulk_bar.Children.Add(apply_button)
-        bulk_bar.Children.Add(all_button)
-        bulk_bar.Children.Add(none_button)
-        bulk_bar.Children.Add(count_block)
-        paint()
+            following = selection.spread(
+                [(item.IsSelected, combo) for item, combo in rows], sender)
+            if not following:
+                return
+            self._spreading = True
+            try:
+                for index in following:
+                    rows[index][1].SelectedItem = value
+            finally:
+                self._spreading = False
+        return handler
 
     def _depth_box(self, patterns, depth_store, box_style):
         """The step-depth box for one hatch row, or None where there is none.
