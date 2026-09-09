@@ -30,6 +30,17 @@ any report built on the readers alone. Two known gaps it exists to surface:
 `geometry_reader` ignores solids, meshes and points outright, and `dxf_reader`
 swallows every malformed entity in a bare `except: continue`.
 
+Beyond the four stages
+----------------------
+The reconciliation answers "did this member survive the pipeline". Eleven checks
+answer what no verdict can, because they are true regardless of how any member
+fared: a column drawn twice has a problem even when both copies build perfectly,
+and there is no verdict to hang that on. They cover drawing hygiene (duplicates,
+outlines left open, degenerate geometry, stray Z), labelling (a label sizing
+nothing, a label the model disagrees with, one mark for two sizes) and model
+hygiene (elements placed twice or on the wrong storey, clipped runs, a member
+built as the wrong category, a type name that lies about its own size).
+
 Read-only with respect to cad2bim
 ---------------------------------
 This package IMPORTS cad2bim (config, classify.layers, readers, model) and never
@@ -46,4 +57,4 @@ the matcher, the findings, the sheet model -- is plain Python and is tested
 outside Revit through `tests/_loader.py`.
 """
 
-__version__ = "0.1.0"   # Walking skeleton: four stages, matcher, workbook, sidecar.
+__version__ = "0.2.0"   # Per-category sheets, eleven checks, runs matched as runs.

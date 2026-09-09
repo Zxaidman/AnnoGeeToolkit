@@ -204,7 +204,7 @@ def _recon_row(group, verdict, report):
     offset = _offset(source_item, target_item, report.diagnostics.get("space", "revit"))
 
     return [
-        verdict, config.VERDICT_SEVERITY.get(verdict, config.SEVERITY_INFO),
+        verdict, config.severity_of(verdict),
         group.category, group.level, _layer(group), _mark(group),
         group.count(config.STAGE_DXF_RAW), group.count(config.STAGE_DXF_PARSED),
         group.count(config.STAGE_LINK_RAW), group.count(config.STAGE_LINK_PARSED),
@@ -243,20 +243,15 @@ def _recon_sort(row):
 
 
 def _category_sheets(report):
-    """One sheet per structural category, with the same columns as Reconciliation.
+    """One sheet per structural category, each in that category's own units.
 
-    Same columns on purpose: a reader who has learned the Reconciliation sheet
-    has learned all seven of these, and a formula written against one works
-    against any of them.
+    Delegated to `category_sheets`, which is spec-driven: the columns differ per
+    category because almost nothing means the same thing for a column and a
+    slab, and a shared column set would have to be the intersection -- which is
+    the Reconciliation sheet, and already exists.
     """
-    sheets = []
-    for name, keys in config.CATEGORY_SHEETS:
-        sheet = _reconciliation(report, only=set(keys))
-        sheet.name = name
-        if not sheet.rows:
-            sheet.notes.append("No {0} were matched in this run.".format(name.lower()))
-        sheets.append(sheet)
-    return sheets
+    from . import category_sheets
+    return category_sheets.build(report)
 
 
 # --- census sheets ----------------------------------------------------------
@@ -498,7 +493,7 @@ def _notes(group):
 
 def _severity_rank(verdict):
     return config.SEVERITY_ORDER.get(
-        config.VERDICT_SEVERITY.get(verdict, config.SEVERITY_INFO), 9)
+        config.severity_of(verdict), 9)
 
 
 def _at(pair, index):

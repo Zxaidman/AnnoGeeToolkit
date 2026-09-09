@@ -113,6 +113,41 @@ def plan_distance(a, b):
     return math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2)
 
 
+def point_to_segment_distance(point, start, end):
+    """Distance in plan from a point to a finite segment (not its infinite line).
+
+    Needed because a beam label sits ALONG its beam, often nearer an end than
+    the middle. Measuring to the member's centroid asks "is the label near the
+    middle of the beam", which for a 6 m beam is the wrong question and answers
+    no for most correctly-placed labels.
+    """
+    ax, ay = start[0], start[1]
+    bx, by = end[0], end[1]
+    dx, dy = bx - ax, by - ay
+    span = dx * dx + dy * dy
+    if span <= 1e-12:
+        return plan_distance(point, start)
+    # Projection parameter, clamped to the segment so the answer is never to a
+    # point beyond either end.
+    t = ((point[0] - ax) * dx + (point[1] - ay) * dy) / span
+    t = max(0.0, min(1.0, t))
+    return plan_distance(point, (ax + t * dx, ay + t * dy, 0.0))
+
+
+def path_distance(point, points):
+    """Shortest plan distance from a point to a polyline. None if it has none."""
+    if not points:
+        return None
+    if len(points) == 1:
+        return plan_distance(point, points[0])
+    best = None
+    for a, b in zip(points, points[1:]):
+        distance = point_to_segment_distance(point, a, b)
+        if distance is not None and (best is None or distance < best):
+            best = distance
+    return best
+
+
 def path_length(points):
     """Summed segment length along the vertices. 0.0 for fewer than two points."""
     total = 0.0

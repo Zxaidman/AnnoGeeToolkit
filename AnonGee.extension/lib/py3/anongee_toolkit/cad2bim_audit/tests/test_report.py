@@ -39,6 +39,9 @@ def real_export():
     return matches[-1] if matches else None
 
 
+cad2bim_marks = _loader.load_cad2bim("classify.marks")
+
+
 def build_dxf_report():
     if not os.path.exists(FIXTURE):
         sys.path.insert(0, _loader.FIXTURES)
@@ -50,7 +53,7 @@ def build_dxf_report():
         config.STAGE_DXF_PARSED: dxf_parsed.read(FIXTURE, subject,
                                                  reader=cad2bim_dxf_reader),
     }
-    classify.apply(captures, layers=cad2bim_layers)
+    classify.apply(captures, layers=cad2bim_layers, marks=cad2bim_marks)
     return run.build_report(captures, subject), captures
 
 
@@ -65,12 +68,71 @@ class ClassificationTests(unittest.TestCase):
         self.assertIn("beam", found)
         self.assertIn("grid", found)
 
+    def test_labels_are_parsed_with_cad2bim_s_own_parser(self):
+        """Without this the label checks can only ever fire on stage D.
+
+        `read_dxf` returns TextRecords with mark/b_mm/h_mm empty -- a real run
+        fills them later, in a pass the reader never reaches. An audit of a DXF
+        would carry every label and know the size in none of them.
+        """
+        _report, captures = build_dxf_report()
+        sized = [item for item in captures[config.STAGE_DXF_PARSED].items
+                 if item.kind == "text" and item.extra.get("b_mm")]
+        self.assertTrue(sized, "no label had its size parsed")
+        by_mark = dict((item.mark, item.extra["b_mm"]) for item in sized)
+        self.assertEqual(by_mark.get("C2"), 600.0)
+
+    def test_stage_d_labels_are_not_re_parsed(self):
+        """They arrive already parsed; re-deriving them could only lose fidelity."""
+        intent = model.Capture(config.STAGE_INTENT, "json")
+        text = model.AuditItem(config.STAGE_INTENT, "text", text="C9 999x999")
+        text.extra["b_mm"] = 250.0
+        intent.add(text)
+        classify.apply({config.STAGE_INTENT: intent},
+                       layers=cad2bim_layers, marks=cad2bim_marks)
+        self.assertEqual(text.extra["b_mm"], 250.0)
+        self.assertIsNone(text.mark)
+
     def test_stages_that_bring_their_own_category_are_left_alone(self):
         built = model.Capture(config.STAGE_MODEL, "m")
         built.add(model.AuditItem(config.STAGE_MODEL, "element",
                                   layer="OST_StructuralColumns", category="column"))
         classify.apply({config.STAGE_MODEL: built}, layers=cad2bim_layers)
         self.assertEqual(built.items[0].category, "column")
+
+
+class FixtureCheckTests(unittest.TestCase):
+    """Every finer check, fired by the generated fixture rather than by a stub.
+
+    The stubs in test_checks.py prove each check's logic; these prove the checks
+    survive contact with a real DXF read through the real readers.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.report, _captures = build_dxf_report()
+        cls.codes = set(finding.code for finding in cls.report.findings)
+
+    def test_the_planted_faults_are_all_found(self):
+        for code in (config.CHECK_DUPLICATE_GEOMETRY, config.CHECK_OPEN_OUTLINE,
+                     config.CHECK_DEGENERATE, config.CHECK_NON_PLANAR,
+                     config.CHECK_CONFLICTING_MARK, config.CHECK_ORPHAN_MARK):
+            self.assertIn(code, self.codes, "not found: " + code)
+
+    def test_only_the_real_duplicate_is_reported(self):
+        """The five-deep block chain must not read as a pile of duplicates."""
+        duplicates = [f for f in self.report.findings
+                      if f.code == config.CHECK_DUPLICATE_GEOMETRY]
+        self.assertEqual(len(duplicates), 1)
+        self.assertEqual(duplicates[0].detail["count"], 2)
+        self.assertEqual(duplicates[0].detail["layer"], "S-COLS")
+
+    def test_checks_needing_a_model_stay_silent_without_one(self):
+        for code in (config.CHECK_DUPLICATE_ELEMENT, config.CHECK_LEVEL_MISMATCH,
+                     config.CHECK_CATEGORY_CONFLICT,
+                     config.CHECK_TYPE_NAME_MISMATCH,
+                     config.CHECK_MARK_NOT_APPLIED):
+            self.assertNotIn(code, self.codes, "fired without a model: " + code)
 
 
 class SheetTests(unittest.TestCase):
@@ -97,10 +159,49 @@ class SheetTests(unittest.TestCase):
                     "{0} row {1}: {2} cells for {3} columns".format(
                         sheet.name, index, len(row), len(sheet.columns)))
 
-    def test_the_per_category_sheets_share_the_reconciliation_columns(self):
-        expected = self.by_name["Reconciliation"].columns
-        for name in ("Columns", "Beams", "Grids"):
-            self.assertEqual(self.by_name[name].columns, expected)
+    def test_every_category_sheet_shares_the_identity_and_position_frame(self):
+        """Different measurements, same frame -- so a reader is never re-learning."""
+        lead = ["verdict", "severity", "level", "layer", "mark", "A_dxf_raw",
+                "A_dxf_parsed", "B_link_raw", "B_link_parsed", "D_intent",
+                "C_model"]
+        tail = ["offset_mm", "x_dxf_mm", "y_dxf_mm", "x_revit_mm", "y_revit_mm",
+                "built_type", "notes"]
+        for name, _keys in config.CATEGORY_SHEETS:
+            columns = self.by_name[name].columns
+            self.assertEqual(columns[:len(lead)], lead, name)
+            self.assertEqual(columns[-len(tail):], tail, name)
+
+    def test_each_category_reports_the_measurements_it_is_argued_about_in(self):
+        """The point of the split: a beam has no b x h and a slab has no size."""
+        columns = {name: self.by_name[name].columns
+                   for name, _keys in config.CATEGORY_SHEETS}
+        self.assertIn("rotation_delta_deg", columns["Columns"])
+        self.assertIn("built_b_mm", columns["Columns"])
+
+        # A beam's bounding box IS its run, so it reports width/depth/length and
+        # must not carry a "size" column that would really be length.
+        self.assertIn("length_delta_mm", columns["Beams"])
+        self.assertIn("built_depth_mm", columns["Beams"])
+        self.assertNotIn("built_b_mm", columns["Beams"])
+        self.assertNotIn("size_delta_mm", columns["Beams"])
+
+        # A slab has no cross-section at all.
+        self.assertIn("built_area_m2", columns["Slabs"])
+        self.assertIn("thickness_mm", columns["Slabs"])
+        self.assertNotIn("built_b_mm", columns["Slabs"])
+
+        self.assertIn("orientation", columns["Grids"])
+
+    def test_a_category_sheet_explains_its_own_columns(self):
+        for name, _keys in config.CATEGORY_SHEETS:
+            self.assertTrue(self.by_name[name].notes,
+                            "{0} has no explanatory note".format(name))
+
+    def test_an_extractor_that_raises_costs_one_cell_not_the_row(self):
+        """One member with odd geometry must not take the sheet down with it."""
+        category_sheets = _loader.load("category_sheets")
+        exploding = lambda row: 1 / 0
+        self.assertIsNone(category_sheets._safe(exploding, None))
 
     def test_the_category_sheets_partition_the_reconciliation(self):
         """Every categorised member appears on exactly one category sheet."""

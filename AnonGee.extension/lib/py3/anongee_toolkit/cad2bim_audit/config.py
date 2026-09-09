@@ -82,6 +82,42 @@ VERDICT_LINK_RECOVERED = "link_gap_recovered"
 VERDICT_EXPECTED_ABSENT = "expected_absent"      # absent for a documented API reason
 VERDICT_UNCLASSIFIED = "unclassified"    # present, but no layer -> category mapping
 
+# --- check codes -----------------------------------------------------------
+# These are findings that are NOT a group's verdict. A verdict answers "did this
+# member survive the pipeline"; a check answers a question about the drawing,
+# the model or the labelling that is true regardless of how the member fared.
+# Keeping them apart matters: a drawing with a column drawn twice has a problem
+# even when both copies build perfectly, and that problem has no verdict to hang
+# on because there is nothing wrong with either member.
+CHECK_DUPLICATE_GEOMETRY = "duplicate_geometry"   # drawn twice, in one stage
+CHECK_DUPLICATE_ELEMENT = "duplicate_element"     # placed twice, in the model
+CHECK_OPEN_OUTLINE = "open_outline"               # a ring that does not close
+CHECK_DEGENERATE = "degenerate_geometry"          # zero length, or zero area
+CHECK_NON_PLANAR = "non_planar"                   # stray Z in a plan drawing
+CHECK_MARK_NOT_APPLIED = "mark_not_applied"       # the label says one size, the model another
+CHECK_ORPHAN_MARK = "orphan_mark"                 # a size label sizing nothing
+CHECK_CONFLICTING_MARK = "conflicting_mark"       # one mark, two different sizes
+CHECK_LEVEL_MISMATCH = "level_mismatch"           # built on a different storey
+CHECK_LENGTH_MISMATCH = "length_mismatch"         # a linear member's run differs
+CHECK_CATEGORY_CONFLICT = "category_conflict"     # a beam built where a column was drawn
+CHECK_TYPE_NAME_MISMATCH = "type_name_mismatch"   # the type name disagrees with the size
+
+CHECK_SEVERITY = {
+    CHECK_DUPLICATE_GEOMETRY: SEVERITY_WARNING,
+    CHECK_DUPLICATE_ELEMENT: SEVERITY_ERROR,
+    CHECK_OPEN_OUTLINE: SEVERITY_WARNING,
+    CHECK_DEGENERATE: SEVERITY_WARNING,
+    CHECK_NON_PLANAR: SEVERITY_WARNING,
+    CHECK_MARK_NOT_APPLIED: SEVERITY_ERROR,
+    CHECK_ORPHAN_MARK: SEVERITY_WARNING,
+    CHECK_CONFLICTING_MARK: SEVERITY_ERROR,
+    CHECK_LEVEL_MISMATCH: SEVERITY_ERROR,
+    CHECK_LENGTH_MISMATCH: SEVERITY_WARNING,
+    CHECK_CATEGORY_CONFLICT: SEVERITY_ERROR,
+    CHECK_TYPE_NAME_MISMATCH: SEVERITY_WARNING,
+}
+
+
 #: A verdict's severity. Anything not listed is treated as SEVERITY_INFO.
 VERDICT_SEVERITY = {
     VERDICT_OK: SEVERITY_OK,
@@ -100,6 +136,17 @@ VERDICT_SEVERITY = {
 }
 
 
+def severity_of(code):
+    """The severity of any finding code, verdict or check. Unknown codes are info.
+
+    One lookup for both vocabularies so the sheets, the console summary and the
+    sorting never have to know which kind of code they are holding.
+    """
+    if code in VERDICT_SEVERITY:
+        return VERDICT_SEVERITY[code]
+    return CHECK_SEVERITY.get(code, SEVERITY_INFO)
+
+
 DEFAULTS = {
     # --- matching -----------------------------------------------------------
     # A member is "the same member" across stages when its centroid is within
@@ -107,6 +154,21 @@ DEFAULTS = {
     # between distinct columns, so two real members can never fuse, while the
     # rounding and snapping a build applies stays comfortably inside it.
     "match_radius_mm": 100.0,
+    # How far two linear members may differ in heading and still be the same
+    # run. This is what stops a beam matching the beam it meets at a corner: the
+    # span test alone would pair them, because their runs touch.
+    "collinear_tol_deg": 15.0,
+    # How far SIDEWAYS a linear member may sit from a run and still be that run.
+    # Separate from match_radius_mm, and much tighter, because a linear member's
+    # identity is its LINE: a beam is commonly drawn as two parallel faces, and
+    # at the generic 100 mm radius the two faces of a 100 mm beam fused into one
+    # member while those of a 300 mm beam did not -- behaviour that changed with
+    # the beam's width, which is no rule at all.
+    #
+    # Must stay below cad2bim's `pair_min_width_mm` (80 mm, the narrowest beam it
+    # will pair), so the two faces of even the narrowest real beam never fuse,
+    # while leaving room for the drift a link and a build introduce.
+    "linear_lateral_tol_mm": 50.0,
 
     # --- what counts as wrong ----------------------------------------------
     "size_tol_mm": 25.0,        # ~half a cover; a draughtsman would notice more
@@ -117,6 +179,24 @@ DEFAULTS = {
     # an absolute test alone flags every long member.
     "length_mismatch_frac": 0.10,
     "length_mismatch_mm": 50.0,
+
+    # --- drawing hygiene ----------------------------------------------------
+    # Two items closer than this, on the same layer and the same size, are one
+    # thing drawn twice. Tight on purpose: 10 mm is far below any real spacing
+    # between distinct members, so this can only ever fire on a true overlap.
+    "duplicate_tol_mm": 10.0,
+    # A ring whose ends are further apart than this is an open path, and cad2bim
+    # will not place it. Matches the order of the gaps a working plan leaves at
+    # junction cuts without swallowing a real opening.
+    "close_tol_mm": 5.0,
+    # Z variation across one item's points. A plan drawing is flat; stray Z is a
+    # known DXF illness that survives into the link and breaks planar operations.
+    "planarity_tol_mm": 1.0,
+    # Below this, a curve has no length and a ring has no area worth having.
+    "degenerate_mm": 1.0,
+    # A size label this close to a member sizes it. Same default as cad2bim's own
+    # `mark_radius_mm`, so the audit asks the question the build actually asked.
+    "mark_radius_mm": 1300.0,
 
     # --- report size --------------------------------------------------------
     # Per sheet. A pattern hatch explodes into tens of thousands of strokes in
@@ -135,6 +215,15 @@ DEFAULTS = {
     # cad2bim" shows up as a reader gap rather than as a missing member.
     "dxf_block_depth": 8,
 }
+
+
+#: Categories whose members are LINEAR: a run, not a footprint. They are matched
+#: and measured differently from point-like members throughout, because a beam's
+#: bounding box IS its length and its centroid moves whenever it is clipped --
+#: a 1 m clip on a 6 m beam shifts the centroid 500 mm, five times the match
+#: radius, so centroid matching reports a clipped beam as two separate members
+#: (one missing, one orphan) instead of one clipped one.
+LINEAR_CATEGORIES = frozenset(("beam", "grid", "structural wall", "arch wall"))
 
 
 #: Revit categories stage C sweeps. Names are resolved through BuiltInCategory

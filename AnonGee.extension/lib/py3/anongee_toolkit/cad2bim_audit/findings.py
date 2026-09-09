@@ -19,7 +19,7 @@ you cannot go and look at is a statistic rather than a bug report.
 Revit-free.
 """
 
-from . import config, geometry, matching
+from . import checks, config, geometry, matching
 
 
 class Finding(object):
@@ -93,6 +93,7 @@ def evaluate(groups, captures, settings=None, space_key="revit"):
         # invisible to every count-based check because nothing went missing.
         findings.extend(_shape_drift(group, values))
 
+    findings.extend(checks.run_all(groups, captures, values, space_key))
     findings.extend(_reader_gap_findings(captures))
     findings.extend(_text_findings(captures, captured))
     findings.extend(_read_error_findings(captures))
@@ -419,8 +420,7 @@ def _layer_findings(captures, values):
 # --- helpers ----------------------------------------------------------------
 
 def _finding(verdict, message, context, detail=None):
-    return Finding(verdict, config.VERDICT_SEVERITY.get(verdict, config.SEVERITY_INFO),
-                   message, category=context["category"], layer=context["layer"],
+    return Finding(verdict, config.severity_of(verdict), message, category=context["category"], layer=context["layer"],
                    level=context["level"], mark=context["mark"],
                    point_dxf=context["point_dxf"], point_revit=context["point_revit"],
                    stages=context["stages"], detail=detail)

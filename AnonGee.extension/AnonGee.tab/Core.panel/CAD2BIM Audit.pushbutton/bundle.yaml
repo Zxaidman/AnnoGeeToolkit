@@ -25,13 +25,20 @@ tooltip: |
   meshes an imported hatch becomes, which cad2bim's geometry_reader ignores by
   design and therefore never classifies or builds.
 
-  Writes an .xlsx (Summary, Findings, Reconciliation, a sheet per structural
-  category, and the raw per-stage tables) plus a JSON sidecar for diffing
-  between versions.
+  On top of that it runs eleven checks that no verdict can carry — geometry
+  drawn twice, outlines left open, stray Z, a size label the model disagrees
+  with, one mark used for two sizes, elements placed twice or on the wrong
+  storey, a beam whose run was clipped, a member built as the wrong category,
+  and a type name that disagrees with its own dimensions.
+
+  Writes an .xlsx — Summary, Findings, Reconciliation, a sheet per structural
+  category in that category's own units (b x h for columns, width/depth/run for
+  beams, area and thickness for slabs), and the raw per-stage tables — plus a
+  JSON sidecar for diffing between versions.
 
   Separate from cad2bim and read-only against it: it calls that package's
   readers, and changes nothing in it. The only thing it writes to the model is
   the DXF link, in its own transaction, and only if you ask for a fresh one —
   choose an existing link and the whole run is read-only.
 
-  Version: 0.1.0
+  Version: 0.2.0

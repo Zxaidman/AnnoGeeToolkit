@@ -105,6 +105,130 @@ class MatchingTests(unittest.TestCase):
         self.assertEqual(diagnostics["items_without_position"], 1)
 
 
+class LinearMatchingTests(unittest.TestCase):
+    """Beams are runs, not points. Everything here follows from that."""
+
+    @staticmethod
+    def line(x1, y1, x2, y2, stage, category="beam"):
+        points = [(float(x1), float(y1), 0.0), (float(x2), float(y2), 0.0)]
+        result = model.AuditItem(stage, "curve", layer="S-BEAM",
+                                 category=category, points_dxf=points,
+                                 points_revit=points)
+        return result
+
+    def _fold(self, drawing_items, model_items):
+        drawing = model.Capture(config.STAGE_DXF_RAW, "d")
+        for one in drawing_items:
+            drawing.add(one)
+        built = model.Capture(config.STAGE_MODEL, "m")
+        for one in model_items:
+            built.add(one)
+        captures = {config.STAGE_DXF_RAW: drawing, config.STAGE_MODEL: built}
+        groups, _diagnostics = matching.build_groups(captures)
+        return groups
+
+    def test_a_clipped_beam_stays_one_member(self):
+        """Clipping moves a centroid far outside the match radius.
+
+        A 1 m clip on a 6 m beam shifts the centroid 500 mm. Matched on
+        centroids this reads as two members -- one missing, one orphan -- which
+        is two false findings for one real (and minor) fault.
+        """
+        groups = self._fold(
+            [self.line(0, 0, 6000, 0, config.STAGE_DXF_RAW)],
+            [self.line(0, 0, 5000, 0, config.STAGE_MODEL)])
+        self.assertEqual(len(groups), 1)
+        self.assertEqual(groups[0].stages(),
+                         [config.STAGE_DXF_RAW, config.STAGE_MODEL])
+
+    def test_a_beam_split_at_its_columns_is_one_member_built_in_pieces(self):
+        """cad2bim splits at every column crossed; the pieces are not orphans."""
+        groups = self._fold(
+            [self.line(0, 0, 9000, 0, config.STAGE_DXF_RAW)],
+            [self.line(0, 0, 3000, 0, config.STAGE_MODEL),
+             self.line(3000, 0, 6000, 0, config.STAGE_MODEL),
+             self.line(6000, 0, 9000, 0, config.STAGE_MODEL)])
+        self.assertEqual(len(groups), 1)
+        self.assertEqual(groups[0].count(config.STAGE_MODEL), 3)
+
+    def test_the_run_is_the_sum_of_its_segments(self):
+        groups = self._fold(
+            [self.line(0, 0, 9000, 0, config.STAGE_DXF_RAW)],
+            [self.line(0, 0, 3000, 0, config.STAGE_MODEL),
+             self.line(3000, 0, 6000, 0, config.STAGE_MODEL),
+             self.line(6000, 0, 9000, 0, config.STAGE_MODEL)])
+        self.assertAlmostEqual(groups[0].total_length_mm(config.STAGE_MODEL),
+                               9000.0)
+        self.assertAlmostEqual(groups[0].total_length_mm(config.STAGE_DXF_RAW),
+                               9000.0)
+
+    def test_beams_meeting_at_a_corner_do_not_fuse(self):
+        """Their runs touch, so the span test alone would pair them.
+
+        Collinearity is the guard: without it every corner in the plan would
+        merge two beams into one member.
+        """
+        groups = self._fold(
+            [self.line(0, 0, 6000, 0, config.STAGE_DXF_RAW),
+             self.line(6000, 0, 6000, 6000, config.STAGE_DXF_RAW)],
+            [])
+        self.assertEqual(len(groups), 2)
+
+    def test_beams_laid_end_to_end_do_not_fuse(self):
+        """Collinear and touching, but two members -- not one run in pieces.
+
+        The discriminator is that matching probes from an item's CENTROID: a
+        split piece's centroid lies on the drawn run, while an end-to-end
+        neighbour's centroid is half its own length away from it.
+        """
+        groups = self._fold(
+            [self.line(0, 0, 6000, 0, config.STAGE_DXF_RAW),
+             self.line(6000, 0, 12000, 0, config.STAGE_DXF_RAW)],
+            [])
+        self.assertEqual(len(groups), 2)
+
+    def test_a_split_piece_joins_the_run_it_was_cut_from(self):
+        """The mirror of the case above, to prove the rule is not just strict."""
+        groups = self._fold(
+            [self.line(0, 0, 6000, 0, config.STAGE_DXF_RAW)],
+            [self.line(0, 0, 3000, 0, config.STAGE_MODEL)])
+        self.assertEqual(len(groups), 1)
+
+    def test_the_two_faces_of_a_beam_are_two_lines_not_one_run(self):
+        """A beam is commonly drawn as two parallel faces, 80-700 mm apart.
+
+        Judged at the generic 100 mm match radius, the faces of a 100 mm beam
+        fused and those of a 300 mm beam did not -- behaviour that changed with
+        the beam's width, which is no rule at all. Lateral distance has its own
+        tolerance, below the narrowest beam cad2bim will pair.
+        """
+        for width in (100, 300, 600):
+            groups = self._fold(
+                [self.line(400, 0, 5000, 0, config.STAGE_DXF_RAW),
+                 self.line(400, width, 5000, width, config.STAGE_DXF_RAW)], [])
+            self.assertEqual(len(groups), 2,
+                             "faces {0} mm apart fused".format(width))
+
+    def test_a_run_still_absorbs_a_piece_that_lies_on_it(self):
+        """The tightened lateral rule must not cost the split-beam case."""
+        groups = self._fold(
+            [self.line(0, 0, 9000, 0, config.STAGE_DXF_RAW)],
+            [self.line(0, 0, 4500, 0, config.STAGE_MODEL),
+             self.line(4500, 0, 9000, 0, config.STAGE_MODEL)])
+        self.assertEqual(len(groups), 1)
+        self.assertEqual(groups[0].count(config.STAGE_MODEL), 2)
+
+    def test_two_distinct_columns_still_cannot_collapse(self):
+        """The one-per-stage cap must survive for point-like members."""
+        def column(cx):
+            points = rect(cx, 0, 400, 400)
+            return model.AuditItem(config.STAGE_DXF_RAW, "curve", layer="S-COLS",
+                                   category="column", points_dxf=points,
+                                   points_revit=points)
+        groups = self._fold([column(0), column(60)], [])
+        self.assertEqual(len(groups), 2)
+
+
 class VerdictTests(unittest.TestCase):
 
     def setUp(self):

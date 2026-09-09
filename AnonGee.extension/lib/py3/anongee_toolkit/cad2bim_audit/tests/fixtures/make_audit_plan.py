@@ -99,6 +99,32 @@ def build(path):
         previous = name
     msp.add_blockref("LEVEL1", (14000, 0), dxfattribs={"layer": "S-COLS"})
 
+    # --- faults the finer checks exist to catch ----------------------------
+    # All placed beyond x=20000 so they cannot disturb the reader-gap
+    # assertions, which select the baseline geometry by position.
+    for layer in ("S-JUNK",):
+        doc.layers.add(layer)
+
+    # drawn twice, exactly on top of itself
+    _rect(msp, 20000, 0, 400, 400, "S-COLS")
+    _rect(msp, 20000, 0, 400, 400, "S-COLS")
+
+    # an outline left open at a junction cut: never becomes a member
+    msp.add_lwpolyline([(22000, 0), (22400, 0), (22400, 400),
+                        (22000, 400), (22000, 120)],
+                       dxfattribs={"layer": "S-COLS"})
+
+    # stray Z in a plan drawing
+    msp.add_line((24000, 0, 0), (25000, 0, 250), dxfattribs={"layer": "S-JUNK"})
+
+    # zero-length line: occupies no space, costs every pass time
+    msp.add_line((26000, 0), (26000.1, 0), dxfattribs={"layer": "S-JUNK"})
+
+    # C1 is already 400x400 beside the first column; here it is 300x300, and
+    # this one sizes nothing at all
+    msp.add_text("C1 300x300", dxfattribs={"layer": "S-TEXT", "height": 100}
+                 ).set_placement((30000, 0), align=TextEntityAlignment.CENTER)
+
     doc.saveas(path)
     return path
 
