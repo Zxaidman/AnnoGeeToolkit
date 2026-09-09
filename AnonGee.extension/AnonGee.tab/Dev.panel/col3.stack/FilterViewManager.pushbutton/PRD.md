@@ -1,7 +1,7 @@
 # Filter View Manager — product requirements
 
-**Status:** agreed 2026-09-09, from the project owner's answers to the four
-questions in `todo-list.md` §6. Nothing here is built.
+**Status:** agreed 2026-09-09. The pure rule core is **built and tested** as of
+0.0.3; the Revit half and both surfaces are not.
 **Companion documents:** `METHODOLOGY.md` (the rules of this repository),
 `ARCHITECTURE.md` (how it is put together), `FOLDER_STRUCTURE.md` (where the
 code goes), `todo-list.md` (the queue).
@@ -152,17 +152,30 @@ legacy path.
 **This is what "carries over sessions and projects" means:** the rules follow
 *the person*, at their desk, into whatever model they open next.
 
-**A per-project override is wanted, and is not specified yet** (FEAT-14). Two
-things must be settled before it is built, and both can lose a user's work if
-they are guessed:
+**The per-project override is settled** (2026-09-09) and its reading half is
+built in 0.0.3:
 
-1. **Where a project store lives** — a JSON beside the `.rvt` (visible and
-   editable, easy to lose in a move), Extensible Storage inside the `.rvt`
-   (travels with the model, invisible outside Revit, needs a schema GUID that
-   can never change afterwards), or a path the user points at per project (which
-   is how an office actually shares one).
-2. **What happens when both stores hold a rule of the same name.** Showing both,
-   with their source marked, is the only answer that never silently loses one.
+```text
+<the folder holding the .rvt>/AnonGee/filter_view_rules.json
+```
+
+**Not Extensible Storage**, and the reason is a principle rather than a
+preference: writing Extensible Storage **modifies the model** and needs a
+transaction, which §6.1 forbids outright. A file beside the model also stays
+visible, editable, diffable and shareable — the project folder is already how an
+office shares anything — and needs no schema GUID that can never be changed
+afterwards.
+
+**One file per folder, not per model.** A job is a folder with ARC, STR and MEP
+in it, and a rule about structural columns is about the job. A model that has
+never been saved has no project store; that is the ordinary case for a new
+project, not an error. For a workshared model the caller passes the **central**
+path, because `Document.PathName` points at the user's own local copy.
+
+**There is no precedence.** Both stores are shown, each rule badged with where
+it came from, and the same name in both gives two rules. Picking a winner loses
+somebody's rule silently — for a tool whose whole job is remembering things,
+that is the worst failure available.
 
 ### 5.1 Why strings, and why it matters
 

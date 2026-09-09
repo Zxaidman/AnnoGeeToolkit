@@ -15,6 +15,68 @@ holds Auto Level Manager's four copies together.
 
 ---
 
+## 0.0.3 - 2026-09-09
+
+The rule engine, built test-first. 131 tests, none of which need Revit. There is
+still no window, so nothing is on the ribbon but the scaffold.
+
+- **`lib/anongee_filterrules`** -- the four modules that decide everything about
+  a rule that can be decided without a model open: `values` (parsing, units,
+  operators), `names` (Revit's idea of the same name), `rules` (`Condition`,
+  `Rule`, `RuleSet`), `store` (the JSON files).
+- **It is in `lib/`, not beside the script**, which is the one deliberate
+  deviation from the house pattern and is forced rather than chosen: the panel
+  is registered from `startup.py` on IronPython 2.7, and *pyRevit puts
+  `<extension>/lib` on sys.path but nothing below it*, so `lib/` is the only
+  folder both engines can import from.
+- **The dual-engine contract is enforced statically**, because there is no
+  IronPython on the machine that runs the suite: no Python-3-only syntax, no
+  annotations, no keyword-only arguments, no starred assignment targets,
+  `from __future__ import division` in every module, no `unicode_literals`,
+  pure ASCII throughout, no `re`, no `csv`, no `anongee_toolkit`, no Revit.
+  An f-string here would otherwise be invisible everywhere except Revit's
+  startup, where it would show up as a panel that fails to load.
+- **The project store is decided: a JSON file in the model's own folder**,
+  `<folder>/AnonGee/filter_view_rules.json`, one per folder rather than per
+  model -- a job is a folder with ARC, STR and MEP in it, and a rule about
+  columns is about the job. Revit's Extensible Storage was rejected on a point
+  of principle rather than convenience: writing it **modifies the model** and
+  needs a transaction, and PRD S6.1 says this tool writes nothing to the
+  project. A file also stays visible, editable, diffable and shareable, and
+  needs no schema GUID that can never be changed afterwards.
+  *Workshared models:* `Document.PathName` points at the user's local copy, so
+  the caller passes the central path when there is one. `project_path` is pure
+  and neither knows nor cares which it was handed.
+- **There is no precedence between the two stores.** Both are shown, each rule
+  marked with where it came from, and the same name in both gives two rules.
+  Picking a winner loses somebody's rule silently, which for a tool whose whole
+  job is remembering things is the worst failure available.
+- **A value is stored in the unit it was typed in**, and converted at compare
+  time. Storing the converted number would lose which unit the rule was written
+  in, and that cannot be recovered afterwards.
+- **A comma in a value box is refused rather than guessed at.** `1,5` is
+  one-and-a-half in half of Europe and fifteen everywhere else.
+- **A missing parameter never matches a real comparison.** A wall with no
+  Comments is not `Comments = X`, and it is not `Comments != X` either -- it has
+  no Comments to disagree with. Only `is empty` says yes.
+- **Writing is atomic** -- temp file in the same directory, then rename -- so a
+  save that fails costs the new rule rather than every old one, and a reader
+  never sees a half-written file.
+
+### One fault the tests found
+
+`Condition` silently folded an unrecognised operator to `equals`. A typo in a
+hand-edited rules file would have become a rule that quietly meant something
+else, and `problems()` would have had nothing to report. The operator is now
+kept as given and named in `problems()`; `matches()` already answered `False`
+for anything it could not evaluate, so keeping it costs nothing. The `match`
+mode still folds to `all`, and the code says why the two differ.
+
+### Not in this version
+
+The Revit half -- `revit_query`, `revit_apply` -- and the window. **0.1.0** is
+the first build that applies a rule to a view.
+
 ## 0.0.2 — 2026-09-09
 
 Still nothing runs. What it will do is now decided and written down, and one of

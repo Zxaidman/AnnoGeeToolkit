@@ -26,9 +26,16 @@ tooltip: |
       to the next project. A per-project override is wanted, not yet specified.
     • The modeless window ships first; the dockable panel follows.
 
+  Built so far
+    • The rule engine: the rule model, the value parsing, the operators, the
+      units and the JSON store. 131 tests, none of which need Revit.
+    • It lives in lib/anongee_filterrules, not beside this script, because the
+      dockable panel is registered from startup.py on IronPython and lib/ is
+      the only folder both engines can import from.
+
   Read before building
     METHODOLOGY.md   how this repository works and what this tool must obey
     todo-list.md     the queue, one ID per item
     CHANGELOG.md     what each build changed
 
-  Version: 0.0.2
+  Version: 0.0.3

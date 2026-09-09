@@ -1,6 +1,7 @@
 # Filter View Manager — architecture
 
-**Status:** proposed 2026-09-09. Nothing is built.
+**Status:** agreed 2026-09-09. The pure half of the rule core is **built and
+tested** as of 0.0.3; the Revit half and the two surfaces are not.
 **Requires:** `PRD.md` (what it must do), `METHODOLOGY.md` (the repository's
 rules). `FOLDER_STRUCTURE.md` turns this into a file tree.
 
@@ -40,7 +41,7 @@ For this tool the same shape reads:
 
 | Piece | Engine | Job | Lives at |
 | --- | --- | --- | --- |
-| **Rule core** | *both* — plain 2.7 **and** 3.12 | The rule model, JSON load/save, value parsing, operators, matching, and the Revit collection/isolation calls | `AnonGee.extension/lib/anongee_filterrules/` |
+| **Rule core** | *both* — plain 2.7 **and** 3.12 | The rule model, JSON load/save, value parsing, operators, matching, and the Revit collection/isolation calls | `AnonGee.extension/lib/anongee_filterrules/` — **the pure half is built as of 0.0.3** |
 | **Window** | CPython 3 | Build, preview, name and save rules. WPF, `anongee_toolkit`, `IExternalEventHandler` | `…/FilterViewManager.pushbutton/` |
 | **Panel** | IronPython 2.7 | Register the pane at load, show it on request, draw the rule buttons, press one | `AnonGee.extension/startup.py` + a small module beside it |
 
@@ -108,6 +109,34 @@ One JSON file, machine level, the `cad2bim/prefs.py` location and rules:
 ~/.anongee/filter_view_rules.json                               (fallback/tests)
 $ANONGEE_PREFS_DIR/filter_view_rules.json                       (override — this is what makes it testable)
 ```
+
+And the **project store**, settled 2026-09-09 and built in 0.0.3:
+
+```text
+<the folder holding the .rvt>/AnonGee/filter_view_rules.json
+```
+
+Chosen over Revit's Extensible Storage on a point of principle rather than
+convenience: **writing Extensible Storage modifies the model** and needs a
+transaction, and PRD §6.1 says this tool writes nothing to the project. A file
+beside the model also stays visible, editable, diffable and shareable — a
+project folder is already how an office shares anything — and needs no schema
+GUID that can never be changed afterwards.
+
+One file per **folder**, not per model: a job is a folder with ARC, STR and MEP
+in it, and a rule about structural columns is about the job. A model that has
+never been saved has no project store, and that is the ordinary case for a new
+project rather than an error.
+
+*Workshared models:* `Document.PathName` on a local file points at the user's
+own copy, not the shared central, so the caller passes the **central** path when
+there is one. `project_path()` is pure and neither knows nor cares which it was
+handed — which is what keeps it testable.
+
+**There is no precedence.** Both stores are shown, each rule marked with where
+it came from, and the same name in both gives two rules. Picking a winner loses
+somebody's rule silently, and for a tool whose whole job is remembering things
+that is the worst failure available.
 
 ```jsonc
 {
@@ -205,6 +234,11 @@ needs — read them before writing the equivalent.
 comparison produced *"The name is already in use for this element type"* in a
 live model. The core reuses the algorithm; being unable to *import* it across the
 engine boundary is exactly the mirrored-helper case from §2.1.
+
+Built as **`names.py`** — `key()`, `same()`, `find()`, `index()`. It turned out
+to be entirely pure, so it lives in the tested half rather than in `compat.py`
+as first sketched; `compat.py` is left holding only the `ElementId` width shim,
+which genuinely does need Revit.
 
 ### 4.3 A rule that matches nothing
 

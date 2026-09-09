@@ -38,9 +38,13 @@ __author__ = "AnonGee"
 #:   MINOR  a new capability. Everything already saved still works.
 #:   PATCH  a fix. Nothing new to learn.
 #:
-#: 0.0.2 means the bundle exists and what it will do is agreed and written
-#: down. 0.1.0 will be the first build that applies a rule to a view.
-VERSION = "0.0.2"
+#: It is also declared in ``anongee_filterrules/__init__.py``, which is the
+#: package this tool will import; ``tests/test_filterrules.py`` holds all
+#: four copies together.
+#:
+#: 0.0.3 means the rule core is built and tested and has no window on it.
+#: 0.1.0 will be the first build that applies a rule to a view.
+VERSION = "0.0.3"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 

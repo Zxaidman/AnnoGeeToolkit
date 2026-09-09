@@ -1,7 +1,7 @@
 # Filter View Manager — folder structure
 
-**Status:** proposed 2026-09-09. Only the bundle in §1 exists; everything marked
-*(planned)* does not.
+**Status:** 2026-09-09. The bundle and the **pure half of the rule core** exist
+and are tested; everything marked *(planned)* does not.
 **Follows from:** `ARCHITECTURE.md` §2 — the rule core is dual-engine, so where
 a file sits decides which engine can read it. That is the whole reason this
 document exists separately.
@@ -15,14 +15,15 @@ AnonGee.extension/
 │
 ├── lib/                                    ← BOTH engines can import from here
 │   ├── path_resolver.py                        (existing — proves the point)
-│   └── anongee_filterrules/                (planned)  THE RULE CORE
-│       ├── __init__.py                         VERSION lives here
-│       ├── rules.py                            the rule model
-│       ├── values.py                           parsing, operators, units — no Revit
-│       ├── store.py                            the JSON file
-│       ├── revit_query.py                      collection + name resolution
-│       ├── revit_apply.py                      isolate / clear
-│       └── compat.py                           the API differences this tool touches
+│   └── anongee_filterrules/                THE RULE CORE
+│       ├── __init__.py                     ✅  VERSION lives here
+│       ├── values.py                       ✅  parsing, operators, units — no Revit
+│       ├── names.py                        ✅  Revit's "same name" — no Revit
+│       ├── rules.py                        ✅  Condition, Rule, RuleSet — no Revit
+│       ├── store.py                        ✅  the two JSON files — no Revit
+│       ├── revit_query.py                  (planned)  collection + name resolution
+│       ├── revit_apply.py                  (planned)  isolate / clear
+│       └── compat.py                       (planned)  the ElementId width shim
 │
 ├── lib/py3/anongee_toolkit/                ← CPython 3 ONLY (the shared toolkit)
 │       …unchanged. Used by the window, never by the core.
@@ -81,15 +82,16 @@ Everything in `lib/anongee_filterrules/` obeys three rules: **plain Python 2.7
 | Module | Revit? | What it holds |
 | --- | --- | --- |
 | `__init__.py` | no | `VERSION`. The one place the number is written. |
-| `rules.py` | **no** | `Rule` and `Condition` — plain objects with `to_dict()` / `from_dict()`. Ordering, renaming, duplication, id generation. Knows nothing about Revit or WPF. |
-| `values.py` | **no** | Hand-written parsing (`"100 m²"` → `100.0, "m2"`), the operator set (`equals`, `contains`, `greater`, `between`, …), and the unit conversions. The most testable file in the tool. |
-| `store.py` | **no** | The `%APPDATA%` path, `ANONGEE_PREFS_DIR` override, atomic write, `last_error()`, schema tolerance. Modelled directly on `cad2bim/prefs.py`. |
+| `values.py` | **no** ✅ | Hand-written parsing (`"100 m²"` → `100.0, "m2"`), 13 operators, the unit table, and the float tolerance. The most testable file in the tool. |
+| `names.py` | **no** ✅ | `key()`, `same()`, `find()`, `index()` — Revit's case- and whitespace-insensitive name matching. Turned out entirely pure, so it lives here rather than in `compat.py` as first sketched. |
+| `rules.py` | **no** ✅ | `Condition`, `Rule`, `RuleSet` — plain objects with `to_dict()` / `from_dict()`. Ordering, renaming, duplication, id generation, `problems()`. |
+| `store.py` | **no** ✅ | Both stores, the `ANONGEE_PREFS_DIR` override, atomic write, `last_error()`, schema tolerance, and `load_all()` merging machine and project with each rule badged. Modelled on `cad2bim/prefs.py`. |
 | `revit_query.py` | **yes** | Categories in the model; families and types under a category; parameters on a type; the four-stage narrowing of `ARCHITECTURE.md` §4; the CRIT-2 filterable flag. |
 | `revit_apply.py` | **yes** | `IsolateElementsTemporary`, `DisableTemporaryViewMode`, and the "can this view be isolated at all" check. |
-| `compat.py` | **yes** | `ElementId` Int32→Int64 (Revit 2024) and the Revit-name matching from `cad2bim/type_names.py`. |
+| `compat.py` | **yes** | `ElementId` Int32→Int64 (Revit 2024). The name matching that was going to live here turned out to need no Revit at all and became `names.py`. |
 
-**The Revit/no-Revit line is the test boundary.** `rules`, `values` and `store`
-are four-fifths of the thinking and run on any machine — which is the whole
+**The Revit/no-Revit line is the test boundary.** `values`, `names`, `rules` and
+`store` are four-fifths of the thinking and run on any machine — which is the whole
 point of `METHODOLOGY.md` §10, and the reason `anongee_autolevel` states outright
 that *"only `compat` and `revit_ops` import Autodesk namespaces."*
 
@@ -99,8 +101,9 @@ that *"only `compat` and `revit_ops` import Autodesk namespaces."*
 
 ```text
 tests/
-├── test_filterrules.py          (planned)  rules, values, store — no Revit, no WPF
-└── test_filterview_ui.py        (planned)  ui.xaml + script.py, statically
+├── test_filterrules.py       ✅  131 tests — values, names, rules, store, and the
+│                                 dual-engine contract. No Revit, no WPF.
+└── test_filterview_ui.py     (planned)  ui.xaml + script.py, statically
 ```
 
 `test_filterrules.py` covers the pure core: round-tripping a rule through JSON,
@@ -116,13 +119,18 @@ resource key exists, every interactive control has a tooltip, no `re`, no
 pyRevit import, and **the version agrees across `__init__.py`, `bundle.yaml`,
 `CHANGELOG.md` and the window header**.
 
-One test this tool needs that no existing one has: **the core imports on Python
-2.7 syntax.** Compile every file in `lib/anongee_filterrules/` with
-`ast.parse` under 2.7 rules — no f-strings, no annotations, no `yield from`.
-There is no IronPython on the CI machine, so a syntax check is the only thing
-standing between a 3-only construct and a dockable panel that fails to load at
-Revit start. **This is the highest-value test in the plan**, because its failure
-mode is invisible on every developer machine.
+One test this tool needs that no existing one has, and it is built:
+**`SharedCoreTests`**, the dual-engine contract checked statically. No
+Python-3-only syntax, no annotations, no keyword-only arguments, no starred
+assignment targets, `from __future__ import division` everywhere, no
+`unicode_literals`, pure ASCII, no `re`, no `csv`, no `anongee_toolkit`, no
+Revit — plus the four-copies-of-one-version check.
+
+There is no IronPython on the machine that runs the suite, so these are the only
+thing standing between a 3-only construct and a dockable panel that fails to
+load at Revit start. Proved to bite by reintroducing each fault: an f-string, a
+non-ASCII literal, a toolkit import and a dropped `division` each fail it by
+name.
 
 ---
 
@@ -195,8 +203,8 @@ Mirrors `ARCHITECTURE.md` §10, as a file checklist:
 
 | # | Build | Files | Provable without Revit? |
 | --- | --- | --- | --- |
-| 1 | The pure core | `rules.py`, `values.py`, `store.py`, `tests/test_filterrules.py` | **yes** — write the tests first |
-| 2 | The 2.7 syntax gate | a case in `tests/test_filterrules.py` | **yes** — and it is the one that catches the invisible bug |
+| 1 | ✅ The pure core | `values.py`, `names.py`, `rules.py`, `store.py`, `tests/test_filterrules.py` | **done** — 131 tests, written first |
+| 2 | ✅ The 2.7 syntax gate | `SharedCoreTests` | **done** — and proved to bite |
 | 3 | The Revit half of the core | `revit_query.py`, `revit_apply.py`, `compat.py` | no — thin on purpose |
 | 4 | The window | `ui.xaml`, `script.py`, `tests/test_filterview_ui.py` | statically, yes |
 | 5 | **Ship 0.1.0** | `README.md`, `extension.json`, root `CHANGELOG.md`, `done-list.md` | — |

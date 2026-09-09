@@ -39,9 +39,9 @@ report or the screenshot says so. A green test suite is not verification.
 **An ID is unique within this file.** A reference across files is written in
 full — *Bridge · FEAT-17*, *RC Automation · CRIT-1*.
 
-Current build: **0.0.2** (extension 2.0.0). Documented, not built — PRD,
-architecture and folder structure agreed; no tool code, no tests, nothing has
-run in Revit.
+Current build: **0.0.3** (extension 2.0.0). The pure rule core is built and
+tested — 131 tests, none of which need Revit. No window, no Revit half, nothing
+has run in Revit.
 
 ---
 
@@ -138,41 +138,76 @@ nothing here is agreed until it says so.
 | ID | Feature | Phase |
 | --- | --- | --- |
 | FEAT-1 | Category → Family → Type cascade picker, correct for both system and loadable families (METHODOLOGY §13.3) | `pending` |
-| FEAT-2 | Parameter conditions on a rule — operator set, value parsing without `re`, units recorded with the number (§13.4) | `pending` |
+| FEAT-2 | Parameter conditions on a rule — operator set, value parsing without `re`, units recorded with the number (§13.4) | `building` — the core half is done (13 operators, the unit table, `parse_number`); the picker is not |
 | FEAT-3 | Apply a rule to the active view — `IsolateElementsTemporary`, active view only (CRIT-1) | `pending` |
-| FEAT-4 | Name and save a rule; rules survive the Revit session **and** open in another project — strings only, never `ElementId`s (§13.5) | `pending` |
+| FEAT-4 | Name and save a rule; rules survive the Revit session **and** open in another project — strings only, never `ElementId`s (§13.5) | `building` — `store` is done and tested, machine and project both; nothing writes to it yet |
 | FEAT-5 | The saved rules as pressable buttons in a modeless window | `pending` |
 | FEAT-6 | Clear / restore the view to what it was before a rule was pressed | `pending` |
-| FEAT-7 | Edit, rename, duplicate, delete and reorder saved rules | `pending` |
+| FEAT-7 | Edit, rename, duplicate, delete and reorder saved rules | `building` — `RuleSet` does all five and is tested; no UI on it |
 | FEAT-8 | Live match count before applying, debounced (`ui/dialogs.DebounceTimer`) | `pending` |
 | FEAT-9 | Select the matched elements in Revit (`revit/selection.set_selection`) | `pending` |
 | FEAT-10 | The dockable panel — hidden until the pushbutton shows it, docked under the ribbon by default, re-dockable left/right like Properties. Blocked on CRIT-3 | `pending` |
 | FEAT-11 | Apply a rule across several views at once, skipping views that cannot take filters (§13.7) | `pending` |
 | FEAT-12 | Import / export a rule set, so an office shares one | `pending` |
 | FEAT-13 | Convert a saved rule into a real `ParameterFilterElement` in the project — only possible for rules whose every parameter passed the CRIT-2 flag. Not wanted today; recorded because CRIT-2's answer paid for it | `pending` |
-| FEAT-14 | Per-project rule store overriding the machine one — location and precedence still to be discussed (owner's answer to question 4) | `pending` |
+| FEAT-14 | Per-project rule store — **decided and read-side built**: `<model folder>/AnonGee/filter_view_rules.json`, one per folder, no precedence (both shown, each badged). Not Extensible Storage, because writing that modifies the model and PRD S6.1 forbids it. The window has no UI for it yet | `building` |
 
 ---
 
 ## 4. Working now
 
-Nothing. The bundle exists; pressing it says so.
+**Only what a test can prove.** Nothing here has run inside Revit, and by this
+file's own rule that means none of it is verified — it is built, and green.
+
+**The pure rule core**, `AnonGee.extension/lib/anongee_filterrules`, 131 tests:
+
+- `values` — `parse_number` (no `re`), the unit table (mm/cm/m/ft/in and their
+  squares and cubes, degrees), 13 operators, a float tolerance so
+  "equals 100 m2" matches something.
+- `names` — Revit's case- and whitespace-insensitive name matching.
+- `rules` — `Condition`, `Rule`, `RuleSet`; JSON round trip; `problems()`;
+  add / find / remove / duplicate / move.
+- `store` — the machine store, the project store, atomic writes, `last_error()`,
+  schema tolerance, and `load_all()` badging each rule with where it came from.
+
+**The dual-engine gate.** `SharedCoreTests` refuses Python-3-only syntax, a
+missing `from __future__ import division`, a non-ASCII literal, `re`, `csv`,
+`anongee_toolkit` and Revit. Proved to bite by reintroducing each fault.
+
+**One fault it already caught.** `Condition` silently folded an unrecognised
+operator to `equals`, so a typo in a hand-edited rules file would have become a
+rule quietly meaning something else. The operator is now kept and named in
+`problems()`.
 
 ---
 
 ## 5. Pending scope
 
-- **PRD** — what a rule is, what pressing one does, where rules live, what the
-  window looks like. Blocked on CRIT-1 and CRIT-2.
-- **Architecture** — which parts are plain Python (rule model, evaluation,
-  persistence, parsing) and which touch Revit (collector, view application).
-  The split decides what can be tested; see METHODOLOGY §10.
-- **Folder structure** — the tool's own package beside `script.py`, following
-  `anongee_autolevel`. Whether anything belongs in `anongee_toolkit` instead is
-  an architecture decision: a rule model used by one tool does not, a view-filter
-  helper that `cad2bim/builders/view_filters.py` could also use might.
-- **Promotion off Dev.panel** to Advance.panel beside `FilterParameter.splitbutton`,
-  once confirmed working. A MAJOR extension change under the repo's own table.
+**Done:** the PRD, the architecture, the folder structure and the pure core.
+
+**Next, in this order:**
+
+1. **`revit_query.py`** — categories in the model; families and types under a
+   category, correct for system *and* loadable families (FEAT-1, METHODOLOGY
+   §13.3); parameters on a type with the CRIT-2 filterable flag; the four-stage
+   narrowing of `ARCHITECTURE.md` §4. Thin on purpose — everything decidable is
+   already above it.
+2. **`revit_apply.py`** — `IsolateElementsTemporary`, `DisableTemporaryViewMode`,
+   and the can-this-view-be-isolated check. Needs the two Revit behaviours
+   `ARCHITECTURE.md` §6 flags as unverified: a view under a view template, and a
+   view already manually isolated.
+3. **`compat.py`** — the `ElementId` Int32→Int64 shim.
+4. **The window** — `ui.xaml` and `script.py`, modeless per §12.8, plus
+   `tests/test_filterview_ui.py` modelled on `test_autolevel_ui.py`.
+5. **Ship 0.1.0** — README rewritten off "scaffold", `extension.json` to 2.1.0,
+   a root changelog entry, `done-list.md` opened.
+
+**Then:** prove CRIT-3 with a throwaway pane registered from `startup.py`, and
+if it holds, the panel as 0.2.0.
+
+**Later:** promotion off Dev.panel to Advance.panel beside
+`FilterParameter.splitbutton`, once the project owner has confirmed it working
+in Revit. A MAJOR extension change under the repo's own table.
 
 ---
 
