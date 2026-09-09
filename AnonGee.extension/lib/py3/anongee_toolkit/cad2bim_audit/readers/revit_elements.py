@@ -26,6 +26,7 @@ from Autodesk.Revit.DB import (BuiltInCategory, BuiltInParameter, ElementId,
 
 from .. import config
 from ..model import AuditItem, Capture
+from . import revit_shapes
 
 #: Type parameters that carry a member's cross-section, in the order to try.
 _WIDTH_PARAMS = ("b", "Width", "Section Width", "Foundation Thickness")
@@ -68,7 +69,8 @@ def read(doc, space, settings=None, categories=None):
 
 
 def _element_item(doc, element, category_name, space, values):
-    points_ft = _footprint(element, values["max_points_per_item"])
+    points_ft, source, found = _footprint(element, values["max_points_per_item"])
+    holes = found.holes if found is not None else 0
     points_dxf, points_revit = space.from_revit(points_ft)
     element_type = _type_of(doc, element)
 
@@ -83,7 +85,16 @@ def _element_item(doc, element, category_name, space, values):
     )
 
     item.extra["family"] = _name_of(_family_of(element_type))
-    item.extra["size_source"] = "bounding_box"
+    item.extra["revit_category"] = _safe(lambda: element.Category.Name)
+    item.extra["footprint_source"] = source
+    item.extra["hole_count"] = holes
+    if found is not None and found.hole_rings:
+        # Areas in square feet at this point; the item stores millimetres.
+        square = config.MM_PER_FT ** 2
+        item.extra["gross_area_mm2"] = found.gross_area() * square
+        # Set before _add_quantities, which lets Revit's own computed area --
+        # authoritative where the model reports one -- override it.
+        item.extra["area_mm2"] = found.net_area() * square
     item.extra["type_b_mm"] = _length_param_mm(element_type, _WIDTH_PARAMS)
     item.extra["type_h_mm"] = _length_param_mm(element_type, _DEPTH_PARAMS)
     item.extra["instance_b_mm"] = _length_param_mm(element, _WIDTH_PARAMS)
@@ -94,12 +105,23 @@ def _element_item(doc, element, category_name, space, values):
 
     _add_location(item, element)
     _add_quantities(item, element)
+    _add_constraints(doc, item, element)
+
+    if item.handle is None:
+        item.note("this element's id could not be read, so nothing else on this "
+                  "row can be trusted either -- the row exists to say the "
+                  "element is there")
 
     rotation = item.extra.get("rotation_deg")
-    if rotation is not None and abs(rotation % 90.0) > 0.5:
-        item.note("member is rotated {0:.1f} deg; the bounding-box plan size "
-                  "over-reports its section -- compare type_b_mm / type_h_mm"
-                  .format(rotation))
+    if (source == "bounding_box" and rotation is not None
+            and abs(rotation % 90.0) > 0.5):
+        # Only a fallback box misreports a rotated member now: a real footprint
+        # is measured along its own axes, and `plan_size` is oriented.
+        item.note("rotated {0:.1f} deg and no geometry could be read, so the "
+                  "size comes from an axis-aligned box and over-reports the "
+                  "section -- compare type_b_mm / type_h_mm".format(rotation))
+    if holes:
+        item.note("{0} opening(s) in the footprint".format(holes))
     return item
 
 
@@ -130,6 +152,12 @@ def _add_location(item, element):
         if length is not None:
             item.extra["length_mm"] = length * config.MM_PER_FT
         item.extra["curve_type"] = type(curve).__name__
+        # A horizontal beam's bounding box is degenerate in plan, so an angle
+        # derived from it is meaningless. The location curve knows the heading.
+        if start is not None and end is not None:
+            import math
+            heading = math.degrees(math.atan2(end.Y - start.Y, end.X - start.X))
+            item.extra["rotation_deg"] = heading % 180.0
 
 
 def _add_quantities(item, element):
@@ -143,19 +171,60 @@ def _add_quantities(item, element):
             item.extra[key] = value * factor
 
 
-def _footprint(element, limit):
-    """The element's plan footprint as bounding-box corners, in internal feet.
+def _add_constraints(doc, item, element):
+    """How the member is fixed in space: its levels, offsets and usage.
 
-    Four corners rather than eight: the audit matches in plan, and a column's
-    top face adds nothing but doubles the point count on every row.
+    A member on the right storey with a 3 m base offset is on the wrong storey
+    in every way that matters, and nothing in a position-and-size report would
+    say so. These are the parameters that decide where a member actually sits.
     """
+    top_id = _element_id_param(element, BuiltInParameter.FAMILY_TOP_LEVEL_PARAM)
+    if top_id is not None and top_id != ElementId.InvalidElementId:
+        item.extra["top_level"] = _name_of(_safe(lambda: doc.GetElement(top_id)))
+    for key, builtin in (
+            ("base_offset_mm", BuiltInParameter.FAMILY_BASE_LEVEL_OFFSET_PARAM),
+            ("top_offset_mm", BuiltInParameter.FAMILY_TOP_LEVEL_OFFSET_PARAM),
+            ("wall_base_offset_mm", BuiltInParameter.WALL_BASE_OFFSET),
+            ("wall_height_mm", BuiltInParameter.WALL_USER_HEIGHT_PARAM)):
+        value = _double_param(element, builtin)
+        if value:
+            item.extra[key] = value * config.MM_PER_FT
+    usage = _safe(lambda: element.get_Parameter(
+        BuiltInParameter.INSTANCE_STRUCT_USAGE_PARAM))
+    if usage is not None:
+        item.extra["structural_usage"] = _safe(lambda: usage.AsString())
+    phase = _element_id_param(element, BuiltInParameter.PHASE_CREATED)
+    if phase is not None and phase != ElementId.InvalidElementId:
+        item.extra["phase"] = _name_of(_safe(lambda: doc.GetElement(phase)))
+
+
+def _footprint(element, limit):
+    """The element's real plan outline, in internal feet, and where it came from.
+
+    Returns (points, source, holes). The element's own geometry is asked first:
+    a bounding box is not a shape, and for anything that is not an
+    axis-aligned rectangle it is actively wrong. An L-shaped slab, a lift core,
+    a footing with a step all read as their enclosing rectangle, and the AREA --
+    the number a slab is argued about in -- comes out as whatever the drawing
+    left out. Inner loops come back as `holes`, which for a floor are its
+    openings and are directly comparable to the hatch islands in the drawing.
+
+    The box remains the fallback, because an element whose geometry cannot be
+    resolved should still have a position and a rough extent rather than no row.
+    """
+    found = _safe(lambda: revit_shapes.element_footprint(element, limit))
+    if found is not None and found.points:
+        return found.points[:limit], found.source, found
+
     box = _safe(lambda: element.get_BoundingBox(None))
     if box is None:
-        return []
+        return [], "none", None
     low, high = box.Min, box.Max
+    # Four corners rather than eight: the audit matches in plan, and a column's
+    # top face adds nothing but doubles the point count on every row.
     corners = [(low.X, low.Y, low.Z), (high.X, low.Y, low.Z),
                (high.X, high.Y, low.Z), (low.X, high.Y, low.Z)]
-    return corners[:limit]
+    return corners[:limit], "bounding_box", None
 
 
 # --- naming and parameters --------------------------------------------------
@@ -275,7 +344,16 @@ def _point_mm(point):
 
 
 def _id(element):
-    return str(_id_value(_safe(lambda: element.Id)))
+    """The element id as a string, or None when it cannot be read at all.
+
+    None rather than the string "None": every field on this reader is guarded,
+    which is right -- one unreadable element must not cost the sweep -- but
+    guarded that thoroughly, a total failure produces a row that looks like a
+    successful read of an empty element. An unresolvable id is the signal that
+    nothing else on the row can be trusted either, and `_element_item` says so.
+    """
+    value = _id_value(_safe(lambda: element.Id))
+    return None if value is None else str(value)
 
 
 def _id_value(element_id):

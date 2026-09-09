@@ -80,17 +80,58 @@ def extent(points):
     return (box[3] - box[0], box[4] - box[1], box[5] - box[2])
 
 
-def plan_size(points):
-    """(short_side, long_side) of the plan bounding box, or None.
-
-    Ordered rather than (x, y) so a 400x750 column compares equal to a 750x400
-    one: an audit that reported those as different sizes would flag every
-    rotated column in the drawing.
-    """
+def axis_aligned_plan_size(points):
+    """(short, long) of the axis-aligned plan bounding box, or None."""
     size = extent(points)
     if size is None:
         return None
     return (min(size[0], size[1]), max(size[0], size[1]))
+
+
+def plan_size(points):
+    """(short_side, long_side) of the member, allowing for its ORIENTATION.
+
+    Ordered rather than (x, y) so a 400x750 column compares equal to a 750x400
+    one -- otherwise every column drawn the other way round reads as a different
+    size.
+
+    Oriented rather than axis-aligned because an axis-aligned box is not a size:
+    a 400x400 column at 45 degrees measures 566x566 inside one, so the audit
+    either flags every rotated column in the plan as 166 mm oversized or has to
+    stop checking sizes at all. This bit the Revit side visibly -- the reader
+    carried a note apologising for it -- but the DXF side had exactly the same
+    fault and no note.
+
+    Two candidate orientations are tried: axis-aligned, and aligned to the
+    longest edge. For a rectangle at any angle the longest edge IS a side of the
+    minimum-area rectangle, so this is EXACT for the shapes it matters
+    for -- columns, footings, pad bases -- while staying O(n). A full
+    rotating-calipers hull would be exact for arbitrary shapes and quadratic,
+    which on a 20,000-item export is not a trade worth making for an
+    L-shaped slab whose size is not the number anyone argues about anyway.
+    """
+    axis_aligned = axis_aligned_plan_size(points)
+    if axis_aligned is None:
+        return None
+    angle = principal_angle_deg(points)
+    if angle is None:
+        return axis_aligned
+    rotated = axis_aligned_plan_size(_rotated(points, -angle))
+    if rotated is None:
+        return axis_aligned
+    # The smaller area is the tighter description of the same shape.
+    if rotated[0] * rotated[1] < axis_aligned[0] * axis_aligned[1]:
+        return rotated
+    return axis_aligned
+
+
+def _rotated(points, degrees):
+    """The points turned about the origin. Plan only; z is carried through."""
+    radians = math.radians(degrees)
+    cos_a, sin_a = math.cos(radians), math.sin(radians)
+    return [(p[0] * cos_a - p[1] * sin_a,
+             p[0] * sin_a + p[1] * cos_a,
+             p[2]) for p in points]
 
 
 def distance(a, b):

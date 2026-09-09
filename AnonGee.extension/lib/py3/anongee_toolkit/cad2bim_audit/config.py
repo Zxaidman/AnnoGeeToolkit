@@ -101,6 +101,8 @@ CHECK_LEVEL_MISMATCH = "level_mismatch"           # built on a different storey
 CHECK_LENGTH_MISMATCH = "length_mismatch"         # a linear member's run differs
 CHECK_CATEGORY_CONFLICT = "category_conflict"     # a beam built where a column was drawn
 CHECK_TYPE_NAME_MISMATCH = "type_name_mismatch"   # the type name disagrees with the size
+CHECK_HATCH_NOT_IMPORTED = "hatch_not_imported"  # a hatch with nothing in the link
+CHECK_HOLE_LOST = "hole_lost"                    # the drawing shows a hole; the model is solid
 
 CHECK_SEVERITY = {
     CHECK_DUPLICATE_GEOMETRY: SEVERITY_WARNING,
@@ -115,6 +117,8 @@ CHECK_SEVERITY = {
     CHECK_LENGTH_MISMATCH: SEVERITY_WARNING,
     CHECK_CATEGORY_CONFLICT: SEVERITY_ERROR,
     CHECK_TYPE_NAME_MISMATCH: SEVERITY_WARNING,
+    CHECK_HATCH_NOT_IMPORTED: SEVERITY_WARNING,
+    CHECK_HOLE_LOST: SEVERITY_ERROR,
 }
 
 

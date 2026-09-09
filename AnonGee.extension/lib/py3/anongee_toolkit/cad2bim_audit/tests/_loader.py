@@ -61,6 +61,21 @@ def load(*names):
     return loaded[0] if len(loaded) == 1 else tuple(loaded)
 
 
+def load_revit(*names):
+    """Load audit modules that import Autodesk.Revit, against the stub.
+
+    The stub goes on sys.modules FIRST, because both Revit-bound readers do a
+    top-level `from Autodesk.Revit.DB import ...` -- by the time the module body
+    runs it is already too late to substitute anything.
+
+    Returns the modules, and the stub itself is importable as `_revit_stub` for
+    building fixtures.
+    """
+    import _revit_stub
+    _revit_stub.install()
+    return load(*names)
+
+
 def load_cad2bim(*names):
     """Load cad2bim modules ("model", "readers.dxf_reader") into a fresh namespace.
 

@@ -45,8 +45,8 @@ def run_all(groups, captures, values, space_key="revit"):
     findings = []
     for check in (duplicate_geometry, duplicate_elements, open_outlines,
                   degenerate_geometry, non_planar_geometry, label_checks,
-                  conflicting_marks, level_mismatches, length_mismatches,
-                  category_conflicts, type_name_mismatches):
+                  conflicting_marks, hatch_import, level_mismatches,
+                  length_mismatches, category_conflicts, type_name_mismatches):
         try:
             findings.extend(check(groups, captures, values, space_key))
         except Exception as error:
@@ -334,6 +334,86 @@ def conflicting_marks(groups, captures, values, space_key="revit"):
             item=example[mark], stage=example[mark].stage,
             detail={"mark": mark, "sizes_mm": sorted(distinct)}))
     return findings
+
+
+def hatch_import(groups, captures, values, space_key="revit"):
+    """What became of the drawing's hatches once Revit imported them.
+
+    Only answerable now that stage B reads solids and resolves their footprints
+    into rings with holes. Two questions, both invisible to every other pass:
+
+      * did the hatch arrive at all? A hatch that produced no solid in the link
+        is geometry the drawing has and the import dropped -- which happens to
+        every consumer of that link, not only to cad2bim.
+      * did its HOLES arrive? An island in a hatch is a hole in the thing: a
+        lift shaft, a duct, a stair void. A hatch that comes through solid has
+        quietly filled it in, and no count anywhere changes -- the region is
+        present, the right size, in the right place, and wrong.
+
+    Matched spatially rather than through the reconciliation, because a hatch
+    and the solid it became commonly classify differently (or not at all), and
+    two items in different category buckets can never meet in a group.
+    """
+    drawing = captures.get(config.STAGE_DXF_RAW)
+    link = captures.get(config.STAGE_LINK_RAW)
+    if drawing is None or link is None:
+        return []
+
+    hatches = [item for item in drawing.items if item.kind == "hatch"]
+    solids = [item for item in link.items if item.kind in ("solid", "mesh")]
+    if not hatches:
+        return []
+
+    radius = values["match_radius_mm"]
+    index = spatial.Grid(radius)
+    for item in solids:
+        point = matching.match_point(item, space_key)
+        if point is not None:
+            index.add(point, (point, item))
+
+    findings = []
+    for hatch in hatches:
+        point = matching.match_point(hatch, space_key)
+        if point is None:
+            continue
+        nearest = _closest(index, point, radius)
+        islands = hatch.extra.get("island_count") or 0
+        if nearest is None:
+            findings.append(_finding(
+                config.CHECK_HATCH_NOT_IMPORTED,
+                "This hatch produced nothing in the Revit link within {0:.0f} "
+                "mm. The region is in the drawing and absent from everything "
+                "downstream of the import.".format(radius),
+                item=hatch, stage=config.STAGE_DXF_RAW,
+                detail={"pattern": hatch.extra.get("pattern"),
+                        "islands": islands}))
+            continue
+        holes = nearest.extra.get("hole_count") or 0
+        if islands > holes:
+            findings.append(_finding(
+                config.CHECK_HOLE_LOST,
+                "The drawing shows {0} hole(s) here and the imported region has "
+                "{1}. A void that comes through solid is filled in, and nothing "
+                "else in the report changes: same place, same size, wrong."
+                .format(islands, holes),
+                item=hatch, stage=config.STAGE_DXF_RAW,
+                detail={"islands": islands, "holes": holes,
+                        "pattern": hatch.extra.get("pattern")}))
+    return findings
+
+
+def _closest(index, point, radius):
+    """The nearest indexed item within `radius`, or None."""
+    best = None
+    best_distance = radius
+    probe = (point[0], point[1], 0.0)
+    for other_point, item in index.near(point):
+        distance = geometry.plan_distance(
+            probe, (other_point[0], other_point[1], 0.0))
+        if distance is not None and distance <= best_distance:
+            best = item
+            best_distance = distance
+    return best
 
 
 # --- model hygiene ----------------------------------------------------------

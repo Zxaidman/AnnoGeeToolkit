@@ -27,8 +27,10 @@ from Autodesk.Revit.DB import (Options, GeometryInstance, PolyLine, Curve, Line,
 
 from .. import config
 from ..model import AuditItem, Capture
+from . import revit_shapes
 
 _ARC_MID = 0.5   # arcs are kept start / mid / end, as cad2bim keeps them
+
 
 
 def read_raw(doc, import_instance, space, settings=None):
@@ -149,23 +151,47 @@ def _read_object(geom_obj, type_name, context, depth):
 
 
 def _read_solid(solid, context, depth):
-    """A solid, outlined by its edges -- this is where an imported hatch lands.
+    """A solid, outlined by its FOOTPRINT -- this is where an imported hatch lands.
 
-    The edge tessellation is used as the item's points because it is the only
-    representation that can be matched against a DXF hatch boundary. Volume and
-    face count come along so a zero-volume face-only solid is distinguishable
-    from a real extrusion.
+    The footprint is the outer loop of the largest horizontal planar face, which
+    is a real ring in order, directly comparable to the DXF hatch boundary that
+    produced it. The edge tessellation is only a fallback: it returns every
+    edge's vertices in whatever order the faces happen to come, which is a cloud
+    of points rather than an outline -- good enough to bound the thing, useless
+    for comparing its shape against a drawing.
+
+    `loop_count` above one means the footprint has HOLES, which is the Revit-side
+    counterpart of a DXF hatch's islands. Having both, the report can finally
+    answer the question the two-sided hatch story raises: the drawing shows a
+    hole here -- did one survive into the model?
     """
-    points = _solid_points(solid, context.max_points)
-    item = _item(context, "solid", "Solid", solid, depth, points)
+    footprint = revit_shapes.solid_footprint(solid, context.max_points)
+    item = _item(context, "solid", "Solid", solid, depth, footprint.points)
+
     item.extra["face_count"] = _safe(lambda: solid.Faces.Size)
     item.extra["edge_count"] = _safe(lambda: solid.Edges.Size)
+    item.extra["horizontal_faces"] = footprint.faces
+    item.extra["loop_count"] = footprint.loops
+    item.extra["hole_count"] = footprint.holes
+    item.extra["outline_source"] = footprint.source
+
     volume_ft3 = _safe(lambda: solid.Volume)
     area_ft2 = _safe(lambda: solid.SurfaceArea)
     if volume_ft3 is not None:
         item.extra["volume_mm3"] = volume_ft3 * (config.MM_PER_FT ** 3)
+        # A flat solid is a face, not a body: an imported hatch or fill region
+        # arrives this way, and an extrusion does not. Saying which lets the
+        # report tell "the hatch came through as a face" from "the hatch became
+        # a solid nobody asked for".
+        item.extra["is_flat"] = abs(volume_ft3) < revit_shapes.FLAT_VOLUME_FT3
     if area_ft2 is not None:
         item.extra["surface_area_mm2"] = area_ft2 * (config.MM_PER_FT ** 2)
+    if item.extra["hole_count"]:
+        item.note("footprint has {0} hole(s); the drawing's hatch islands should "
+                  "account for them".format(item.extra["hole_count"]))
+    if footprint.source != "planar_face":
+        item.note("no horizontal planar face; the outline is an unordered edge "
+                  "cloud and its shape cannot be compared to the drawing")
     return _lost(item, "Solid")
 
 
@@ -239,20 +265,6 @@ def _tessellate(curve):
         return [_xyz(p) for p in curve.Tessellate()]
     except Exception:
         return []
-
-
-def _solid_points(solid, limit):
-    """Sampled edge endpoints, enough to bound the solid without dumping a mesh."""
-    points = []
-    try:
-        for edge in solid.Edges:
-            for point in edge.Tessellate():
-                points.append(_xyz(point))
-                if len(points) >= limit:
-                    return points
-    except Exception:
-        pass
-    return points
 
 
 def _count_non_visible(import_instance):

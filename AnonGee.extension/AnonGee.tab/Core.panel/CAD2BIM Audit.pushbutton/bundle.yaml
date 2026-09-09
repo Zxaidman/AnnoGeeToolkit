@@ -25,7 +25,14 @@ tooltip: |
   meshes an imported hatch becomes, which cad2bim's geometry_reader ignores by
   design and therefore never classifies or builds.
 
-  On top of that it runs eleven checks that no verdict can carry — geometry
+  Solids are read as real footprints with their holes, so it can also say what
+  became of a hatch: whether Revit imported it at all, and whether its islands
+  survived — a void that comes through solid is filled in while every other
+  number stays right. Placed elements are measured from their own geometry
+  rather than a bounding box, so an L-shaped slab reports the area it has and a
+  rotated column its real section.
+
+  On top of that it runs thirteen checks that no verdict can carry — geometry
   drawn twice, outlines left open, stray Z, a size label the model disagrees
   with, one mark used for two sizes, elements placed twice or on the wrong
   storey, a beam whose run was clipped, a member built as the wrong category,
@@ -41,4 +48,4 @@ tooltip: |
   the DXF link, in its own transaction, and only if you ask for a fresh one —
   choose an existing link and the whole run is read-only.
 
-  Version: 0.2.0
+  Version: 0.3.0

@@ -6,6 +6,68 @@ Semantic versioning, read from the point of view of somebody using the tool:
 
 ---
 
+## 0.3.0
+
+The Revit-side readers caught up with the DXF-side ones: tested, shape-aware,
+and finally able to say what became of a hatch.
+
+**Added**
+
+- **A Revit API stub, and the first tests these readers have ever had.** Stages
+  B and C were the only modules in the package with no tests, because they were
+  the only ones that could not be imported outside Revit -- which is exactly
+  backwards: the readers that cannot be run on a developer's machine are the
+  ones most in need of a test, since the only other way to exercise them is to
+  install Revit, open a model and click a button. `tests/_revit_stub.py` is a
+  stub rather than an emulator: it implements the members the readers actually
+  touch and nothing else, so a reader reaching for something new fails loudly
+  instead of quietly getting a mock that answers everything.
+- **An end-to-end test of all four stages at once** -- the run the button
+  actually performs, which could not be written before. Its fixture gives each
+  verdict exactly one cause, so a change that quietly alters what the pipeline
+  concludes fails and names the verdict that moved.
+- **`hatch_not_imported` and `hole_lost`.** Now that stage B resolves solids into
+  rings, the report can answer what became of a hatch: whether it arrived at all,
+  and whether its ISLANDS did. An island is a hole in the thing -- a lift shaft,
+  a duct, a stair void -- and a region that comes through solid has filled it in
+  while every other number stays right: same place, same size, wrong.
+- Stage C reads how a member is fixed in space: top level, base and top offsets,
+  wall height, structural usage and phase. A member on the right storey with a
+  3 m base offset is on the wrong storey in every way that matters, and nothing
+  in a position-and-size report would have said so.
+
+**Changed**
+
+- **A solid is read as its FOOTPRINT, not as a cloud of edges.** The outer loop
+  of the largest horizontal planar face is a ring, in order, directly comparable
+  to the hatch boundary that produced it; the edge tessellation it replaces
+  returned every edge's vertices in whatever order the faces came, which bounds
+  a thing without describing it. Inner loops are holes, and they are counted.
+- **A placed element is measured from its own geometry, not its bounding box.**
+  A box is not a shape: an L-shaped slab, a lift core, a footing with a step all
+  read as their enclosing rectangle, and the AREA -- the number a slab is argued
+  about in -- came out as whatever the drawing left out. A test L-slab reported
+  36 m2 and is 27. Openings are subtracted, so the area is the one the slab has.
+- **`plan_size` allows for orientation.** A 400x400 column at 45 degrees measures
+  566x566 inside an axis-aligned box, so the audit either flagged every rotated
+  column as 166 mm oversized or had to stop checking sizes. Exact for rectangles
+  at any angle, and O(n): the longest edge of a rectangle is a side of its
+  minimum-area rectangle. This was visible on the Revit side, where the reader
+  carried a note apologising for it -- and the DXF side had the same fault and
+  no note.
+- A beam takes its heading from its location curve. A horizontal beam's bounding
+  box is degenerate in plan, so an angle derived from it means nothing.
+
+**Fixed**
+
+- An element that could not be read at all produced a row that looked like a
+  successful read of an empty element. Every field on that reader is guarded,
+  which is right -- one bad element must not cost the sweep -- but guarded that
+  thoroughly, total failure was indistinguishable from emptiness. The row now
+  says its id could not be read, and that nothing else on it can be believed.
+
+---
+
 ## 0.2.0
 
 The report filled out: a sheet per category in that category's own units, and

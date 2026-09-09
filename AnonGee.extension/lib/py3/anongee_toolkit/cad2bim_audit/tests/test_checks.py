@@ -266,6 +266,47 @@ class LabelTests(unittest.TestCase):
         self.assertEqual(run(captures, checks.conflicting_marks), [])
 
 
+class HatchImportTests(unittest.TestCase):
+    """What Revit's import did to a hatch -- only askable now stage B reads solids."""
+
+    def _captures(self, islands, holes, solid_at=(0.0, 0.0)):
+        hatch = item(config.STAGE_DXF_RAW, "hatch", rect(0, 0, 3000, 3000),
+                     layer="S-FND", extra={"island_count": islands,
+                                           "pattern": "ANSI31"})
+        solid = item(config.STAGE_LINK_RAW, "solid",
+                     rect(solid_at[0], solid_at[1], 3000, 3000),
+                     layer="S-FND", extra={"hole_count": holes})
+        return {config.STAGE_DXF_RAW: capture(config.STAGE_DXF_RAW, [hatch]),
+                config.STAGE_LINK_RAW: capture(config.STAGE_LINK_RAW, [solid])}
+
+    def test_a_hole_that_survives_the_import_is_silent(self):
+        self.assertEqual(run(self._captures(islands=1, holes=1),
+                             checks.hatch_import), [])
+
+    def test_a_void_filled_in_by_the_import_is_an_error(self):
+        """Same place, same size, and the lift shaft is now concrete.
+
+        Nothing else in the report changes -- which is exactly why this needs
+        its own check.
+        """
+        found = run(self._captures(islands=1, holes=0), checks.hatch_import)
+        self.assertEqual(codes(found), [config.CHECK_HOLE_LOST])
+        self.assertEqual(found[0].detail["islands"], 1)
+        self.assertEqual(found[0].detail["holes"], 0)
+        self.assertEqual(found[0].severity, config.SEVERITY_ERROR)
+
+    def test_a_hatch_that_produced_nothing_in_the_link_is_reported(self):
+        found = run(self._captures(islands=0, holes=0, solid_at=(50000.0, 0.0)),
+                    checks.hatch_import)
+        self.assertEqual(codes(found), [config.CHECK_HATCH_NOT_IMPORTED])
+
+    def test_without_a_link_stage_the_check_stays_silent(self):
+        hatch = item(config.STAGE_DXF_RAW, "hatch", rect(0, 0, 3000, 3000),
+                     layer="S-FND", extra={"island_count": 1})
+        captures = {config.STAGE_DXF_RAW: capture(config.STAGE_DXF_RAW, [hatch])}
+        self.assertEqual(run(captures, checks.hatch_import), [])
+
+
 class ModelHygieneTests(unittest.TestCase):
 
     def _level_captures(self, intended, built):
@@ -375,7 +416,8 @@ class RobustnessTests(unittest.TestCase):
         groups, diagnostics = matching.build_groups(captures)
         found = checks.run_all(groups, captures, VALUES, diagnostics["space"])
         for code in (config.CHECK_DUPLICATE_ELEMENT, config.CHECK_LEVEL_MISMATCH,
-                     config.CHECK_TYPE_NAME_MISMATCH,
+                     config.CHECK_TYPE_NAME_MISMATCH, config.CHECK_HOLE_LOST,
+                     config.CHECK_HATCH_NOT_IMPORTED,
                      config.CHECK_CATEGORY_CONFLICT):
             self.assertNotIn(code, codes(found))
 

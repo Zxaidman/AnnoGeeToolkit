@@ -57,4 +57,4 @@ the matcher, the findings, the sheet model -- is plain Python and is tested
 outside Revit through `tests/_loader.py`.
 """
 
-__version__ = "0.2.0"   # Per-category sheets, eleven checks, runs matched as runs.
+__version__ = "0.3.0"   # Stage B and C readable, testable, and shape-aware.

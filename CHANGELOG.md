@@ -23,7 +23,7 @@ number is wrong.
 | ---- | ------- | --------- |
 | Auto Level Manager | 2.0.0 | [`AutoLevel.pushbutton/CHANGELOG.md`](AnonGee.extension/AnonGee.tab/Essential.panel/AutoLevel.pushbutton/CHANGELOG.md) |
 | RC Automation | 0.7.0 | [`RC Automation.pushbutton/CHANGELOG.md`](AnonGee.extension/AnonGee.tab/Dev.panel/col2.stack/RC%20Automation.pushbutton/CHANGELOG.md) |
-| CAD2BIM Audit | 0.2.0 | [`CAD2BIM Audit.pushbutton/CHANGELOG.md`](AnonGee.extension/AnonGee.tab/Core.panel/CAD2BIM%20Audit.pushbutton/CHANGELOG.md) |
+| CAD2BIM Audit | 0.3.0 | [`CAD2BIM Audit.pushbutton/CHANGELOG.md`](AnonGee.extension/AnonGee.tab/Core.panel/CAD2BIM%20Audit.pushbutton/CHANGELOG.md) |
 
 Both levels use [semantic versioning](https://semver.org), read from the point
 of view of someone using the thing rather than someone reading the diff:
