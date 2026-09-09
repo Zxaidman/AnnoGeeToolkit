@@ -1,6 +1,6 @@
 # cad2bim — done list
 
-What was built and confirmed, from the first CAD-to-BIM commit to **v0.96.8**. An item arrives here
+What was built and confirmed, from the first CAD-to-BIM commit to **v0.96.9**. An item arrives here
 only by reaching `done` in `todo-list.md`, and it is described here with what was actually done.
 
 **How "confirmed" is used below.** Before v0.68.0 there was no regression gate: each version answers

@@ -8,12 +8,11 @@ Nothing is deleted to make the list look shorter.
 file before it is built, argued about, or written into any other document. Standing instruction
 from the project owner, and it is what keeps this list the queue rather than a summary of one.
 
-Current build: **v0.96.8** (branch `claude/cad2bim`, restarted from `main` after PR #10 merged).
-1266 unit tests, 3 regression legs over 31 archived exports, 23 fixture drawings and 13 storey
-stacks. FEAT-13 was rebuilt this round on the pattern the dialog already had — the mapping tables
-are `SelectionMode="Extended"` ListBoxes now, so WPF owns the clicking, and the hand-rolled version
-v0.96.7 shipped is gone. test17 builds slabs at last (79–87 a storey off `slab_edges`), and its
-columns are all walls because the vertical-member toggle says so, not because anything is broken. The branch also carries the rc-automation merge and the 1.26.1
+Current build: **v0.96.9** (branch `claude/cad2bim`, restarted from `main` after PR #10 merged).
+1292 unit tests, 3 regression legs over 31 archived exports, 23 fixture drawings and 13 storey
+stacks. This round answered the owner's column question with a measurement — BUG-34, a size label
+1.3 m away rebuilding a column the drawing had right — and built the `_START`/`_STOP` extent planner
+(FEAT-16) as a tested, Revit-free module, wiring still to come. The branch also carries the rc-automation merge and the 1.26.1
 extension identity. Longer records: `../../../../../task_plan.md`, `findings.md`, `progress.md` at the
 repository root.
 
@@ -118,7 +117,47 @@ for every other pre-P1 file.
 
 ## 2. Errors and bugs
 
-### FEAT-16 — `_START` and `_STOP` column layers say where a column begins and ends · `pending`
+### BUG-34 — A label 1.3 m away resizes a column that was drawn correctly · `pending`
+
+**The owner:** "in some place column size and its outline is not matching with Linked cad. check if
+this is dxf cad issue or coding issue."
+
+**It is a CODING issue, and the numbers name it.** Measured off his 0.96.7 test17 export, first
+storey: 290 columns placed against 327 outlines in the link's own geometry.
+
+| | |
+| --- | --- |
+| placed size matches the link's outline | 171 |
+| **differs from it** | **118** |
+| …and of those 118, the placed size matches a nearby LABEL exactly | **91** |
+| …matches neither outline nor label | 27 |
+
+    placed      | outline drawn | label says  | label distance
+    250x1500    | 200x1200      | 250x1500    |   506 mm
+    250x1500    | 200x1200      | 250x1500    |  1335 mm
+    250x1300    | 250x1200      | 250x1300    |   742 mm
+
+`mark_radius_mm` is **1300 mm** by default — "a size label this close to a member sizes it (labels
+sit offset from the column, ~1.1 m)". On test17's density that reach covers the NEXT column's label,
+so a 200x1200 column is being rebuilt as its neighbour's 250x1500.
+
+Not the standards snap: 250 and 200 are not in `standard_columns` at all. And not the drawing's
+fault — the link's outlines are right; it is the reach that is wrong.
+
+**Immediate workaround, no new build needed:** Tolerances tab → lower the size-label radius from
+1300 mm until the columns stop changing. That is his own control and it costs one run.
+
+**The fix worth making, and why it is not made yet.** Trusting a label over the outline is
+deliberate — DONE-22 built it so a CLIPPED column could be snapped up to its authoritative label
+size. The rule should be that a label only overrules an outline that is clipped or fragmented: a
+complete closed ring already states its own size, and the drawing decides. `correct_columns_with_text`
+flattens entries into a bare rectangle list before it chooses, so the clipped/whole distinction the
+entry's `status` carries is thrown away before the decision is made — putting it back is the change,
+and it touches the recovery DONE-22 depends on, so it wants its own round rather than a rushed one
+the day before a client trip.
+
+
+### FEAT-16 — `_START` and `_STOP` column layers say where a column begins and ends · `building`
 
 **The owner:** "in column layers there two new Stop and Start layer which both should be treated
 differently stop means that layer column is stop on that particular floor means it can go above *(if
@@ -153,6 +192,32 @@ rules. Which of these is meant:
     up from below, `_START` begins one that carries on above.
 
 **A** fits the counts as measured. It is not built on a guess.
+
+---
+
+**ANSWERED — "A is correct, build the start/stop column logic" — and the planner is built (v0.96.9).**
+
+`column_extent.py`, Revit-free and 26 tests:
+
+  * `mark_of(layer)` reads the SUFFIX, so an office's own prefix is nobody's business, and test17's
+    own spelling `S-COLUM_STOP` (one M) is covered along with `-STOP` and ` STOP`;
+  * `key_for(points)` says which footprints across plans are the same column. **Clustered, not
+    binned** — rounding into a cell puts two footprints a millimetre apart either side of an edge
+    and calls them two columns, which is the one job it has. Free to do because `floor_plans` hands
+    each storey's records ALREADY SHIFTED so that plan's origin sits at (0, 0);
+  * `extents(storeys)` gives `{column: (first storey, last storey)}` under rule A — the lowest
+    `start` mark or the lowest storey it is drawn on, the highest `stop` mark or the highest it is
+    drawn on. A drawing that stops a column before it starts still yields one column rather than
+    none;
+  * `build_here(extent, storey)` puts a spanning column in ONCE, at its first storey, instead of
+    stacking one per floor.
+
+**Not yet wired into the build, and that is the honest state.** `place_columns` takes ONE
+`top_level_id` for every column in a call, so a stack where columns end at different levels needs
+either grouping by top level or a change to the builder — and the multi-storey loop has to gather
+every storey's footprints before the first one is built. That is a real change to how columns are
+placed, it cannot be checked outside Revit, and the owner travels after Saturday. The planner ships
+tested; the wiring is the next thing and wants his go-ahead on timing.
 
 
 ### BUG-33 — test17 builds no slab at all, and said nothing about it · `testing`
