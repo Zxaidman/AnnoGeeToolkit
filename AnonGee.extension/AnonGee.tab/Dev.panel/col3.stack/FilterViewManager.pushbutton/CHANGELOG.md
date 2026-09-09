@@ -15,6 +15,101 @@ holds Auto Level Manager's four copies together.
 
 ---
 
+## 0.1.0 - 2026-09-09
+
+The window. The first build a person would call the tool: build a rule, name
+it, save it, press it, and only what it matches is left in the view.
+
+**Pressing a rule temporarily isolates its matches in the active view, and
+writes nothing to the project.** No `ParameterFilterElement`, nothing in
+Manage > Filters, no trace for a colleague opening the model. It lasts the
+session, does not print, and Clear puts the view back -- the same thing Revit's
+own Reset Temporary Hide/Isolate does.
+
+### The window
+
+- **Saved rules on the left**, with New, Duplicate, Delete, Move up and Move
+  down. Selecting one loads it into the editor. Delete asks first, and only
+  that rule goes.
+- **The cascade on the right.** Categories are a searchable ticked list -- the
+  ticks survive a search, because the search filters what is *shown*, not what
+  is *chosen*. Family and Type are optional; leaving them on "any" is how "all
+  the walls" is said.
+- **Conditions are added one at a time** and listed, rather than edited inside
+  a grid. That is a deliberate scope choice: in-grid combo columns are where
+  §12.7's worst traps live (checkbox coercion, edit-commit cancellation,
+  per-row ItemsSource), and none of them can happen to a list.
+- **The footer carries all the transient state** -- the badge, the status line
+  and the live count -- because §12.6 says the header holds the title only.
+- **Count, Select, Apply, Clear.** Count changes nothing; Select pushes the
+  matches into Revit's selection; Apply isolates; Clear restores.
+- **Every control has a tooltip**, and a test refuses one that does not.
+
+### Modeless, done the way this repository already proved
+
+- The handler carries `__namespace__`, has **no `__init__`**, and is defined
+  **once per Revit session** behind a `sys.modules` cache. All three fail at
+  instantiation or on the *second* press, and a test checks each.
+- The same module holds the live window, so pressing the ribbon button again
+  **activates the open window** instead of stacking a second one.
+- Requests cross to Revit's thread as plain data -- a rule travels as the dict
+  it saves as, and comes back as ints and strings. A Revit object cannot cross
+  to the WPF thread, and a test refuses a `serve()` that returns anything but a
+  dict.
+- Results come back through the window's `Dispatcher`, which is the only place
+  a control is written.
+
+### Two traps avoided on purpose
+
+- **The category tick is the native `ListBoxItem.IsSelected`, never a Python
+  bool.** §12.7.Q: a Python bool does not coerce in this engine -- the tick
+  looks permanently disabled and TwoWay write-back is unreliable. Python
+  mirrors `SelectedItems`, not the other way round.
+- **Lists are rebuilt behind a flag, not by detaching the handler.**
+  `event -= self._handler` may remove nothing at all: `self._handler` builds a
+  new bound method on every attribute access, so pythonnet can wrap a different
+  delegate. A flag cannot be got wrong, and a test refuses `SelectionChanged -=`.
+
+### The theme is the sanctioned copy, spliced rather than written
+
+`ui.xaml` carries the inline theme **verbatim** from
+`Dev.panel/Testing.stack/Modeless.pushbutton/ui.xaml` (§12.3 strategy 2), copied
+by script so it cannot drift. **This tool adds no styles of its own** -- the
+implicit `ListBoxItem` and `ScrollBar` styles already theme the three lists, and
+everything else is a key that block defines. A test refuses any resource key
+that is not in the sanctioned theme.
+
+### Tests
+
+`tests/test_filterview_ui.py`, 28 static checks, modelled on
+`test_autolevel_ui.py`. Every `{StaticResource}` resolves, no `x:Key` twice, no
+`{StaticResource}` on the root `Window`, no literal mistaken for markup, every
+`Style` matches its element, every trigger targets its own template, every
+binding path has a `__slots__` entry, **every `FindName` resolves and every
+`x:Name` is looked up** (36 and 36, exactly), every control has a tooltip, no
+`re`, no pyRevit, and the version agrees across four files.
+
+Proved to bite by reintroducing five faults: a resource key that is not there,
+a removed tooltip, a binding with no slot, a lookup with no control, and an
+`__init__` on the handler.
+
+### Four faults found while reviewing this build
+
+- **`event -= self._handler` was used to suppress selection callbacks** during
+  a rebuild. See above -- it may remove nothing.
+- **The family and type of a loaded rule were stored and never restored.** The
+  cascade is fetched on Revit's thread, so they cannot be selected until it
+  comes back; they are now held and applied when it does, matched Revit's way.
+- **`clear` was parsed as though it carried a rule**, which it does not.
+- **A guard was inserted above a docstring**, which demotes the docstring to a
+  dead expression.
+
+### Not in this version
+
+The dockable panel. It needs a startup-time component and is its own milestone,
+blocked on proving `CRIT-3` in Revit. Writing the **project** rule store is
+FEAT-14 -- project rules are read and badged, and Save writes the machine store.
+
 ## 0.0.4 - 2026-09-09
 
 The Revit half of the rule engine, and a probe button that runs it against a

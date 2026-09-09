@@ -1074,8 +1074,12 @@ class SharedCoreTests(unittest.TestCase):
                               "Dev.panel", "col3.stack",
                               "FilterViewManager.pushbutton")
 
+        # The script does not RE-DECLARE the number -- it imports it, which is
+        # the stronger property: three copies to keep in step instead of four,
+        # and the window header cannot drift from the package at all.
         script = _read(os.path.join(button, "script.py"))
-        self.assertIn('VERSION = "{0}"'.format(version), script)
+        self.assertIn("from anongee_filterrules import VERSION", script)
+        self.assertNotIn('VERSION = "', script)
 
         bundle = _read(os.path.join(button, "bundle.yaml"))
         self.assertIn("Version: {0}".format(version), bundle)
