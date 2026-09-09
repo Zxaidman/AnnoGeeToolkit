@@ -264,6 +264,38 @@ class Rule(object):
                    for condition in self.conditions)
         return all(results) if self.match == MATCH_ALL else any(results)
 
+    def condition_parameters(self):
+        """The parameter names this rule needs read off an element, in order.
+
+        The Revit half reads **only** these. Reading every parameter of every
+        element is the difference between a live count and a frozen window on
+        a real model, and nothing outside a condition is ever looked at.
+        """
+        seen, wanted = set(), []
+        for condition in self.conditions:
+            if condition.parameter and condition.parameter not in seen:
+                seen.add(condition.parameter)
+                wanted.append(condition.parameter)
+        return wanted
+
+    def matches_element(self, family=None, type_name=None,
+                        parameter_values=None):
+        """The whole cascade below the category, against one element's facts.
+
+        The category is settled by the collector before this is reached -- it
+        is what a ``FilteredElementCollector`` is for, and re-checking it here
+        would be slower and no safer.
+
+        Family and type are compared **Revit's way** (``names.same``), and an
+        empty one on the rule means "any", which is how "all the walls" is
+        said.
+        """
+        if self.family and not names.same(self.family, family):
+            return False
+        if self.type_name and not names.same(self.type_name, type_name):
+            return False
+        return self.matches_values(parameter_values or {})
+
     def wants_category(self, category_name):
         return any(names.same(category_name, mine) for mine in self.categories)
 
@@ -293,6 +325,38 @@ class Rule(object):
                 else condition.value,
                 (" " + condition.unit) if condition.unit else "").strip())
         return " > ".join(parts)
+
+
+class ElementRow(object):
+    """One element, reduced to the plain facts a rule is decided on.
+
+    This is the whole reason the matching half is testable. The Revit side
+    collects these -- an int id, two names, and only the parameters the rule
+    actually asked for -- and everything after it is arithmetic on plain data.
+
+    It is also what has to cross the thread boundary: a Revit ``Element``
+    cannot reach the WPF thread (brand guidelines S12.8.7.2), and an int can.
+    """
+
+    __slots__ = ("id", "family", "type_name", "values")
+
+    def __init__(self, id=0, family=None, type_name=None, values=None):
+        self.id = id
+        self.family = family
+        self.type_name = type_name
+        self.values = values or {}
+
+    def matches(self, rule):
+        return rule.matches_element(self.family, self.type_name, self.values)
+
+
+def select(rows, rule):
+    """The ids of the *rows* that *rule* matches, in the order given.
+
+    Pure, and therefore the part of "what does this rule actually match" that
+    can be proved before a model ever sees it.
+    """
+    return [row.id for row in rows if row.matches(rule)]
 
 
 class RuleSet(object):

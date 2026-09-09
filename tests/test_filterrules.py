@@ -368,6 +368,107 @@ class RuleTests(unittest.TestCase):
         self.assertNotIn("source", rule.to_dict())
 
 
+class RuleCascadeTests(unittest.TestCase):
+    """``matches_element`` -- the whole cascade below the category.
+
+    The category is settled by the collector, so it is not re-checked here.
+    Everything else is name-matched Revit's way and is therefore decidable
+    without a model, which is what makes the Revit half thin.
+    """
+
+    def test_the_owners_example_end_to_end(self):
+        rule = a_rule()          # Walls > Basic Wall > 100mm Gypsum Wall > Area > 100 m2
+        self.assertTrue(rule.matches_element(
+            "Basic Wall", "100mm Gypsum Wall", {"Area": 1500.0}))
+
+    def test_the_family_must_agree(self):
+        self.assertFalse(a_rule().matches_element(
+            "Curtain Wall", "100mm Gypsum Wall", {"Area": 1500.0}))
+
+    def test_the_type_must_agree(self):
+        self.assertFalse(a_rule().matches_element(
+            "Basic Wall", "200mm Blockwork", {"Area": 1500.0}))
+
+    def test_the_conditions_must_agree(self):
+        self.assertFalse(a_rule().matches_element(
+            "Basic Wall", "100mm Gypsum Wall", {"Area": 500.0}))
+
+    def test_family_and_type_are_matched_revits_way(self):
+        self.assertTrue(a_rule().matches_element(
+            "BASIC  WALL", "  100mm gypsum wall ", {"Area": 1500.0}))
+
+    def test_no_family_on_the_rule_means_any_family(self):
+        rule = a_rule(family=None, type_name=None)
+        self.assertTrue(rule.matches_element("Curtain Wall", "Anything",
+                                             {"Area": 1500.0}))
+
+    def test_a_rule_naming_a_family_does_not_match_an_element_without_one(self):
+        self.assertFalse(a_rule().matches_element(None, None, {"Area": 1500.0}))
+
+    def test_all_the_walls_is_a_rule(self):
+        """No family, no type, no conditions -- and that is legitimate."""
+        rule = a_rule(family=None, type_name=None, conditions=[])
+        self.assertTrue(rule.matches_element("Basic Wall", "Anything", {}))
+
+
+class ConditionParameterTests(unittest.TestCase):
+    """Only the parameters a rule names are ever read off an element."""
+
+    def test_it_lists_what_the_conditions_name(self):
+        rule = a_rule(conditions=[a_condition(parameter="Area"),
+                                  a_condition(parameter="Comments",
+                                              operator="contains",
+                                              value="x", unit="")])
+        self.assertEqual(rule.condition_parameters(), ["Area", "Comments"])
+
+    def test_a_repeated_parameter_is_listed_once(self):
+        rule = a_rule(conditions=[a_condition(operator="greater", value=100.0),
+                                  a_condition(operator="less", value=200.0)])
+        self.assertEqual(rule.condition_parameters(), ["Area"])
+
+    def test_order_is_kept_so_the_read_is_predictable(self):
+        rule = a_rule(conditions=[a_condition(parameter="Z"),
+                                  a_condition(parameter="A")])
+        self.assertEqual(rule.condition_parameters(), ["Z", "A"])
+
+    def test_a_rule_with_no_conditions_needs_no_parameters_read(self):
+        self.assertEqual(a_rule(conditions=[]).condition_parameters(), [])
+
+
+class SelectTests(unittest.TestCase):
+    """``select`` is the pure half of the collector, and where the four-stage
+    narrowing of ``ARCHITECTURE.md`` §4 actually gets proved."""
+
+    def rows(self):
+        return [
+            rules.ElementRow(101, "Basic Wall", "100mm Gypsum Wall", {"Area": 1500.0}),
+            rules.ElementRow(102, "Basic Wall", "100mm Gypsum Wall", {"Area": 500.0}),
+            rules.ElementRow(103, "Basic Wall", "200mm Blockwork", {"Area": 1500.0}),
+            rules.ElementRow(104, "Curtain Wall", "Storefront", {"Area": 1500.0}),
+            rules.ElementRow(105, "Basic Wall", "100mm Gypsum Wall", {}),
+        ]
+
+    def test_only_the_matching_ids_come_back(self):
+        self.assertEqual(rules.select(self.rows(), a_rule()), [101])
+
+    def test_the_order_given_is_the_order_returned(self):
+        rule = a_rule(family=None, type_name=None, conditions=[])
+        self.assertEqual(rules.select(self.rows(), rule),
+                         [101, 102, 103, 104, 105])
+
+    def test_an_element_missing_the_parameter_is_left_out_not_crashed_on(self):
+        self.assertNotIn(105, rules.select(self.rows(), a_rule()))
+
+    def test_nothing_matching_is_an_empty_list_not_an_error(self):
+        rule = a_rule(type_name="A type this model has never heard of")
+        self.assertEqual(rules.select(self.rows(), rule), [])
+
+    def test_a_row_carries_an_int_id_because_a_revit_object_cannot(self):
+        """S12.8.7.2 -- Revit objects do not cross to the WPF thread."""
+        for row in self.rows():
+            self.assertIsInstance(row.id, int)
+
+
 class RuleValidationTests(unittest.TestCase):
     """``problems()`` returns sentences for a human, and [] means valid."""
 
@@ -719,15 +820,40 @@ _PY3_ONLY = {
 }
 
 
+#: The modules that decide things. No Revit in any of them, which is why every
+#: test above this line exists at all.
+PURE = ("__init__.py", "values.py", "names.py", "rules.py", "store.py")
+
+#: The modules that fetch and write. They import ``Autodesk.Revit.DB``, so they
+#: cannot be imported on this machine and only the static checks reach them --
+#: which is the reason they are kept as thin as they are.
+REVIT = ("compat.py", "revit_query.py", "revit_apply.py")
+
+
+def _core_folder():
+    return os.path.join(_LIB, "anongee_filterrules")
+
+
 def core_modules():
-    folder = os.path.join(_LIB, "anongee_filterrules")
+    """Every module in the package, Revit-touching ones included."""
+    folder = _core_folder()
     return sorted(os.path.join(folder, name) for name in os.listdir(folder)
                   if name.endswith(".py"))
+
+
+def pure_modules():
+    return [os.path.join(_core_folder(), name) for name in PURE]
 
 
 def _read(path):
     with io.open(path, encoding="utf-8") as handle:
         return handle.read()
+
+
+def _statements(path):
+    """Executable statements in a module — docstrings and comments are free."""
+    return sum(1 for node in ast.walk(ast.parse(_read(path)))
+               if isinstance(node, ast.stmt))
 
 
 class SharedCoreTests(unittest.TestCase):
@@ -870,13 +996,63 @@ class SharedCoreTests(unittest.TestCase):
                                      "{0} imports {1}".format(
                                          os.path.basename(path), name))
 
+    def test_every_module_is_accounted_for(self):
+        """A new module is pure or it is not, and somebody has to say which."""
+        self.assertEqual(sorted(os.path.basename(p) for p in core_modules()),
+                         sorted(PURE + REVIT))
+
     def test_the_pure_core_never_imports_revit(self):
-        """These four are what makes this suite possible at all."""
-        for path in core_modules():
-            source = _read(path)
-            for banned in ("Autodesk.Revit", "import clr", "from pyrevit"):
-                self.assertNotIn(banned, source,
-                                 "{0}: {1}".format(os.path.basename(path), banned))
+        """These five are what makes this suite possible at all.
+
+        Through the AST, not the source text: a docstring that explains why
+        the rule exists is not a breach of it.
+        """
+        for path in pure_modules():
+            for node in ast.walk(ast.parse(_read(path))):
+                if isinstance(node, ast.Import):
+                    found = [a.name for a in node.names]
+                elif isinstance(node, ast.ImportFrom):
+                    found = [node.module or ""]
+                else:
+                    continue
+                for name in found:
+                    self.assertFalse(
+                        name == "clr" or name.startswith("Autodesk")
+                        or name.startswith("System") or name.startswith("pyrevit"),
+                        "{0} imports {1}".format(os.path.basename(path), name))
+
+    def test_the_revit_half_imports_revit_and_not_pyrevit(self):
+        """``pyrevit.*`` crashes CPython 3 in event callbacks (S12.8.4), and
+        does not exist on the engine the panel runs on either."""
+        for name in REVIT:
+            source = _read(os.path.join(_core_folder(), name))
+            self.assertNotIn("from pyrevit", source, name)
+            self.assertNotIn("import pyrevit", source, name)
+
+    def test_the_revit_half_does_no_comparing(self):
+        """``values`` is the comparison engine, and it belongs above this line.
+
+        The Revit modules fetch facts and write to a view. The moment one of
+        them imports ``values``, a decision has moved into the half no test on
+        this machine can reach — which is the exact drift the split exists to
+        prevent.
+        """
+        for name in REVIT:
+            for node in ast.walk(ast.parse(_read(os.path.join(_core_folder(),
+                                                              name)))):
+                if isinstance(node, ast.ImportFrom):
+                    self.assertNotIn("values", [a.name for a in node.names],
+                                     "{0} imports values".format(name))
+
+    def test_no_revit_module_carries_more_logic_than_the_biggest_tested_one(self):
+        """A ceiling with a reason behind it, counted in statements rather than
+        lines so that documentation is free and code is not."""
+        biggest = max(_statements(path) for path in pure_modules())
+        for name in REVIT:
+            found = _statements(os.path.join(_core_folder(), name))
+            self.assertLess(found, biggest,
+                            "{0} has {1} statements; the largest tested module "
+                            "has {2}".format(name, found, biggest))
 
     def test_the_version_is_semantic(self):
         import anongee_filterrules

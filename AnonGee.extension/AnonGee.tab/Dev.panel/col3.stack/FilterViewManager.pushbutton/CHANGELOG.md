@@ -15,6 +15,74 @@ holds Auto Level Manager's four copies together.
 
 ---
 
+## 0.0.4 - 2026-09-09
+
+The Revit half of the rule engine, and a probe button that runs it against a
+real model. 155 tests. The tool itself -- the modeless window -- is still 0.1.0.
+
+- **`revit_query`** -- what a rule can be built from and what it matches.
+  Categories, families, types, parameters, and the four-stage narrowing:
+  category through a view-scoped `FilteredElementCollector`, then family, then
+  type, then **only the parameters the rule's conditions name**. Reading every
+  parameter of every element is the difference between a live count and a
+  frozen window on a real model.
+- **Both family shapes answer through one accessor.** A system family (Basic
+  Wall, Floor) has no `Family` element at all and its name comes from the
+  type's `FamilyName`; a loadable family has a real `Family` and the same
+  property returns it. The picker never has to know which it is looking at, and
+  never shows an empty level for one of them.
+- **`revit_apply`** -- `IsolateElementsTemporary` on the active view, and
+  `DisableTemporaryViewMode` to put it back. The only module in the package
+  that opens a transaction, gated `try/finally` per S12.9.4. A view that cannot
+  be isolated is refused **before** the transaction opens, naming the view
+  type. Isolating nothing is refused too: Revit would leave the view showing
+  an empty sheet, which looks exactly like a broken tool.
+- **`compat`** -- the `ElementId` Int32/Int64 change, `Element.Name`, and
+  `List[ElementId]`, which is not optional: a raw Python list across the
+  pythonnet bridge is a **fatal** marshalling fault, not an exception.
+- **The split is now enforced, not just described.** The Revit half may not
+  import `values` -- the comparison engine -- so no decision can drift into the
+  half no test on this machine can reach. And no Revit module may carry more
+  *statements* than the largest tested module, counted through the AST so
+  documentation is free and code is not.
+- **`ElementRow` and `select`** are the pure half of the collector, so "what
+  does this rule actually match" is proved before a model ever sees it. A row
+  is an int id and two names, because a Revit object cannot cross to the WPF
+  thread (S12.8.7.2) and an int can.
+
+### The button is a probe now, not a placeholder
+
+It reads the model, builds a rule from what it finds, and will isolate it. It
+writes nothing to the project. It exists because four things cannot be answered
+anywhere but in Revit, and every one of them is load-bearing:
+
+- whether `GetFilterableParametersInCommon` returns what CRIT-2 assumes;
+- whether the cascade is right for a system family as well as a loadable one;
+- whether `IsolateElementsTemporary` behaves in a view under a view template,
+  and in one already isolated by hand;
+- whether rules saved here survive a restart and open in another project.
+
+The report is written to a file **and** printed to the pyRevit console. Root
+`todo-list.md` BUG-5 is why: a dialog has to be retyped, a file can be pasted,
+and three rounds of findings arrived as screenshots of a panel that said
+nothing.
+
+### Three things found while reviewing this build
+
+- `families()` built a collector it never used -- dead work on every call.
+- `revit_apply` imported `ViewType` and then kept a fake reference alive to
+  stop it looking unused. The import is gone; view types are compared as text,
+  which also means a name missing from an older or newer Revit never matches
+  rather than raising at import.
+- `categories()` also required `AllowsBoundParameters`, which was a guess
+  dressed as a rule: it would have hidden any model category that holds
+  elements but takes no bound parameters, and a rule isolates those fine.
+
+### Not in this version
+
+The window. **0.1.0** is the cascade picker, the live count, Apply/Clear and
+save -- the first build a person would call the tool.
+
 ## 0.0.3 - 2026-09-09
 
 The rule engine, built test-first. 131 tests, none of which need Revit. There is

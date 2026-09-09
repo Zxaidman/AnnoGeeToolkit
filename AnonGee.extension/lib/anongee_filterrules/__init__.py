@@ -60,8 +60,12 @@ start.
 #: MINOR  a new capability; everything already saved still works.
 #: PATCH  a fix.
 #:
-#: 0.0.3 is the core, complete and tested, with no window on it yet.
-#: 0.1.0 is the first build that applies a rule to a view.
-VERSION = "0.0.3"
+#: 0.0.4 is the whole rule engine -- the tested half and the Revit half --
+#: plus a probe button that exercises it. 0.1.0 is the modeless window.
+VERSION = "0.0.4"
 
+#: The pure half is imported freely. ``compat``, ``revit_query`` and
+#: ``revit_apply`` are NOT listed: they import ``Autodesk.Revit.DB`` at
+#: module level, so importing the package must not drag them in on a
+#: machine with no Revit -- which is every machine the tests run on.
 __all__ = ["values", "names", "rules", "store"]

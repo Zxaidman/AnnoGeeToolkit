@@ -39,9 +39,10 @@ report or the screenshot says so. A green test suite is not verification.
 **An ID is unique within this file.** A reference across files is written in
 full — *Bridge · FEAT-17*, *RC Automation · CRIT-1*.
 
-Current build: **0.0.3** (extension 2.0.0). The pure rule core is built and
-tested — 131 tests, none of which need Revit. No window, no Revit half, nothing
-has run in Revit.
+Current build: **0.0.4** (extension 2.0.0). The rule engine is whole — the
+tested half and the Revit half — and the button is a probe that runs it against
+a real model. 155 tests. **Nothing has been confirmed in Revit yet**, and by
+this file's own rule that means none of it is verified.
 
 ---
 
@@ -137,14 +138,14 @@ nothing here is agreed until it says so.
 
 | ID | Feature | Phase |
 | --- | --- | --- |
-| FEAT-1 | Category → Family → Type cascade picker, correct for both system and loadable families (METHODOLOGY §13.3) | `pending` |
+| FEAT-1 | Category → Family → Type cascade picker, correct for both system and loadable families (METHODOLOGY §13.3) | `testing` — `revit_query.categories/families/types` built; the probe shows them. No picker UI |
 | FEAT-2 | Parameter conditions on a rule — operator set, value parsing without `re`, units recorded with the number (§13.4) | `building` — the core half is done (13 operators, the unit table, `parse_number`); the picker is not |
-| FEAT-3 | Apply a rule to the active view — `IsolateElementsTemporary`, active view only (CRIT-1) | `pending` |
+| FEAT-3 | Apply a rule to the active view — `IsolateElementsTemporary`, active view only (CRIT-1) | `testing` — `revit_apply.isolate`; the probe will run it |
 | FEAT-4 | Name and save a rule; rules survive the Revit session **and** open in another project — strings only, never `ElementId`s (§13.5) | `building` — `store` is done and tested, machine and project both; nothing writes to it yet |
 | FEAT-5 | The saved rules as pressable buttons in a modeless window | `pending` |
-| FEAT-6 | Clear / restore the view to what it was before a rule was pressed | `pending` |
+| FEAT-6 | Clear / restore the view to what it was before a rule was pressed | `testing` — `revit_apply.clear`; the probe will run it |
 | FEAT-7 | Edit, rename, duplicate, delete and reorder saved rules | `building` — `RuleSet` does all five and is tested; no UI on it |
-| FEAT-8 | Live match count before applying, debounced (`ui/dialogs.DebounceTimer`) | `pending` |
+| FEAT-8 | Live match count before applying, debounced (`ui/dialogs.DebounceTimer`) | `building` — `revit_query.count` is the number; the debounce and the window are not |
 | FEAT-9 | Select the matched elements in Revit (`revit/selection.set_selection`) | `pending` |
 | FEAT-10 | The dockable panel — hidden until the pushbutton shows it, docked under the ribbon by default, re-dockable left/right like Properties. Blocked on CRIT-3 | `pending` |
 | FEAT-11 | Apply a rule across several views at once, skipping views that cannot take filters (§13.7) | `pending` |
