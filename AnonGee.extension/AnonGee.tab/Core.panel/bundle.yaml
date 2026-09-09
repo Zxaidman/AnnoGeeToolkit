@@ -1,2 +1,13 @@
 title: Core
-layout: []
+# The panel's direct children, in the order they should appear. It was an empty
+# list, which leaves the order to discovery — and discovery would have put
+# "CAD2BIM Audit" ahead of "cad2bim", separating the audit from the tool it
+# audits and putting a debug tool first on a panel whose job is building models.
+#
+# Neither button is in a stack, deliberately: RibbonPanel.AddStackedItems() has
+# overloads for two items and for three and none for one, so a one-item stack is
+# skipped and everything inside it goes with it (see Dev.panel/bundle.yaml).
+layout:
+  - BIM
+  - cad2bim
+  - CAD2BIM Audit
