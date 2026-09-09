@@ -8,11 +8,30 @@ prose you are supposed to update. This connects them.
 The root changelog and ``extension.json`` are held to each other for the same
 reason the per-tool versions are — a version nobody can trust is worse than
 no version at all.
+
+Two more kinds of drift, both found on 2026-09-09 and both invisible to
+everything else here:
+
+**Links that stopped resolving.** The 2.0.0 ribbon reorganisation moved
+``RC Automation.pushbutton`` into ``col2.stack`` and six links in the root
+changelog kept pointing at where it used to be. A changelog is where somebody
+goes to find out what a tool did; six dead links is six people finding nothing.
+
+**A panel layout naming things that are not its children.** The same
+reorganisation left ``Dev.panel/bundle.yaml`` listing three *buttons* that live
+inside ``Testing.stack``. pyRevit's layout names a panel's direct children, so
+it resolved to nothing and the ribbon order silently fell back to discovery
+order — a directive that looks obeyed and is not.
 """
 
 import json
 import os
 import unittest
+
+try:                                             # py3
+    from urllib.parse import unquote as _unquote
+except ImportError:                              # pragma: no cover - py2
+    from urllib import unquote as _unquote
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _TAB = os.path.join(_ROOT, "AnonGee.extension", "AnonGee.tab")
@@ -149,6 +168,87 @@ class ExtensionVersionTests(unittest.TestCase):
             if name.endswith(".panel"):
                 self.assertIn("AnonGee.tab/{0}".format(name), declared,
                               "{0} is on disk but not in extension.json".format(name))
+
+
+def _links_into_the_extension(text):
+    """Every ``](AnonGee.extension/...)`` target in *text*, percent-decoded."""
+    found = []
+    index = 0
+    while True:
+        index = text.find("](AnonGee.extension", index)
+        if index < 0:
+            return found
+        close = text.find(")", index)
+        if close < 0:
+            return found
+        found.append(_unquote(text[index + 2:close]))
+        index = close
+
+
+def panel_layouts():
+    """``[(panel folder, [name, ...])]`` from each panel's ``bundle.yaml``.
+
+    Parsed by hand rather than with PyYAML — the repository has no YAML
+    dependency and every layout in it is a flat list of plain strings.
+    """
+    found = []
+    for name in sorted(os.listdir(_TAB)):
+        if not name.endswith(".panel"):
+            continue
+        folder = os.path.join(_TAB, name)
+        bundle = os.path.join(folder, "bundle.yaml")
+        if not os.path.isfile(bundle):
+            continue
+        entries, inside = [], False
+        for line in _read(bundle).splitlines():
+            if line.startswith("layout:"):
+                inside = True
+                continue
+            if not inside:
+                continue
+            if line.startswith("  - "):
+                entries.append(line[4:].strip().strip("'\""))
+            elif line.strip() and not line.startswith((" ", "\t", "#")):
+                break
+        found.append((folder, entries))
+    return found
+
+
+class DocumentationLinkTests(unittest.TestCase):
+    """A link into the extension has to land on a file that is there."""
+
+    def test_every_link_in_the_readme_resolves(self):
+        self.assertEqual(
+            [t for t in _links_into_the_extension(_read(_README))
+             if not os.path.exists(os.path.join(_ROOT, t))], [])
+
+    def test_every_link_in_the_root_changelog_resolves(self):
+        self.assertEqual(
+            [t for t in _links_into_the_extension(_read(_CHANGELOG))
+             if not os.path.exists(os.path.join(_ROOT, t))], [])
+
+
+class PanelLayoutTests(unittest.TestCase):
+    """A layout entry names a DIRECT child of its panel, or it does nothing.
+
+    Partial layouts are legal — pyRevit puts anything unlisted after what is
+    listed — so this checks only that what IS named exists. A layout naming a
+    button nested inside a stack passes neither pyRevit nor this.
+    """
+
+    def test_every_layout_entry_names_a_child_of_its_panel(self):
+        problems = []
+        for folder, entries in panel_layouts():
+            children = set()
+            for name in os.listdir(folder):
+                if "." in name and not name.endswith((".yaml", ".yml")):
+                    children.add(name.rsplit(".", 1)[0])
+            for entry in entries:
+                if entry not in children:
+                    problems.append("{0}: layout names {1!r}, which is not a "
+                                    "direct child".format(
+                                        os.path.basename(folder), entry))
+        self.assertEqual(problems, [], "; ".join(problems))
 
 
 if __name__ == "__main__":                                    # pragma: no cover

@@ -13,7 +13,7 @@ A professional suite of structural and architectural BIM automation tools for **
 
 ## ✨ Tools Overview
 
-The extension adds an **AnonGee** tab to the Revit ribbon with four panels and 29 tools.
+The extension adds an **AnonGee** tab to the Revit ribbon with four panels and 30 tools.
 
 ### 🟢 Essential Panel
 
@@ -91,6 +91,7 @@ Generators, the design system, and the reference patterns new tools are built fr
 | **CPython3 engine** | Engine health check. Reports whether the CPython 3 engine is a fresh load or a reused instance (and how many runs this session), which third-party libraries resolve, and whether the Revit API bridge responds. |
 | **Create Button** | Scaffold a new pyRevit pushbutton: collects the tab / panel / group / metadata in a brand-themed dialog, writes the folder, script, icon and `bundle.yaml`, then asks pyRevit to reload. |
 | **Extract Template** | Writes everything the open model contains to a Markdown file, so a `.rvt` can be read, diffed and discussed by anyone who does not have Revit open. |
+| **Filter View Manager** | *In development — the rule engine and a Revit probe; the window is not built yet.* Will save `Category > Family > Type > Parameter` rules as named buttons, so pressing one temporarily isolates what the rule matches in the active view — nothing is written to the project. Pressing it today runs the engine against the open model: categories, families, types, which parameters Revit would accept in a view filter, what a rule matches, and an optional isolate ([methodology](AnonGee.extension/AnonGee.tab/Dev.panel/col3.stack/FilterViewManager.pushbutton/METHODOLOGY.md) · [PRD](AnonGee.extension/AnonGee.tab/Dev.panel/col3.stack/FilterViewManager.pushbutton/PRD.md) · [changelog](AnonGee.extension/AnonGee.tab/Dev.panel/col3.stack/FilterViewManager.pushbutton/CHANGELOG.md)). |
 | **Modeless Window** | Reference implementation of the modeless (non-blocking) window pattern — `window.Show()`, an `IExternalEventHandler` bridge marshalling every Revit call onto Revit's primary thread, and the session-state rules that go with it. |
 | **RC Automation** | Reads an Excel reinforcement schedule, checks it, works out what every existing footing would become, and reconciles the workbook against the model before a transaction is opened. Held to the same **BS 8666:2020** module the BBS Generator ships. |
 
@@ -163,9 +164,14 @@ This builds the pinned CPython 3.12 runtime used by the extension. Release paylo
 
 ### Tests
 
-Some tools keep their Revit-free logic in plain Python modules so it can be exercised without opening Revit. Run the applicable unit suite from the repository root using the project-standard Python environment.
+Some tools keep their Revit-free logic in plain Python modules so it can be exercised without opening Revit. Run the whole suite from the repository root:
 
-`tests/test_repo_docs.py` holds this README and the [root changelog](CHANGELOG.md) to what is actually on the ribbon — every `.pushbutton` on disk has to be documented, every panel has to be declared in `extension.json`, and the changelog has to lead with the version `extension.json` states. `tests/test_autolevel.py` covers the Auto Level Manager's text detection, naming, plan model and stack-drawing camera. `tests/test_autolevel_ui.py` checks its XAML and Python wiring statically, against the delivery rules in §12.7–§12.9 of the brand guidelines and against the failures that are expensive to find inside Revit:
+```bash
+python3 -m unittest discover -s tests -t .    # every test file
+python3 tests/test_repo_docs.py               # one file, unchanged
+```
+
+`tests/test_repo_docs.py` holds this README and the [root changelog](CHANGELOG.md) to what is actually on the ribbon — every `.pushbutton` on disk has to be documented, every panel has to be declared in `extension.json`, and the changelog has to lead with the version `extension.json` states. It also holds two things the 2.0.0 ribbon reorganisation broke silently: every markdown link into `AnonGee.extension/` has to resolve, and every name in a panel's `bundle.yaml` `layout:` has to be a direct child of that panel — a layout naming a button nested inside a stack looks obeyed and does nothing. `tests/test_filterrules.py` covers the Filter View Manager's rule engine — parsing, units, operators, the rule model, both JSON stores — and the dual-engine contract that keeps it loadable on IronPython 2.7 as well as CPython 3, which nothing else in this suite can check. `tests/test_autolevel.py` covers the Auto Level Manager's text detection, naming, plan model and stack-drawing camera. `tests/test_autolevel_ui.py` checks its XAML and Python wiring statically, against the delivery rules in §12.7–§12.9 of the brand guidelines and against the failures that are expensive to find inside Revit:
 
 - every `FindName` lookup resolves and every named control is used;
 - every `{Binding}` path has a matching `__slots__` entry;
