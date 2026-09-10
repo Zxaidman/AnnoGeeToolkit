@@ -1,8 +1,8 @@
 # AnonGee BIM Tools
 ## Brand & Design System
 
-> **Version 3.0** · June 2026 · Confidential — Internal Reference
-> Supersedes v2.0. Palette unchanged; document restructured to design-system standard and reconciled with the shipping `pyZaid.extension` codebase.
+> **Version 3.3** · September 2026 · Confidential — Internal Reference
+> Supersedes v3.0. The light palette is unchanged and remains the default. v3.3 adds the **dark surface palette** (§3.8) and its controls (§9.10) for UI embedded in Revit's own chrome, and makes §12.4's dockable-pane rules orientation-aware.
 
 ---
 
@@ -24,6 +24,7 @@ Every visual value in this document maps to a named token in `pyZaid.extension/R
 1. [Brand Identity](#1-brand-identity)
 2. [Logo & Wordmark](#2-logo--wordmark)
 3. [Color System](#3-color-system)
+    - [3.8 Dark Surfaces](#38-dark-surfaces) — the dark palette, and the rule for which surfaces wear it
 4. [Typography](#4-typography)
 5. [Spacing, Layout & Density](#5-spacing-layout--density)
 6. [Motion & Interaction](#6-motion--interaction)
@@ -32,6 +33,7 @@ Every visual value in this document maps to a named token in `pyZaid.extension/R
 **Components & Voice**
 8. [Voice & Tone](#8-voice--tone)
 9. [UI Component Guidelines](#9-ui-component-guidelines)
+    - [9.10 Dark-Surface Controls](#910-dark-surface-controls) — the `…OnDark` variants
 
 **Quality & Delivery**
 10. [Accessibility Standards](#10-accessibility-standards)
@@ -200,6 +202,69 @@ Used in tables, badges, and selection states. These are intentionally not part o
 - **Silver Steel is never text on white** (1.68:1 — fails AA). It is a border / dark-surface color only.
 - Semantic colors are never substituted for brand colors, and the reverse.
 - No off-palette colors in any designed output without versioned approval (§15).
+
+---
+
+### 3.8 Dark Surfaces
+
+Added **v3.3**. The light palette above remains the default and is unchanged; nothing that ships today changes colour.
+
+**The rule, and it is a rule about context, not taste:**
+
+> A surface wears the **dark palette** when it is **embedded in Revit's own chrome** — that is, a dockable pane. A surface stays **light** when it is the user's foreground task — a modeless or modal tool window, a dialog, a report.
+
+The reason is that an embedded pane is judged against its neighbours, not on its own. A dockable pane sits in the same column as the Properties palette and the Project Browser, both of which follow Revit's theme. A white slab between two dark palettes does not read as "an AnonGee panel"; it reads as a control that failed to paint. A floating window has no neighbours — it is the thing the user is looking at, and the light palette's contrast and familiarity win there.
+
+This is a **surface** decision, not a *theme* setting. There is no user-facing dark mode toggle and none is planned: each surface is one or the other by what it is.
+
+#### 3.8.1 Dark surface ramp
+
+Stepped up from Charcoal Black so a dark AnonGee panel still reads as ours beside Revit's neutral grey.
+
+| Name | Hex | Token | Role |
+|---|---|---|---|
+| **Dark Canvas** | `#1B1B1E` | `ColorDarkCanvas` | The pane's own background. The dark equivalent of Pure White. |
+| **Dark Surface** | `#232327` | `ColorDarkSurface` | Raised faces — buttons, cards, input fills. |
+| **Dark Surface Hover** | `#2E2E34` | `ColorDarkSurfaceHover` | Hover fill on a raised face. |
+| **Dark Surface Pressed** | `#3A3A42` | `ColorDarkSurfacePressed` | Pressed fill. |
+
+#### 3.8.2 Dark borders — two, and the difference is load-bearing
+
+| Name | Hex | Token | Role |
+|---|---|---|---|
+| **Dark Border** | `#34343C` | `ColorDarkBorder` | **Decorative only** — dividers, rules, card outlines, disabled edges. |
+| **Dark Border Strong** | `#6F707C` | `ColorDarkBorderStrong` | **The boundary of an interactive control.** 3.51:1 on Dark Canvas, 3.19:1 on Dark Surface — clears WCAG 2.1 **1.4.11 Non-text Contrast** (3:1). |
+
+On a near-black canvas the fill step between a button and its background is about 1.1:1, which is invisible. The border is therefore the *only* thing telling the user where the control is, and it has to carry a real contrast ratio. **Never outline a button on dark with `ColorDarkBorder`** — it looks tidier and it is the accessibility defect.
+
+#### 3.8.3 Dark text
+
+| Name | Hex | Token | Role |
+|---|---|---|---|
+| **Dark Text Primary** | `#F2F3F5` | `ColorDarkTextPrimary` | Body and control labels. 15.48:1 on Dark Canvas. |
+| Silver Steel | `#C0C8D8` | `BrushDarkTextSecondary` | Secondary text. Already the brand's on-dark colour (§10.1) — reused, not replaced. |
+| **Dark Text Muted** | `#9AA2B3` | `ColorDarkTextMuted` | Captions, metadata, status lines. 6.70:1. |
+| **Dark Disabled** | `#767E8E` | `ColorDarkDisabled` | Disabled labels. |
+
+#### 3.8.4 Semantic colours, lifted for dark
+
+The light-surface semantics are too dark to carry body text on `#1B1B1E`. Error Red lands at **3.56:1** and Info Blue at **3.32:1** — above 3:1, so legal for large text, and below 4.5:1, so illegal for exactly the status lines and labels they would be used for. Success Green (5.21:1) and Caution Amber (5.39:1) technically pass and still read as a smear on near-black. Hue is preserved so the meaning does not move; only lightness changes.
+
+| Light token (on Dark Canvas) | Dark token | Hex | On Dark Canvas |
+|---|---|---|---|
+| `ColorSuccessGreen` (5.21:1) | `ColorSuccessGreenOnDark` | `#4ADE80` | **9.86:1** |
+| `ColorCautionAmber` (5.39:1) | `ColorCautionAmberOnDark` | `#FBBF24` | **10.29:1** |
+| `ColorErrorRed` (3.56:1) | `ColorErrorRedOnDark` | `#F87171` | **6.21:1** |
+| `ColorInfoBlue` (3.32:1) | `ColorInfoBlueOnDark` | `#60A5FA` | **6.76:1** |
+
+Every ratio in this section is computed from `Colors.xaml` by `tests/test_filterpane_ui.py`, not transcribed. Nudge a token and the arithmetic fails the build.
+
+#### 3.8.5 Vivid Red on dark
+
+Vivid Red is **3.6:1 on Dark Canvas** — large-text only. §3.7's existing rule therefore extends unchanged to every dark surface:
+
+- Vivid Red is an **accent and a fill**: the 2px pane rule, a chip's left bar, a Primary button's background, a focus ring, a scrollbar thumb being dragged.
+- Vivid Red is **never body text on dark**. An outlined button on dark keeps the red border and takes `ColorDarkTextPrimary` for its label.
 
 ---
 
@@ -561,6 +626,37 @@ The **toggle switch is the required control for a binary on/off option** (Androi
 
 ---
 
+### 9.10 Dark-Surface Controls
+
+The dark variants of §9.1's hierarchy, for the surfaces §3.8 defines. They live in `Controls.xaml` beside the light ones and are keyed `…OnDark`. **A dark surface uses these; it does not restyle the light ones inline.**
+
+| Variant | Style key | Background | Text | Border |
+|---|---|---|---|---|
+| **Primary** | `ButtonPrimary` (unchanged) | Vivid Red | White | none |
+| **Secondary** | `ButtonSecondaryOnDark` | Transparent | `DarkTextPrimary` | 1.5px Vivid Red |
+| **Ghost** | `ButtonGhostOnDark` | Transparent | `DarkTextMuted` | 1px `DarkBorderStrong` |
+| **Rule chip** | `ButtonRuleOnDark` | `DarkSurface` + 3px Vivid Red left bar | `DarkTextPrimary` | 1px `DarkBorderStrong` |
+
+Primary needs no dark variant: white-on-Vivid-Red is 4.78:1 against any background, so the light Primary is already correct on dark.
+
+**Secondary on dark keeps the red border but not the red label** — §3.8.5. Ghost on dark gains a border it does not have on light, because a borderless transparent control on a near-black canvas has no boundary at all (§3.8.2).
+
+**The rule chip** is a list row that happens to be pressable. A pane holds many of them and §9.1 permits one Primary per view, so instead of a wall of red buttons it wears the 3px Vivid Red left bar the system already uses for a selected list row (§9.4). Implementation note: the bar is the *outer* border's background showing through a 3px left margin on the inner fill — the only way to get a flat edge inside a 5px radius without a clip. Its content is a `TextBlock` with `TextTrimming`, not a bare `ContentPresenter`, so a long rule name ellipsizes in a narrow dock instead of overflowing.
+
+**Scrollbars.** `ScrollBarOnDark` is keyed, not implicit. A dark container opts in with one line in its own resources and nothing on the canonical implicit style moves:
+
+```xml
+<Style TargetType="ScrollBar" BasedOn="{StaticResource ScrollBarOnDark}"/>
+```
+
+Track `DarkCanvas`, thumb `DarkBorderStrong` → Silver Steel (hover) → Vivid Red (drag).
+
+**Text.** `TextSmallOnDark` and `TextCaptionOnDark` join the existing `TextH2OnDark` / `TextH3OnDark` / `TextBodyOnDark` in `Typography.xaml`.
+
+> **Known gap (v3.3).** There is no dark `InputTextBox`, `InputComboBox`, `InputCheckBox`, `InputListBox` or `CardBorderOnDark` state matrix yet, because nothing dark has needed one — the only dark surface shipping is a pane of buttons. Add them when a dark surface needs an input, and specify them here first.
+
+---
+
 ## 10. Accessibility Standards
 
 Accessibility is a release gate, not a nicety. Target: **WCAG 2.1 AA** for all UI.
@@ -577,8 +673,19 @@ Accessibility is a release gate, not a nicety. Target: **WCAG 2.1 AA** for all U
 | Vivid Red on White | **4.78:1** | ✅ | ✅ | Secondary button label |
 | Silver Steel on Charcoal Black | **10.96:1** | ✅ | ✅ | Secondary text/icons on dark |
 | **Silver Steel on White** | **1.68:1** | ❌ | ❌ | **Borders/dividers only — never text** |
+| Dark Text Primary on Dark Canvas | **15.48:1** | ✅ | ✅ | Body & labels on dark (§3.8) |
+| Silver Steel on Dark Canvas | **10.22:1** | ✅ | ✅ | Secondary text on dark |
+| Dark Text Muted on Dark Canvas | **6.70:1** | ✅ | ✅ | Captions, status lines on dark |
+| Error Red **on Dark** (`#F87171`) on Dark Canvas | **6.21:1** | ✅ | ✅ | Semantic text on dark |
+| Error Red (light `#DC2626`) on Dark Canvas | **3.56:1** | ❌ | ✅ | **Why the lifted set exists — large text only, so not a status line** |
+| Info Blue (light `#2563EB`) on Dark Canvas | **3.32:1** | ❌ | ✅ | Same — never a label on dark |
+| **Vivid Red on Dark Canvas** | **3.60:1** | ❌ | ✅ | **Accent & fill only — never body text (§3.8.5)** |
+| Dark Border Strong on Dark Canvas | **3.51:1** | — | — | Interactive boundary — WCAG **1.4.11** (needs 3:1) |
+| Dark Border Strong on Dark Surface | **3.19:1** | — | — | Interactive boundary — passes 1.4.11 |
 
 Consequences baked into the system: Mid Grey (not Silver Steel) is the body-text color on white; white (not Vivid Red) is text on Charcoal; Vivid Red backgrounds require white text at ≥14px.
+
+On dark the same shape of consequence holds one level down: the fill step between a control and a near-black canvas is about 1.1:1, so the **border** is what satisfies 1.4.11 and `ColorDarkBorder` is never that border (§3.8.2). Hover states are the one place a dark boundary drops below 3:1 (`DarkBorderStrong` on `DarkSurfaceHover` is 2.75:1) — acceptable because the resting state passes and the hover is itself signalled by the fill change.
 
 ### 10.2 Focus & Keyboard
 
@@ -669,7 +776,11 @@ Either way: **reference tokens by key** (`{DynamicResource BrushVividRed}`), nev
 - Always set `WindowStartupLocation="CenterOwner"` and assign the Revit main window as `Owner` (prevents the dialog appearing behind Revit).
 - Modeless tools that touch the model use a pyRevit `ExternalEvent` / handler — never mutate the document off the API context.
 - Wrap all model changes in a `Transaction` with a descriptive name matching the tool ("AnonGee · Obscured Rebar").
-- Dockable panels implement `IDockablePaneProvider`, stay single-column, and respect `MinWidth=240 / MaxWidth=360`.
+- Dockable panels implement `IDockablePaneProvider`. They wear the **dark palette** (§3.8) and the `…OnDark` controls (§9.10), because they sit inside Revit's chrome.
+- **A dockable pane has two shapes and must lay out for both.** Revit lets the user drag it to the top, the bottom, or either side, and it remembers. Docked left/right it is a narrow column (`MinWidth=240 / MaxWidth=360`): content stacks and **scrolls vertically**. Docked top/bottom it is a wide strip: content runs across and **scrolls horizontally**. Exactly one axis scrolls at a time — leaving the other on `Auto` puts a scrollbar under a column that does not need one.
+- **Do not expect a `WrapPanel` to do this for you.** It reflows but it does not re-align, and in a tall narrow pane it centres a short list in a column of dead space. Switch on the measured size in `SizeChanged` — gate the work on the orientation actually flipping, or a drag re-lays out on every pixel.
+- **Everything in a pane is `Top`/`Left` aligned.** The pane is given whatever height the user dragged it to; content that centres itself floats in the middle of an empty panel.
+- **`data.VisibleByDefault = False`** unless the pane is meant to appear on every Revit start. Registration and visibility are separate in the API but *not* in its defaults — the property starts `True`, and a pane that shows itself uninvited on first launch is the result.
 
 ### 12.5 Bundle conventions
 
@@ -1595,6 +1706,24 @@ Non-negotiable across all touchpoints.
 | `BrushSecondaryHover` | `#1AE02020` | Outline-button hover fill |
 | `BrushGhostHover` | `#E8E8EC` | Ghost/neutral hover |
 | `BrushDisabledBackground` / `…Foreground` | `#E2E4EA` / `#C0C8D8` | Disabled controls |
+
+**Dark surfaces** (§3.8) — dockable panes only:
+
+| Key | Hex | Role |
+|---|---|---|
+| `BrushDarkCanvas` | `#1B1B1E` | Pane background |
+| `BrushDarkSurface` | `#232327` | Raised faces — buttons, cards |
+| `BrushDarkSurfaceHover` / `…Pressed` | `#2E2E34` / `#3A3A42` | Interaction fills |
+| `BrushDarkBorder` | `#34343C` | Decorative dividers only |
+| `BrushDarkBorderStrong` | `#6F707C` | Interactive control boundary (1.4.11) |
+| `BrushDarkTextPrimary` | `#F2F3F5` | Body & labels on dark |
+| `BrushDarkTextSecondary` | `#C0C8D8` | Secondary text (Silver Steel) |
+| `BrushDarkTextMuted` | `#9AA2B3` | Captions, status |
+| `BrushDarkDisabled` | `#767E8E` | Disabled labels on dark |
+| `BrushSuccessGreenOnDark` | `#4ADE80` | Success on dark |
+| `BrushCautionAmberOnDark` | `#FBBF24` | Warning on dark |
+| `BrushErrorRedOnDark` | `#F87171` | Error on dark |
+| `BrushInfoBlueOnDark` | `#60A5FA` | Info on dark |
 
 ### 18.2 CSS Custom Properties (web / artifact use)
 

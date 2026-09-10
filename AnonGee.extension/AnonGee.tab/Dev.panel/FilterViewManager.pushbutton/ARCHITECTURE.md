@@ -341,15 +341,26 @@ across the drawing area. The user can then drag it to the left or right edge,
 where it becomes a **tall narrow column** like Properties. Revit gives both for
 free; the layout has to survive both.
 
-`Resources/Panels.xaml`'s `DockablePanelTemplate` and §12.4 only describe the
-tall one (`MinWidth=240 / MaxWidth=360`, single column). **A design-system
-reconciliation item**, and it belongs in the brand guidelines' §15.4 table, not
-in this tool: either the template grows a horizontal variant, or §12.4 says
-top-docked panes are exempt. Raise it when 0.2.0 is scheduled.
+`Resources/Panels.xaml`'s `DockablePanelTemplate` and §12.4 used to describe
+only the tall one (`MinWidth=240 / MaxWidth=360`, single column). **Resolved in
+0.3.0**: §12.4 now states both shapes and what each one scrolls, and §3.8 /
+§9.10 add the dark surface layer the pane needed. The reconciliation item is
+closed.
 
-The content itself is a `WrapPanel` of buttons — which reflows into a row when
-wide and a column when narrow without being told which it is. That is one
-control doing both shapes, rather than two layouts kept in step.
+**0.2.0 used a `WrapPanel` on the theory that it would do both shapes without
+being told which it was in. It does not.** A `WrapPanel` reflows, but it does
+not re-align, re-margin, or move anything else on the panel — docked to the
+right it centred a single button in a column of dead space, left the actions
+docked to the right eating the width, and clipped the second rule off the edge
+behind a *horizontal* scrollbar. One control was doing neither shape.
+
+0.3.0 decides the orientation from the pane's own measured size, in
+`FilterViewPane._layout`, and applies it to four things at once: which edge the
+actions dock to, which way the two stacks run, which single scrollbar is live,
+and how each rule chip is aligned and margined. There is still **one element
+tree** — only its properties move — so the two shapes cannot drift apart the
+way two layouts would. The work is gated on the orientation actually flipping,
+because `SizeChanged` fires on every pixel of a drag.
 
 ---
 

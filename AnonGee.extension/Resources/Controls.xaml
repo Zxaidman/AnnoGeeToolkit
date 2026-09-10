@@ -533,4 +533,241 @@
         </Style.Triggers>
     </Style>
 
+    <!-- ════════════════════════════════════════════════════════════════
+         DARK-SURFACE VARIANTS (v3.3)
+         For UI embedded in Revit's own chrome — dockable panes. Brand
+         guidelines §3.8 decides when a surface is dark; §9.10 specifies
+         these controls. The light styles above remain the default for
+         every floating tool window.
+         ════════════════════════════════════════════════════════════════ -->
+
+    <!-- ═══ SECONDARY BUTTON, ON DARK ═══ -->
+    <!-- Transparent fill, Vivid Red 1.5px border, LIGHT text. The label is not
+         red: §3.7 forbids Vivid Red text on a dark surface (3.6:1 — large only),
+         so the red carries as the border and the text stays readable. -->
+    <Style x:Key="ButtonSecondaryOnDark" TargetType="Button" BasedOn="{StaticResource ButtonBaseStyle}">
+        <Setter Property="Background"      Value="Transparent"/>
+        <Setter Property="Foreground"      Value="{StaticResource BrushDarkTextPrimary}"/>
+        <Setter Property="BorderBrush"     Value="{StaticResource BrushVividRed}"/>
+        <Setter Property="BorderThickness" Value="1.5"/>
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Background" Value="{StaticResource BrushSecondaryHover}"/>
+            </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+                <Setter Property="Background"  Value="{StaticResource BrushVividRedPressed}"/>
+                <Setter Property="BorderBrush" Value="{StaticResource BrushVividRedPressed}"/>
+                <Setter Property="Foreground"  Value="{StaticResource BrushPureWhite}"/>
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="BorderBrush" Value="{StaticResource BrushDarkBorder}"/>
+                <Setter Property="Foreground"  Value="{StaticResource BrushDarkDisabled}"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- ═══ GHOST BUTTON, ON DARK ═══ -->
+    <Style x:Key="ButtonGhostOnDark" TargetType="Button" BasedOn="{StaticResource ButtonBaseStyle}">
+        <Setter Property="Background"      Value="Transparent"/>
+        <Setter Property="Foreground"      Value="{StaticResource BrushDarkTextMuted}"/>
+        <Setter Property="BorderBrush"     Value="{StaticResource BrushDarkBorderStrong}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Background" Value="{StaticResource BrushDarkSurfaceHover}"/>
+                <Setter Property="Foreground" Value="{StaticResource BrushDarkTextPrimary}"/>
+            </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+                <Setter Property="Background" Value="{StaticResource BrushDarkSurfacePressed}"/>
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="BorderBrush" Value="{StaticResource BrushDarkBorder}"/>
+                <Setter Property="Foreground"  Value="{StaticResource BrushDarkDisabled}"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- ═══ RULE CHIP, ON DARK ═══ -->
+    <!-- A saved-rule button in a dockable pane. It is a list row that happens
+         to be pressable, so it wears the 3px Vivid Red left bar the design
+         system already uses for a selected list row (§9.4) rather than a
+         second solid-red button — a pane holds many of these and §9.1 allows
+         one Primary per view.
+         The bar is the OUTER border's background showing through a 3px left
+         margin on the inner fill, which is the only way to get a flat edge
+         inside a 5px radius without a clip.
+         Content is a TextBlock, not a bare ContentPresenter, because a rule
+         name is long and a narrow side dock must ellipsize rather than
+         overflow — the failure the WrapPanel version shipped with. -->
+    <Style x:Key="ButtonRuleOnDark" TargetType="Button" BasedOn="{StaticResource ButtonBaseStyle}">
+        <Setter Property="Background"               Value="{StaticResource BrushDarkSurface}"/>
+        <Setter Property="Foreground"               Value="{StaticResource BrushDarkTextPrimary}"/>
+        <Setter Property="BorderBrush"              Value="{StaticResource BrushDarkBorderStrong}"/>
+        <Setter Property="BorderThickness"          Value="1"/>
+        <Setter Property="HorizontalContentAlignment" Value="Left"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Accent"
+                            Background="{StaticResource BrushVividRed}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="5">
+                        <Border x:Name="Fill"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="0,4,4,0"
+                                Margin="3,0,0,0"
+                                Padding="{TemplateBinding Padding}">
+                            <TextBlock x:Name="Label"
+                                       Text="{TemplateBinding Content}"
+                                       TextTrimming="CharacterEllipsis"
+                                       VerticalAlignment="Center"
+                                       Foreground="{TemplateBinding Foreground}"
+                                       HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"/>
+                        </Border>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Fill" Property="Background"
+                                    Value="{StaticResource BrushDarkSurfaceHover}"/>
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="Fill" Property="Background"
+                                    Value="{StaticResource BrushDarkSurfacePressed}"/>
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Accent" Property="BorderBrush"
+                                    Value="{StaticResource BrushVividRed}"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="Accent" Property="Background"
+                                    Value="{StaticResource BrushDarkBorder}"/>
+                            <Setter TargetName="Label" Property="Foreground"
+                                    Value="{StaticResource BrushDarkDisabled}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ════════════════════════════════════════════════════════════════
+         SCROLLBAR, ON DARK — geometry identical to the light one above,
+         three brushes swapped. It is KEYED, not implicit, so a dark
+         container opts in with one BasedOn line and nothing else on the
+         window changes.
+         DarkBorder → SilverSteel (hover) → VividRed (drag)
+         ════════════════════════════════════════════════════════════════ -->
+
+    <Style x:Key="ScrollBarOnDark" TargetType="ScrollBar">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Width"      Value="8"/>
+        <Setter Property="MinWidth"   Value="8"/>
+        <!-- Vertical template (default) -->
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ScrollBar">
+                    <Grid Background="Transparent">
+                        <Border Background="{StaticResource BrushDarkCanvas}"
+                                CornerRadius="4" Margin="2,0"/>
+                        <Track x:Name="PART_Track" IsDirectionReversed="True">
+                            <Track.DecreaseRepeatButton>
+                                <RepeatButton Command="ScrollBar.PageUpCommand"
+                                              Focusable="False" Opacity="0"
+                                              Background="Transparent" BorderThickness="0"/>
+                            </Track.DecreaseRepeatButton>
+                            <Track.IncreaseRepeatButton>
+                                <RepeatButton Command="ScrollBar.PageDownCommand"
+                                              Focusable="False" Opacity="0"
+                                              Background="Transparent" BorderThickness="0"/>
+                            </Track.IncreaseRepeatButton>
+                            <Track.Thumb>
+                                <Thumb>
+                                    <Thumb.Template>
+                                        <ControlTemplate TargetType="Thumb">
+                                            <Border x:Name="ThumbBd"
+                                                    CornerRadius="3" Margin="2,0"
+                                                    Background="{StaticResource BrushDarkBorderStrong}"/>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="ThumbBd" Property="Background"
+                                                            Value="{StaticResource BrushSilverSteel}"/>
+                                                </Trigger>
+                                                <Trigger Property="IsDragging" Value="True">
+                                                    <Setter TargetName="ThumbBd" Property="Background"
+                                                            Value="{StaticResource BrushVividRed}"/>
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Thumb.Template>
+                                </Thumb>
+                            </Track.Thumb>
+                        </Track>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+        <!-- Horizontal orientation override -->
+        <Style.Triggers>
+            <Trigger Property="Orientation" Value="Horizontal">
+                <Setter Property="Width"     Value="Auto"/>
+                <Setter Property="MinWidth"  Value="0"/>
+                <Setter Property="Height"    Value="8"/>
+                <Setter Property="MinHeight" Value="8"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ScrollBar">
+                            <Grid Background="Transparent">
+                                <Border Background="{StaticResource BrushDarkCanvas}"
+                                        CornerRadius="4" Margin="0,2"/>
+                                <Track x:Name="PART_Track" IsDirectionReversed="False">
+                                    <Track.DecreaseRepeatButton>
+                                        <RepeatButton Command="ScrollBar.PageLeftCommand"
+                                                      Focusable="False" Opacity="0"
+                                                      Background="Transparent" BorderThickness="0"/>
+                                    </Track.DecreaseRepeatButton>
+                                    <Track.IncreaseRepeatButton>
+                                        <RepeatButton Command="ScrollBar.PageRightCommand"
+                                                      Focusable="False" Opacity="0"
+                                                      Background="Transparent" BorderThickness="0"/>
+                                    </Track.IncreaseRepeatButton>
+                                    <Track.Thumb>
+                                        <Thumb>
+                                            <Thumb.Template>
+                                                <ControlTemplate TargetType="Thumb">
+                                                    <Border x:Name="ThumbBd"
+                                                            CornerRadius="3" Margin="0,2"
+                                                            Background="{StaticResource BrushDarkBorderStrong}"/>
+                                                    <ControlTemplate.Triggers>
+                                                        <Trigger Property="IsMouseOver" Value="True">
+                                                            <Setter TargetName="ThumbBd" Property="Background"
+                                                                    Value="{StaticResource BrushSilverSteel}"/>
+                                                        </Trigger>
+                                                        <Trigger Property="IsDragging" Value="True">
+                                                            <Setter TargetName="ThumbBd" Property="Background"
+                                                                    Value="{StaticResource BrushVividRed}"/>
+                                                        </Trigger>
+                                                    </ControlTemplate.Triggers>
+                                                </ControlTemplate>
+                                            </Thumb.Template>
+                                        </Thumb>
+                                    </Track.Thumb>
+                                </Track>
+                            </Grid>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- ═══ CARD, ON DARK ═══ -->
+    <Style x:Key="CardBorderOnDark" TargetType="Border">
+        <Setter Property="Background"      Value="{StaticResource BrushDarkSurface}"/>
+        <Setter Property="BorderBrush"     Value="{StaticResource BrushDarkBorder}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius"    Value="8"/>
+        <Setter Property="Padding"         Value="16"/>
+    </Style>
+
 </ResourceDictionary>

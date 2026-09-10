@@ -136,7 +136,22 @@ panel, and Panel reports rather than breaks.
 
 ## 2. Errors and bugs
 
-None. Nothing has run.
+All closed. Each was found by the project owner running the tool in Revit, and
+none of them was findable any other way.
+
+| ID | Fault | Found | State |
+| --- | --- | --- | --- |
+| BUG-1 | The pushbutton did not appear on the ribbon at all | 0.1.0 in Revit | Fixed 0.1.1 — a `.stack` with **one** child. `AddStackedItems()` has overloads for 2 and 3 only, so pyRevit skipped the whole stack silently. Gate: a `.stack` must have 2-3 children |
+| BUG-2 | Conditions offered no parameters — "151 type(s), 0 parameter(s)" | 0.1.1 in Revit | Fixed 0.2.0 — parameters were sampled from **placed elements** only, and the model had types and no instances. Now three sources in order: the filterable set, placed elements, then types |
+| BUG-3 | Remove condition "never built" | 0.2.0 in Revit | Fixed 0.2.0 — it was built and wired, and sat below the fold under a fixed-height list inside a scroller. Moved beside the list, double-click added. Gate: an action button is a **sibling** of the list it acts on |
+| BUG-4 | Panel would not register: "no UIControlledApplicatio..." | 0.2.0 in Revit | Fixed 0.2.1 — the spike guessed `__uicontrolledapplication__`; pyRevit binds **`__revit__`**, listed in this repo's own `tests/test_scripts.py` the whole time |
+| BUG-7 | The panel appeared on Revit start with no button pressed | 0.2.1 in Revit | Fixed 0.3.0 — `DockablePaneProviderData.VisibleByDefault` **defaults to `True`**. Registration and visibility are separate concepts with a shared default |
+| BUG-8 | The panel was white between two dark Revit palettes | 0.2.1 in Revit | Fixed 0.3.0 — the design system had no dark anything. Added §3.8 / §9.10 and the tokens behind them, then applied |
+| BUG-9 | Docked right: one button centred in dead space, the second clipped behind a horizontal scrollbar, actions eating the width | 0.2.1 in Revit | Fixed 0.3.0 — `WrapPanel` reflows but does not re-align. Orientation is now decided from the measured size and applied to four things |
+
+BUG-5 and BUG-6 were folded into BUG-4's fix and never carried IDs of their own;
+the numbering is kept rather than closed up, so a reference in an older entry
+still points at the same thing.
 
 ---
 
@@ -157,10 +172,12 @@ nothing here is agreed until it says so.
 | FEAT-7 | Edit, rename, duplicate, delete and reorder saved rules | `testing` — all five, and Delete asks first |
 | FEAT-8 | Live match count before applying, debounced (`ui/dialogs.DebounceTimer`) | `building` — the Count button gives the number on demand. It is not yet live-as-you-type, which is what the debounce is for |
 | FEAT-9 | Select the matched elements in Revit (`revit/selection.set_selection`) | `testing` — the Select button |
-| FEAT-10 | The dockable panel — hidden until the pushbutton shows it, docked under the ribbon by default, re-dockable left/right like Properties | `testing` — built in 0.2.0. Whether Revit accepts the registration is what the startup record answers |
+| FEAT-10 | The dockable panel — hidden until the pushbutton shows it, docked under the ribbon by default, re-dockable left/right like Properties | `verified` — registration confirmed in Revit 2025.4 via `__revit__`. 0.3.0 made it dark, hidden at startup, and correct in both dock shapes |
 | FEAT-11 | Apply a rule across several views at once, skipping views that cannot take filters (§13.7) | `pending` |
 | FEAT-12 | Import / export a rule set, so an office shares one | `pending` |
 | FEAT-13 | Convert a saved rule into a real `ParameterFilterElement` in the project — only possible for rules whose every parameter passed the CRIT-2 flag. Not wanted today; recorded because CRIT-2's answer paid for it | `pending` |
+| FEAT-15 | **Dark inputs.** §9.10 ships dark buttons, a dark scrollbar and a dark card, and no dark `InputTextBox` / `InputComboBox` / `InputCheckBox` / `InputListBox`, because nothing dark has needed one — the only dark surface is a pane of buttons. Specify in §9.10 first, then build | `pending` |
+| FEAT-16 | **One scrollbar template, themed by token.** `ScrollBarOnDark` duplicates the light template to swap three brushes, which is what WPF forces unless the shared template reads its brushes through `{DynamicResource}` — then a dark container redefines three keys and the template is written once. It is the better design; it also touches every tool's inline theme copy, so it is a design-system change, not a tool one | `pending` |
 | FEAT-14 | Per-project rule store — **decided and read-side built**: `<model folder>/AnonGee/filter_view_rules.json`, one per folder, no precedence (both shown, each badged). Not Extensible Storage, because writing that modifies the model and PRD S6.1 forbids it. The window has no UI for it yet | `building` |
 
 ---
