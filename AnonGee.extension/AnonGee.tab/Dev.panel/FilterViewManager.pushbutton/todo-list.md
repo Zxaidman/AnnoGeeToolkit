@@ -85,7 +85,7 @@ came from rather than asserting it.
 
 **Unblocks:** FEAT-2.
 
-### CRIT-3 — the dockable panel still needs a startup component · `pending`
+### CRIT-3 — the dockable panel still needs a startup component · `testing`
 
 **Partly answered, and one part of the answer was wrong — the correction is the
 finding.**
@@ -119,8 +119,18 @@ is not on that engine's path. So the dock panel cannot import
 `anongee_toolkit`, and the architecture's answer to the same problem applies
 unchanged: **share a folder, not a module.** See `ARCHITECTURE.md` §3.
 
-**Blocks:** FEAT-10 only. It does **not** block 0.1.0 — the modeless window
-ships first (the owner's answer to question 3).
+**Built in 0.2.0.** `startup.py` calls `anongee_filterpane.register()`, wrapped
+so it can never take pyRevit's load down, and the outcome goes to its own record
+because when registration is what failed there is no pane to look at and no
+route to ask. Pressing **Panel** in the window reads that record back.
+
+**What is still unknown, and only Revit can say:** whether pyRevit hands a
+startup script a `UIControlledApplication` at all, and whether Revit accepts the
+registration in this version. Three causes look identical from a ribbon with no
+panel on it, and the record is what tells them apart.
+
+**If it failed, nothing else is affected.** The window does not depend on the
+panel, and Panel reports rather than breaks.
 
 ---
 
@@ -147,7 +157,7 @@ nothing here is agreed until it says so.
 | FEAT-7 | Edit, rename, duplicate, delete and reorder saved rules | `testing` — all five, and Delete asks first |
 | FEAT-8 | Live match count before applying, debounced (`ui/dialogs.DebounceTimer`) | `building` — the Count button gives the number on demand. It is not yet live-as-you-type, which is what the debounce is for |
 | FEAT-9 | Select the matched elements in Revit (`revit/selection.set_selection`) | `testing` — the Select button |
-| FEAT-10 | The dockable panel — hidden until the pushbutton shows it, docked under the ribbon by default, re-dockable left/right like Properties. Blocked on CRIT-3 | `pending` |
+| FEAT-10 | The dockable panel — hidden until the pushbutton shows it, docked under the ribbon by default, re-dockable left/right like Properties | `testing` — built in 0.2.0. Whether Revit accepts the registration is what the startup record answers |
 | FEAT-11 | Apply a rule across several views at once, skipping views that cannot take filters (§13.7) | `pending` |
 | FEAT-12 | Import / export a rule set, so an office shares one | `pending` |
 | FEAT-13 | Convert a saved rule into a real `ParameterFilterElement` in the project — only possible for rules whose every parameter passed the CRIT-2 flag. Not wanted today; recorded because CRIT-2's answer paid for it | `pending` |

@@ -931,6 +931,10 @@
                            VerticalAlignment="Center" Margin="12,0,14,0"/>
 
                 <StackPanel Grid.Column="3" Orientation="Horizontal">
+                    <Button x:Name="PanelBtn" Content="Panel" Width="86"
+                            Style="{StaticResource ButtonNeutral}"
+                            Margin="0,0,6,0"
+                            ToolTip="Show the dockable panel that holds these rules as buttons. It docks under the ribbon and can be dragged to either edge, like Properties."/>
                     <Button x:Name="CountBtn" Content="Count" Width="86" Style="{StaticResource ButtonNeutral}"
                             ToolTip="Count what this rule matches in the active view, without changing anything."/>
                     <Button x:Name="SelectBtn" Content="Select" Width="86" Style="{StaticResource ButtonNeutral}"

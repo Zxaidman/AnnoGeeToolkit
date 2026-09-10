@@ -360,6 +360,45 @@ def register():
     return api, note
 
 
+# ---------------------------------------------------------------------------
+# The Filter View Manager's dockable pane
+# ---------------------------------------------------------------------------
+# RegisterDockablePane must be called during OnStartup, before any document is
+# open -- a pushbutton runs far too late and Revit refuses it. The pane stays
+# HIDDEN until the ribbon button shows it, so this costs no UI and needs no
+# document; it is only here because Revit gives it nowhere else to be.
+#
+# Wrapped to the same standard as everything else in this file: it must never
+# raise. A panel is a convenience on top of one tool, and it must not be able
+# to cost the user every other tool on the tab. What happened is written to its
+# own record, which the pushbutton reads back and reports -- there is no route
+# to ask and no pane to look at when registration is the thing that failed.
+
+PANE_NOTE = ""
+
+
+def _register_pane():
+    """``(registered, note)`` -- never raises."""
+    try:
+        import anongee_filterpane
+    except Exception as error:
+        return False, "anongee_filterpane is not importable: {0}".format(error)
+
+    controlled = globals().get("__uicontrolledapplication__")
+    try:
+        outcome = anongee_filterpane.register(controlled)
+    except Exception as error:
+        return False, "the pane did not register: {0}".format(error)
+    return bool(outcome.get("registered")), outcome.get("note", "")
+
+
+try:
+    PANE_REGISTERED, PANE_NOTE = _register_pane()
+except Exception as _pane_error:
+    PANE_REGISTERED = False
+    PANE_NOTE = "the pane did not register: {0}".format(_pane_error)
+
+
 REGISTRATION_NOTE = ""
 _routes_registered = []
 
@@ -382,4 +421,6 @@ _write_record({
     "routes": list(_routes_registered),
     "note": REGISTRATION_NOTE,
     "registered": bool(_routes_registered),
+    "pane_registered": PANE_REGISTERED,
+    "pane_note": PANE_NOTE,
 })

@@ -874,19 +874,41 @@ PURE = ("__init__.py", "values.py", "names.py", "rules.py", "store.py")
 REVIT = ("compat.py", "revit_query.py", "revit_apply.py")
 
 
+#: The dockable pane. Registered from ``startup.py`` on IronPython 2.7, so it
+#: obeys the same five rules and is checked by the same gates. ``__init__`` is
+#: Revit-free on purpose -- the CPython window imports it to read the startup
+#: record -- and ``provider`` is the half that touches Revit.
+PANE_PURE = ("__init__.py",)
+PANE_REVIT = ("provider.py",)
+
+
 def _core_folder():
     return os.path.join(_LIB, "anongee_filterrules")
 
 
+def _pane_folder():
+    return os.path.join(_LIB, "anongee_filterpane")
+
+
 def core_modules():
-    """Every module in the package, Revit-touching ones included."""
-    folder = _core_folder()
-    return sorted(os.path.join(folder, name) for name in os.listdir(folder)
-                  if name.endswith(".py"))
+    """Every module in both packages, Revit-touching ones included."""
+    found = []
+    for folder in (_core_folder(), _pane_folder()):
+        found.extend(os.path.join(folder, name) for name in os.listdir(folder)
+                     if name.endswith(".py"))
+    return sorted(found)
+
+
+def revit_modules():
+    """Every module that may import Revit, in either package."""
+    return ([os.path.join(_core_folder(), name) for name in REVIT]
+            + [os.path.join(_pane_folder(), name) for name in PANE_REVIT])
 
 
 def pure_modules():
-    return [os.path.join(_core_folder(), name) for name in PURE]
+    """Every module that must not import Revit, in either package."""
+    return ([os.path.join(_core_folder(), name) for name in PURE]
+            + [os.path.join(_pane_folder(), name) for name in PANE_PURE])
 
 
 def _read(path):
@@ -898,6 +920,74 @@ def _statements(path):
     """Executable statements in a module — docstrings and comments are free."""
     return sum(1 for node in ast.walk(ast.parse(_read(path)))
                if isinstance(node, ast.stmt))
+
+
+class PaneRecordTests(unittest.TestCase):
+    """The dockable pane's half that runs without Revit.
+
+    ``anongee_filterpane.__init__`` is Revit-free on purpose: the CPython
+    window imports it to read what the IronPython startup script recorded, and
+    that record is the ONLY channel between the two engines when registration
+    is the thing that failed. It therefore has to work on a machine with no
+    Revit -- which is this one.
+
+    Given its own prefs directory, because ``register`` writes the record and a
+    test that reads it must not be answering a file another test just left.
+    """
+
+    def setUp(self):
+        self.folder = tempfile.mkdtemp(prefix="anongee-filterpane-")
+        self.saved = os.environ.get(store.ENV_OVERRIDE)
+        os.environ[store.ENV_OVERRIDE] = self.folder
+
+    def tearDown(self):
+        if self.saved is None:
+            os.environ.pop(store.ENV_OVERRIDE, None)
+        else:
+            os.environ[store.ENV_OVERRIDE] = self.saved
+        shutil.rmtree(self.folder, ignore_errors=True)
+
+    def pane(self):
+        import anongee_filterpane
+        return anongee_filterpane
+
+    def test_the_record_path_follows_the_rules_file(self):
+        """One folder holds everything this tool owns on a workstation."""
+        self.assertEqual(os.path.dirname(self.pane().record_path()),
+                         os.path.dirname(store.machine_path()))
+
+    def test_no_record_reads_as_nothing_rather_than_raising(self):
+        self.assertEqual(self.pane().read_record(), {})
+
+    def test_the_guid_is_a_guid_and_is_meant_to_be_fixed(self):
+        """Revit remembers where the user docked a pane BY THIS GUID. Changing
+        it orphans that and registers a second, empty pane beside the first."""
+        parts = self.pane().PANE_GUID.split("-")
+        self.assertEqual([len(one) for one in parts], [8, 4, 4, 4, 12])
+        for part in parts:
+            int(part, 16)
+
+    def test_registering_with_no_application_is_recorded_not_raised(self):
+        """The first thing CRIT-3 exists to find out is whether pyRevit hands a
+        startup script a UIControlledApplication at all. A missing one is an
+        answer, so it is recorded like any other -- and never raised, because
+        a throw here takes pyRevit's whole load down."""
+        outcome = self.pane().register(None)
+        self.assertFalse(outcome["registered"])
+        self.assertIn("UIControlledApplication", outcome["note"])
+
+    def test_what_it_recorded_is_what_comes_back(self):
+        self.pane().register(None)
+        record = self.pane().read_record()
+        self.assertFalse(record["registered"])
+        self.assertTrue(record["at"])
+        self.assertTrue(record["engine"])
+        self.assertEqual(record["guid"], self.pane().PANE_GUID)
+
+    def test_a_record_that_is_nonsense_reads_as_nothing(self):
+        with io.open(self.pane().record_path(), "w", encoding="utf-8") as handle:
+            handle.write(u"{not json")
+        self.assertEqual(self.pane().read_record(), {})
 
 
 class SharedCoreTests(unittest.TestCase):
@@ -1042,8 +1132,9 @@ class SharedCoreTests(unittest.TestCase):
 
     def test_every_module_is_accounted_for(self):
         """A new module is pure or it is not, and somebody has to say which."""
-        self.assertEqual(sorted(os.path.basename(p) for p in core_modules()),
-                         sorted(PURE + REVIT))
+        self.assertEqual(
+            sorted(os.path.basename(p) for p in core_modules()),
+            sorted(PURE + REVIT + PANE_PURE + PANE_REVIT))
 
     def test_the_pure_core_never_imports_revit(self):
         """These five are what makes this suite possible at all.
@@ -1068,8 +1159,9 @@ class SharedCoreTests(unittest.TestCase):
     def test_the_revit_half_imports_revit_and_not_pyrevit(self):
         """``pyrevit.*`` crashes CPython 3 in event callbacks (S12.8.4), and
         does not exist on the engine the panel runs on either."""
-        for name in REVIT:
-            source = _read(os.path.join(_core_folder(), name))
+        for path in revit_modules():
+            source = _read(path)
+            name = os.path.basename(path)
             self.assertNotIn("from pyrevit", source, name)
             self.assertNotIn("import pyrevit", source, name)
 
@@ -1092,8 +1184,9 @@ class SharedCoreTests(unittest.TestCase):
         """A ceiling with a reason behind it, counted in statements rather than
         lines so that documentation is free and code is not."""
         biggest = max(_statements(path) for path in pure_modules())
-        for name in REVIT:
-            found = _statements(os.path.join(_core_folder(), name))
+        for path in revit_modules():
+            name = os.path.basename(path)
+            found = _statements(path)
             self.assertLess(found, biggest,
                             "{0} has {1} statements; the largest tested module "
                             "has {2}".format(name, found, biggest))
