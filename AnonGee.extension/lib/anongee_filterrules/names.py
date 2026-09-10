@@ -73,6 +73,40 @@ def find(rows, name):
     return None
 
 
+def dedupe(rows):
+    """Deduplicate by Revit's name rule, sorted by name. First entry wins.
+
+    Takes either plain names or ``(name, payload)`` pairs, and gives back
+    whatever it was given. Blank and ``None`` names are dropped.
+
+        >>> dedupe(["Zeta", "Alpha", "alpha"])
+        ['Alpha', 'Zeta']
+
+    **First wins, so the order sources are passed in is meaningful.** A
+    parameter list is built from three of them -- what Revit says is
+    filterable, what the placed elements carry, and what the types carry --
+    and the first is the one whose ``filterable`` flag has actually been
+    asked of Revit, so it is passed first on purpose.
+
+    This is the loop ``families``, ``types`` and ``parameters`` each wrote out
+    by hand until 2026-09-10. It is one tested function now because merging
+    those three sources is exactly where a bug lived: a model with types
+    loaded and nothing placed offered no parameters at all.
+    """
+    seen, found = set(), []
+    for row in rows:
+        paired = isinstance(row, (tuple, list))
+        name = row[0] if paired else row
+        row_key = key(name)
+        if not row_key or row_key in seen:
+            continue
+        seen.add(row_key)
+        found.append(row)
+    found.sort(key=lambda one: key(one[0] if isinstance(one, (tuple, list))
+                                   else one))
+    return found
+
+
 def index(rows):
     """``{key: payload}`` for a set of ``(name, payload)`` rows.
 

@@ -246,6 +246,50 @@ class NameMatchingTests(unittest.TestCase):
         self.assertEqual(names.key("Basic  WALL "), names.key("basic wall"))
 
 
+class DedupeTests(unittest.TestCase):
+    """``dedupe`` is the one loop that ``families``, ``types`` and
+    ``parameters`` all used to write out by hand.
+
+    It exists as a tested function because ``parameters`` now reads from three
+    sources at once, and merging them was where the bug lived: a model with
+    types loaded and nothing placed offered no parameters at all.
+    """
+
+    def test_it_keeps_order_of_first_appearance_after_sorting(self):
+        self.assertEqual(
+            names.dedupe([("Zeta", 1), ("Alpha", 2)]),
+            [("Alpha", 2), ("Zeta", 1)])
+
+    def test_a_repeat_is_dropped_and_the_first_payload_wins(self):
+        """First source wins, which is what makes source order meaningful."""
+        self.assertEqual(
+            names.dedupe([("Comments", True), ("comments", False)]),
+            [("Comments", True)])
+
+    def test_revits_name_rule_decides_what_is_a_repeat(self):
+        self.assertEqual(
+            len(names.dedupe([("Base  Level", 1), ("BASE LEVEL", 2)])), 1)
+
+    def test_a_blank_name_is_dropped(self):
+        self.assertEqual(names.dedupe([("", 1), ("   ", 2), (None, 3)]), [])
+
+    def test_it_takes_plain_names_as_well_as_pairs(self):
+        """``families`` and ``types`` have no payload to carry."""
+        self.assertEqual(names.dedupe(["Zeta", "Alpha", "alpha"]),
+                         ["Alpha", "Zeta"])
+
+    def test_an_empty_source_is_an_empty_result(self):
+        self.assertEqual(names.dedupe([]), [])
+
+    def test_the_three_sources_a_parameter_list_is_built_from(self):
+        """Filterable first, then instances, then types -- so the flag from
+        the filterable set is the one that survives a name collision."""
+        merged = names.dedupe([("Area", True)] + [("Area", False), ("Mark", False)]
+                              + [("Type Mark", False)])
+        self.assertEqual(merged, [("Area", True), ("Mark", False),
+                                  ("Type Mark", False)])
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # rules — the model
 # ═══════════════════════════════════════════════════════════════════════════

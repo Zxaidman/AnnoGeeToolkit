@@ -15,6 +15,51 @@ holds Auto Level Manager's four copies together.
 
 ---
 
+## 0.1.2 - 2026-09-10
+
+**The Conditions row offered no parameters at all.** Reported from a model with
+**151 structural column types loaded and no columns placed**: the footer read
+*"2 famil(ies), 151 type(s), 0 parameter(s)"* and the parameter combo was empty,
+with nothing said about why.
+
+**Cause: it looked in one place, and that place was empty.** `parameters()`
+sampled **placed elements** only. No columns placed, no elements to sample, no
+parameters -- even though 151 types were sitting right there carrying every type
+parameter the rule could have used.
+
+**It reads three sources now**, in an order that matters because the first entry
+wins a name collision:
+
+1. **What Revit says is filterable for the category.** Needs no elements at all,
+   so it answers in an empty model, and it is the only source whose `filterable`
+   flag has actually been *asked* of Revit rather than assumed. A project or
+   shared parameter is an element and the document knows its name; a built-in
+   one is not, so `LabelUtils` turns the `BuiltInParameter` behind the id into
+   the words this Revit shows -- localised, which is right, because the rest of
+   the window is showing the user their own Revit's labels.
+2. **A sample of placed elements**, own parameters and their type's -- still the
+   only source for an instance parameter a project bound that Revit does not
+   consider filterable.
+3. **A sample of the types.** Types exist long before anything is placed, and
+   this is the source that was missing.
+
+### Two more faults the same screenshot showed
+
+- **The hint said "Pick a category to begin" with a category already picked.**
+  Nothing re-validated after the cascade came back from Revit's thread, so the
+  line was answering a question from before the click. It re-validates now.
+- **An empty parameter list said nothing.** Three causes look identical from
+  the window -- nothing placed, no types answering, Revit offering nothing --
+  and it now names all three rather than showing a blank combo. Root
+  `todo-list.md` BUG-5 is the standing lesson: *the tool built to explain a
+  failure explained nothing.*
+
+### And one duplication removed
+
+`families()`, `types()` and `parameters()` each wrote the same dedupe loop by
+hand. It is `names.dedupe()` now -- one function, seven tests, and the thing
+that makes merging three parameter sources safe rather than fiddly.
+
 ## 0.1.1 - 2026-09-09
 
 **The button was not on the ribbon.** Everything in 0.1.0 was built, tested and

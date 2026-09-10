@@ -396,9 +396,27 @@ class FilterViewApp(object):
             elif self.pending_type:
                 self._select_text(self.TypeCombo, self.pending_type)
                 self.pending_type = None
-            self._status("{0} famil(ies), {1} type(s), {2} parameter(s)".format(
-                len(answer["families"]), len(answer["types"]),
-                len(answer["parameters"])), "info")
+            # The rule changed shape, so what is wrong with it changed too.
+            # Until 2026-09-10 nothing re-validated after the cascade returned
+            # and the hint sat on "Pick a category to begin" with a category
+            # already picked.
+            self._validate()
+            if not self.parameters:
+                # An empty combo that says nothing is the failure BUG-5 is
+                # about: three causes look identical from the window.
+                self._status(
+                    "No parameters found for {0}. Nothing of that category is "
+                    "placed, none of its types answered, and Revit offered no "
+                    "filterable parameters for it either. A rule on the "
+                    "cascade alone still works.".format(
+                        " + ".join(sorted(self.picked))), "error")
+            else:
+                self._status(
+                    "{0} famil(ies), {1} type(s), {2} parameter(s) "
+                    "({3} usable in a Revit view filter)".format(
+                        len(answer["families"]), len(answer["types"]),
+                        len(self.parameters),
+                        sum(1 for _, ok in self.parameters if ok)), "info")
         elif kind == "types":
             self._fill_combo(self.TypeCombo, ANY_TYPE, answer["types"])
             if self.pending_type:
