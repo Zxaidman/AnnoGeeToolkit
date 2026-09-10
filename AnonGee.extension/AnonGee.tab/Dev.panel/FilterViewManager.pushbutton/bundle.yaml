@@ -63,4 +63,4 @@ tooltip: |
       the rules file and the panel reads it, and they run on different
       Python engines that share a folder rather than a module.
 
-  Version: 0.2.0
+  Version: 0.2.1

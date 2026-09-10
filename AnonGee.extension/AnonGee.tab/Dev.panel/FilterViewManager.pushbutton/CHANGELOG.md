@@ -15,6 +15,60 @@ holds Auto Level Manager's four copies together.
 
 ---
 
+## 0.2.1 - 2026-09-10
+
+Two faults the first in-Revit run of 0.2.0 found, and the spike doing exactly
+what a spike is for.
+
+### The panel: the spike asked for the wrong name, and said so
+
+The footer read *"The panel could not be registered at Revit start: no
+UIControlledApplicatio..."* -- which is a **successful spike**. It is the answer
+that could not be got any other way, it cost nothing, and nothing else broke
+while it was wrong.
+
+The guess was `__uicontrolledapplication__`. **pyRevit binds `__revit__`** --
+and `tests/test_scripts.py` has listed it among the injected names the whole
+time, in this repository, where it could have been read.
+
+Fixed by not guessing. The startup script now tries `__revit__`,
+`__uicontrolledapplication__`, `__uiapp__` and `pyrevit.HOST_APP.uiapp` in
+turn, and **records which one answered and what type it was**. The candidate is
+chosen by asking for `RegisterDockablePane` rather than by type, because
+`UIApplication` and `UIControlledApplication` both have it and which one a
+startup script is handed was precisely the unknown.
+
+When none of them answers, the record now names **every place it looked and
+what was there instead**, rather than saying there was none. A list that
+records which name answered cannot make this mistake twice.
+
+### Remove condition: built, wired, working, invisible
+
+Reported as *"i can add conditions but can't see the remove conditions or it is
+never built"* -- and it **was** built. It sat directly **under** a fixed-height
+list inside a `ScrollViewer`, which put it below the visible fold. It could
+only be reached by scrolling past the list, and nothing suggested it was there.
+
+**A control the user cannot find is a control that does not exist.**
+
+The button now sits **beside** the list, in the same row, so it is on screen
+exactly when its target is and no amount of scrolling can separate them. The
+list is a little shorter to pay for it, and **double-clicking a condition
+removes it too** -- the affordance a modeller reaches for first, at the cost of
+one wiring line.
+
+A test pins it: an action button must be a **sibling** of the list it acts on.
+Proved to bite by putting it back underneath.
+
+### On rules surviving a restart
+
+They are written to
+`%APPDATA%/Zxaidman/AnonGee/BIM-Toolkit/filter_view_rules.json` the moment Save
+rule is pressed -- not held in memory and flushed on close. So closing Revit,
+or losing it, cannot cost a saved rule. Confirming that across a real restart is
+still worth doing; nothing in this repository counts as verified until it has
+run in Revit.
+
 ## 0.2.0 - 2026-09-10
 
 The dockable panel, and the spike that had to come first.
