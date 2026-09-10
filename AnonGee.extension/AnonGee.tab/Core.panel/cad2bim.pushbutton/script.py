@@ -120,7 +120,8 @@ from anongee_toolkit import cad2bim
 from anongee_toolkit.cad2bim import (advanced, column_extent, compat, config,
                                      floor_plans, foundation_plan, legend,
                                      naming, prefs, report, settings,
-                                     slab_outlines, stair_layout, views)
+                                     slab_outlines, stair_layout, views,
+                                     zone_plan)
 from anongee_toolkit.cad2bim.geom import transform, compare
 from anongee_toolkit.cad2bim.classify import layers, marks
 from anongee_toolkit.cad2bim.readers import geometry_reader, dxf_reader, dxf_linker
@@ -671,6 +672,14 @@ def main():
         for record in list(revit_result.records) + list(dxf_result.records):
             if record.layer_key == layer_name:
                 record.category = category
+    # FEAT-17: BOUNDARY ZONES, folded before anything reads the drawing.
+    # One element family per zone box means no two families' outlines lie on
+    # top of one another, which is the only thing Revit's link eats -- and the
+    # merge that used to happen (badly) at import happens here instead, by
+    # shifting each zone onto the others by its own origin marker. The boxes and
+    # markers come from the DXF read, like every other marker in this pipeline;
+    # both record sets are folded so they stay in step.
+    _fold_zones(revit_result, dxf_result, selections)
     limits = selections.get("limits")
     standards = selections.get("standards")
     tolerances = selections.get("tolerances") or {}
@@ -801,6 +810,42 @@ def _report_elapsed(clicked_at, build_started):
             views.format_elapsed(build))))
     show_elapsed(os.path.join(os.path.dirname(os.path.abspath(__file__)),
                               "elapsed.xaml"), total, build)
+
+
+def _fold_zones(revit_result, dxf_result, selections):
+    """Fold the drawing's boundary zones onto one plan, in place (FEAT-17).
+
+    Silent and free when the drawing has no zone layer: `merge_zones` hands back
+    exactly what it was given, so every sheet drawn the old way reads as it did.
+
+    BOTH record sets are folded. The Revit records are what the build places;
+    the DXF records are what every marker reader downstream consults (a plan's
+    origin is a bare POINT the link does not always import), and a fold applied
+    to one and not the other would leave the two disagreeing about where the
+    building is.
+    """
+    storey_layer = selections.get("boundary_layer")
+    origin_layer = selections.get("origin_layer")
+    found = zone_plan.zones(dxf_result.records, storey_layer, origin_layer)
+    if not found:
+        return
+    mapping = selections.get("zone_mapping")
+    records, texts, hatches, notes = zone_plan.merge_zones(
+        revit_result.records, dxf_result.texts, dxf_result.regions,
+        storey_layer=storey_layer, mapping=mapping,
+        marker_records=dxf_result.records, origin_layer=origin_layer)
+    dxf_records, _t, _h, _n = zone_plan.merge_zones(
+        dxf_result.records, storey_layer=storey_layer, mapping=mapping,
+        origin_layer=origin_layer)
+    revit_result.records = records
+    dxf_result.records = dxf_records
+    dxf_result.texts = texts
+    dxf_result.regions = hatches
+    _say("")
+    _say("Boundary zones: {0} zone(s) -- {1}".format(
+        len(found), ", ".join(sorted(set(zone.layer for zone in found)))))
+    for note in notes:
+        _say("  {0}".format(note))
 
 
 class _StoreyResult(object):

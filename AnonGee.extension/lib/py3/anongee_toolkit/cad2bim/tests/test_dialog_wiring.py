@@ -2158,5 +2158,61 @@ class AColumnIsBuiltOnceOverItsWholeRun(unittest.TestCase):
         self.assertIn("_START/_STOP", block)
 
 
+class TheBoundaryZonesAreFoldedBeforeAnythingReadsThem(unittest.TestCase):
+    """FEAT-17, pinned: the fold itself is unit-tested, the wiring is not.
+
+    One element family per zone box means no two families' outlines lie on top
+    of one another, which is the only thing Revit's link eats. The fold has to
+    happen BEFORE the storeys are split and before anything is compared, or
+    every pass downstream sees four copies of the drawing -- which is exactly
+    what the owner's 0.97.1 run of the zone file did: 346 columns, 178 of them
+    a second copy from the combine zone.
+    """
+
+    def test_the_fold_runs_before_the_storeys_are_split(self):
+        source = _script_source()
+        folded = source.index("_fold_zones(revit_result, dxf_result")
+        split = source.index("floor_plans.split_floors(")
+        self.assertLess(folded, split)
+
+    def test_it_runs_before_the_link_is_compared_with_the_dxf(self):
+        # The diff is a reading of the same drawing; comparing a folded set
+        # with an unfolded one would report every zone as missing geometry.
+        source = _script_source()
+        self.assertLess(source.index("_fold_zones(revit_result, dxf_result"),
+                        source.index("comparison = compare.diff("))
+
+    def test_both_record_sets_are_folded(self):
+        # The Revit records are what gets built; the DXF records are what every
+        # marker reader consults. Folding one and not the other would leave the
+        # two disagreeing about where the building is.
+        block = _script_source().split("def _fold_zones(", 1)[1]
+        block = block.split("\nclass ", 1)[0]
+        self.assertIn("revit_result.records = records", block)
+        self.assertIn("dxf_result.records = dxf_records", block)
+        self.assertIn("dxf_result.texts = texts", block)
+        self.assertIn("dxf_result.regions = hatches", block)
+
+    def test_the_boxes_come_from_the_dxf_read(self):
+        # A plan's origin is a bare POINT and the link does not always import
+        # one, which is why every marker in this pipeline is read from the DXF.
+        block = _script_source().split("def _fold_zones(", 1)[1]
+        block = block.split("\nclass ", 1)[0]
+        self.assertIn("zone_plan.zones(dxf_result.records", block)
+        self.assertIn("marker_records=dxf_result.records", block)
+
+    def test_a_drawing_with_no_zones_is_left_alone(self):
+        block = _script_source().split("def _fold_zones(", 1)[1]
+        block = block.split("\nclass ", 1)[0]
+        self.assertIn("if not found:", block)
+        self.assertIn("return", block.split("if not found:", 1)[1][:40])
+
+    def test_what_the_fold_decided_is_said_out_loud(self):
+        block = _script_source().split("def _fold_zones(", 1)[1]
+        block = block.split("\nclass ", 1)[0]
+        self.assertIn("Boundary zones:", block)
+        self.assertIn("for note in notes:", block)
+
+
 if __name__ == "__main__":
     unittest.main()

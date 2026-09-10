@@ -40,7 +40,7 @@ statically inspected and unit-tested outside Revit.
 # The version moves with EVERY commit that changes this package -- it is a
 # tracking number, not a release or a tag. A user reporting "0.69.2 did X"
 # names one commit; three commits all answering "0.68.1" name nothing.
-__version__ = "0.97.2"  # Two columns on one grid point are two columns.
+__version__ = "0.98.0"  # Each family in its own zone, folded back into one plan.
 #
 #                         P1: the DXF reader keeps HATCH regions; the foundation
 #                         layers classify; foundation_plan reads the outlines

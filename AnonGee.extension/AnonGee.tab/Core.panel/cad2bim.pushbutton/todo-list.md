@@ -8,8 +8,8 @@ Nothing is deleted to make the list look shorter.
 file before it is built, argued about, or written into any other document. Standing instruction
 from the project owner, and it is what keeps this list the queue rather than a summary of one.
 
-Current build: **v0.97.2** (branch `claude/cad2bim`, restarted from `main` after PR #10 merged).
-1342 unit tests, 3 regression legs over 31 archived exports, 23 fixture drawings and 13 storey
+Current build: **v0.98.0** (branch `claude/cad2bim`, restarted from `main` after PR #10 merged).
+1373 unit tests, 3 regression legs over 31 archived exports, 23 fixture drawings and 13 storey
 stacks, all three baselines re-recorded because the owner redrew both test17 fixtures. This round
 wired FEAT-16 into the build — a column is now placed ONCE over the whole run it
 is drawn for, which takes test17 from 2525 placed rectangles to 524 — and fixed the two faults the
@@ -22,8 +22,11 @@ members a storey being inflated past their outline by a label. Then BUG-35, whic
 introduced and the owner caught on his own run: a grid point can carry TWO members, one stopping
 there and one carrying on above, and identifying a column by position alone made them one. A column
 is identified by its place AND its section now, and all 43 of test17's concentric pairs come apart.
-Three things arrived with that run and are recorded, not started: FEAT-17 (boundary zones, the one he
-wants next), FEAT-18 (the sidebar dialog) and the questions FEAT-17 needs answered. The branch also carries the
+Then FEAT-17, the one he asked for next and answered four questions about: each element family drawn
+in its own boundary ZONE, folded back onto one plan by its own origin marker before anything reads
+it, so no two families' outlines overlap in the link and nothing is eaten. His example file folds
+from 4070 records to 2038 and says what the combined copy says. FEAT-18 (the sidebar dialog) is
+recorded and not started. The branch also carries the
 rc-automation merge and the 1.26.1 extension identity. Longer records: `../../../../../task_plan.md`, `findings.md`, `progress.md` at the
 repository root.
 
@@ -296,7 +299,7 @@ are the authority in his office, that is a one-line change in the other directio
 rather than a measurement's.
 
 
-### FEAT-17 — Boundary ZONES: one element family per zone, so the link stops eating outlines · `pending`
+### FEAT-17 — Boundary ZONES: one element family per zone, so the link stops eating outlines · `testing`
 
 **The owner, and this is the one he wants next:**
 
@@ -340,12 +343,46 @@ sees exactly what it sees today — one plan in one frame — so beam-to-column 
 beams and edges, the legend and the schedule all keep working unchanged. The merge moves out of Revit
 and into the reader, which is the whole point.
 
-**Open questions for the owner before this is built** — asked in the reply that recorded this entry,
-and the answers change the design rather than decorate it: what `Combine-boundary` is FOR (a
-reference copy, a fallback for anything no zone claims, or a fifth thing to build); whether the four
-zone names are fixed or a mapping table like the layer table; how zones nest with storeys on a
-multi-storey sheet; and what to do with what falls outside every zone (16 `A-CUTOUT-THIN` and one
-`S-COLUM_STOP` do, in this drawing).
+**ANSWERED, and built to the answers, in v0.98.0** (`zone_plan.py`, Revit-free, 25 tests):
+
+| question | the owner's answer | what was built |
+| --- | --- | --- |
+| what is `Combine-boundary` for | "Fallback only" | with specific zones present the combined copy is CONSUMED, not built; alone, it builds as an ordinary drawing |
+| fixed zone names or a mapping | "Mapping table" | any layer ending `-boundary` is a zone; `merge_zones(mapping=...)` takes the dialog's table, and the convention in the name fills it in |
+| how zones nest with storeys | "i like both option 1 and 2 … when there is 20 different storey cad the option 2 shines but if there is only few storey … option 1 is easily manageable" | BOTH. Which one a drawing uses is read off containment, never a setting |
+
+**How it reads both nestings with one mechanism.** In both, the piece that gets shifted is the
+INNERMOST box and its origin marker sits inside it. Zones inside a storey: a group is the zones in
+one storey box. Storeys inside a zone: a group is the storey boxes at the SAME PLACE inside their own
+zones — position within the zone pairs them, because every zone is a copy of the same sheet, so the
+ground floor sits at the same offset in the column copy as in the beam copy. Pairing by ORDER would
+put a zone that is missing a floor out of step with the rest, silently.
+
+**Measured on his own file.** 4070 records fold to 2038 — one copy of the plan, one origin marker,
+one storey box — with 879 beams, 343 columns, 314 slab edges, 251 walls, 114 grids, 44 stairs, 41
+folds and 47 cutouts, and every text and hatch carried in with its own zone. Against the combined
+copy the three specific zones hold **361 column rectangles to its 358, the same 44 sections, 3
+columns it does not have and none of its own missing** — so the zones say what the combined copy
+says, and a little more (he drew the `_START` outlines only in the column zone).
+
+Two things it says out loud rather than doing quietly:
+
+  * **the wall zone's 2 column records** are turned away — "not what this zone is for". Built, they
+    would be columns a bay from the real ones;
+  * **17 records sit inside no zone at all** (16 `A-CUTOUT-THIN`, one `S-COLUM_STOP`) and are KEPT
+    where they are drawn, with a line naming them. Those sixteen are the beam schedule table's
+    rules, which classify as `cutout` and would punch sixteen holes in a slab; the owner has already
+    moved them to `G-ANNO-SCHD` in his newer file, which is the right fix — and the console line is
+    how the next one gets noticed.
+
+**Not built yet, and named so it is not mistaken for done:**
+
+  * **the dialog's zone table.** `merge_zones` takes the mapping; nothing puts one on screen yet, so
+    today the convention in the layer name decides. That is the next piece of this feature;
+  * **the storey preview for the storeys-inside-a-zone layout.** The Multi-storey tab counts storey
+    boxes BEFORE the fold, so four copies of a 13-storey sheet would offer 52 rows instead of 13.
+    The BUILD is right either way — the fold runs before the split — but the preview is not, and a
+    20-storey sheet is exactly where he said that layout shines.
 
 ### FEAT-18 — The dialog as a sidebar, not a tab strip · `pending`
 
