@@ -46,13 +46,14 @@ clr.AddReference("WindowsBase")
 clr.AddReference("System")
 clr.AddReference("System.Xaml")
 
+from Autodesk.Revit.UI import DockablePaneId                   # noqa: E402
 from Autodesk.Revit.UI import ExternalEvent                    # noqa: E402
 from Autodesk.Revit.UI import IExternalEventHandler            # noqa: E402
 from Autodesk.Revit.UI import TaskDialog                       # noqa: E402
 from Autodesk.Revit.UI import TaskDialogCommonButtons          # noqa: E402
 from Autodesk.Revit.UI import TaskDialogResult                 # noqa: E402
 
-from System import Action                                      # noqa: E402
+from System import Action, Guid                                # noqa: E402
 from System.Collections import ArrayList                       # noqa: E402
 from System.IO import FileAccess, FileMode, FileStream         # noqa: E402
 from System.Windows.Interop import WindowInteropHelper         # noqa: E402
@@ -87,6 +88,12 @@ _LIB = _lib_on_path()
 
 from anongee_filterrules import VERSION                        # noqa: E402
 from anongee_filterrules import names, rules, store, values    # noqa: E402
+
+# Safe to import from CPython 3: this module holds the pane's identity and its
+# startup record, and nothing Revit-shaped. ``anongee_filterpane.provider`` is
+# the half that imports Autodesk, and it is only ever loaded by startup.py on
+# IronPython. The two halves are split precisely so this line can exist.
+import anongee_filterpane                                      # noqa: E402
 
 #: What the combos show for "I do not care about this level".
 ANY_FAMILY = "(any family)"
@@ -247,7 +254,7 @@ class FilterViewApp(object):
                 "VersionText", "HintText",
                 "RuleList", "RuleCountText", "NewRuleBtn", "DuplicateRuleBtn",
                 "MoveUpBtn", "MoveDownBtn", "DeleteRuleBtn",
-                "RefreshBtn", "RuleNameBox", "CategoryPickedText",
+                "RefreshBtn", "PanelBtn", "RuleNameBox", "CategoryPickedText",
                 "CategorySearch", "CategoryList", "FamilyCombo", "TypeCombo",
                 "MatchAllRadio", "MatchAnyRadio",
                 "ParameterCombo", "OperatorCombo", "ValueBox", "UnitCombo",
@@ -270,6 +277,7 @@ class FilterViewApp(object):
     def _wire(self):
         self.CloseBtn.Click += self._on_close
         self.RefreshBtn.Click += self._on_refresh
+        self.PanelBtn.Click += self._on_panel
         self.NewRuleBtn.Click += self._on_new
         self.DuplicateRuleBtn.Click += self._on_duplicate
         self.DeleteRuleBtn.Click += self._on_delete
@@ -336,6 +344,12 @@ class FilterViewApp(object):
             return {"kind": kind,
                     "types": revit_query.types(doc, request["categories"],
                                                request.get("family"))}
+
+        if kind == "panel":
+            pane = uiapp.GetDockablePane(
+                DockablePaneId(Guid(anongee_filterpane.PANE_GUID)))
+            pane.Show()
+            return {"kind": kind, "ok": True, "message": ""}
 
         if kind == "clear":
             ok, message = revit_apply.clear(doc, view)
@@ -436,6 +450,9 @@ class FilterViewApp(object):
         elif kind == "select":
             self.LiveCount.Text = "{0} selected".format(answer["count"])
             self._status("Pushed to Revit's selection.", "ok")
+        elif kind == "panel":
+            self._status("The panel is docked under the ribbon. Drag it to "
+                         "either edge if you would rather have it there.", "ok")
         elif kind == "clear":
             self.LiveCount.Text = ""
             self._status(answer["message"] or "The view is back to normal.",
@@ -794,6 +811,30 @@ class FilterViewApp(object):
 
     def _on_clear(self, sender, args):
         self.ask(kind="clear")
+
+    def _on_panel(self, sender, args):
+        """Show the dockable pane, or say why there is not one.
+
+        Registration happened at Revit start, on the other engine, and if it
+        failed there is no pane to ask and no route to call -- so the record
+        it left behind is the only thing that can answer. That is why it is
+        written at all (BUG-5: three causes look identical from a ribbon with
+        no panel on it).
+        """
+        record = anongee_filterpane.read_record()
+        if not record:
+            self._status(
+                "The panel was never registered. startup.py left no record at "
+                "all, which usually means the extension has not been reloaded "
+                "since the panel was added -- reload pyRevit and try again.",
+                "error")
+            return
+        if not record.get("registered"):
+            self._status("The panel could not be registered at Revit start: "
+                         "{0}".format(record.get("note") or "no reason given"),
+                         "error")
+            return
+        self.ask(kind="panel")
 
     def _on_refresh(self, sender, args):
         self._status("Re-reading the model...", "info")

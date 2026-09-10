@@ -15,6 +15,80 @@ holds Auto Level Manager's four copies together.
 
 ---
 
+## 0.2.0 - 2026-09-10
+
+The dockable panel, and the spike that had to come first.
+
+### CRIT-3, answered as far as it can be answered here
+
+**Registration and visibility are different things**, and the whole design
+turned on it. `RegisterDockablePane` must be called during `OnStartup`, before
+any document is open -- a pushbutton runs far too late and Revit refuses it.
+But a registered pane stays **hidden** until something calls `Show()`. So the
+requirement holds exactly as it was asked: nothing appears until the button is
+pressed, and registration costs no UI, needs no document, and is invisible.
+
+### `startup.py` now registers the pane, and cannot take pyRevit down doing it
+
+That file's own docstring is the standard: *"a startup script that throws takes
+pyRevit's load with it, and a broken bridge must never cost the user their
+other tools."* A broken **panel** must not either -- more so, since it is a
+convenience on top of one tool, not the tool. The call is wrapped twice, every
+entry point in `anongee_filterpane` returns a result rather than raising, and
+what happened is written to its own record.
+
+**The record is the point of a spike.** When registration is the thing that
+failed there is no pane to look at and no route to ask, and three causes look
+identical from a ribbon with no panel on it: pyRevit gave no
+`UIControlledApplication`, Revit refused the registration, or the control would
+not build. The record names which. Pressing **Panel** in the window reads it
+back and reports it -- the window is CPython and the registration is
+IronPython, so that file is the only channel between them.
+
+### The architecture paid off
+
+`anongee_filterpane` imports `anongee_filterrules` and gets the entire rule
+engine -- the store, the queries, the isolate -- **without one line of it being
+duplicated**. That is the reason the engine went in `lib/` rather than beside
+the script, written to run on both engines, back in 0.0.3. The panel is 200
+lines because everything it needed was already there and already tested.
+
+- `__init__.py` is **Revit-free on purpose**, so the CPython window can import
+  it to read the record. `provider.py` is the half that touches Revit and is
+  only ever loaded by `startup.py`.
+- Pressing a rule button goes through an `ExternalEvent`, and that is not
+  ceremony: a dockable pane is **not a command**, nothing hands it an
+  `ExternalCommandData`, and `ExternalEvent.Execute` being given the
+  `UIApplication` is the only way the pane can reach the active document.
+- The layout is a `WrapPanel`, so it reads the same docked under the ribbon
+  (buttons across) as dragged to an edge (buttons down) -- one layout, not two
+  kept in step.
+- Registering **twice** is guarded. pyRevit reloads extensions without
+  restarting Revit, so this is reachable a second time in one session and Revit
+  raises on a GUID it already knows. The first pane still works, so it is
+  recorded as registered with a note rather than reported as a failure.
+- The pane's GUID is a **constant, forever**. Revit remembers where the user
+  docked a pane by it; changing it orphans that and registers a second, empty
+  pane beside the first.
+
+### Tests
+
+The dual-engine gate now covers **both** packages -- no Python-3-only syntax,
+`from __future__ import division`, pure ASCII, no `re`, no `anongee_toolkit`,
+and the pure half of each importing no Revit. Proved to bite on the new package
+by putting an f-string in `provider.py` and `import clr` in `__init__.py`.
+
+Six tests on the record itself, in their own prefs directory, because `register`
+writes it and a test that reads it must not be answering a file another test
+just left behind.
+
+### Still unproven, and only Revit can say
+
+Whether pyRevit hands a startup script a `UIControlledApplication` at all, and
+whether Revit accepts the registration in this version. That is what the record
+is for. **If it failed, 0.1.2 is untouched** -- the window does not depend on
+the panel, and Panel reports rather than breaks.
+
 ## 0.1.2 - 2026-09-10
 
 **The Conditions row offered no parameters at all.** Reported from a model with

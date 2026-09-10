@@ -60,9 +60,9 @@ start.
 #: MINOR  a new capability; everything already saved still works.
 #: PATCH  a fix.
 #:
-#: 0.1.0 built the tool, 0.1.1 got it onto the ribbon, 0.1.2 made the
-#: Conditions row work in a model with nothing placed in it yet.
-VERSION = "0.1.2"
+#: 0.1.x is the window. 0.2.0 adds the dockable panel -- a NEW CAPABILITY,
+#: so MINOR, and everything already saved still works.
+VERSION = "0.2.0"
 
 #: The pure half is imported freely. ``compat``, ``revit_query`` and
 #: ``revit_apply`` are NOT listed: they import ``Autodesk.Revit.DB`` at

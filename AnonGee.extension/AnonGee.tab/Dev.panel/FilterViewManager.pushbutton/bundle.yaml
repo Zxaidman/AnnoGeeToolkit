@@ -52,8 +52,15 @@ tooltip: |
     • The rule engine is a separate package with 155 tests on it that need no
       Revit; this window is the wiring.
 
-  Not built yet
-    The dockable panel that will hold the rule buttons beside Properties. It
-    needs a startup-time component, which is its own milestone.
+  The dockable panel
+    • Press Panel to show it. It docks under the ribbon as a strip of rule
+      buttons, and can be dragged to either edge like Properties.
+    • Pressing a button there isolates that rule, the same as Apply here.
+    • It is REGISTERED when Revit starts and stays hidden until you press
+      Panel -- Revit allows no other order. If registration failed, Panel
+      says why rather than doing nothing.
+    • Press Refresh on the panel after saving a new rule: the window writes
+      the rules file and the panel reads it, and they run on different
+      Python engines that share a folder rather than a module.
 
-  Version: 0.1.2
+  Version: 0.2.0
