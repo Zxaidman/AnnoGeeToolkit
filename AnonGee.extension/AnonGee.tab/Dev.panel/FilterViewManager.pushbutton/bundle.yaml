@@ -56,4 +56,4 @@ tooltip: |
     The dockable panel that will hold the rule buttons beside Properties. It
     needs a startup-time component, which is its own milestone.
 
-  Version: 0.1.1
+  Version: 0.1.2

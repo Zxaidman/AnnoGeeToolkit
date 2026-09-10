@@ -27,9 +27,10 @@ import clr
 
 clr.AddReference("RevitAPI")
 
-from Autodesk.Revit.DB import (BuiltInCategory, CategoryType,                # noqa: E402
-                               ElementId, ElementMulticategoryFilter,
-                               FilteredElementCollector,
+from Autodesk.Revit.DB import (BuiltInCategory, BuiltInParameter,            # noqa: E402
+                               CategoryType, ElementId,
+                               ElementMulticategoryFilter,
+                               FilteredElementCollector, LabelUtils,
                                ParameterFilterUtilities, StorageType)
 from System.Collections.Generic import List                                  # noqa: E402
 
@@ -119,14 +120,8 @@ def families(doc, category_names):
     know which it is looking at, and never shows an empty level for one of
     them (``METHODOLOGY.md`` S13.3).
     """
-    seen, found = set(), []
-    for element_type in _types_of(doc, category_names):
-        name = _family_name(element_type)
-        if name and names.key(name) not in seen:
-            seen.add(names.key(name))
-            found.append(name)
-    found.sort(key=names.key)
-    return found
+    return names.dedupe([_family_name(one)
+                         for one in _types_of(doc, category_names)])
 
 
 def _types_of(doc, category_names):
@@ -152,44 +147,89 @@ def _family_name(element_type):
 
 def types(doc, category_names, family=None):
     """The type names under those categories, optionally within one family."""
-    seen, found = set(), []
-    for element_type in _types_of(doc, category_names):
-        if family and not names.same(family, _family_name(element_type)):
-            continue
-        name = compat.element_name(element_type)
-        if name and names.key(name) not in seen:
-            seen.add(names.key(name))
-            found.append(name)
-    found.sort(key=names.key)
-    return found
+    return names.dedupe([
+        compat.element_name(one) for one in _types_of(doc, category_names)
+        if not family or names.same(family, _family_name(one))])
 
 
 def parameters(doc, category_names):
     """``[(name, filterable)]`` for those categories, name-sorted.
 
-    **Every** parameter an element of these categories carries is offered, and
-    the ones Revit will not accept in a native ``ParameterFilterElement`` are
-    flagged rather than hidden. That is CRIT-2's answer: pressing a rule
-    isolates, so a flagged parameter still makes a perfectly good button; the
-    flag is honest about the limit and is exactly the check FEAT-13 would need.
+    **Every** parameter these categories can carry is offered, and the ones
+    Revit will not accept in a native ``ParameterFilterElement`` are flagged
+    rather than hidden. That is CRIT-2's answer: pressing a rule isolates, so a
+    flagged parameter still makes a perfectly good button.
 
-    Membership is decided on the parameter's own ``Id``, not on its name --
-    mapping a built-in parameter id back to a label differs across Revit
-    versions and localisations, and comparing ids is exact on all of them.
+    Read from **three** sources, in this order, because no one of them is
+    complete:
+
+    1. **What Revit says is filterable for the category.** Needs no elements at
+       all, so it answers in a model where nothing has been placed yet, and it
+       is the only source whose ``filterable`` flag has actually been asked of
+       Revit rather than assumed. It goes first for that reason -- ``dedupe``
+       keeps the first entry on a name collision.
+    2. **A sample of placed elements**, own parameters and their type's. The
+       only source for an instance parameter a project has bound but Revit does
+       not consider filterable.
+    3. **A sample of the types themselves.** Types exist long before anything
+       is placed.
+
+    Source 3 is why this function exists in its current shape. Until
+    2026-09-10 it read source 2 alone, so a model with 151 column types loaded
+    and no columns placed offered **zero** parameters and the Conditions row
+    was simply empty, with nothing said about why.
     """
     filterable = _filterable_parameter_ids(doc, category_names)
-    seen, found = set(), []
+
+    rows = [(name, True) for name in _filterable_parameter_names(doc, filterable)]
     for element in _sample(doc, category_names):
-        for parameter in _parameters_of(doc, element):
-            try:
-                name = parameter.Definition.Name
-            except Exception:
-                continue
-            if not name or names.key(name) in seen:
-                continue
-            seen.add(names.key(name))
+        rows.extend(_named_parameters(doc, element, filterable))
+    for element_type in _types_of(doc, category_names)[:PARAMETER_SAMPLE]:
+        rows.extend(_named_parameters(doc, element_type, filterable))
+    return names.dedupe(rows)
+
+
+def _named_parameters(doc, element, filterable):
+    """``[(name, filterable)]`` off one element, its type included."""
+    found = []
+    for parameter in _parameters_of(doc, element):
+        try:
+            name = parameter.Definition.Name
+        except Exception:
+            continue
+        if name:
             found.append((name, compat.id_value(parameter.Id) in filterable))
-    found.sort(key=lambda row: names.key(row[0]))
+    return found
+
+
+def _filterable_parameter_names(doc, filterable_ids):
+    """The names behind the filterable ids, for the ones that will give one.
+
+    A **project or shared** parameter is an element, so the document knows its
+    name. A **built-in** parameter is not: its id is the negative value of the
+    ``BuiltInParameter`` enum member, and only ``LabelUtils`` can turn that
+    into the words Revit shows -- localised, which is right, because the rest
+    of the window is showing the user their own Revit's labels.
+
+    Anything that will not answer is skipped rather than guessed at. It will
+    usually be picked up from a sampled element anyway.
+    """
+    found = []
+    for value in filterable_ids:
+        name = None
+        try:
+            element = doc.GetElement(compat.element_id(value))
+            if element is not None:
+                name = compat.element_name(element)
+        except Exception:
+            name = None
+        if not name:
+            try:
+                name = LabelUtils.GetLabelFor(BuiltInParameter(value))
+            except Exception:
+                name = None
+        if name:
+            found.append(name)
     return found
 
 
