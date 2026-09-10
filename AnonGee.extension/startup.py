@@ -377,6 +377,49 @@ def register():
 PANE_NOTE = ""
 
 
+#: Where a UIControlledApplication might be, in the order worth trying.
+#: pyRevit binds ``__revit__`` in a startup script and that is the documented
+#: one -- ``tests/test_scripts.py`` lists it among the names pyRevit injects.
+#: The others are kept because the first spike guessed
+#: ``__uicontrolledapplication__``, got nothing, and the record said so
+#: plainly; a list that records WHICH name answered cannot make that mistake
+#: twice.
+PANE_APP_NAMES = ("__revit__", "__uicontrolledapplication__", "__uiapp__")
+
+
+def _controlled_application():
+    """``(object, where)`` for something that can register a pane, else
+    ``(None, why)``.
+
+    Chosen by asking for ``RegisterDockablePane`` rather than by type:
+    ``UIApplication`` and ``UIControlledApplication`` both have it, and which
+    one a startup script is handed is exactly the thing that was unknown.
+    """
+    tried = []
+    for name in PANE_APP_NAMES:
+        candidate = globals().get(name)
+        if candidate is None:
+            tried.append("{0}: not bound".format(name))
+            continue
+        if not hasattr(candidate, "RegisterDockablePane"):
+            tried.append("{0}: {1}, no RegisterDockablePane".format(
+                name, type(candidate).__name__))
+            continue
+        return candidate, "{0} ({1})".format(name, type(candidate).__name__)
+
+    try:
+        from pyrevit import HOST_APP
+        candidate = getattr(HOST_APP, "uiapp", None)
+        if candidate is not None and hasattr(candidate, "RegisterDockablePane"):
+            return candidate, "pyrevit.HOST_APP.uiapp ({0})".format(
+                type(candidate).__name__)
+        tried.append("pyrevit.HOST_APP.uiapp: no RegisterDockablePane")
+    except Exception as error:
+        tried.append("pyrevit.HOST_APP: {0}".format(error))
+
+    return None, "; ".join(tried)
+
+
 def _register_pane():
     """``(registered, note)`` -- never raises."""
     try:
@@ -384,9 +427,9 @@ def _register_pane():
     except Exception as error:
         return False, "anongee_filterpane is not importable: {0}".format(error)
 
-    controlled = globals().get("__uicontrolledapplication__")
+    controlled, where = _controlled_application()
     try:
-        outcome = anongee_filterpane.register(controlled)
+        outcome = anongee_filterpane.register(controlled, where)
     except Exception as error:
         return False, "the pane did not register: {0}".format(error)
     return bool(outcome.get("registered")), outcome.get("note", "")

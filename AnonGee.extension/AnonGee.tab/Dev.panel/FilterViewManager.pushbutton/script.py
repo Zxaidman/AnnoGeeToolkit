@@ -286,6 +286,7 @@ class FilterViewApp(object):
         self.SaveRuleBtn.Click += self._on_save
         self.AddConditionBtn.Click += self._on_add_condition
         self.RemoveConditionBtn.Click += self._on_remove_condition
+        self.ConditionList.MouseDoubleClick += self._on_remove_condition
         self.CountBtn.Click += self._on_count
         self.ApplyBtn.Click += self._on_apply
         self.ClearBtn.Click += self._on_clear

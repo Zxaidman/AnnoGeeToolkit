@@ -967,14 +967,27 @@ class PaneRecordTests(unittest.TestCase):
         for part in parts:
             int(part, 16)
 
-    def test_registering_with_no_application_is_recorded_not_raised(self):
-        """The first thing CRIT-3 exists to find out is whether pyRevit hands a
-        startup script a UIControlledApplication at all. A missing one is an
-        answer, so it is recorded like any other -- and never raised, because
-        a throw here takes pyRevit's whole load down."""
+    def test_registering_with_nothing_to_register_on_is_recorded_not_raised(self):
+        """A missing application is an answer, so it is recorded like any
+        other -- and never raised, because a throw here takes pyRevit's whole
+        load down."""
         outcome = self.pane().register(None)
         self.assertFalse(outcome["registered"])
-        self.assertIn("UIControlledApplication", outcome["note"])
+        self.assertTrue(outcome["note"])
+
+    def test_the_note_says_where_it_looked_not_just_that_it_failed(self):
+        """0.2.0 guessed the name ``__uicontrolledapplication__``, pyRevit
+        binds ``__revit__``, and the record could only say "there was none".
+
+        Naming every place it looked, and what was there instead, is what
+        turns the next surprise into a sentence rather than another guess.
+        """
+        outcome = self.pane().register(
+            None, "__revit__: not bound; __uiapp__: not bound")
+        self.assertIn("__revit__", outcome["note"])
+        self.assertIn("Looked at", outcome["note"])
+        self.assertEqual(self.pane().read_record()["found_at"],
+                         "__revit__: not bound; __uiapp__: not bound")
 
     def test_what_it_recorded_is_what_comes_back(self):
         self.pane().register(None)

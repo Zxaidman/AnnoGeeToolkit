@@ -860,24 +860,41 @@
                                         ToolTip="Add this condition to the rule."/>
                             </Grid>
 
-                            <ListBox x:Name="ConditionList" Height="110"
-                                     Background="{StaticResource BrushPureWhite}"
-                                     BorderBrush="{StaticResource BrushLightBorder}" BorderThickness="1"
-                                     Margin="0,0,0,6"
-                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                                     ToolTip="The conditions on this rule. A rule with none matches everything in its categories, which is a legitimate rule.">
-                                <ListBox.ItemTemplate>
-                                    <DataTemplate>
-                                        <TextBlock Text="{Binding Text}" FontFamily="{StaticResource FontMono}"
-                                                   FontSize="{StaticResource FontSizeBody}"
-                                                   TextTrimming="CharacterEllipsis"/>
-                                    </DataTemplate>
-                                </ListBox.ItemTemplate>
-                            </ListBox>
+                            <!-- The list and its Remove button share a row.
+                                 Remove sat UNDER the list until 2026-09-10,
+                                 which put it below the scroll fold: it was
+                                 built, wired and working, and simply could not
+                                 be seen. A control the user cannot find is a
+                                 control that does not exist. -->
+                            <Grid Margin="0,0,0,6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="6"/>
+                                    <ColumnDefinition Width="110"/>
+                                </Grid.ColumnDefinitions>
 
-                            <Button x:Name="RemoveConditionBtn" Content="Remove selected condition"
-                                    Style="{StaticResource ButtonGhost}" HorizontalAlignment="Left" Width="220"
-                                    ToolTip="Remove the condition selected above."/>
+                                <ListBox Grid.Column="0" x:Name="ConditionList"
+                                         Height="96"
+                                         Background="{StaticResource BrushPureWhite}"
+                                         BorderBrush="{StaticResource BrushLightBorder}"
+                                         BorderThickness="1"
+                                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                         ToolTip="The conditions on this rule. A rule with none matches everything in its categories, which is a legitimate rule. Double-click one to remove it.">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding Text}"
+                                                       FontFamily="{StaticResource FontMono}"
+                                                       FontSize="{StaticResource FontSizeBody}"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+
+                                <Button Grid.Column="2" x:Name="RemoveConditionBtn"
+                                        Content="Remove" VerticalAlignment="Top"
+                                        Style="{StaticResource ButtonGhost}"
+                                        ToolTip="Remove the condition selected in the list. Double-clicking a condition does the same."/>
+                            </Grid>
                         </StackPanel>
                     </ScrollViewer>
 

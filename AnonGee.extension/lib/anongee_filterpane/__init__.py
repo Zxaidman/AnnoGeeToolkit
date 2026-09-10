@@ -114,13 +114,17 @@ def read_record():
         return {}
 
 
-def register(controlled_application):
+def register(controlled_application, found_at=""):
     """Register the pane. Returns the record dict; **never raises**.
 
-    *controlled_application* is the ``UIControlledApplication`` pyRevit hands a
-    startup script. Passing ``None`` is not an error to hide -- it is the first
-    of the three things this spike is here to find out, so it is recorded and
-    reported like any other outcome.
+    *controlled_application* is whatever the startup script found that can
+    register a pane; *found_at* says where it found it, or -- when it found
+    nothing -- everywhere it looked and what was there instead.
+
+    That second argument is the lesson of the first spike. It guessed the name
+    ``__uicontrolledapplication__``, pyRevit binds ``__revit__``, and the
+    record could only say "there was none". Recording **which** name answered
+    turns the next surprise into a sentence rather than another guess.
     """
     import datetime
     import sys
@@ -133,14 +137,14 @@ def register(controlled_application):
         "title": PANE_TITLE,
         "registered": False,
         "shown_by": "the Filter View Manager button",
+        "found_at": found_at,
         "note": "",
     }
 
     if controlled_application is None:
         outcome["note"] = (
-            "no UIControlledApplication was given, so RegisterDockablePane "
-            "could not be called at all. pyRevit did not put one in this "
-            "startup script's namespace.")
+            "nothing that can register a pane was found in the startup "
+            "script. Looked at: {0}".format(found_at or "nowhere"))
         write_record(outcome)
         return outcome
 
@@ -153,6 +157,7 @@ def register(controlled_application):
 
     try:
         outcome.update(provider.register(controlled_application))
+        outcome["note"] = "{0}; found at {1}".format(outcome["note"], found_at)
     except Exception as error:
         outcome["note"] = "RegisterDockablePane refused: {0}".format(error)
 

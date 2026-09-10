@@ -269,6 +269,34 @@ class XamlTests(unittest.TestCase):
                     _tag(element), element.get(_X + "Name") or "(unnamed)"))
         self.assertEqual(problems, [], "no tooltip: " + "; ".join(problems))
 
+    def test_a_lists_action_button_sits_beside_the_list(self):
+        """A control below the scroll fold is a control that does not exist.
+
+        ``RemoveConditionBtn`` was built, wired and working, and sat UNDER a
+        fixed-height list inside a ScrollViewer -- so it was off the bottom of
+        the visible area and the project owner reported it as never built.
+
+        The rule that came out of it: an action belongs in the same container
+        as the thing it acts on. Then it is on screen exactly when its target
+        is, and no amount of scrolling can separate them.
+        """
+        root = _tree()
+        for parent in root.iter():
+            children = list(parent)
+            tags = [_tag(child) for child in children]
+            names = [child.get(_X + "Name") for child in children]
+            if "ConditionList" in names:
+                self.assertIn("RemoveConditionBtn", names,
+                              "Remove is not a sibling of the list it empties")
+                return
+            del tags
+        self.fail("ConditionList is not in the XAML")
+
+    def test_the_conditions_list_offers_more_than_one_way_to_remove(self):
+        """The button is the obvious one; double-click is the one a modeller
+        reaches for first, and it costs a single wiring line."""
+        self.assertIn("ConditionList.MouseDoubleClick", _read(_SCRIPT))
+
     def test_the_hint_strip_says_what_pressing_a_rule_does(self):
         """The one promise the window must never stop making."""
         source = _read(_XAML)
