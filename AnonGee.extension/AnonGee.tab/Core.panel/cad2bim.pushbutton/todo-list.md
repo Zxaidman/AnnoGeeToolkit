@@ -8,12 +8,15 @@ Nothing is deleted to make the list look shorter.
 file before it is built, argued about, or written into any other document. Standing instruction
 from the project owner, and it is what keeps this list the queue rather than a summary of one.
 
-Current build: **v0.96.9** (branch `claude/cad2bim`, restarted from `main` after PR #10 merged).
-1292 unit tests, 3 regression legs over 31 archived exports, 23 fixture drawings and 13 storey
-stacks. This round answered the owner's column question with a measurement — BUG-34, a size label
-1.3 m away rebuilding a column the drawing had right — and built the `_START`/`_STOP` extent planner
-(FEAT-16) as a tested, Revit-free module, wiring still to come. The branch also carries the rc-automation merge and the 1.26.1
-extension identity. Longer records: `../../../../../task_plan.md`, `findings.md`, `progress.md` at the
+Current build: **v0.97.0** (branch `claude/cad2bim`, restarted from `main` after PR #10 merged).
+1333 unit tests, 3 regression legs over 31 archived exports, 23 fixture drawings and 13 storey
+stacks. This round wired FEAT-16 into the build — a column is now placed ONCE over the whole run it
+is drawn for, which takes test17 from 2525 placed rectangles to 524 — and fixed the two faults the
+wiring exposed: an L whose legs disagreed about which storey they belonged to (57 outlines), and a
+storey with nothing left of its own being rebuilt whole (the terrace, 58 members). FEAT-13's spread
+was fixed with it: under pythonnet a .NET object reaches a callback as a fresh wrapper, so matching
+the combo by identity never matched and the selection never followed. The branch also carries the
+rc-automation merge and the 1.26.1 extension identity. Longer records: `../../../../../task_plan.md`, `findings.md`, `progress.md` at the
 repository root.
 
 ## Sections
@@ -157,7 +160,7 @@ and it touches the recovery DONE-22 depends on, so it wants its own round rather
 the day before a client trip.
 
 
-### FEAT-16 — `_START` and `_STOP` column layers say where a column begins and ends · `building`
+### FEAT-16 — `_START` and `_STOP` column layers say where a column begins and ends · `testing`
 
 **The owner:** "in column layers there two new Stop and Start layer which both should be treated
 differently stop means that layer column is stop on that particular floor means it can go above *(if
@@ -197,7 +200,7 @@ rules. Which of these is meant:
 
 **ANSWERED — "A is correct, build the start/stop column logic" — and the planner is built (v0.96.9).**
 
-`column_extent.py`, Revit-free and 26 tests:
+`column_extent.py`, Revit-free and 57 tests:
 
   * `mark_of(layer)` reads the SUFFIX, so an office's own prefix is nobody's business, and test17's
     own spelling `S-COLUM_STOP` (one M) is covered along with `-STOP` and ` STOP`;
@@ -205,19 +208,49 @@ rules. Which of these is meant:
     binned** — rounding into a cell puts two footprints a millimetre apart either side of an edge
     and calls them two columns, which is the one job it has. Free to do because `floor_plans` hands
     each storey's records ALREADY SHIFTED so that plan's origin sits at (0, 0);
-  * `extents(storeys)` gives `{column: (first storey, last storey)}` under rule A — the lowest
-    `start` mark or the lowest storey it is drawn on, the highest `stop` mark or the highest it is
-    drawn on. A drawing that stops a column before it starts still yields one column rather than
-    none;
-  * `build_here(extent, storey)` puts a spanning column in ONCE, at its first storey, instead of
-    stacking one per floor.
+  * `extents(storeys)` gives `{(column, run): (first storey, last storey)}` under rule A;
+  * `plan_storey(keys, spans, storey)` says, for one plan, what it builds and what was already
+    built below it.
 
-**Not yet wired into the build, and that is the honest state.** `place_columns` takes ONE
-`top_level_id` for every column in a call, so a stack where columns end at different levels needs
-either grouping by top level or a change to the builder — and the multi-storey loop has to gather
-every storey's footprints before the first one is built. That is a real change to how columns are
-placed, it cannot be checked outside Revit, and the owner travels after Saturday. The planner ships
-tested; the wiring is the next thing and wants his go-ahead on timing.
+**Wired into the build in v0.97.0**, and the wiring found three things the planner alone could not.
+
+**1 — a column is not one column.** `extents` first gave one span per column. Measured on test17:
+**126 of its 219 columns change section over their height** — 200x2150 becoming 250x2150 part way up
+— and the drawing marks almost none of those changes. One column over the whole height would have
+carried the bottom storey's section through more than half of them, which is worse than the stack it
+replaces. A run is now cut where the section changes, at a `_START`, and after a `_STOP`, and the
+span is the run's own lowest and highest storey. **2344 drawn outlines over 13 floors are 386
+columns, 196 of them running through more than one storey**, the longest all 13.
+
+The section is read to the WHOLE MILLIMETRE, off a measured band: within one column two footprints of
+the same section differ by at most **0.195 mm** (99th percentile 0.066), and the smallest real change
+anywhere in the drawing is **50 mm**. The run counts are identical at 1, 5 and 10 mm — the band is
+that empty.
+
+**2 — an L is not its middle.** A rectangle found its column by nearest centre, and a composite
+outline is decomposed into legs whose centres are nowhere near the outline's. Measured: **57 of
+test17's outlines came back with their legs disagreeing** — one leg carried up a storey while the
+rest were rebuilt on it, which puts one column straight through another. `assign` now takes the
+column whose drawn BOX holds the rectangle, smallest box first so a neighbour inside a long L's box
+still takes its own. **All 2525 built rectangles now find a column (was 2209), and no outline is
+left half-carried: 0 of the 66 whose legs take different columns take a different span.**
+
+**3 — a storey can have nothing of its own.** test17's terrace is 58 members and every one is built
+lower down and carried up to it. `_create_columns` fell back to rebuilding the whole storey when no
+group came back, which would have put a second column inside each of them. Nothing to place is now
+nothing placed.
+
+Across the stack: **2525 rectangles placed, down to 524.** The console says so before the first
+storey is built, and each storey says how many were carried up.
+
+`_column_groups` groups the storey's rectangles by the level they reach — `place_vertical_members`
+takes ONE top level per call — and keeps the ENTRIES they came from, so the drawing's own layer and
+the approximated flag survive the grouping. A storey with no plan (single-storey run, or a drawing
+with neither layer) returns its own one group untouched, so those runs are unchanged.
+
+**Not verified in Revit.** Both ends import Revit, so the wiring is held by nine static pins in
+`test_dialog_wiring.py` and the numbers above come from the DXF, not from a model. It wants the
+owner's next test17 run.
 
 
 ### BUG-33 — test17 builds no slab at all, and said nothing about it · `testing`
@@ -348,6 +381,17 @@ now sets every selected row. Changing one on an UNSELECTED row spreads to nothin
 keeps single-row editing working. `selection.py` shrank to that one rule — the only part still ours
 — with 9 tests on it, and six AST pins hold the wiring, including that the hand-rolled machinery is
 GONE rather than merely bypassed.
+
+**v0.96.8 SELECTED CORRECTLY AND SPREAD NOTHING.** The owner, on that build: "now layer, text, hatch
+mapping selection working as expected but selected value is not change for all the all selected item
+only item changes for which ever dropdown is change from."
+
+The spread found the row that raised the event by matching the control — `combo is sender` — and
+**under pythonnet that can never match**: a .NET object arrives at a callback as a FRESH managed
+wrapper, so Python identity against the stored reference is False every time. `spread` was handed no
+owner, returned nothing, and did it silently. The row is named by INDEX now, bound when the row is
+built, and an index cannot be wrapped twice. Fixed in v0.97.0, with the failure written into
+`selection.py`'s docstring so the next person does not reach for identity again.
 
 **Waiting on:** the owner's next run. test17's layer list is the drawing that needs it.
 

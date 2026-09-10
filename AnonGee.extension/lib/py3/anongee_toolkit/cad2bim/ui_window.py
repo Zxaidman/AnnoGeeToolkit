@@ -737,9 +737,14 @@ class CadToBimWindow(object):
             panel.Items.Add(item)
             combo_store.append((layer, combo))
             rows.append((item, combo))
-            combo.SelectionChanged += self._spread_to_selection(rows)
+            # THE INDEX, bound now. Matching the control that raised the event
+            # cannot work under pythonnet -- a .NET object reaches a callback as
+            # a fresh managed wrapper, so `combo is sender` is False every time
+            # and the spread silently did nothing.
+            combo.SelectionChanged += self._spread_to_selection(
+                rows, len(rows) - 1)
 
-    def _spread_to_selection(self, rows):
+    def _spread_to_selection(self, rows, owner):
         """One combo changed: if its row is selected, every selected row follows.
 
         The owner's rule, and it replaces the Apply button this had before:
@@ -754,6 +759,11 @@ class CadToBimWindow(object):
         `_spreading` stops the echo: setting the other combos raises
         SelectionChanged on each of them, and without the guard the first change
         would fan out and every echo would fan out again.
+
+        `owner` is the row's INDEX, bound when the row is built. The first
+        version matched the combo that raised the event against the stored one,
+        which under pythonnet is never the same object -- so nothing ever
+        spread, and the owner reported exactly that.
         """
         def handler(sender, _args):
             if getattr(self, "_spreading", False):
@@ -762,7 +772,7 @@ class CadToBimWindow(object):
             if value is None:
                 return
             following = selection.spread(
-                [(item.IsSelected, combo) for item, combo in rows], sender)
+                [item.IsSelected for item, _combo in rows], owner)
             if not following:
                 return
             self._spreading = True

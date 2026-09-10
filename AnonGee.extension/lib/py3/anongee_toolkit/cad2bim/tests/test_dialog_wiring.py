@@ -2063,5 +2063,95 @@ class TheMappingTablesTakeManyRowsAtOnce(unittest.TestCase):
         self.assertIn("finally:", block)
 
 
+class AColumnIsBuiltOnceOverItsWholeRun(unittest.TestCase):
+    """FEAT-16, pinned rather than run: both ends of it import Revit.
+
+    A multi-storey sheet is built one plan per storey, so a column running
+    eleven floors came out as eleven one-storey columns stacked on each other.
+    `column_extent` decides where each one really begins and ends -- and it is
+    unit-tested on its own, standalone -- but the deciding is worthless unless
+    the run asks it BEFORE the first storey is built and the builder groups its
+    rectangles by the answer. Those two joints are what these hold.
+
+    Measured on test17: 2344 drawn outlines over 13 floors are 386 columns,
+    196 of them running through more than one storey.
+    """
+
+    def test_the_whole_stack_is_read_before_the_first_storey_is_built(self):
+        source = _script_source()
+        planned = source.index("column_extent.plan(")
+        loop = source.index("for index, (region, label) in enumerate(built)")
+        self.assertLess(planned, loop,
+                        "a column's span is only knowable from every plan it "
+                        "appears on, so the read cannot be inside the loop")
+
+    def test_every_storey_s_footprints_go_into_the_one_read(self):
+        source = _script_source()
+        self.assertIn("_column_footprints(region.records)", source)
+        self.assertIn("for region, _lbl in built", source)
+
+    def test_a_footprint_carries_its_drawn_section_not_just_its_place(self):
+        # Without the size a column that reduces up the building is one column
+        # at the bottom storey's section, and 126 of test17's 219 reduce.
+        block = _script_source().split("def _column_footprints(", 1)[1]
+        block = block.split("\ndef ", 1)[0]
+        self.assertIn("304.8", block)
+        self.assertIn("max(xs) - min(xs)", block)
+        self.assertIn("max(ys) - min(ys)", block)
+
+    def test_the_answer_reaches_the_builder_through_the_selections(self):
+        source = _script_source()
+        block = source.split('storey_selections["column_extents"]', 1)[1][:300]
+        for key in ('"boxes"', '"spans"', '"storey"', '"top_ids"'):
+            self.assertIn(key, block, key)
+
+    def test_the_builder_groups_its_rectangles_by_the_level_they_reach(self):
+        source = _builders_source()
+        block = source.split("def _create_columns(", 1)[1].split("\ndef ", 1)[0]
+        self.assertIn("_column_groups(sections, selections)", block)
+        self.assertIn("for group_sections, group_top in groups:", block)
+        self.assertIn("_merge_placed(result, placed)", block)
+
+    def test_a_rectangle_finds_its_column_by_position_not_by_index(self):
+        # The footprints come from the drawing's records and the rectangles from
+        # `decompose_to_rectangles`, which splits some and drops others: the two
+        # lists never line up, and matching them by index would put spans on the
+        # wrong columns silently.
+        block = _builders_source().split("def _column_groups(", 1)[1]
+        block = block.split("\ndef ", 1)[0]
+        self.assertIn('column_extent.assign(boxes, rect["center"])', block)
+        self.assertIn("column_extent.plan_storey(keys, spans, storey)", block)
+
+    def test_a_group_keeps_the_entries_it_came_from(self):
+        # The entry carries the drawing's own layer and whether the outline was
+        # approximated; a group that flattened them into one nameless entry
+        # would take both out of everything downstream that reads them.
+        block = _builders_source().split("def _column_groups(", 1)[1]
+        block = block.split("\ndef ", 1)[0]
+        self.assertIn("dict(source[number], rectangles=kept)", block)
+
+    def test_a_single_storey_run_is_left_exactly_as_it_was(self):
+        block = _builders_source().split("def _column_groups(", 1)[1]
+        block = block.split("\ndef ", 1)[0]
+        self.assertIn("if not plan:", block)
+        self.assertIn("return [(sections, top_id)], 0", block)
+
+    def test_a_storey_with_nothing_left_of_its_own_places_nothing(self):
+        # test17's terrace is 58 members and every one was built lower down and
+        # carried up to it. Rebuilding the storey when no group came back would
+        # put a second column inside each of them.
+        block = _builders_source().split("def _create_columns(", 1)[1]
+        block = block.split("\ndef ", 1)[0]
+        after = block.split("if result is None:", 1)[1][:600]
+        self.assertNotIn("place_vertical_members", after)
+        self.assertIn('"created": []', after)
+
+    def test_what_was_carried_up_from_below_is_said_out_loud(self):
+        block = _builders_source().split("def _create_columns(", 1)[1]
+        block = block.split("\ndef ", 1)[0]
+        self.assertIn("carried", block)
+        self.assertIn("_START/_STOP", block)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -117,10 +117,10 @@ _drop_stale_modules()
 import anongee_clr                      # noqa: F401  (imported for its lifetime)
 
 from anongee_toolkit import cad2bim
-from anongee_toolkit.cad2bim import (advanced, compat, config, floor_plans,
-                                     foundation_plan, legend, naming, prefs,
-                                     report, settings, slab_outlines,
-                                     stair_layout, views)
+from anongee_toolkit.cad2bim import (advanced, column_extent, compat, config,
+                                     floor_plans, foundation_plan, legend,
+                                     naming, prefs, report, settings,
+                                     slab_outlines, stair_layout, views)
 from anongee_toolkit.cad2bim.geom import transform, compare
 from anongee_toolkit.cad2bim.classify import layers, marks
 from anongee_toolkit.cad2bim.readers import geometry_reader, dxf_reader, dxf_linker
@@ -734,6 +734,19 @@ def main():
         # the ladder is sized from the EXPANDED list, not the plan count.
         built = floor_plans.expand_repeats(storeys)
         level_pairs = _storey_level_pairs(doc, selections, built)
+        # FEAT-16: how far each column runs, read off its section and the
+        # `_START`/`_STOP` layers BEFORE the first storey is built. It has to be
+        # the whole stack at once -- a column's span is only knowable from every
+        # plan it appears on -- and the footprints are comparable across plans
+        # because `split_floors` has already shifted every storey so its own
+        # origin marker lands on the base storey's, putting all thirteen plans
+        # in one frame.
+        column_plans = [_column_footprints(region.records)
+                        for region, _lbl in built]
+        column_spans, column_boxes = column_extent.plan(column_plans)
+        top_ids = dict((i, pair[1]) for i, pair in enumerate(level_pairs))
+        _say_column_spans(column_spans, len(built),
+                          sum(len(plan) for plan in column_plans))
         storey_payloads = []
         all_outcomes = {}
         for index, (region, label) in enumerate(built):
@@ -747,6 +760,9 @@ def main():
             # a building has ONE set of foundations: only the lowest storey
             # lays them, on its own base level
             storey_selections["build_footings"] = (index == 0)
+            storey_selections["column_extents"] = {
+                "boxes": column_boxes, "spans": column_spans,
+                "storey": index, "top_ids": top_ids}
             storey_result = _StoreyResult(revit_result, region.records)
             outcomes = _build_one_storey(
                 doc, storey_result, region.texts, storey_selections,
@@ -793,6 +809,56 @@ class _StoreyResult(object):
     def __init__(self, base_result, records):
         self.__dict__.update(base_result.__dict__)
         self.records = records
+
+
+def _column_footprints(records):
+    """[(centre, layer, size_mm)] for every closed COLUMN outline on one plan.
+
+    The bounding box of the drawn outline, twice over: its CENTRE says which
+    column this is (the records arrive shifted to their own plan's origin, so
+    the same column lands on the same point on every plan), and its SIZE says
+    whether the column is still the same section on this floor -- a column that
+    reduces up the building is two columns, and 126 of test17's 219 do.
+
+    The box, not the decomposition. Cheap on purpose: this runs for every storey
+    before the first one is built, and re-deriving the true sections thirteen
+    times over to learn thirteen positions would cost the run minutes. An
+    L-shaped column's box is bigger than the column, which does not matter here
+    -- the same L gives the same box on every floor, and a real change of
+    section still moves it.
+    """
+    out = []
+    for record in records or []:
+        if getattr(record, "category", None) != layers.CATEGORY_COLUMN:
+            continue
+        points = getattr(record, "points", None) or []
+        if len(points) < 3:
+            continue
+        xs = [p[0] for p in points]
+        ys = [p[1] for p in points]
+        out.append((((min(xs) + max(xs)) / 2.0, (min(ys) + max(ys)) / 2.0),
+                    getattr(record, "layer", ""),
+                    ((max(xs) - min(xs)) * 304.8, (max(ys) - min(ys)) * 304.8)))
+    return out
+
+
+def _say_column_spans(spans, storeys, footprints):
+    """One line on how the stack was read, before a single column is placed.
+
+    Silent when nothing runs past its own floor, because then every column is
+    built exactly where it is drawn and there is nothing to report. When
+    something does, the number is worth seeing next to the drawing: a model
+    built one column per plan and one built column by column look identical
+    until somebody counts them.
+    """
+    multi = [span for span in (spans or {}).values() if span[0] != span[1]]
+    if not multi:
+        return
+    _say("columns: {0} outlines over {1} floors are {2} column(s) -- {3} of "
+         "them run through more than one storey (up to {4} floors), by their "
+         "section and their _START/_STOP layers, and each is built once".format(
+             footprints, storeys, len(spans), len(multi),
+             max(span[1] - span[0] + 1 for span in multi)))
 
 
 def _storey_level_pairs(doc, selections, built):

@@ -25,8 +25,8 @@ from Autodesk.Revit.DB import Transaction, TransactionGroup
 
 import re
 
-from . import (config, fold_plan, foundation_plan, legend, naming, report,
-               slab_outlines, views, wall_plan)
+from . import (column_extent, config, fold_plan, foundation_plan, legend,
+               naming, report, slab_outlines, views, wall_plan)
 from .builders import (columns, beams, footings, grids, materials, slabs,
                        txn_failures, view_filters, walls)
 from . import stair_layout
@@ -361,6 +361,103 @@ def _create_grids(doc, records, grid_texts=None):
             "skip_details": _skip_details(result["skipped"])}
 
 
+def _column_groups(sections, selections):
+    """[(sections for one top level, that top level's id)], plus a skip count.
+
+    FEAT-16. `column_extent` has already read the whole stack and knows, for
+    every column, which storey each RUN of it begins on and which it ends on --
+    a run being one stretch at one section, cut where the column reduces, at a
+    `_START` and after a `_STOP`. So a member is built ONCE, at the storey its
+    run begins on, reaching the top of the storey it ends on, rather than as one
+    column per floor stacked on itself.
+
+    `place_vertical_members` takes ONE top level for a whole call, so the
+    rectangles are grouped by the level they reach and the builder is called
+    once per group. A rectangle belonging to no column at all falls in the group
+    whose top is this storey's own, which is exactly what every column did
+    before.
+
+    Returns the storey's own single group untouched when there is no plan, so a
+    single-storey run and a drawing with neither layer are unchanged. It returns
+    NO groups when every member here was built lower down -- test17's terrace is
+    58 of 58 -- and that is an answer, not a failure to produce one.
+    """
+    plan = selections.get("column_extents")
+    top_id = selections.get("top_level_id")
+    if not plan:
+        return [(sections, top_id)], 0
+    boxes = plan.get("boxes") or []
+    spans = plan.get("spans") or {}
+    storey = plan.get("storey")
+    tops = plan.get("top_ids") or {}
+    source = sections.get("entries") or []
+    rects = [(number, rect) for number, entry in enumerate(source)
+             for rect in entry.get("rectangles") or []]
+    if not boxes or not rects:
+        return [(sections, top_id)], 0
+    # BY POSITION, not by index. The footprints were gathered from the drawing's
+    # records; these rectangles come out of `decompose_to_rectangles`, which
+    # splits some and drops others, so the two never line up and nothing here
+    # may assume they do. A rectangle takes the column whose drawn BOX holds it,
+    # so every leg of an L takes the same one -- one leg carried up a storey
+    # while the rest were rebuilt on it would put a column through a column.
+    keys = [column_extent.assign(boxes, rect["center"])
+            for _number, rect in rects]
+    built, skipped = column_extent.plan_storey(keys, spans, storey)
+    by_top = {}
+    for index, reach in built.items():
+        number, rect = rects[index]
+        by_top.setdefault(tops.get(reach, top_id), {}).setdefault(
+            number, []).append(rect)
+    # Each group keeps the ENTRIES it came from, holding only the rectangles
+    # that reach this top. The entry is what carries the drawing's own layer and
+    # whether the outline was approximated, and a group that threw those away to
+    # become one nameless entry would take them out of everything downstream
+    # that reads them.
+    groups = []
+    for level_id, chosen in by_top.items():
+        entries = [dict(source[number], rectangles=kept)
+                   for number, kept in sorted(chosen.items())]
+        groups.append((dict(sections, entries=entries, circles=[]), level_id))
+    if groups:
+        # The circles ride with ONE group, and the storey's own top is where
+        # they belong: `_create_columns` places them itself, from the storey's
+        # own levels, and a copy on every group would count them again per
+        # group in the split's console line.
+        own = [index for index, group in enumerate(groups)
+               if group[1] == top_id]
+        groups[own[0] if own else 0][0]["circles"] = sections.get("circles", [])
+    return groups, len(skipped)
+
+
+def _merge_placed(first, second):
+    """Two `place_vertical_members` results as one.
+
+    FEAT-16 calls the builder once per top level, so the storey's outcome is the
+    sum of those calls. Lists join and counts add; anything else is taken from
+    the FIRST call, which is the storey's own group -- there is nothing sensible
+    to add two family ids together into.
+    """
+    merged = dict(first)
+    for key, value in (second or {}).items():
+        mine = merged.get(key)
+        if isinstance(value, list) and isinstance(mine, list):
+            merged[key] = mine + value
+        elif isinstance(value, dict) and isinstance(mine, dict):
+            joined = dict(mine)
+            for name, count in value.items():
+                if isinstance(count, int) and isinstance(joined.get(name), int):
+                    joined[name] = joined[name] + count
+                else:
+                    joined.setdefault(name, count)
+            merged[key] = joined
+        elif isinstance(value, int) and isinstance(mine, int):
+            merged[key] = mine + value
+        elif key not in merged:
+            merged[key] = value
+    return merged
+
+
 def _create_columns(doc, sections, selections):
     """Place rectangular + circular columns from the decomposed sections, in a group."""
     from Autodesk.Revit.DB import Transaction, TransactionGroup, TransactionStatus
@@ -385,9 +482,26 @@ def _create_columns(doc, sections, selections):
         # member is a column, a wall, or decided per member by its mark and its
         # L/B ratio. Column mode hands the same rectangles to the same builder
         # in the same order, so the default run is unchanged.
-        result = columns.place_vertical_members(
-            doc, sections, selections, family_id, base_id, top_id,
-            region_max_side_mm=region_max)
+        groups, carried = _column_groups(sections, selections)
+        if carried:
+            _say("  columns: {0} member(s) already built lower down and carried "
+                 "up to this storey -- each runs from where its section and its "
+                 "_START/_STOP layers say it begins, so it is not rebuilt here"
+                 .format(carried))
+        result = None
+        for group_sections, group_top in groups:
+            placed = columns.place_vertical_members(
+                doc, group_sections, selections, family_id, base_id,
+                group_top, region_max_side_mm=region_max)
+            result = placed if result is None else _merge_placed(result, placed)
+        if result is None:
+            # NOT a rebuild. A storey can legitimately have nothing of its own
+            # left to place -- test17's terrace is 58 members and every one of
+            # them was built lower down and carried up here -- and falling back
+            # to the whole storey then would put a second column inside each of
+            # them. Nothing to place is nothing placed.
+            result = {"created": [], "skipped": [], "errors": [], "notes": [],
+                      "wall_ids": [], "counts": {}}
         circles = sections.get("circles", [])
         circular_id = selections.get("circular_family_id")
         circular = {"created": [], "errors": []}

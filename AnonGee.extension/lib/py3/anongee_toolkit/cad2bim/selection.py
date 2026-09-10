@@ -19,27 +19,31 @@ is the difference between editing one layer and editing forty.
 """
 
 
-def spread(rows, sender):
-    """Indices whose combo should follow `sender`, given [(is_selected, combo)].
+def spread(rows, owner):
+    """Indices whose combo should follow row `owner`, given [is_selected].
 
     Three rules, and each answers a way the first attempt got it wrong:
 
       * a change on an UNSELECTED row spreads to NOTHING. Editing one row on its
         own has to keep working exactly as it did, or the table becomes unusable
         for the single change that is most of the use;
-      * the sender is never in the list. It already holds the value, and telling
+      * the owner is never in the list. It already holds the value, and telling
         WPF to set a combo to what it is showing raises another change event;
       * only SELECTED rows follow, which is the owner's rule verbatim.
 
-    `sender` is the combo the user touched, compared by identity: two rows can
-    hold equal values and mean different layers.
+    THE ROW IS NAMED BY INDEX, not by matching the control that raised the
+    event. That is what the first version did -- `combo is sender` -- and under
+    pythonnet it never matched: a .NET object arrives at a callback as a FRESH
+    managed wrapper, so Python identity against the stored reference is False
+    every time. The spread therefore found no owner and quietly did nothing,
+    which is exactly what the owner saw: "selected value is not change for all
+    the all selected item only item changes for which ever dropdown is change
+    from". An index cannot be wrapped twice.
     """
-    owner = None
-    for index, (_selected, combo) in enumerate(rows or ()):
-        if combo is sender:
-            owner = index
-            break
-    if owner is None or not rows[owner][0]:
+    rows = list(rows or ())
+    if owner is None or not (0 <= owner < len(rows)):
         return []
-    return [index for index, (selected, combo) in enumerate(rows)
-            if selected and combo is not sender]
+    if not rows[owner]:
+        return []
+    return [index for index, selected in enumerate(rows)
+            if selected and index != owner]
