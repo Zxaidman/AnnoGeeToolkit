@@ -1020,7 +1020,7 @@
     "wall_struct_segments": 0
   },
   "StructuralPlan-Test17-clean.dxf": {
-    "beams": 4792,
+    "beams": 4793,
     "beams_split_at_columns": 873,
     "chajja_holes": 0,
     "chajja_offset_mm_total": 0,
@@ -1057,7 +1057,7 @@
     "marked_beams": 1,
     "marked_rectangles": 0,
     "records": 18472,
-    "regions": 3936,
+    "regions": 3937,
     "sized_beams": 1688,
     "slab_bays_divided_by_cutouts": 0,
     "slab_cutout_holes": 0,
@@ -1142,7 +1142,7 @@
     "marked_beams": 0,
     "marked_rectangles": 0,
     "records": 20817,
-    "regions": 7114,
+    "regions": 7115,
     "sized_beams": 148,
     "slab_bays_divided_by_cutouts": 0,
     "slab_cutout_holes": 0,
