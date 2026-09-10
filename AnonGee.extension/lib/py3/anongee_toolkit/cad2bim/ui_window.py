@@ -30,7 +30,7 @@ from System.Windows.Media import Brushes
 
 from . import (advanced, config, floor_plans, naming, prefs, report, selection,
                settings,
-               stair_layout, wall_plan)
+               stair_layout, wall_plan, zone_plan)
 from .builders import materials
 from .classify import layers
 from .readers import dxf_linker
@@ -300,12 +300,14 @@ class CadToBimWindow(object):
                  hatch_layer_rows=None, hatch_categories=None,
                  default_hatch_mapping=None, hatch_notes=None,
                  hatch_row_patterns=None, hatch_step_depths=None,
-                 wall_type_options=None, blanket_note=None):
+                 wall_type_options=None, blanket_note=None,
+                 zone_layer_rows=None, default_zone_mapping=None):
         self.result = None
         self._spreading = False
         self._combos = []
         self._text_combos = []
         self._hatch_combos = []
+        self._zone_combos = []
         # The legend's step depths, keyed by PATTERN ({ANSI37: -75.0, ...} on
         # test14) -- the grain the drawing states them at. The boxes below
         # edit them; the seed stands wherever a box is empty or unreadable.
@@ -337,6 +339,18 @@ class CadToBimWindow(object):
                          self._hatch_combos, row_notes=hatch_notes,
                          row_patterns=hatch_row_patterns,
                          depth_store=self._hatch_depth_boxes)
+
+        # FEAT-17: one row per boundary ZONE, saying what that zone holds. The
+        # same builder as the three mapping tables, so it selects and spreads
+        # the same way (FEAT-13) and a sheet with eight zones is eight clicks,
+        # not eight trips. Empty on an ordinary drawing, and it says so.
+        self._build_rows(find("zone_rows"), zone_layer_rows or [],
+                         zone_plan.group_names(), default_zone_mapping or {},
+                         self._zone_combos)
+        find("zone_note").Text = (
+            "" if zone_layer_rows else
+            "This drawing has no zone layers -- nothing here to set. Every "
+            "element is read from the plan as a whole, exactly as before.")
 
         self.cb_family = find("cb_family")
         self.cb_circular_family = find("cb_circular_family")
@@ -1134,6 +1148,10 @@ class CadToBimWindow(object):
             for layer, combo in self._text_combos:
                 text_mapping[layer] = (combo.SelectedItem
                                        or layers.CATEGORY_TEXT_IGNORE)
+        zone_mapping = {}
+        for layer, combo in self._zone_combos:
+            zone_mapping[layer] = (combo.SelectedItem
+                                   or zone_plan.GROUP_EVERYTHING)
         if hatch_mapping is None:
             hatch_mapping = {}
             for layer, combo in self._hatch_combos:
@@ -1146,6 +1164,7 @@ class CadToBimWindow(object):
             "text_mapping": text_mapping,
             "hatch_mapping": hatch_mapping,
             "hatch_step_depths": self._read_hatch_depths(),
+            "zone_mapping": zone_mapping,
             "create_grids": bool(self.chk_grids.IsChecked),
             "create_columns": bool(self.chk_columns.IsChecked),
             # ...and, of the members that tick builds, which of them are

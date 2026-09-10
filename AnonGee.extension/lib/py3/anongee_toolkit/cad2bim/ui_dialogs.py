@@ -29,6 +29,9 @@ from System.Windows import (MessageBox, MessageBoxButton, MessageBoxImage,
                             MessageBoxResult)
 from System.Windows.Controls import (ComboBox, TextBox, CheckBox, RadioButton,
                                      Slider)
+# CheckBox and RadioButton are both ToggleButtons; the base type is what the
+# rail's expand/collapse is, and it lives one namespace down.
+from System.Windows.Controls.Primitives import ToggleButton
 import System.Windows.Forms
 
 from . import settings
@@ -100,7 +103,10 @@ def _control_value(control):
     if isinstance(control, ComboBox):
         item = control.SelectedItem
         return str(item) if item is not None else (control.Text or "")
-    if isinstance(control, (CheckBox, RadioButton)):
+    if isinstance(control, (CheckBox, RadioButton, ToggleButton)):
+        # ToggleButton covers the other two, and the rail's expand/collapse:
+        # whether the section names are showing is a preference like any other
+        # on this dialog, so it is saved and restored with them.
         return bool(control.IsChecked)
     if isinstance(control, Slider):
         return float(control.Value)
@@ -133,7 +139,7 @@ def _set_control_value(control, value):
                 control.Text = str(value)
                 return True
             return False
-        if isinstance(control, (CheckBox, RadioButton)):
+        if isinstance(control, (CheckBox, RadioButton, ToggleButton)):
             control.IsChecked = bool(value)
             return True
         if isinstance(control, Slider):

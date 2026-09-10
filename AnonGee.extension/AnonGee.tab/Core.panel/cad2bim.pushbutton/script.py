@@ -602,6 +602,27 @@ def main():
                  "beam depth" if key == "beam_depth_mm" else "slab thickness",
                  ", ".join("{0:g}mm".format(v) for v in values)))
 
+    # FEAT-17: the boundary ZONES this drawing carries, one row per zone layer
+    # for the Multi-storey tab's table. Read off the layer NAMES, because this
+    # runs before any mapping exists -- and the storey boundary is left out of
+    # the list, since it is the box that holds the zones rather than one of them.
+    zone_layer_rows = []
+    default_zone_mapping = {}
+    storey_layer = getattr(storey_detection, "boundary_layer", None)
+    zone_counts = {}
+    for record in dxf_result.records:
+        name = record.layer_key
+        if zone_plan.is_zone_layer(name, storey_layer):
+            zone_counts[name] = zone_counts.get(name, 0) + 1
+    for name in sorted(zone_counts):
+        zone_layer_rows.append((name, zone_counts[name]))
+        default_zone_mapping[name] = zone_plan.default_group(name)
+    if zone_layer_rows:
+        _say("Boundary zones: {0} found -- {1}".format(
+            len(zone_layer_rows),
+            ", ".join("{0} ({1})".format(name, count)
+                      for name, count in zone_layer_rows)))
+
     # The dialog can hand the view back so the user DRAWS the stair outlines:
     # it closes, the outlines are picked in the model, and it reopens with every
     # setting restored. Anything else falls straight through to the build.
@@ -630,6 +651,8 @@ def main():
                                     layers.HATCH_CATEGORIES),
                                 default_hatch_mapping=default_hatch_mapping,
                                 hatch_notes=legend_notes,
+                                zone_layer_rows=zone_layer_rows,
+                                default_zone_mapping=default_zone_mapping,
                                 hatch_row_patterns=hatch_row_patterns,
                                 hatch_step_depths=hatch_step_depths,
                                 blanket_note=blanket_note)

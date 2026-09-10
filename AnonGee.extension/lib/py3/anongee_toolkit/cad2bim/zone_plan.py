@@ -91,6 +91,23 @@ _CONVENTION = (
     ("stair", (CATEGORY_STAIR,)),
 )
 
+# What the dialog offers per zone, in the order the table shows them. A zone
+# holds a FAMILY of elements, not one category, so the table's dropdown names
+# the family and this is where the name becomes categories -- which keeps the
+# dialog free of category lists and keeps this decision testable.
+GROUP_EVERYTHING = "everything in it"
+GROUP_IGNORE = "nothing -- skip this zone"
+ZONE_GROUPS = (
+    (GROUP_EVERYTHING, None),
+    ("grids + columns", (CATEGORY_GRID, CATEGORY_COLUMN)),
+    ("beams + slabs + stairs", (CATEGORY_BEAM, CATEGORY_SLAB_EDGE,
+                                CATEGORY_STAIR, CATEGORY_FOLD, CATEGORY_SUNK,
+                                CATEGORY_CUTOUT, CATEGORY_SLAB_STOP)),
+    ("walls", (CATEGORY_STRUCT_WALL, CATEGORY_ARCH_WALL)),
+    ("foundations", (CATEGORY_FOUNDATION,)),
+    (GROUP_IGNORE, ()),
+)
+
 # Two boxes are the same size when they differ by less than this, in feet. The
 # zone boxes in the example are identical to well under a millimetre; this only
 # has to absorb the drafting noise of a copied rectangle.
@@ -131,6 +148,35 @@ def default_categories(layer):
                 if category not in claimed:
                     claimed.append(category)
     return tuple(claimed) or None
+
+
+def group_names():
+    """The dropdown's rows, in order."""
+    return [name for name, _categories in ZONE_GROUPS]
+
+
+def categories_for(group):
+    """The categories a named group claims: None for all, () for none."""
+    for name, categories in ZONE_GROUPS:
+        if str(group).strip().lower() == name.lower():
+            return categories
+    return None
+
+
+def default_group(layer):
+    """Which group a zone's own NAME puts it in, for the table's first draft.
+
+    The combined copy answers "everything in it" because that is what it holds;
+    it is still skipped at fold time whenever specific zones exist, and the
+    dialog says so rather than the user having to know it.
+    """
+    claimed = default_categories(layer)
+    if claimed is None:
+        return GROUP_EVERYTHING
+    for name, categories in ZONE_GROUPS:
+        if categories and set(categories) == set(claimed):
+            return name
+    return GROUP_EVERYTHING
 
 
 class Zone(object):
@@ -311,7 +357,17 @@ def merge_zones(records, texts=None, hatches=None, storey_layer=None,
     unclaimed = {}
     folded = 0
     for group in groups:
+        # A zone the table was told to SKIP is used up unbuilt, like the
+        # combined copy: "nothing" is an answer, and a zone that claims no
+        # category must not have its contents fall through as strays.
+        skipped_zones = [cell for cell in group
+                         if _claimed_by(cell.layer, mapping) == ()]
+        for cell in skipped_zones:
+            notes.append("zone '{0}' is set to build nothing, so its contents "
+                         "were left out".format(cell.layer))
+        group = [cell for cell in group if cell not in skipped_zones]
         group, spare = _without_combine(group, notes)
+        spare = list(spare) + skipped_zones
         # the combined copy is USED UP, not merely skipped. Leaving its records
         # unclaimed would drop them straight back into the plan as strays and
         # build the whole drawing twice -- which is what the owner's 0.97.1 run
@@ -463,9 +519,20 @@ def _without_combine(group, notes):
 
 
 def _claimed_by(layer, mapping):
-    """The categories this zone takes: the dialog's answer, else the name's."""
+    """The categories this zone takes: the dialog's answer, else the name's.
+
+    The dialog answers with a GROUP NAME ("grids + columns"), because that is
+    what its table offers; a caller may also hand a category list straight in.
+    An empty list is a real answer -- "skip this zone" -- and is kept apart from
+    None, which means "everything in it".
+    """
     if mapping:
-        for key, categories in mapping.items():
-            if str(key).strip().lower() == str(layer).strip().lower():
-                return tuple(categories) if categories else None
+        for key, answer in mapping.items():
+            if str(key).strip().lower() != str(layer).strip().lower():
+                continue
+            if answer is None:
+                return None
+            if isinstance(answer, str):
+                return categories_for(answer)
+            return tuple(answer)
     return default_categories(layer)

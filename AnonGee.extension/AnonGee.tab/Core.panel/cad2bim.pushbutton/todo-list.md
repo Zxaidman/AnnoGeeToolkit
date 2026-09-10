@@ -25,8 +25,11 @@ is identified by its place AND its section now, and all 43 of test17's concentri
 Then FEAT-17, the one he asked for next and answered four questions about: each element family drawn
 in its own boundary ZONE, folded back onto one plan by its own origin marker before anything reads
 it, so no two families' outlines overlap in the link and nothing is eaten. His example file folds
-from 4070 records to 2038 and says what the combined copy says. FEAT-18 (the sidebar dialog) is
-recorded and not started. The branch also carries the
+from 4070 records to 2038 and says what the combined copy says. Then, at the owner's request before he tests any of it, the two halves of the
+dialog he asked for: FEAT-17's ZONE TABLE (one row per zone, saying what that zone holds, pre-filled
+from its own layer name) and FEAT-18, the six sections moved from a strip across the top to a
+collapsible RAIL down the left. The pages themselves never moved, which is what kept it to one pass:
+every TabItem still carries the header it had, so every pin still reads the same file the same way. The branch also carries the
 rc-automation merge and the 1.26.1 extension identity. Longer records: `../../../../../task_plan.md`, `findings.md`, `progress.md` at the
 repository root.
 
@@ -384,14 +387,20 @@ Two things it says out loud rather than doing quietly:
 
 **Not built yet, and named so it is not mistaken for done:**
 
-  * **the dialog's zone table.** `merge_zones` takes the mapping; nothing puts one on screen yet, so
-    today the convention in the layer name decides. That is the next piece of this feature;
+  * ~~the dialog's zone table~~ — **built in v0.99.0**, on the Multi-storey tab under the storey
+    table. One row per zone layer found in the drawing, with a dropdown naming what that zone HOLDS
+    ("grids + columns", "beams + slabs + stairs", "walls", "foundations", "everything in it",
+    "nothing — skip this zone") rather than a list of categories, because a zone holds a family and
+    the table should read like the drawing does. Pre-filled from the layer's own name, so a drawing
+    named the owner's way needs no clicks at all. It is the same builder as the three mapping tables,
+    so it selects and spreads the same way (FEAT-13): eight zones is eight clicks, not eight trips.
+    A drawing with no zone layers says so in the table's place instead of showing an empty box;
   * **the storey preview for the storeys-inside-a-zone layout.** The Multi-storey tab counts storey
     boxes BEFORE the fold, so four copies of a 13-storey sheet would offer 52 rows instead of 13.
     The BUILD is right either way — the fold runs before the split — but the preview is not, and a
     20-storey sheet is exactly where he said that layout shines.
 
-### FEAT-18 — The dialog as a sidebar, not a tab strip · `pending`
+### FEAT-18 — The dialog as a sidebar, not a tab strip · `testing`
 
 **The owner, with a before-and-after mock-up:** "i want our main dialog to change from image1 to
 image2 example. see if thats possible."
@@ -404,11 +413,37 @@ re-skin: a collapsible rail (icons only when collapsed), section titles with a o
 at the top of each page, the source file on a `Browse...` row, and the version moved to the rail's
 foot. The Run/Cancel/Save/Load bar stays where it is.
 
-**Cost and risk, honestly:** `ui.xaml` is the single biggest file in the button and every control in
-it is pinned by name in `test_dialog_wiring.py`, so a rewrite is mechanical but wide — and it is a
-day that does not go into columns, beams or FEAT-17. It also cannot be seen outside Revit: no test
-here can tell whether the rail LOOKS right, only that every control still exists and is still bound.
-Recorded now, scheduled when the structural work he is demonstrating is settled.
+**BUILT in v0.99.0, and the pages never moved.** The owner asked for it alongside the zone table, so
+both landed together — one pass over `ui.xaml` instead of two.
+
+The six `TabItem`s are still there, still with the headers they had; what changed is that the strip
+is gone (a keyed `HeadlessTabControl` template draws the selected page and nothing else) and a
+`nav_list` on the left drives `SelectedIndex` through one binding. So every check about which control
+lives on which section reads the same file the same way, and every `find("...")` in `ui_window`
+resolves exactly as before. That is the whole reason this was a day and not a week.
+
+What the mock-up asked for, and what it got:
+
+  * **the rail**: charcoal, full height, the brand at its head, the version at its foot, one item per
+    section with a 16 px line icon drawn as a `Path` and a red bar down the selected one;
+  * **collapse to icons**: `btn_rail` is a ToggleButton; every label's `Visibility` binds to it
+    through a `BooleanToVisibilityConverter`, so the column shrinks to the icons on its own and the
+    chevron flips « / ». No code — one binding per label;
+  * **a title and a line of what it is for** at the top of each page, in the dialog's own `HelpText`
+    style (the readable floor the owner set when the guide notes were FontSize 10);
+  * **remembered**: the rail's state is a ToggleButton with a name, so `_control_value` reads it like
+    any other control and the dialog reopens the way it was left. `ToggleButton` had to become a kind
+    the settings capture understands — it is the base of `CheckBox` and `RadioButton`, so the three
+    now share one line.
+
+Three of the dialog's own rules caught mistakes on the way in, which is what they are for: the
+rail's hover and selection tints had to become theme tokens rather than hex, the page descriptions
+had to use `HelpText` rather than a caption style of their own, and a named control the settings
+capture could not read had to be either taught or unnamed.
+
+**Not verified in Revit**: no test here can say whether the rail LOOKS right — only that every
+control still exists, is still bound, and still lives on the section it did. Six new pins hold the
+structure.
 
 ### FEAT-16 — `_START` and `_STOP` column layers say where a column begins and ends · `testing`
 

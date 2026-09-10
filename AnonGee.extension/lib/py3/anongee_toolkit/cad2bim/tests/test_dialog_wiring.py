@@ -1690,7 +1690,7 @@ class SettingsSaveAndLoad(unittest.TestCase):
         known = ("TextBox", "CheckBox", "RadioButton", "ComboBox", "Slider",
                  "TextBlock", "ListBox", "Button", "StackPanel", "Grid",
                  "Border", "Expander", "TabItem", "ScrollViewer", "Window",
-                 "Separator", "Label")
+                 "Separator", "Label", "ToggleButton")
         key = "{http://schemas.microsoft.com/winfx/2006/xaml}Name"
         unknown = []
         for element in _body_iter(_XAML):
@@ -2212,6 +2212,93 @@ class TheBoundaryZonesAreFoldedBeforeAnythingReadsThem(unittest.TestCase):
         block = block.split("\nclass ", 1)[0]
         self.assertIn("Boundary zones:", block)
         self.assertIn("for note in notes:", block)
+
+
+class TheSectionsAreARailNotATabStrip(unittest.TestCase):
+    """FEAT-18. The owner sent a before-and-after: the six sections move from a
+    strip across the top to a rail down the left, collapsible to icons.
+
+    The PAGES did not move. Every TabItem is still here with the header it had,
+    so every check about which control lives on which section still reads the
+    same file the same way -- only the strip is gone, and the rail drives the
+    pages instead.
+    """
+
+    def test_the_rail_lists_every_section_the_pages_have(self):
+        xaml = _xaml_source()
+        rail = xaml.split('x:Name="nav_list"', 1)[1].split("</ListBox>", 1)[0]
+        for header, _home in _tab_outline():
+            # the outline is parsed XML, the rail is raw source
+            escaped = header.replace("&", "&amp;")
+            self.assertIn('ToolTip="%s"' % escaped, rail,
+                          "%s is a page with no rail item" % header)
+
+    def test_the_rail_drives_the_pages(self):
+        xaml = _xaml_source()
+        self.assertIn("SelectedIndex=\"{Binding SelectedIndex, "
+                      "ElementName=nav_list", xaml)
+
+    def test_the_strip_is_gone_from_the_pages(self):
+        # The headless template is what removes it; a TabPanel left in would
+        # draw the old strip down the side of the rail.
+        block = _xaml_source().split('x:Key="HeadlessTabControl"', 1)[1]
+        block = block.split("</Style>", 1)[0]
+        self.assertNotIn("TabPanel", block)
+        self.assertIn("ContentSource=\"SelectedContent\"", block)
+
+    def test_every_rail_item_has_an_icon_and_a_label(self):
+        rail = _xaml_source().split('x:Name="nav_list"', 1)[1]
+        rail = rail.split("</ListBox>", 1)[0]
+        self.assertEqual(rail.count("<Path Data="), len(_tab_outline()))
+        # ...and the label goes away with the rail, the icon stays
+        self.assertEqual(rail.count("ElementName=btn_rail"), len(_tab_outline()))
+
+    def test_collapsing_the_rail_is_remembered_like_any_other_setting(self):
+        # It is a ToggleButton with a name, so the settings capture reads it --
+        # which is why ToggleButton had to become a kind it understands.
+        self.assertIn('x:Name="btn_rail"', _xaml_source())
+        self.assertIn("ToggleButton", _dialogs_source())
+
+    def test_each_page_says_what_it_is_for(self):
+        xaml = _xaml_source()
+        self.assertEqual(xaml.count("{StaticResource PageTitle}"),
+                         len(_tab_outline()))
+
+
+class TheZoneTableIsWired(unittest.TestCase):
+    """FEAT-17's dialog half: one row per boundary zone, saying what it holds."""
+
+    def test_the_table_is_on_the_multi_storey_page(self):
+        self.assertEqual(_tab_homes().get("zone_rows"), "Multi-storey")
+
+    def test_it_selects_and_spreads_like_the_other_tables(self):
+        # Eight zones is eight clicks, not eight trips (FEAT-13).
+        xaml = _xaml_source()
+        block = xaml.split('x:Name="zone_rows"', 1)[1][:400]
+        self.assertIn('SelectionMode="Extended"', block)
+        source = _window_source()
+        self.assertIn('self._build_rows(find("zone_rows")', source)
+
+    def test_the_dropdown_offers_groups_not_raw_categories(self):
+        source = _window_source()
+        self.assertIn("zone_plan.group_names()", source)
+
+    def test_the_answer_reaches_the_fold(self):
+        window = _window_source()
+        self.assertIn('"zone_mapping": zone_mapping', window)
+        block = _script_source().split("def _fold_zones(", 1)[1]
+        block = block.split("\nclass ", 1)[0]
+        self.assertIn('selections.get("zone_mapping")', block)
+
+    def test_the_rows_come_from_the_drawing_s_own_layer_names(self):
+        # This runs before any mapping exists, so it reads names, not
+        # categories -- and it leaves out the box that HOLDS the zones.
+        source = _script_source()
+        self.assertIn("zone_plan.is_zone_layer(name, storey_layer)", source)
+        self.assertIn("zone_plan.default_group(name)", source)
+
+    def test_a_drawing_with_no_zones_says_so_rather_than_showing_nothing(self):
+        self.assertIn('find("zone_note").Text', _window_source())
 
 
 if __name__ == "__main__":

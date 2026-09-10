@@ -141,6 +141,68 @@ class WhatAZoneClaims(unittest.TestCase):
         self.assertIsNone(zone_plan.default_categories("Zone-A-boundary"))
 
 
+class WhatTheDialogOffersPerZone(unittest.TestCase):
+    """A zone holds a FAMILY, so the table names families, not categories."""
+
+    def test_every_zone_in_the_example_lands_on_a_group(self):
+        self.assertEqual(zone_plan.default_group("Grid-Column-boundary"),
+                         "grids + columns")
+        self.assertEqual(zone_plan.default_group("Beam-Slab-boundary"),
+                         "beams + slabs + stairs")
+        self.assertEqual(zone_plan.default_group("Wall-boundary"), "walls")
+        self.assertEqual(zone_plan.default_group("Combine-boundary"),
+                         zone_plan.GROUP_EVERYTHING)
+
+    def test_a_name_nobody_recognises_takes_everything(self):
+        self.assertEqual(zone_plan.default_group("Zone-A-boundary"),
+                         zone_plan.GROUP_EVERYTHING)
+
+    def test_the_groups_are_what_the_dropdown_shows(self):
+        names = zone_plan.group_names()
+        self.assertEqual(names[0], zone_plan.GROUP_EVERYTHING)
+        self.assertIn("walls", names)
+        self.assertEqual(names[-1], zone_plan.GROUP_IGNORE)
+
+    def test_a_group_name_resolves_to_its_categories(self):
+        got = zone_plan.categories_for("grids + columns")
+        self.assertIn(layers.CATEGORY_COLUMN, got)
+        self.assertIsNone(zone_plan.categories_for(zone_plan.GROUP_EVERYTHING))
+        self.assertEqual(zone_plan.categories_for(zone_plan.GROUP_IGNORE), ())
+
+    def test_the_table_s_answer_beats_the_name(self):
+        # The owner renames a zone, or draws walls in the column box on purpose.
+        records = [_box("Boundary", -10, -10, 400, 100),
+                   _box("Grid-Column-boundary", 0, 0, 50, 20),
+                   _marker(10, 10),
+                   _box("Wall-boundary", 200, 0, 50, 20),
+                   _marker(210, 10),
+                   _thing("S-WALL", 20, 12, layers.CATEGORY_STRUCT_WALL),
+                   _thing("S-WALL", 220, 12, layers.CATEGORY_STRUCT_WALL)]
+        got, _t, _h, _n = zone_plan.merge_zones(
+            records, storey_layer="Boundary",
+            mapping={"Grid-Column-boundary": "walls"})
+        self.assertEqual(
+            len([r for r in got
+                 if r.category == layers.CATEGORY_STRUCT_WALL]), 2)
+
+    def test_skip_this_zone_means_skip_it(self):
+        records = [_box("Boundary", -10, -10, 400, 100),
+                   _box("Grid-Column-boundary", 0, 0, 50, 20),
+                   _marker(10, 10),
+                   _box("Wall-boundary", 200, 0, 50, 20),
+                   _marker(210, 10),
+                   _thing("S-COLUMN", 20, 12, layers.CATEGORY_COLUMN),
+                   _thing("S-WALL", 220, 12, layers.CATEGORY_STRUCT_WALL)]
+        got, _t, _h, _n = zone_plan.merge_zones(
+            records, storey_layer="Boundary",
+            mapping={"Wall-boundary": zone_plan.GROUP_IGNORE})
+        self.assertEqual(
+            len([r for r in got
+                 if r.category == layers.CATEGORY_STRUCT_WALL]), 0)
+        self.assertEqual(
+            len([r for r in got if r.category == layers.CATEGORY_COLUMN]), 1)
+
+
 class ADrawingWithNoZones(unittest.TestCase):
     """Every sheet drawn the old way must read exactly as it did."""
 
