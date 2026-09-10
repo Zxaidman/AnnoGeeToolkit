@@ -61,7 +61,12 @@ PANE_TITLE = "AnonGee Filter Views"
 #: holds everything this tool owns on a workstation.
 RECORD_NAME = "filterpane_startup.json"
 
-VERSION = "0.2.0"
+#: Moves with the tool (``anongee_filterrules.VERSION``) but is written
+#: separately, because this package must stay importable with no Revit and
+#: with nothing else on the path -- the startup record is read back by the
+#: CPython window, and that read must not depend on the rule engine
+#: importing cleanly.
+VERSION = "0.3.0"
 
 
 def record_path():

@@ -15,6 +15,152 @@ holds Auto Level Manager's four copies together.
 
 ---
 
+## 0.3.0 - 2026-09-10
+
+The first in-Revit run of the panel. It registered, it read the rules and the
+buttons worked -- and it was wrong in four ways at once, all of them visible in
+one screenshot and none of them findable without docking it.
+
+### It appeared at Revit start with nobody pressing anything
+
+0.2.0's note said the pane "stays hidden until something calls `Show()`". That
+is true of `DockablePane.Show()` and false of the pane, because
+`DockablePaneProviderData.VisibleByDefault` **defaults to `True`** and nothing
+in the API docs puts that next to the sentence about registration being
+invisible. Registration and visibility are separate concepts with a shared
+default.
+
+One line fixes it -- `data.VisibleByDefault = False` in `SetupDockablePane` --
+and the requirement it restores is the one from the very first conversation
+about this tool: *"does not need to be start with revit, only when user click
+the pushbutton"*.
+
+The gate for it walks the AST rather than searching the text. Its first version
+searched the text, matched the sentence in the method's own **docstring**, and
+stayed green with the assignment deleted. A gate that cannot fail is a comment.
+
+### It was white, between two dark palettes
+
+The pane sits in the same column as the Properties palette and the Project
+Browser. Both follow Revit's theme. A white slab between them does not read as
+an AnonGee panel; it reads as a control that failed to paint.
+
+**The design system had no dark anything.** `Colors.xaml` was light-only; the
+only on-dark tokens in the whole repository were three text styles for putting
+text on the Charcoal header band. So the fix was not a tool change:
+
+- **`Resources/Colors.xaml`** gains a dark surface palette -- a four-step
+  surface ramp from Charcoal, two borders, three text weights and four semantic
+  colours lifted for dark.
+- **`Resources/Controls.xaml`** gains `ButtonSecondaryOnDark`,
+  `ButtonGhostOnDark`, `ButtonRuleOnDark`, `ScrollBarOnDark` and
+  `CardBorderOnDark`.
+- **`Resources/Typography.xaml`** gains `TextSmallOnDark` and
+  `TextCaptionOnDark`.
+- **The brand guidelines** gain **§3.8 Dark Surfaces** and **§9.10 Dark-Surface
+  Controls**, and §10.1 gains eight computed contrast rows.
+
+**§3.8's rule is about context, not taste:** a surface is dark when it is
+*embedded in Revit's chrome* -- a dockable pane -- and light when it is the
+user's foreground task. There is no dark-mode toggle and none is planned. Each
+surface is one or the other by what it is.
+
+**Two borders, and the difference is load-bearing.** On a near-black canvas the
+fill step between a button and its background is about 1.1:1, which is
+invisible: the border is the only thing telling the user where the control is.
+So `ColorDarkBorderStrong` (`#6F707C`, 3.51:1 on canvas) is the boundary of
+anything interactive and clears WCAG 2.1 **1.4.11**, while `ColorDarkBorder`
+(`#34343C`) is decorative only. Outlining a button with the decorative one looks
+tidier and is the accessibility defect.
+
+**Vivid Red is 3.60:1 on dark** -- large text only -- so §3.7's existing ban on
+red text over Charcoal extends unchanged: on dark, red is an accent and a fill
+(the 2px rule, a chip's left bar, a dragged scrollbar thumb), never a label.
+`ButtonSecondaryOnDark` keeps the red border and takes a light label.
+
+Every ratio in §3.8 and §10.1 is **computed from `Colors.xaml`** by
+`tests/test_filterpane_ui.py`, not transcribed. That gate earned itself
+immediately: this entry originally claimed light Error Red was 2.30:1 on dark.
+It is **3.56:1**. The arithmetic said so before the document shipped.
+
+### Docked to the right, it laid out for neither shape
+
+`WrapPanel` was 0.2.0's answer to "one control does both shapes". It reflows,
+but it does not re-align, re-margin, or move anything else on the panel. Docked
+right the result was: one button centred in a column of dead space, the second
+clipped off the edge behind a **horizontal** scrollbar, the Clear/Refresh pair
+still docked to the right eating the narrow width, and the status line
+truncated mid-sentence.
+
+0.3.0 decides the orientation from the pane's measured size and applies it to
+four things at once:
+
+| | Docked top / bottom | Docked left / right |
+| --- | --- | --- |
+| Rules | run across | stack down |
+| Scrolls | horizontally | vertically |
+| Actions | docked right | docked top |
+| Chip | centred label, capped at 220px | full width, left label, ellipsized |
+
+There is still **one element tree** -- only its properties move -- so the two
+shapes cannot drift apart the way two layouts would. Exactly one axis scrolls:
+leaving the other on `Auto` is what drew a horizontal scrollbar under a column
+with nothing to scroll sideways. The relayout is gated on the orientation
+actually flipping, because `SizeChanged` fires on every pixel of a drag.
+
+`_wants_vertical` is a plain function of two numbers, so the suite lifts it out
+of a module that cannot be imported without Revit and **runs it** -- six docked
+shapes, checked for real rather than asserted about in prose.
+
+### Everything in it centred itself
+
+A dockable pane is given whatever height the user dragged it to. Content that
+centres itself therefore floats in the middle of an empty panel, which is
+exactly what the screenshot showed. Everything is `Top`/`Left` aligned now, and
+a gate fails on any `VerticalAlignment="Center"` outside a control template
+(inside one it means "centred in this 28px button", which is right).
+
+### The inline theme is now provably verbatim, and a quarter the size
+
+§12.3 says an inline theme must be a verbatim copy of `Resources/*.xaml`. The
+old gate asserted each key *existed* in another tool's inline copy -- which
+catches an invented key and nothing else. A hand-tuned hex passed. A changed
+trigger passed.
+
+The new gate lifts the source lines of every key from both files and compares
+them, so drift fails with the two blocks side by side. `pane.xaml` was
+regenerated by that same extraction rather than typed.
+
+It also has to be **reachable**: a key nothing references is a style that can
+rot unnoticed, and it is how the file reached 637 lines to theme three buttons
+and a line of text. `pane.xaml` is **382 lines** and inlines a TextBox,
+ComboBox, CheckBox, ToggleSwitch, ListBox and card style exactly never. The gate
+found five orphans in the first draft of this release, including two I had just
+added.
+
+### Also
+
+- The status line takes a colour that agrees with its words -- muted, green or
+  the **lifted** red. Colour is never the only signal (§10.4); the sentence
+  says it too.
+- It wraps in a side dock and ellipsizes in a top strip, instead of being cut
+  off mid-sentence in both.
+- A rule chip's label is a `TextBlock` with `TextTrimming`, not a bare
+  `ContentPresenter`, so a long rule name ellipsizes in a narrow dock rather
+  than overflowing.
+- `DockablePaneProviderData` had been imported and never used since the spike.
+  Removed.
+- **§12.4 is orientation-aware.** It described only the tall shape
+  (`MinWidth=240 / MaxWidth=360`) and now states both, what each one scrolls,
+  the `WrapPanel` trap, the top-align rule and the `VisibleByDefault` default.
+  `ARCHITECTURE.md` §7.3's reconciliation item is closed.
+- Design system **v3.0 → v3.3**.
+- 39 new tests (1279 → 1318). Ten faults were put back one at a time to confirm
+  each gate catches the thing it is named after; one did not, and was rewritten
+  until it did.
+
+---
+
 ## 0.2.1 - 2026-09-10
 
 Two faults the first in-Revit run of 0.2.0 found, and the spike doing exactly

@@ -115,4 +115,12 @@
         <Setter Property="Foreground" Value="{StaticResource BrushSilverSteel}"/>
     </Style>
 
+    <Style x:Key="TextSmallOnDark" BasedOn="{StaticResource TextSmall}" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{StaticResource BrushDarkTextSecondary}"/>
+    </Style>
+
+    <Style x:Key="TextCaptionOnDark" BasedOn="{StaticResource TextCaption}" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{StaticResource BrushDarkTextMuted}"/>
+    </Style>
+
 </ResourceDictionary>

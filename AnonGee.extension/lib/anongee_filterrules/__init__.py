@@ -61,8 +61,11 @@ start.
 #: PATCH  a fix.
 #:
 #: 0.1.x is the window. 0.2.0 adds the dockable panel -- a NEW CAPABILITY,
-#: so MINOR, and everything already saved still works.
-VERSION = "0.2.1"
+#: so MINOR, and everything already saved still works. 0.3.0 gives that
+#: panel the design system's new dark surface and a layout for each of the
+#: two shapes Revit can dock it in: also MINOR, because the panel does
+#: something it could not do before and every saved rule is untouched.
+VERSION = "0.3.0"
 
 #: The pure half is imported freely. ``compat``, ``revit_query`` and
 #: ``revit_apply`` are NOT listed: they import ``Autodesk.Revit.DB`` at

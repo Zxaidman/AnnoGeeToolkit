@@ -105,4 +105,55 @@
     <SolidColorBrush x:Key="BrushTableRowSelected"      Color="#FEF2F2"/>
     <SolidColorBrush x:Key="BrushTableRowSelectedBorder" Color="{StaticResource ColorVividRed}"/>
 
+    <!-- ═══ Dark Surface Palette ═══ -->
+    <!-- Added v3.3. The light palette above is the default and is unchanged.
+         These tokens exist for one situation only: UI that is embedded inside
+         Revit's own chrome — dockable panes. See brand guidelines §3.8 for
+         when a surface is dark and when it is not. Every ratio below is
+         computed, not eyeballed; the table is in §10.1. -->
+
+    <!-- Surface ramp, stepped up from Charcoal Black so a dark AnonGee panel
+         still reads as ours beside Revit's grey. -->
+    <Color x:Key="ColorDarkCanvas">#FF1B1B1E</Color>
+    <Color x:Key="ColorDarkSurface">#FF232327</Color>
+    <Color x:Key="ColorDarkSurfaceHover">#FF2E2E34</Color>
+    <Color x:Key="ColorDarkSurfacePressed">#FF3A3A42</Color>
+
+    <!-- Two borders, and the difference matters. DarkBorder is decorative
+         (dividers, rules) and is deliberately quiet. DarkBorderStrong is the
+         boundary of an INTERACTIVE control and clears WCAG 2.1 1.4.11's 3:1
+         against both dark surfaces — 3.51:1 on canvas, 3.19:1 on surface. -->
+    <Color x:Key="ColorDarkBorder">#FF34343C</Color>
+    <Color x:Key="ColorDarkBorderStrong">#FF6F707C</Color>
+
+    <!-- Text. Silver Steel is already the brand's on-dark secondary (10.96:1
+         on Charcoal, §10.1), so it is reused rather than replaced. -->
+    <Color x:Key="ColorDarkTextPrimary">#FFF2F3F5</Color>
+    <Color x:Key="ColorDarkTextMuted">#FF9AA2B3</Color>
+    <Color x:Key="ColorDarkDisabled">#FF767E8E</Color>
+
+    <!-- Semantic colors lifted for dark. The light-surface values are too dark
+         to read on #1B1B1E — Error Red is 2.3:1 there and fails outright. Hue
+         is preserved so the meaning does not move; only lightness changes. -->
+    <Color x:Key="ColorSuccessGreenOnDark">#FF4ADE80</Color>
+    <Color x:Key="ColorCautionAmberOnDark">#FFFBBF24</Color>
+    <Color x:Key="ColorErrorRedOnDark">#FFF87171</Color>
+    <Color x:Key="ColorInfoBlueOnDark">#FF60A5FA</Color>
+
+    <!-- Dark surface brushes -->
+    <SolidColorBrush x:Key="BrushDarkCanvas"          Color="{StaticResource ColorDarkCanvas}"/>
+    <SolidColorBrush x:Key="BrushDarkSurface"         Color="{StaticResource ColorDarkSurface}"/>
+    <SolidColorBrush x:Key="BrushDarkSurfaceHover"    Color="{StaticResource ColorDarkSurfaceHover}"/>
+    <SolidColorBrush x:Key="BrushDarkSurfacePressed"  Color="{StaticResource ColorDarkSurfacePressed}"/>
+    <SolidColorBrush x:Key="BrushDarkBorder"          Color="{StaticResource ColorDarkBorder}"/>
+    <SolidColorBrush x:Key="BrushDarkBorderStrong"    Color="{StaticResource ColorDarkBorderStrong}"/>
+    <SolidColorBrush x:Key="BrushDarkTextPrimary"     Color="{StaticResource ColorDarkTextPrimary}"/>
+    <SolidColorBrush x:Key="BrushDarkTextSecondary"   Color="{StaticResource ColorSilverSteel}"/>
+    <SolidColorBrush x:Key="BrushDarkTextMuted"       Color="{StaticResource ColorDarkTextMuted}"/>
+    <SolidColorBrush x:Key="BrushDarkDisabled"        Color="{StaticResource ColorDarkDisabled}"/>
+    <SolidColorBrush x:Key="BrushSuccessGreenOnDark"  Color="{StaticResource ColorSuccessGreenOnDark}"/>
+    <SolidColorBrush x:Key="BrushCautionAmberOnDark"  Color="{StaticResource ColorCautionAmberOnDark}"/>
+    <SolidColorBrush x:Key="BrushErrorRedOnDark"      Color="{StaticResource ColorErrorRedOnDark}"/>
+    <SolidColorBrush x:Key="BrushInfoBlueOnDark"      Color="{StaticResource ColorInfoBlueOnDark}"/>
+
 </ResourceDictionary>

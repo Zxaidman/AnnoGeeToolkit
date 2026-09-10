@@ -54,7 +54,13 @@ tooltip: |
 
   The dockable panel
     • Press Panel to show it. It docks under the ribbon as a strip of rule
-      buttons, and can be dragged to either edge like Properties.
+      buttons, and can be dragged to either edge like Properties. It does
+      NOT appear on its own when Revit starts.
+    • It follows the dark surface palette, because it sits inside Revit's
+      own chrome beside Properties and the Project Browser.
+    • Docked top or bottom the rules run across and scroll sideways; docked
+      left or right they stack and scroll down. It changes shape with the
+      dock, so a long list is reachable either way.
     • Pressing a button there isolates that rule, the same as Apply here.
     • It is REGISTERED when Revit starts and stays hidden until you press
       Panel -- Revit allows no other order. If registration failed, Panel
@@ -63,4 +69,4 @@ tooltip: |
       the rules file and the panel reads it, and they run on different
       Python engines that share a folder rather than a module.
 
-  Version: 0.2.1
+  Version: 0.3.0
