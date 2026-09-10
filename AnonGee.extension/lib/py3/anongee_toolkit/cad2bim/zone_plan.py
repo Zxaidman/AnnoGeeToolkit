@@ -184,6 +184,16 @@ def zones(records, storey_layer=None, origin_layer=None):
         found.append(Zone(layer, _record_bounds(record)))
     if not found:
         return []
+    # A box that HOLDS other zone boxes is the storey boundary, whatever it is
+    # called: the owner's sheet has `Boundary` holding four zones and every one
+    # of those names ends the same way. Told apart by shape rather than by the
+    # layer the dialog happened to pick, so leaving that picker empty cannot
+    # fold the whole sheet onto one of its own quarters.
+    found = [zone for zone in found
+             if not any(other is not zone and other.inside(zone)
+                        for other in found)]
+    if not found:
+        return []
     markers = origin_points(records, origin_layer)
     for zone in found:
         inside = [p for p in markers if zone.contains(p[0], p[1])]

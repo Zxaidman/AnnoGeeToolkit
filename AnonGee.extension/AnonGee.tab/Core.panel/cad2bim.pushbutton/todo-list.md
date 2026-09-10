@@ -365,6 +365,13 @@ copy the three specific zones hold **361 column rectangles to its 358, the same 
 columns it does not have and none of its own missing** — so the zones say what the combined copy
 says, and a little more (he drew the `_START` outlines only in the column zone).
 
+**The box that holds the zones is never one of them** (v0.98.1). The storey boundary's own layer ends
+`-boundary` too -- `Boundary` in his file -- and the Multi-storey tab's picker may be left empty, in
+which case nothing by NAME tells the outer box from the four inside it. It is told apart by SHAPE
+instead: a zone box that holds another zone box is the storey boundary. Without that, an empty picker
+folded the whole sheet onto one of its own quarters and built everything twice -- the exact failure
+the feature exists to end.
+
 Two things it says out loud rather than doing quietly:
 
   * **the wall zone's 2 column records** are turned away — "not what this zone is for". Built, they

@@ -78,6 +78,34 @@ class ReadingAZoneLayer(unittest.TestCase):
         for name in ("S-COLUMN", "S-BEAM", "DROP SLAB", "", None):
             self.assertFalse(zone_plan.is_zone_layer(name, "Boundary"), name)
 
+    def test_a_box_holding_the_zones_is_the_storey_boundary(self):
+        # The storey layer ends `-boundary` too, and the dialog's picker may be
+        # empty. A box that holds other zone boxes is never a zone itself --
+        # folding it onto one of its own quarters would build the sheet twice.
+        records = [_box("Site-boundary", -10, -10, 400, 100),
+                   _box("Grid-Column-boundary", 0, 0, 50, 20),
+                   _marker(10, 10),
+                   _box("Wall-boundary", 200, 0, 50, 20),
+                   _marker(210, 10)]
+        found = zone_plan.zones(records)
+        self.assertEqual(sorted(zone.layer for zone in found),
+                         ["Grid-Column-boundary", "Wall-boundary"])
+
+    def test_the_outer_box_is_not_folded_in_either(self):
+        records = [_box("Site-boundary", -10, -10, 400, 100),
+                   _box("Grid-Column-boundary", 0, 0, 50, 20),
+                   _marker(10, 10),
+                   _box("Wall-boundary", 200, 0, 50, 20),
+                   _marker(210, 10),
+                   _thing("S-COLUMN", 20, 12, layers.CATEGORY_COLUMN),
+                   _thing("S-WALL", 220, 12, layers.CATEGORY_STRUCT_WALL)]
+        got, _t, _h, _n = zone_plan.merge_zones(records)
+        self.assertEqual(
+            len([r for r in got if r.category == layers.CATEGORY_COLUMN]), 1)
+        self.assertEqual(
+            len([r for r in got
+                 if r.category == layers.CATEGORY_STRUCT_WALL]), 1)
+
     def test_the_combined_copy_is_recognised(self):
         self.assertTrue(zone_plan.is_combine("Combine-boundary"))
         self.assertFalse(zone_plan.is_combine("Wall-boundary"))
@@ -271,6 +299,56 @@ class ZonesInsideOneStorey(unittest.TestCase):
         walls = [r for r in got if r.category == layers.CATEGORY_STRUCT_WALL]
         self.assertEqual(len(walls), 1)
         self.assertAlmostEqual(walls[0].points[0][0], 220.0)
+
+
+class TheMarkersComeFromTheDxf(unittest.TestCase):
+    """What the build actually does: fold the LINK's records by the DXF's boxes.
+
+    A plan's origin is a bare POINT and the Revit link does not always import
+    one, which is why every marker in this pipeline is read from the DXF and the
+    records folded by them are the Revit ones. So the record set being folded
+    may hold no boxes and no markers at all.
+    """
+
+    def drawing(self):
+        markers = [_box("Boundary", -10, -10, 400, 100)]
+        for layer, offset in (("Grid-Column-boundary", 0.0),
+                              ("Wall-boundary", 200.0)):
+            markers.append(_box(layer, offset, 0, 50, 20))
+            markers.append(_marker(offset + 10, 10))
+        return markers
+
+    def test_the_link_s_records_fold_on_the_dxf_s_boxes(self):
+        link = [_thing("S-COLUMN", 20, 12, layers.CATEGORY_COLUMN),
+                _thing("S-WALL", 220, 12, layers.CATEGORY_STRUCT_WALL)]
+        got, _t, _h, notes = zone_plan.merge_zones(
+            link, storey_layer="Boundary", marker_records=self.drawing())
+        members = [r for r in got if r.category in (
+            layers.CATEGORY_COLUMN, layers.CATEGORY_STRUCT_WALL)]
+        self.assertEqual(len(members), 2)
+        self.assertEqual(
+            len(set(round(r.points[0][0], 6) for r in members)), 1,
+            "the wall should have landed on the column's zone")
+
+    def test_it_folds_when_the_link_dropped_every_marker(self):
+        # Nothing in the folded set is a box or a marker; the fold still knows
+        # where the zones are, because it was told separately.
+        link = [_thing("S-COLUMN", 20, 12, layers.CATEGORY_COLUMN)]
+        got, _t, _h, _n = zone_plan.merge_zones(
+            link, storey_layer="Boundary", marker_records=self.drawing())
+        self.assertEqual(len(got), 1)
+
+    def test_the_origin_layer_can_be_named_before_any_mapping_exists(self):
+        # The dialog picks the marker layers BY NAME, and detection runs before
+        # any category is stamped on anything.
+        raw = []
+        for record in self.drawing():
+            copy = _Rec(record.layer, [(p[0], p[1]) for p in record.points],
+                        None, record.kind)
+            raw.append(copy)
+        found = zone_plan.zones(raw, "Boundary", origin_layer="Origin")
+        self.assertEqual(len(found), 2)
+        self.assertTrue(all(zone.origin is not None for zone in found))
 
 
 class StoreysInsideEachZone(unittest.TestCase):
