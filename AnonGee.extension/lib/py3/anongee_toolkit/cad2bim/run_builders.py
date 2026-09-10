@@ -386,22 +386,25 @@ def _column_groups(sections, selections):
     top_id = selections.get("top_level_id")
     if not plan:
         return [(sections, top_id)], 0
-    boxes = plan.get("boxes") or []
+    columns = plan.get("columns") or []
     spans = plan.get("spans") or {}
     storey = plan.get("storey")
     tops = plan.get("top_ids") or {}
     source = sections.get("entries") or []
     rects = [(number, rect) for number, entry in enumerate(source)
              for rect in entry.get("rectangles") or []]
-    if not boxes or not rects:
+    if not columns or not rects:
         return [(sections, top_id)], 0
-    # BY POSITION, not by index. The footprints were gathered from the drawing's
-    # records; these rectangles come out of `decompose_to_rectangles`, which
-    # splits some and drops others, so the two never line up and nothing here
-    # may assume they do. A rectangle takes the column whose drawn BOX holds it,
-    # so every leg of an L takes the same one -- one leg carried up a storey
-    # while the rest were rebuilt on it would put a column through a column.
-    keys = [column_extent.assign(boxes, rect["center"])
+    # BY POSITION AND SECTION, not by index. The footprints were gathered from
+    # the drawing's records; these rectangles come out of
+    # `decompose_to_rectangles`, which splits some and drops others, so the two
+    # never line up and nothing here may assume they do. A rectangle takes the
+    # column of its own size standing where it stands -- a grid point can hold
+    # two, one stopping and one carrying on above -- and failing that the
+    # smallest drawn box that holds it, which is what keeps every leg of an L
+    # with the L it came from.
+    keys = [column_extent.assign(columns, rect["center"],
+                                 (rect["width_mm"], rect["height_mm"]))
             for _number, rect in rects]
     built, skipped = column_extent.plan_storey(keys, spans, storey)
     by_top = {}

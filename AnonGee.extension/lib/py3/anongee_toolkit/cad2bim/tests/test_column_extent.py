@@ -92,83 +92,46 @@ class TellingOneColumnFromAnotherAcrossPlans(unittest.TestCase):
 
 
 class HowFarTheColumnRuns(unittest.TestCase):
-    """A RUN is one column: same section, begun by a start, ended by a stop.
+    """A RUN is a stretch of storeys that is one column, cut by the marks.
 
-    The rows are `(key, mark, size)` and the answer is keyed `(column, run)`,
-    because a column is several columns when its section changes up the
-    building -- 126 of test17's 219 do.
+    The rows are `(key, mark)`, a key being a column's whole IDENTITY -- its
+    place AND its section (see `PlanningTheWholeStack`) -- so everything under
+    one key is the same member at the same size and only the marks cut it.
     """
-
-    SMALL, BIG = (200.0, 2150.0), (250.0, 2150.0)
 
     def spans(self, storeys):
         return column_extent.extents(storeys)
 
     def test_a_column_drawn_on_one_plan_spans_that_one(self):
-        got = self.spans([[("A", None, self.SMALL)]])
-        self.assertEqual(got, {("A", 0): (0, 0)})
+        self.assertEqual(self.spans([[("A", None)]]), {("A", 0): (0, 0)})
 
-    def test_with_no_marks_and_one_section_it_is_one_column(self):
-        got = self.spans([[("A", None, self.SMALL)]] * 3)
-        self.assertEqual(got, {("A", 0): (0, 2)})
+    def test_with_no_marks_it_runs_through_what_it_is_drawn_on(self):
+        self.assertEqual(self.spans([[("A", None)]] * 3), {("A", 0): (0, 2)})
 
     def test_a_stop_mark_ends_the_run_there(self):
         # Drawn on four floors, marked stop on the third: it exists 0..2.
-        got = self.spans([[("A", None, self.SMALL)], [("A", None, self.SMALL)],
-                          [("A", "stop", self.SMALL)],
-                          [("A", None, self.SMALL)]])
+        got = self.spans([[("A", None)], [("A", None)],
+                          [("A", "stop")], [("A", None)]])
         self.assertEqual(got[("A", 0)], (0, 2))
 
     def test_what_is_drawn_above_a_stop_is_still_built(self):
-        # Three of test17's 219 contradict their own layer. The storeys above
-        # become the next run rather than being dropped.
-        got = self.spans([[("A", "stop", self.SMALL)],
-                          [("A", None, self.SMALL)],
-                          [("A", None, self.SMALL)]])
+        # Three of test17's columns contradict their own layer. The storeys
+        # above become the next run rather than being dropped.
+        got = self.spans([[("A", "stop")], [("A", None)], [("A", None)]])
         self.assertEqual(got, {("A", 0): (0, 0), ("A", 1): (1, 2)})
 
     def test_a_start_mark_begins_a_run_there(self):
-        got = self.spans([[("A", None, self.SMALL)],
-                          [("A", "start", self.SMALL)],
-                          [("A", None, self.SMALL)]])
+        got = self.spans([[("A", None)], [("A", "start")], [("A", None)]])
         self.assertEqual(got[("A", 1)], (1, 2))
 
     def test_a_start_and_a_stop_give_the_run_between_them(self):
-        got = self.spans([[("A", None, self.SMALL)],
-                          [("A", "start", self.SMALL)],
-                          [("A", None, self.SMALL)],
-                          [("A", "stop", self.SMALL)],
-                          [("A", None, self.SMALL)]])
+        got = self.spans([[("A", None)], [("A", "start")], [("A", None)],
+                          [("A", "stop")], [("A", None)]])
         self.assertIn((1, 3), got.values())
 
-    def test_a_change_of_section_cuts_the_run_in_two(self):
-        # The measured case: 200x2150 becoming 250x2150 part way up. One column
-        # over the whole height would carry the wrong section through the top.
-        got = self.spans([[("A", None, self.SMALL)], [("A", None, self.SMALL)],
-                          [("A", None, self.BIG)], [("A", None, self.BIG)]])
-        self.assertEqual(got, {("A", 0): (0, 1), ("A", 1): (2, 3)})
-
-    def test_drafting_noise_is_not_a_change_of_section(self):
-        # Measured on test17: two footprints of the same section differ by at
-        # most 0.195 mm. Reading raw feet would cut every storey into its own
-        # column, which is the stack this exists to replace.
-        noisy = (200.0 + 0.195, 2150.0 - 0.19)
-        got = self.spans([[("A", None, self.SMALL)], [("A", None, noisy)]])
-        self.assertEqual(got, {("A", 0): (0, 1)})
-
-    def test_the_smallest_real_change_in_the_drawing_does_cut_it(self):
-        # 50 mm is the smallest section change anywhere in test17.
-        got = self.spans([[("A", None, (200.0, 2150.0))],
-                          [("A", None, (250.0, 2150.0))]])
-        self.assertEqual(len(got), 2)
-
-    def test_a_caller_that_tracks_no_section_still_gets_one_run(self):
-        got = self.spans([[("A", None)], [("A", None)], [("A", None)]])
-        self.assertEqual(got, {("A", 0): (0, 2)})
-
     def test_columns_are_kept_apart_from_each_other(self):
-        got = self.spans([[("A", None, self.SMALL), ("B", "start", self.BIG)],
-                          [("A", "stop", self.SMALL), ("B", None, self.BIG)]])
+        got = self.spans([[("A", None), ("B", "start")],
+                          [("A", "stop"), ("B", None)]])
         self.assertEqual(got[("A", 0)], (0, 1))
         self.assertEqual(got[("B", 0)], (0, 1))
 
@@ -179,8 +142,7 @@ class HowFarTheColumnRuns(unittest.TestCase):
     def test_a_storey_with_nothing_on_it_is_not_a_gap_in_the_span(self):
         # A column missing from one plan is one column, not two: the drawing
         # skipping a floor is a drafting habit, not a break in the structure.
-        got = self.spans([[("A", None, self.SMALL)], [],
-                          [("A", None, self.SMALL)]])
+        got = self.spans([[("A", None)], [], [("A", None)]])
         self.assertEqual(got, {("A", 0): (0, 2)})
 
 
@@ -232,6 +194,24 @@ class WhichColumnABuiltRectangleBelongsTo(unittest.TestCase):
         legs = [(750 * _FT, 0.0), (0.0, 750 * _FT), (-750 * _FT, 750 * _FT)]
         got = [column_extent.assign(boxes, leg) for leg in legs]
         self.assertEqual(got, [0, 0, 0])
+
+    def test_its_own_section_wins_over_a_tighter_box(self):
+        # Two members on one grid point: a 250 x 1200 that stops on this floor
+        # and a 200 x 1200 that carries on above, concentric. The 200 box is
+        # tighter and contains both centres, so containment alone would give it
+        # the 250 rectangle. The rectangle's own size does not.
+        stopping = self.box(0.0, 0.0, 250.0, 1200.0) + ((250, 1200),)
+        carrying = self.box(0.0, 0.0, 200.0, 1200.0) + ((200, 1200),)
+        pair = [stopping, carrying]
+        self.assertEqual(column_extent.assign(pair, (0.0, 0.0), (250.0, 1200.0)), 0)
+        self.assertEqual(column_extent.assign(pair, (0.0, 0.0), (200.0, 1200.0)), 1)
+
+    def test_a_leg_with_no_matching_section_still_finds_its_outline(self):
+        # An L's leg is not the size of the L, so nothing matches exactly and
+        # the smallest box holding it decides -- as it did before.
+        l_shape = self.box(0.0, 0.0, 2000.0, 2000.0) + ((2000, 2000),)
+        leg = (750 * _FT, 0.0)
+        self.assertEqual(column_extent.assign([l_shape], leg, (250.0, 900.0)), 0)
 
     def test_a_neighbour_inside_a_long_box_still_takes_its_own(self):
         # A 200 x 4000 column reaches right over a 300 x 300 beside it. The
@@ -297,31 +277,60 @@ class PlanningTheWholeStack(unittest.TestCase):
         self.assertEqual(len(centres), 1)
         self.assertEqual(list(spans.values()), [(0, 2)])
 
-    def test_a_column_that_reduces_up_the_building_comes_back_as_two(self):
-        # The test17 case, end to end through `plan`: nothing marks the change
-        # but the section says it, and the top half must not be built at the
-        # bottom half's size.
+    def test_a_column_that_reduces_up_the_building_is_two_columns(self):
+        # The test17 case, end to end: nothing marks the change but the section
+        # says it, and the top half must not be built at the bottom half's size.
         here = (10.0, 10.0)
-        spans, centres = column_extent.plan(
+        spans, columns = column_extent.plan(
             [[(here, "S-COLUMN", (200.0, 2150.0))],
              [(here, "S-COLUMN", (200.0, 2150.0))],
              [(here, "S-COLUMN", (250.0, 2150.0))]])
-        self.assertEqual(len(centres), 1)
+        self.assertEqual(len(columns), 2)
         self.assertEqual(sorted(spans.values()), [(0, 1), (2, 2)])
+
+    def test_two_concentric_columns_are_told_apart_by_their_size(self):
+        # BUG-35, and the measured shape of it: 43 of test17's stop outlines sit
+        # exactly on an ordinary column outline at a different size -- a 250
+        # ending on this floor, a 200 carrying on above. Position alone made
+        # them one column and the wrong one got built.
+        here = (10.0, 10.0)
+        spans, columns = column_extent.plan(
+            [[(here, "S-COLUM_STOP", (250.0, 1200.0)),
+              (here, "S-COLUMN", (200.0, 1200.0))],
+             [(here, "S-COLUMN", (200.0, 1200.0))],
+             [(here, "S-COLUMN", (200.0, 1200.0))]])
+        self.assertEqual(len(columns), 2)
+        stopping = column_extent.assign(columns, here, (250.0, 1200.0))
+        carrying = column_extent.assign(columns, here, (200.0, 1200.0))
+        self.assertNotEqual(stopping, carrying)
+        self.assertEqual(spans[column_extent.run_at(spans, stopping, 0)], (0, 0))
+        self.assertEqual(spans[column_extent.run_at(spans, carrying, 0)], (0, 2))
+
+    def test_the_stopping_column_does_not_swallow_the_one_above(self):
+        # The failure the owner saw: whichever record arrived first decided,
+        # and the column that carries on up was built as the one that stops.
+        here = (10.0, 10.0)
+        spans, columns = column_extent.plan(
+            [[(here, "S-COLUMN", (200.0, 1200.0)),
+              (here, "S-COLUM_STOP", (250.0, 1200.0))],
+             [(here, "S-COLUMN", (200.0, 1200.0))]])
+        carrying = column_extent.assign(columns, here, (200.0, 1200.0))
+        self.assertEqual(spans[column_extent.run_at(spans, carrying, 0)], (0, 1))
 
     def test_a_rectangle_near_no_column_belongs_to_none(self):
         _spans, boxes = column_extent.plan(self.stack())
         self.assertIsNone(column_extent.assign(boxes, (900.0, 900.0)))
 
-    def test_a_column_s_box_holds_the_largest_section_it_is_drawn_at(self):
-        # It has to hold every rectangle the column will ever be built from,
-        # and the one lower down is the bigger of the two.
+    def test_a_column_is_boxed_at_its_own_section(self):
+        # The box has to hold the rectangles that column is built from, and no
+        # more: it is what finds the legs of an L, and what a neighbour must
+        # not be swallowed by.
         here = (10.0, 10.0)
-        _spans, boxes = column_extent.plan(
-            [[(here, "S-COLUMN", (250.0, 2150.0))],
-             [(here, "S-COLUMN", (200.0, 2150.0))]])
-        self.assertAlmostEqual(boxes[0][2], 125.0 * _FT)
-        self.assertAlmostEqual(boxes[0][3], 1075.0 * _FT)
+        _spans, columns = column_extent.plan(
+            [[(here, "S-COLUMN", (250.0, 2150.0))]])
+        self.assertAlmostEqual(columns[0][2], 125.0 * _FT)
+        self.assertAlmostEqual(columns[0][3], 1075.0 * _FT)
+        self.assertEqual(columns[0][4], (250, 2150))
 
     def test_the_nearest_centre_wins_not_the_first_within_reach(self):
         centres = [(0.0, 0.0), (0.2, 0.0)]

@@ -2102,7 +2102,7 @@ class AColumnIsBuiltOnceOverItsWholeRun(unittest.TestCase):
     def test_the_answer_reaches_the_builder_through_the_selections(self):
         source = _script_source()
         block = source.split('storey_selections["column_extents"]', 1)[1][:300]
-        for key in ('"boxes"', '"spans"', '"storey"', '"top_ids"'):
+        for key in ('"columns"', '"spans"', '"storey"', '"top_ids"'):
             self.assertIn(key, block, key)
 
     def test_the_builder_groups_its_rectangles_by_the_level_they_reach(self):
@@ -2119,7 +2119,12 @@ class AColumnIsBuiltOnceOverItsWholeRun(unittest.TestCase):
         # wrong columns silently.
         block = _builders_source().split("def _column_groups(", 1)[1]
         block = block.split("\ndef ", 1)[0]
-        self.assertIn('column_extent.assign(boxes, rect["center"])', block)
+        self.assertIn("column_extent.assign(columns, rect[\"center\"],", block)
+        # WITH ITS OWN SIZE. A grid point can hold two members -- one stopping
+        # on this floor, one carrying on above, concentric and a different
+        # section -- and position alone gives the rectangle to whichever of them
+        # the records happened to list first (BUG-35).
+        self.assertIn('(rect["width_mm"], rect["height_mm"])', block)
         self.assertIn("column_extent.plan_storey(keys, spans, storey)", block)
 
     def test_a_group_keeps_the_entries_it_came_from(self):

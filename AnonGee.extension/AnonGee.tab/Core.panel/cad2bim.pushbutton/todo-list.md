@@ -8,7 +8,7 @@ Nothing is deleted to make the list look shorter.
 file before it is built, argued about, or written into any other document. Standing instruction
 from the project owner, and it is what keeps this list the queue rather than a summary of one.
 
-Current build: **v0.97.1** (branch `claude/cad2bim`, restarted from `main` after PR #10 merged).
+Current build: **v0.97.2** (branch `claude/cad2bim`, restarted from `main` after PR #10 merged).
 1342 unit tests, 3 regression legs over 31 archived exports, 23 fixture drawings and 13 storey
 stacks, all three baselines re-recorded because the owner redrew both test17 fixtures. This round
 wired FEAT-16 into the build — a column is now placed ONCE over the whole run it
@@ -18,7 +18,12 @@ storey with nothing left of its own being rebuilt whole (the terrace, 58 members
 was fixed with it: under pythonnet a .NET object reaches a callback as a fresh wrapper, so matching
 the combo by identity never matched and the selection never followed. BUG-34 closed to `testing` with
 it: a column the drawing closed as one ring now keeps the size it was drawn at, which stops about 42
-members a storey being inflated past their outline by a label. The branch also carries the
+members a storey being inflated past their outline by a label. Then BUG-35, which FEAT-16 had
+introduced and the owner caught on his own run: a grid point can carry TWO members, one stopping
+there and one carrying on above, and identifying a column by position alone made them one. A column
+is identified by its place AND its section now, and all 43 of test17's concentric pairs come apart.
+Three things arrived with that run and are recorded, not started: FEAT-17 (boundary zones, the one he
+wants next), FEAT-18 (the sidebar dialog) and the questions FEAT-17 needs answered. The branch also carries the
 rc-automation merge and the 1.26.1 extension identity. Longer records: `../../../../../task_plan.md`, `findings.md`, `progress.md` at the
 repository root.
 
@@ -122,6 +127,64 @@ for every other pre-P1 file.
 ---
 
 ## 2. Errors and bugs
+
+### BUG-35 — Two columns on one grid point are read as one · `testing`
+
+**The owner, on the v0.97.1 run:** "results are worse now for column only fewer columns than before.
+single standing columns are drawn accurately but it fails if both Column and column-stop outline are
+on top on each other."
+
+**His export says FEAT-16 did what it was built to do** — 2182 vertical members down to 438, storey 0
+placing 291 of them and each floor above 10 to 24. The count is not the bug. What he is looking at is
+the case he names, and the drawing says exactly what it is.
+
+**Measured in `StructuralPlan-Test17-separate-boundary-zones.dxf`, Grid-Column zone** (one storey,
+each column drawn once): 186 `S-COLUMN` outlines, 148 `S-COLUM_STOP`, 6 `S-COLUMN_START`. For each
+stop outline, the nearest column outline:
+
+| gap between their centres | count |
+| --- | --- |
+| **0.00 mm — exactly concentric** | **48** |
+| …of those, a DIFFERENT size | **43** |
+| …of those, the same size | 5 |
+| within 100 mm | 77 |
+| further off | 23 |
+
+    stop outline        column outline
+    250 x 1200    <->   200 x 1200      same centre, x43
+
+**So a grid point can hold TWO members, not one.** The column that stops there is 250x1200; the one
+that carries on above is 200x1200; they share a centre because they share a face line. The drawing is
+not marking one column twice — it is drawing two.
+
+**`column_extent` cannot see that**, because it identifies a column by POSITION alone: both outlines
+cluster to one id, and `extents` then gets two rows on the same storey — one `None` at 200, one
+`stop` at 250 — whose order decides everything. The size cut opens a second run on the same floor,
+`run_at` hands the first run to both rectangles, and the member that should have carried on up is
+built as the one that stops.
+
+**FIXED in v0.97.2. A column's identity is its PLACE AND ITS SECTION**, which is what the drawing
+says and what lets the two tell themselves apart without any ordering luck. `assign` matches a built
+rectangle to the identity whose section is its own, falling back to the smallest box containing it —
+which is what keeps a leg of an L with the L it came from (BUG-34's measurement). The section cut
+inside `extents` is unreachable now and is gone: a run is cut by `_START`/`_STOP` alone, exactly as
+the owner described them.
+
+**Verified on `StructuralPlan-Test17-clean.dxf`, all 13 storeys.** Its 2344 outlines are 345 columns
+in 386 runs, every one of the 2525 built rectangles finds its column, and of the 43 concentric
+stop/column pairs:
+
+| | before | after |
+| --- | --- | --- |
+| read as ONE column, the wrong one built | **43** | **0** |
+| told apart, each with its own run | 0 | **43** |
+
+    storey 0 | the one that STOPS   | the one that CARRIES ON
+             | 250 x 2150  span 0-0 | 200 x 2150  span 0-10
+             | 250 x 1200  span 0-0 | 200 x 1200  span 0-10
+
+which is the drawing read correctly: the 250 is built ground to first and stops, the 200 is built
+once from the ground to the eleventh floor.
 
 ### BUG-34 — A size label overrules an outline the drawing closed · `testing`
 
@@ -232,6 +295,76 @@ on the long side and differing only in thickness. The tool now believes the outl
 are the authority in his office, that is a one-line change in the other direction, and it is his call
 rather than a measurement's.
 
+
+### FEAT-17 — Boundary ZONES: one element family per zone, so the link stops eating outlines · `pending`
+
+**The owner, and this is the one he wants next:**
+
+> "cad2bim - separating column, beam & slab, wall outline to each boundary zone with proper origin
+> point to eliminate Revit eating Linked Outline merge. like for example one big `boundary` layer
+> which will hold 4 specific `combine-boundary`, `grid-column-boundary`, `beam-slab-boundary`,
+> `wall-boundary` inside it. each with same origin point on each boundary. […] reason why we need
+> this currently revit link cad eat overlapping outline which causes our tool to be unreliable with
+> new cad file which is not good for sellable product."
+
+**Why it is the right shape of fix.** Every recovery pass in this tool exists because the Revit link
+delivered less than the DXF holds: `recover_rectilinear_columns`, `recover_oriented_columns`,
+`recover_outline_columns`, `recover_face_columns`, the fragment reassembly, `_is_clipped`. All of
+them are guesswork about geometry that was destroyed at import, and the destruction happens where a
+column outline, a beam outline and a wall outline lie on top of one another. Draw each family in its
+own zone and nothing overlaps, so nothing is eaten, so nothing has to be guessed back.
+
+**Measured in `StructuralPlan-Test17-separate-boundary-zones.dxf` (one storey, 4070 records).** The
+convention is already exact — this is not a sketch:
+
+| zone layer | box (mm) | records | what is in it |
+| --- | --- | --- | --- |
+| `Boundary` | 242867 x 133659 | 1 | holds the four zones |
+| `Combine-boundary` | 101387 x 39923 | 2024 | a full copy of everything |
+| `Grid-Column-boundary` | same | 457 | `S-COLUMN` 188, `S-COLUM_STOP` 148, `S-COLUMN_START` 6, grid 114 |
+| `Beam-Slab-boundary` | same | 1313 | `S-BEAM` 879, `DROP SLAB` 249, slab projection 65, stair 44, fold 41, cutout 31 |
+| `Wall-boundary` | same | 254 | `S-NON STR RCC WALL` 221, `NON STR. RCC WALL` 30 |
+
+  * **the four zone boxes are the same size to the millimetre**, laid out 2x2 inside `Boundary`;
+  * **each carries one `Origin` point at the SAME offset inside its own box — 78949.90, 12805.57 mm
+    from its corner, all four identical.** Shifting each zone by its own origin therefore lands every
+    zone exactly on top of the others. This is the same mechanism `floor_plans.split_floors` already
+    uses to stack storeys, one level down;
+  * **the texts travel with their zone**: 170 `COL. NO.` + 170 `COL. SIZE` in Grid-Column, 435
+    `S-BEAM-IDEN` + 12 `SLAB THK.` in Beam-Slab, none in Wall. The Combine copy carries all of them;
+  * **the hatches travel too**: Grid-Column 340, Wall 302, Beam-Slab 137, Combine 779 (= the sum).
+
+**What the tool would do:** read the zones inside a storey's boundary, shift each by its own origin
+marker, and CONCATENATE the records into one plan before any pass runs. Every pass downstream then
+sees exactly what it sees today — one plan in one frame — so beam-to-column trimming, slab loops from
+beams and edges, the legend and the schedule all keep working unchanged. The merge moves out of Revit
+and into the reader, which is the whole point.
+
+**Open questions for the owner before this is built** — asked in the reply that recorded this entry,
+and the answers change the design rather than decorate it: what `Combine-boundary` is FOR (a
+reference copy, a fallback for anything no zone claims, or a fifth thing to build); whether the four
+zone names are fixed or a mapping table like the layer table; how zones nest with storeys on a
+multi-storey sheet; and what to do with what falls outside every zone (16 `A-CUTOUT-THIN` and one
+`S-COLUM_STOP` do, in this drawing).
+
+### FEAT-18 — The dialog as a sidebar, not a tab strip · `pending`
+
+**The owner, with a before-and-after mock-up:** "i want our main dialog to change from image1 to
+image2 example. see if thats possible."
+
+**It is possible, and it is XAML only.** The window is built by `XamlReader.Load` from `ui.xaml` and
+wired by name in `ui_window.py`, so the six tabs (`Layers`, `Build`, `Multi-storey`, `Tolerances`,
+`Output & Graphics`, `Naming`) can become a left rail without a single builder or reader changing —
+the panels keep their names, only their container changes. What the mock-up asks for beyond a
+re-skin: a collapsible rail (icons only when collapsed), section titles with a one-line description
+at the top of each page, the source file on a `Browse...` row, and the version moved to the rail's
+foot. The Run/Cancel/Save/Load bar stays where it is.
+
+**Cost and risk, honestly:** `ui.xaml` is the single biggest file in the button and every control in
+it is pinned by name in `test_dialog_wiring.py`, so a rewrite is mechanical but wide — and it is a
+day that does not go into columns, beams or FEAT-17. It also cannot be seen outside Revit: no test
+here can tell whether the rail LOOKS right, only that every control still exists and is still bound.
+Recorded now, scheduled when the structural work he is demonstrating is settled.
 
 ### FEAT-16 — `_START` and `_STOP` column layers say where a column begins and ends · `testing`
 

@@ -743,7 +743,7 @@ def main():
         # in one frame.
         column_plans = [_column_footprints(region.records)
                         for region, _lbl in built]
-        column_spans, column_boxes = column_extent.plan(column_plans)
+        column_spans, column_list = column_extent.plan(column_plans)
         top_ids = dict((i, pair[1]) for i, pair in enumerate(level_pairs))
         _say_column_spans(column_spans, len(built),
                           sum(len(plan) for plan in column_plans))
@@ -761,7 +761,7 @@ def main():
             # lays them, on its own base level
             storey_selections["build_footings"] = (index == 0)
             storey_selections["column_extents"] = {
-                "boxes": column_boxes, "spans": column_spans,
+                "columns": column_list, "spans": column_spans,
                 "storey": index, "top_ids": top_ids}
             storey_result = _StoreyResult(revit_result, region.records)
             outcomes = _build_one_storey(

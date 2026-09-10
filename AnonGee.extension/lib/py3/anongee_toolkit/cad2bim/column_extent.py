@@ -126,20 +126,28 @@ def clusters(points, tolerance_ft=_SAME_COLUMN_FT):
     return out, centres
 
 
-def assign(boxes, point, tolerance_ft=_SAME_COLUMN_FT):
+def assign(columns, point, size=None, tolerance_ft=_SAME_COLUMN_FT):
     """Which column a built rectangle belongs to, or None when it belongs to none.
 
-    `boxes` is `plan`'s second answer: `(x, y, half width, half height)` per
-    column, in feet. A bare `(x, y)` is accepted too, for a caller that tracked
-    no sizes.
+    `columns` is `plan`'s second answer: `(x, y, half width, half height,
+    section)` each, in feet. A bare `(x, y)` is accepted too, for a caller that
+    tracked no sizes. `size` is the rectangle's OWN section in millimetres,
+    where the caller knows it.
 
-    INSIDE FIRST, and that is the whole reason this is not a nearest-centre
-    match. A column is not always one rectangle: an L or a C is decomposed into
-    legs, and a leg's centre is nowhere near the outline's centre. Matching by
-    centre gave one leg of an L its column and left the others out -- measured
-    on test17, 57 outlines came back with their legs disagreeing -- so the L was
-    carried up a storey as one leg while the rest were rebuilt on every floor,
-    putting one column straight through another.
+    THE SECTION BREAKS THE TIE FIRST. A grid point can hold two members -- test17
+    draws a 250x1200 that stops on the floor and a 200x1200 that carries on above
+    it, exactly concentric, 43 times over -- and every geometric test calls those
+    the same column. The rectangle's own size does not: a 250 wide rectangle
+    belongs to the 250 wide column standing there, however tightly the 200 wide
+    one wraps it.
+
+    INSIDE NEXT, and that is why this is not a nearest-centre match. A column is
+    not always one rectangle: an L or a C is decomposed into legs, and a leg's
+    centre is nowhere near the outline's centre. Matching by centre gave one leg
+    of an L its column and left the others out -- measured on test17, 57 outlines
+    came back with their legs disagreeing -- so the L was carried up a storey as
+    one leg while the rest were rebuilt on every floor, putting one column
+    straight through another.
 
     THE SMALLEST BOX WINS among those that contain the point. A long L's box
     reaches over its neighbours, and a neighbour sitting inside it must still
@@ -151,23 +159,30 @@ def assign(boxes, point, tolerance_ft=_SAME_COLUMN_FT):
     needs; the nearest, not the first, because a rectangle sits between two
     columns often enough that "first" would be a coin toss.
     """
-    if not point or not boxes:
+    if not point or not columns:
         return None
     reach = float(tolerance_ft or _SAME_COLUMN_FT)
     x, y = float(point[0]), float(point[1])
-    best, best_area, near, near_gap = None, None, None, None
-    for column, box in enumerate(boxes):
+    wanted = section_of(size)
+    exact, best, best_area, near, near_gap = None, None, None, None, None
+    for column, box in enumerate(columns):
         cx, cy = float(box[0]), float(box[1])
         half_x = float(box[2]) if len(box) > 2 else 0.0
         half_y = float(box[3]) if len(box) > 3 else 0.0
-        if half_x > 0.0 and half_y > 0.0 \
-                and abs(x - cx) <= half_x and abs(y - cy) <= half_y:
+        section = box[4] if len(box) > 4 else None
+        inside = (half_x > 0.0 and half_y > 0.0
+                  and abs(x - cx) <= half_x and abs(y - cy) <= half_y)
+        if inside:
+            if wanted is not None and section == wanted and exact is None:
+                exact = column
             area = half_x * half_y
             if best_area is None or area < best_area:
                 best, best_area = column, area
         gap = math.hypot(x - cx, y - cy)
         if gap <= reach and (near_gap is None or gap < near_gap):
             near, near_gap = column, gap
+    if exact is not None:
+        return exact
     return best if best is not None else near
 
 
@@ -193,27 +208,16 @@ def section_of(size):
 def extents(storeys):
     """{(column, run): (first storey, last storey)} for every column drawn.
 
-    `storeys` is bottom-up, one entry per storey, each a list of
-    `(key, mark, size)` -- the mark being "start", "stop" or None, and `size`
-    the drawn section (or None where the caller does not track it).
+    `storeys` is bottom-up, one entry per storey, each a list of `(key, mark)`
+    -- the mark being "start", "stop" or None. A `key` is a column's IDENTITY,
+    its place and its section together (see `plan`), so every row under one key
+    is the same member at the same size.
 
-    A RUN is a stretch of consecutive storeys that is ONE column: same section,
-    begun by a `_START`, ended by a `_STOP`. The owner's reading A says what the
-    two marks mean -- a `_STOP` column is drawn on the LAST storey it exists in,
-    a `_START` column on the FIRST -- so a run is cut
-
-      * where the SECTION changes,
-      * at a storey marked "start", which begins a column,
-      * after a storey marked "stop", which ends one,
-
-    and its span is simply the lowest and highest storey in it.
-
-    THE SECTION CUT IS NOT A REFINEMENT. Measured on test17: 126 of its 219
-    columns change section over their height -- 200x2150 becoming 250x2150 part
-    way up -- and the drawing marks almost none of those changes. One column
-    over the whole height would carry the bottom storey's section through more
-    than half of them, which is worse than the stack of one-storey columns this
-    exists to replace.
+    A RUN is a stretch of storeys that is one column. The owner's reading A says
+    what the two marks mean -- a `_STOP` column is drawn on the LAST storey it
+    exists in, a `_START` column on the FIRST -- so a run is cut at a storey
+    marked "start", and after a storey marked "stop", and its span is simply the
+    lowest and highest storey in it.
 
     WHAT IS DRAWN IS ALWAYS BUILT. A column drawn above its own `_STOP` (three
     of test17's 219) contradicts its layer, and the storeys above simply become
@@ -224,46 +228,49 @@ def extents(storeys):
     for index, storey in enumerate(storeys or ()):
         for row in storey or ():
             key, mark = row[0], row[1]
-            size = section_of(row[2] if len(row) > 2 else None)
             if key is None:
                 continue
-            seen.setdefault(key, []).append((index, mark, size))
+            seen.setdefault(key, []).append((index, mark))
 
     out = {}
     for key, rows in seen.items():
         rows.sort(key=lambda row: row[0])
         runs, current, ended = [], None, False
-        for index, mark, size in rows:
-            if current is None or ended or mark == "start" \
-                    or current["size"] != size:
-                current = {"size": size, "levels": []}
+        for index, mark in rows:
+            if current is None or ended or mark == "start":
+                current = []
                 runs.append(current)
                 ended = False
-            current["levels"].append(index)
+            current.append(index)
             if mark == "stop":
                 ended = True
-        for number, run in enumerate(runs):
-            out[(key, number)] = (min(run["levels"]), max(run["levels"]))
+        for number, levels in enumerate(runs):
+            out[(key, number)] = (min(levels), max(levels))
     return out
 
 
 def plan(storeys):
-    """(spans, boxes) from the whole stack, bottom-up -- the one call to make.
+    """(spans, columns) from the whole stack, bottom-up -- the one call to make.
 
     `storeys` is one entry per storey, each a list of `(centre, layer, size)`
-    for the column footprints drawn on that plan; `size` is the drawn section in
-    millimetres, which both cuts a run where a column reduces and gives the
-    column its box. A caller with no sizes may leave it off.
+    for the column footprints drawn on that plan, `size` being the drawn section
+    in millimetres. A caller with no sizes may leave it off.
 
-    The BOXES come back because they are what lets the builder match its own
-    rectangles by POSITION rather than trusting two lists to line up by index:
-    the footprints are gathered from the drawing's records, the built columns
-    come out of `decompose_to_rectangles`, which splits some and drops others,
-    so the two never would. Each box is `(x, y, half width, half height)` in
-    feet, over the LARGEST section the column is drawn at anywhere -- a column
-    that reduces higher up keeps the box that holds every rectangle it will ever
-    be built from, and `assign` prefers the tightest box that contains a
-    rectangle, so a neighbour inside a long L's box still takes its own.
+    A COLUMN'S IDENTITY IS ITS PLACE AND ITS SECTION, and the second half is not
+    a nicety. Measured in test17's Grid-Column zone: **48 of its 148 `_STOP`
+    outlines sit exactly concentric with an ordinary column outline, and 43 of
+    those are a different size** -- a 250x1200 stopping there and a 200x1200
+    carrying on above, sharing a centre because they share a face. They are two
+    members on one grid point. Identity by position alone made them one column
+    with two rows on the same storey, and which of the two got built came down
+    to the order the records happened to arrive in. The owner saw it at once:
+    "single standing columns are drawn accurately but it fails if both Column
+    and column-stop outline are on top on each other."
+
+    Each column comes back as `(x, y, half width, half height, section)` in
+    feet, with the section in whole millimetres. `assign` needs all five: the
+    box to find the rectangles that belong to a column, the section to tell two
+    concentric columns apart.
 
     The clustering runs over ALL storeys at once on purpose. Doing it per storey
     and matching afterwards would let the same column start a new cluster on
@@ -274,28 +281,33 @@ def plan(storeys):
         for position, row in enumerate(storey or ()):
             flat.append(row[0])
             where.append((index, position))
-    columns, centres = clusters(flat)
+    places, centres = clusters(flat)
 
     marked = [[] for _ in (storeys or ())]
-    boxes = [[x, y, 0.0, 0.0] for x, y in centres]
+    columns, order = {}, []
     for flat_index, (index, position) in enumerate(where):
-        key = columns.get(flat_index)
-        if key is None:
+        place = places.get(flat_index)
+        if place is None:
             continue
         row = storeys[index][position]
-        size = row[2] if len(row) > 2 else None
-        marked[index].append((key, mark_of(row[1]), size))
-        if size:
-            boxes[key][2] = max(boxes[key][2], float(size[0]) / 304.8 / 2.0)
-            boxes[key][3] = max(boxes[key][3], float(size[1]) / 304.8 / 2.0)
-    return extents(marked), [tuple(box) for box in boxes]
+        section = section_of(row[2] if len(row) > 2 else None)
+        key = (place, section)
+        if key not in columns:
+            x, y = centres[place]
+            half_x = 0.0 if not section else float(section[0]) / 304.8 / 2.0
+            half_y = 0.0 if not section else float(section[1]) / 304.8 / 2.0
+            columns[key] = len(order)
+            order.append((x, y, half_x, half_y, section))
+        marked[index].append((columns[key], mark_of(row[1])))
+    return extents(marked), order
 
 
 def run_at(spans, key, storey):
     """The (column, run) whose span covers `storey`, or None.
 
-    A column is several runs when its section changes up the building, so the
-    builder has to ask which run a storey belongs to rather than assuming one.
+    A column is several runs when a `_STOP` ends it and the drawing goes on
+    drawing it above, so the builder has to ask which run a storey belongs to
+    rather than assuming one.
     """
     if key is None:
         return None
