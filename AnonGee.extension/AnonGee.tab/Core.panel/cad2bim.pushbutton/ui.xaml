@@ -964,7 +964,7 @@
         <!-- Body: one page per rail item, driven by the rail's selection -->
         <TabControl Margin="0"
                     Style="{StaticResource HeadlessTabControl}"
-                    SelectedIndex="{Binding SelectedIndex, ElementName=nav_list, Mode=OneWay}">
+                    SelectedIndex="{Binding SelectedIndex, ElementName=nav_list, Mode=TwoWay}">
 
             <!-- TAB: Layers -->
             <TabItem Header="Layers">
