@@ -248,7 +248,35 @@ takes ONE top level per call — and keeps the ENTRIES they came from, so the dr
 the approximated flag survive the grouping. A storey with no plan (single-storey run, or a drawing
 with neither layer) returns its own one group untouched, so those runs are unchanged.
 
-**Not verified in Revit.** Both ends import Revit, so the wiring is held by nine static pins in
+**IT CHANGES EVERY MULTI-STOREY DRAWING, not only the one with the layers**, and that is worth
+seeing before the next run rather than after it. A column drawn on three plans at one section is one
+column whether or not anything marks it, so:
+
+| drawing | storeys | outlines drawn | columns built | of them multi-storey | marks |
+| --- | --- | --- | --- | --- | --- |
+| `StructuralPlan-Test17-clean.dxf` | 13 | 2344 | **386** | 196 | 24 start / 337 stop |
+| `StructuralPlan-Test17.dxf` | 13 | 2166 | **196** | 192 | none |
+| `StructuralPlan-Test12.dxf` | 5 | 887 | **511** | 142 | none |
+| `LayoutPlan-Project1.dxf` | 5 | 311 | **169** | 68 | none |
+| `StructuralPlan-Test16.dxf` | 5 | 308 | **83** | 73 | none |
+| `StructuralPlan-Test14.dxf` | 3 | 195 | **65** | 65 | none |
+| `StructuralPlan-Test10.dxf` | 7 | 166 | **149** | 12 | none |
+| `StructuralPlan-Test11.dxf` | 4 | 124 | **31** | 31 | none |
+| `StructuralPlan-Test9.dxf` | 3 | 97 | **57** | 21 | none |
+| `StructuralPlan-Test15.dxf` | 4 | 20 | **8** | 8 | none |
+
+**test14 is the one to watch**, because BUG-27 is being chased on it: its 195 outlines become 65
+columns, every one of them three storeys tall, so the junction gaps under investigation there will
+look different from the last run for a reason that is not BUG-27.
+
+Merging by position rests on the same premise the multi-storey build already rests on — that the
+plans on a sheet are storeys of ONE building, stacked on level pairs in the order they are found.
+Where that premise held, nothing changed but the count; where it did not, the old behaviour was
+already building one storey's columns on another's levels. **If the owner would rather have it under
+a tick** (Structure tab: "build a column once over the storeys it runs through"), that is a small
+change and this record is the argument for making it.
+
+**Not verified in Revit.** Both ends import Revit, so the wiring is held by ten static pins in
 `test_dialog_wiring.py` and the numbers above come from the DXF, not from a model. It wants the
 owner's next test17 run.
 
