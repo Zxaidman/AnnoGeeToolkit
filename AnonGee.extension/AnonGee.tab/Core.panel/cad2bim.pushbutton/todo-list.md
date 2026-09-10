@@ -8,14 +8,17 @@ Nothing is deleted to make the list look shorter.
 file before it is built, argued about, or written into any other document. Standing instruction
 from the project owner, and it is what keeps this list the queue rather than a summary of one.
 
-Current build: **v0.97.0** (branch `claude/cad2bim`, restarted from `main` after PR #10 merged).
-1333 unit tests, 3 regression legs over 31 archived exports, 23 fixture drawings and 13 storey
-stacks. This round wired FEAT-16 into the build — a column is now placed ONCE over the whole run it
+Current build: **v0.97.1** (branch `claude/cad2bim`, restarted from `main` after PR #10 merged).
+1342 unit tests, 3 regression legs over 31 archived exports, 23 fixture drawings and 13 storey
+stacks, all three baselines re-recorded because the owner redrew both test17 fixtures. This round
+wired FEAT-16 into the build — a column is now placed ONCE over the whole run it
 is drawn for, which takes test17 from 2525 placed rectangles to 524 — and fixed the two faults the
 wiring exposed: an L whose legs disagreed about which storey they belonged to (57 outlines), and a
 storey with nothing left of its own being rebuilt whole (the terrace, 58 members). FEAT-13's spread
 was fixed with it: under pythonnet a .NET object reaches a callback as a fresh wrapper, so matching
-the combo by identity never matched and the selection never followed. The branch also carries the
+the combo by identity never matched and the selection never followed. BUG-34 closed to `testing` with
+it: a column the drawing closed as one ring now keeps the size it was drawn at, which stops about 42
+members a storey being inflated past their outline by a label. The branch also carries the
 rc-automation merge and the 1.26.1 extension identity. Longer records: `../../../../../task_plan.md`, `findings.md`, `progress.md` at the
 repository root.
 
@@ -120,7 +123,7 @@ for every other pre-P1 file.
 
 ## 2. Errors and bugs
 
-### BUG-34 — A label 1.3 m away resizes a column that was drawn correctly · `pending`
+### BUG-34 — A size label overrules an outline the drawing closed · `testing`
 
 **The owner:** "in some place column size and its outline is not matching with Linked cad. check if
 this is dxf cad issue or coding issue."
@@ -158,6 +161,76 @@ flattens entries into a bare rectangle list before it chooses, so the clipped/wh
 entry's `status` carries is thrown away before the decision is made — putting it back is the change,
 and it touches the recovery DONE-22 depends on, so it wants its own round rather than a rushed one
 the day before a client trip.
+
+---
+
+**MEASURED AGAIN on the redrawn `StructuralPlan-Test17-clean.dxf` (0.97.0), and the direction is the
+opposite of what the first reading suggested.** Over its first three storeys, running the correction
+exactly as the build does — `mark_radius_mm` 1300, no schedule, and the texts routed the way the
+build routes them (`COL. NO.` and `COL. SIZE` only; a first pass that fed it every sized text,
+beam labels included, is not what the run does and its numbers are not in this table):
+
+| entry the member came from | left as drawn | **grown to a label** | shrunk to a label |
+| --- | --- | --- | --- |
+| `rectangle` — ONE closed ring | 496 | **127** | 14 |
+| `composite` — a leg of an L or a C | 58 | 31 | 3 |
+
+It is not mainly overruling with a *smaller* size. It is **inflating about 42 whole columns per
+storey**, and a column inflated past its outline sits outside the linked CAD exactly as far as a
+shrunken one sits inside it. The commonest changes:
+
+    250 x 1200  ->  250 x 1300   |   200 x 1500  ->  250 x 1500
+    250 x 1200  ->  250 x 1500   |   200 x 1150  ->  250 x 1150
+    200 x 1200  ->  200 x 1500   |   200 x 2100  ->  200 x 2300
+
+**The 31 composite legs are the case DONE-22 built this for and they are fine**: a leg really is
+smaller than the column it belongs to, and its label really does state the whole. **The 127 whole
+rings are the bug.** Two things say so:
+
+  * they came from `parse_column_polyline` as `status: "rectangle"` — ONE closed ring, nothing
+    clipped, nothing split. The drawing stated that column's size by drawing it;
+  * **152 of the 158 grown members had a drawn size that is a round 25 mm on BOTH sides** — 200x1500,
+    200x1150, 250x1900. A junction clip leaves an arbitrary sliver (187, 213); a round number is a
+    section somebody drew on purpose.
+
+The labels themselves are mostly the members' OWN: a `250x1150` label 408 mm from a member drawn
+200x1150 matches it on the long side exactly and differs only in thickness. So this is not primarily
+the radius dragging in a neighbour's label — **it is the drawing and the label disagreeing, and the
+tool believing the label.** The reach still deserves its own look (median label distance 847 mm, up
+to 1306 mm), but it is the second problem, not the first.
+
+**FIXED in v0.97.1, and it is a three-line rule.** `correct_columns_with_text` flattened the entries
+into a bare rectangle list in its first line, so the `status` that tells a whole ring from a leg was
+gone before any decision was taken. It is carried through now, and a SINGLE rectangle is resized only
+when it is a PIECE — a leg of a composite, a recovered fragment, a box round a shape that would not
+close. A ring the drawing closed keeps the size it was drawn at, in both directions.
+
+Measured again on the same three storeys, before and after:
+
+| | before | after |
+| --- | --- | --- |
+| whole rings left at the size they were drawn | 496 | **603** |
+| whole rings resized by a label | 141 | **35** |
+| legs of an L or a C resized by a label | 34 | 34 |
+
+The 35 that remain are the two-piece MERGE branch — two fragments of one column with one label
+between them — which is untouched and should be. The mark is still stamped on every member either
+way: keeping the size must not cost the naming, which the schedule, the naming template and the
+abutment recovery all key off.
+
+Nine tests hold it (`test_label_over_outline.py`), two of which fail if the rule is removed; the
+1342-test suite and DONE-22's own recovery tests pass unchanged. FEAT-16 makes it cheaper still: a
+member is built once per run now, so a wrong resize no longer repeats up the tower.
+
+**Still open, and second:** the reach itself. The label that resizes a member is a median 847 mm away
+and up to 1306 mm, on a plan whose columns sit ~1.5 m apart. That wants the band measured between
+"this member's label" and "the next member's label" before `mark_radius_mm` is moved off 1300.
+
+**And one for the owner, because the tool cannot settle it:** on this drawing the labels and the
+outlines genuinely disagree — a member drawn 200x1150 with a `250x1150` label 408 mm away, matching
+on the long side and differing only in thickness. The tool now believes the outline. If the LABELS
+are the authority in his office, that is a one-line change in the other direction, and it is his call
+rather than a measurement's.
 
 
 ### FEAT-16 — `_START` and `_STOP` column layers say where a column begins and ends · `testing`

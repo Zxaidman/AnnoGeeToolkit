@@ -365,6 +365,11 @@ def _pts_mm(points):
 _TEXT_SIZE_OK_MM = 80.0   # a single column already this close to its label is left as-is
 _CLIP_TOL_MM = 20.0       # ...unless geometry is shorter than the label by more than this
 #                           (a real clip), in which case it is resized up to the label
+# What `parse_column_polyline` calls a single closed ring decomposed to ONE
+# rectangle -- a column whose size the drawing stated by drawing it. Every other
+# status here is a PIECE (a leg, a recovered fragment, a box round a shape that
+# would not close), and a piece is what a size label is allowed to correct.
+_WHOLE_RING = "rectangle"
 _SPLIT_CENTRE_SLACK_MM = 80.0      # split fragments' centres lie within (long side + this)
 _SPLIT_NO_SIZE_MAX_CENTRE_MM = 800.0   # no label size: only fuse pieces this close
 
@@ -397,8 +402,11 @@ def correct_columns_with_text(sections, column_texts, radius_ft, schedule=None,
     A label supplies a SIZE (inline "600x750"), a MARK ("C1"), or both. The size
     used for a column is resolved: inline label size > schedule[mark] > geometry.
     For each label, gather the placed column rectangles within radius_ft:
+      * one rectangle the drawing closed as a WHOLE RING -> kept exactly as drawn,
+        mark stamped. Its outline already states its size and a label does not
+        overrule it in either direction (BUG-34; see `_whole_rings`);
       * one rectangle already the right size -> left as-is (mark stamped);
-      * one CLIPPED rectangle with a known size -> resized + snapped to the grid;
+      * one clipped PIECE with a known size -> resized + snapped to the grid;
       * two split pieces -> merged into one column (sized to the label/schedule, or
         their combined footprint when no size is known) + snapped to the grid;
       * a single mark-only piece (no size anywhere) -> kept as geometry, mark only.
@@ -408,6 +416,7 @@ def correct_columns_with_text(sections, column_texts, radius_ft, schedule=None,
     schedule = schedule or {}
     entries = sections.get("entries", [])
     rects = [rect for entry in entries for rect in entry["rectangles"]]
+    whole = _whole_rings(entries)   # the ones the drawing sized by drawing them
     labels = [t for t in (column_texts or []) if t.point_internal and
               ((t.b_mm is not None and t.h_mm is not None) or t.mark)]
     used = set()
@@ -455,8 +464,9 @@ def correct_columns_with_text(sections, column_texts, radius_ft, schedule=None,
             outputs.append(out)
             continue
         if size is not None and len(near) == 1:
-            if _fills_size(near[0], size) and not _is_clipped(near[0], size):
-                out = _copy_rect(near[0])      # already right size: just name it
+            if id(near[0]) in whole or (_fills_size(near[0], size)
+                                        and not _is_clipped(near[0], size)):
+                out = _copy_rect(near[0])      # keep the geometry: just name it
                 out["mark"] = text.mark
                 used.add(id(near[0]))
                 outputs.append(out)
@@ -560,6 +570,44 @@ def _fills_size(rect, size):
     big_g = max(rect["width_mm"], rect["height_mm"])
     return (abs(small_g - size[0]) <= _TEXT_SIZE_OK_MM and
             abs(big_g - size[1]) <= _TEXT_SIZE_OK_MM)
+
+
+def _whole_rings(entries):
+    """The ids of rectangles whose own outline states their size (BUG-34).
+
+    One closed ring, decomposed to one rectangle: the drawing said how big that
+    column is by drawing it, so a size label may NAME it but not resize it.
+    Every other status here is a piece -- a leg of an L or a C, a fragment the
+    recovery reassembled, a box drawn round a shape that would not close -- and
+    a piece is exactly what a label is allowed to correct, because a piece
+    really is smaller than the column its label states.
+
+    The owner: "in some place column size and its outline is not matching with
+    Linked cad." Resizing to a label is deliberate -- DONE-22 built it so a
+    CLIPPED column could be snapped up to its authoritative size -- but the
+    decision was taken on a flat list of rectangles, so a column the drawing
+    closed as ONE complete ring got the same treatment as a sliver.
+
+    MEASURED on `StructuralPlan-Test17-clean.dxf`, first three storeys, texts
+    routed as the build routes them:
+
+        the member came from       left as drawn   grown to a label   shrunk
+        one closed ring                      496                127       14
+        a leg of an L or a C                  58                 31        3
+
+    About 42 whole columns per storey were being inflated past the outline they
+    were drawn with -- 250x1200 built as 250x1500 -- and 152 of the 158 grown
+    had a drawn size that is a round 25 mm on BOTH sides. A junction clip leaves
+    an arbitrary sliver (187, 213); a round number is a section somebody drew on
+    purpose. The 31 legs are the case the pass exists for and they still grow:
+    a leg really is smaller than the column its label states.
+
+    The mark is stamped either way -- keeping the size must not cost the naming,
+    which the schedule, the naming template and the abutment recovery all use.
+    """
+    return set(id(rect) for entry in entries or ()
+               if entry.get("status") == _WHOLE_RING
+               for rect in entry.get("rectangles") or ())
 
 
 def _is_clipped(rect, size):
