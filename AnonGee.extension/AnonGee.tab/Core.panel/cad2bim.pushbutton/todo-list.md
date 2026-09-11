@@ -29,7 +29,11 @@ from 4070 records to 2038 and says what the combined copy says. Then, at the own
 dialog he asked for: FEAT-17's ZONE TABLE (one row per zone, saying what that zone holds, pre-filled
 from its own layer name) and FEAT-18, the six sections moved from a strip across the top to a
 collapsible RAIL down the left. The pages themselves never moved, which is what kept it to one pass:
-every TabItem still carries the header it had, so every pin still reads the same file the same way. The branch also carries the
+every TabItem still carries the header it had, so every pin still reads the same file the same way.
+Then his three notes on that build, all in v1.0.0: the zone table turned round to ask per ELEMENT
+rather than per zone and fill itself in from the drawing rather than the layer names, the rail's
+collapse animated instead of snapping, and `floor boundary`/`floor origin` taken off the Layers tab
+(FEAT-19) so the Multi-storey tab is the only place they are named. The branch also carries the
 rc-automation merge and the 1.26.1 extension identity. Longer records: `../../../../../task_plan.md`, `findings.md`, `progress.md` at the
 repository root.
 
@@ -302,6 +306,21 @@ are the authority in his office, that is a one-line change in the other directio
 rather than a measurement's.
 
 
+### FEAT-19 — The boundary and origin layers belong to the Multi-storey tab alone · `testing`
+
+**The owner, on v0.99.0:** "we don't require `floor boundary` and `floor origin` on layer mapping so
+i want all the origin and boundary thing to be on multi storey tab only then."
+
+He is right, and it is the same setting asked twice. The Layers tab's Category dropdown offers
+`floor boundary` and `floor origin` on every row, while the Multi-storey tab has two pickers that name
+those layers directly — and the pickers already WIN, because the run stamps their categories after
+the layer table ("an explicit pick always wins over the naming convention"). So the two entries on the
+Layers tab can only do one of two things: agree with the pickers, or be quietly overruled by them.
+
+**The change:** the geometry table's dropdown stops offering them. The categories themselves stay —
+they are what `split_floors`, `zone_plan` and auto-detection read — and they are still stamped, from
+the Multi-storey tab's pickers, which is now the only place they are chosen.
+
 ### FEAT-17 — Boundary ZONES: one element family per zone, so the link stops eating outlines · `testing`
 
 **The owner, and this is the one he wants next:**
@@ -387,14 +406,23 @@ Two things it says out loud rather than doing quietly:
 
 **Not built yet, and named so it is not mistaken for done:**
 
-  * ~~the dialog's zone table~~ — **built in v0.99.0**, on the Multi-storey tab under the storey
-    table. One row per zone layer found in the drawing, with a dropdown naming what that zone HOLDS
-    ("grids + columns", "beams + slabs + stairs", "walls", "foundations", "everything in it",
-    "nothing — skip this zone") rather than a list of categories, because a zone holds a family and
-    the table should read like the drawing does. Pre-filled from the layer's own name, so a drawing
-    named the owner's way needs no clicks at all. It is the same builder as the three mapping tables,
-    so it selects and spreads the same way (FEAT-13): eight zones is eight clicks, not eight trips.
-    A drawing with no zone layers says so in the table's place instead of showing an empty box;
+  * ~~the dialog's zone table~~ — **built in v0.99.0 and TURNED ROUND in v1.0.0.** The first cut had
+    one row per zone with a dropdown naming a family ("beams + slabs + stairs"). The owner: "make left
+    side independent of each element. like don't do beam+slab+stairs there. only do the beam, slab and
+    stair separately and auto map the beam-slab-boundary to all, because sometimes user can also
+    separate those in each boundaries or grid+column etc also."
+
+    So the table is inverted: **one row per ELEMENT — beam, slab, stair, column, grid, wall,
+    foundation — and the dropdown names the ZONE it is read from.** A drawing that splits beams and
+    slabs into two zones says so on two rows; one that keeps them together points both rows at the
+    same zone. Bundles are gone, because they were a guess about how somebody draws.
+
+    **The auto-fill reads the drawing, not the layer names.** Each element category goes to the zone
+    whose box actually holds the most records of it (the combined copy excluded, since it holds a copy
+    of everything). On the owner's file that answers beam, slab edge, stair, fold, cutout →
+    `Beam-Slab-boundary`, column + grid → `Grid-Column-boundary`, wall → `Wall-boundary`, with no
+    clicks — and it would answer a `Stair-boundary` correctly too, which no naming convention of mine
+    was going to;
   * **the storey preview for the storeys-inside-a-zone layout.** The Multi-storey tab counts storey
     boxes BEFORE the fold, so four copies of a 13-storey sheet would offer 52 rows instead of 13.
     The BUILD is right either way — the fold runs before the split — but the preview is not, and a
@@ -440,6 +468,13 @@ Three of the dialog's own rules caught mistakes on the way in, which is what the
 rail's hover and selection tints had to become theme tokens rather than hex, the page descriptions
 had to use `HelpText` rather than a caption style of their own, and a named control the settings
 capture could not read had to be either taught or unnamed.
+
+**The collapse ANIMATES (v1.0.0).** The owner, on the first cut: "sidebar is good but can you add
+smooth transition to the collapse and reopening action?" The rail was a column that sized itself to
+its labels, so hiding them snapped it from wide to narrow in one frame. It now has a width of its own
+and a storyboard either side of the toggle: 176 px to 52 and back, 180 ms, quadratic ease-out, with
+the labels clipped by the edge as it passes them rather than blinking out. Two DataTriggers on the
+rail itself, no code.
 
 **Not verified in Revit**: no test here can say whether the rail LOOKS right — only that every
 control still exists, is still bound, and still lives on the section it did. Six new pins hold the

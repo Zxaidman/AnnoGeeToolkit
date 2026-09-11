@@ -114,19 +114,25 @@ class ReadingAZoneLayer(unittest.TestCase):
 class WhatAZoneClaims(unittest.TestCase):
     """Read off the name, which is what fills the dialog's table in."""
 
-    def test_the_column_zone_takes_grids_and_columns(self):
+    def test_the_grid_column_zone_takes_grids_and_columns(self):
         got = zone_plan.default_categories("Grid-Column-boundary")
         self.assertIn(layers.CATEGORY_COLUMN, got)
         self.assertIn(layers.CATEGORY_GRID, got)
         self.assertNotIn(layers.CATEGORY_BEAM, got)
 
-    def test_the_beam_slab_zone_takes_what_a_floor_is_made_of(self):
+    def test_a_name_claims_each_element_it_mentions_and_no_more(self):
         got = zone_plan.default_categories("Beam-Slab-boundary")
         for category in (layers.CATEGORY_BEAM, layers.CATEGORY_SLAB_EDGE,
-                         layers.CATEGORY_STAIR, layers.CATEGORY_CUTOUT,
-                         layers.CATEGORY_FOLD):
+                         layers.CATEGORY_CUTOUT, layers.CATEGORY_FOLD):
             self.assertIn(category, got)
+        # a slab's own features ride with it; a stair is its own element and
+        # this name does not mention one
+        self.assertNotIn(layers.CATEGORY_STAIR, got)
         self.assertNotIn(layers.CATEGORY_COLUMN, got)
+
+    def test_a_beam_zone_alone_claims_beams_alone(self):
+        got = zone_plan.default_categories("Beam-boundary")
+        self.assertEqual(got, (layers.CATEGORY_BEAM,))
 
     def test_the_wall_zone_takes_walls(self):
         got = zone_plan.default_categories("Wall-boundary")
@@ -141,66 +147,156 @@ class WhatAZoneClaims(unittest.TestCase):
         self.assertIsNone(zone_plan.default_categories("Zone-A-boundary"))
 
 
-class WhatTheDialogOffersPerZone(unittest.TestCase):
-    """A zone holds a FAMILY, so the table names families, not categories."""
+class WhatTheTableAsksAndAnswers(unittest.TestCase):
+    """One row per ELEMENT, and the dropdown names the zone it comes from.
 
-    def test_every_zone_in_the_example_lands_on_a_group(self):
-        self.assertEqual(zone_plan.default_group("Grid-Column-boundary"),
-                         "grids + columns")
-        self.assertEqual(zone_plan.default_group("Beam-Slab-boundary"),
-                         "beams + slabs + stairs")
-        self.assertEqual(zone_plan.default_group("Wall-boundary"), "walls")
-        self.assertEqual(zone_plan.default_group("Combine-boundary"),
-                         zone_plan.GROUP_EVERYTHING)
+    The owner, on a first cut that bundled them: "make left side independent of
+    each element. like don't do beam+slab+stairs there. only do the beam, slab
+    and stair separately and auto map the beam-slab-boundary to all, because
+    sometimes user can also separate those in each boundaries or grid+column etc
+    also."
+    """
 
-    def test_a_name_nobody_recognises_takes_everything(self):
-        self.assertEqual(zone_plan.default_group("Zone-A-boundary"),
-                         zone_plan.GROUP_EVERYTHING)
+    def drawing(self, split_the_floor=False):
+        """Three zones, or four when beams and slabs are drawn apart."""
+        records = [_box("Boundary", -10, -10, 500, 100)]
+        plan = [("Grid-Column-boundary", 0.0), ("Wall-boundary", 100.0)]
+        if split_the_floor:
+            plan += [("Beam-boundary", 200.0), ("Slab-boundary", 300.0)]
+        else:
+            plan += [("Beam-Slab-boundary", 200.0)]
+        for layer, offset in plan:
+            records.append(_box(layer, offset, 0, 50, 20))
+            records.append(_marker(offset + 10, 10))
+        records.append(_thing("S-COLUMN", 20, 12, layers.CATEGORY_COLUMN))
+        records.append(_thing("GRID", 22, 12, layers.CATEGORY_GRID))
+        records.append(_thing("S-WALL", 120, 12, layers.CATEGORY_STRUCT_WALL))
+        records.append(_thing("S-BEAM", 220, 12, layers.CATEGORY_BEAM))
+        if split_the_floor:
+            records.append(_thing("SLAB", 320, 12, layers.CATEGORY_SLAB_EDGE))
+            records.append(_thing("S-STAIR", 322, 12, layers.CATEGORY_STAIR))
+        else:
+            records.append(_thing("SLAB", 222, 12, layers.CATEGORY_SLAB_EDGE))
+            records.append(_thing("S-STAIR", 224, 12, layers.CATEGORY_STAIR))
+        return records
 
-    def test_the_groups_are_what_the_dropdown_shows(self):
-        names = zone_plan.group_names()
-        self.assertEqual(names[0], zone_plan.GROUP_EVERYTHING)
-        self.assertIn("walls", names)
-        self.assertEqual(names[-1], zone_plan.GROUP_IGNORE)
+    def test_one_zone_holding_the_whole_floor_takes_all_three_rows(self):
+        got = zone_plan.suggest_element_zones(self.drawing(),
+                                              storey_layer="Boundary")
+        for category in (layers.CATEGORY_BEAM, layers.CATEGORY_SLAB_EDGE,
+                         layers.CATEGORY_STAIR):
+            self.assertEqual(got[category], "Beam-Slab-boundary", category)
 
-    def test_a_group_name_resolves_to_its_categories(self):
-        got = zone_plan.categories_for("grids + columns")
-        self.assertIn(layers.CATEGORY_COLUMN, got)
-        self.assertIsNone(zone_plan.categories_for(zone_plan.GROUP_EVERYTHING))
-        self.assertEqual(zone_plan.categories_for(zone_plan.GROUP_IGNORE), ())
+    def test_beams_and_slabs_drawn_apart_get_a_row_each(self):
+        got = zone_plan.suggest_element_zones(self.drawing(split_the_floor=True),
+                                              storey_layer="Boundary")
+        self.assertEqual(got[layers.CATEGORY_BEAM], "Beam-boundary")
+        self.assertEqual(got[layers.CATEGORY_SLAB_EDGE], "Slab-boundary")
+        self.assertEqual(got[layers.CATEGORY_STAIR], "Slab-boundary")
 
-    def test_the_table_s_answer_beats_the_name(self):
-        # The owner renames a zone, or draws walls in the column box on purpose.
-        records = [_box("Boundary", -10, -10, 400, 100),
-                   _box("Grid-Column-boundary", 0, 0, 50, 20),
-                   _marker(10, 10),
-                   _box("Wall-boundary", 200, 0, 50, 20),
-                   _marker(210, 10),
-                   _thing("S-WALL", 20, 12, layers.CATEGORY_STRUCT_WALL),
-                   _thing("S-WALL", 220, 12, layers.CATEGORY_STRUCT_WALL)]
+    def test_the_suggestion_reads_the_drawing_not_the_names(self):
+        # A zone called nothing in particular, holding the columns: the name
+        # says nothing and the answer is still right.
+        records = [_box("Boundary", -10, -10, 300, 100),
+                   _box("Zone-3-boundary", 0, 0, 50, 20), _marker(10, 10),
+                   _thing("S-COLUMN", 20, 12, layers.CATEGORY_COLUMN)]
+        got = zone_plan.suggest_element_zones(records, storey_layer="Boundary")
+        self.assertEqual(got[layers.CATEGORY_COLUMN], "Zone-3-boundary")
+
+    def test_an_element_no_zone_holds_is_read_where_it_is_drawn(self):
+        got = zone_plan.suggest_element_zones(self.drawing(),
+                                              storey_layer="Boundary")
+        self.assertEqual(got[layers.CATEGORY_FOUNDATION], zone_plan.ANY_ZONE)
+
+    def test_the_combined_copy_never_wins_a_row(self):
+        # It holds a copy of everything, so counting would give it every row.
+        records = self.drawing()
+        records.append(_box("Combine-boundary", 400.0, 0, 50, 20))
+        records.append(_marker(410, 10))
+        for category in (layers.CATEGORY_COLUMN, layers.CATEGORY_BEAM,
+                         layers.CATEGORY_STRUCT_WALL):
+            records.append(_thing("X", 420, 12, category))
+        got = zone_plan.suggest_element_zones(records, storey_layer="Boundary")
+        self.assertNotIn("Combine-boundary", got.values())
+
+    def test_the_dropdown_offers_the_zones_and_wherever_it_is_drawn(self):
+        found = zone_plan.zones(self.drawing(), "Boundary")
+        choices = zone_plan.zone_choices(found)
+        self.assertIn("Wall-boundary", choices)
+        self.assertEqual(choices[-1], zone_plan.ANY_ZONE)
+        self.assertNotIn("Combine-boundary", choices)
+
+    def test_the_table_s_answer_is_turned_back_round_for_the_fold(self):
+        claims = zone_plan.claims_from_elements({
+            layers.CATEGORY_BEAM: "Beam-Slab-boundary",
+            layers.CATEGORY_SLAB_EDGE: "Beam-Slab-boundary",
+            layers.CATEGORY_COLUMN: "Grid-Column-boundary",
+            layers.CATEGORY_FOUNDATION: zone_plan.ANY_ZONE,
+        })
+        self.assertEqual(set(claims["Beam-Slab-boundary"]),
+                         set([layers.CATEGORY_BEAM, layers.CATEGORY_SLAB_EDGE]))
+        self.assertEqual(claims["Grid-Column-boundary"],
+                         (layers.CATEGORY_COLUMN,))
+        self.assertNotIn(zone_plan.ANY_ZONE, claims)
+
+    def test_the_table_moves_an_element_to_another_zone(self):
+        # The owner draws walls in the column box on purpose, and says so.
+        records = self.drawing()
+        records.append(_thing("S-WALL", 24, 12, layers.CATEGORY_STRUCT_WALL))
         got, _t, _h, _n = zone_plan.merge_zones(
             records, storey_layer="Boundary",
-            mapping={"Grid-Column-boundary": "walls"})
-        self.assertEqual(
-            len([r for r in got
-                 if r.category == layers.CATEGORY_STRUCT_WALL]), 2)
+            element_zones={layers.CATEGORY_STRUCT_WALL: "Grid-Column-boundary",
+                           layers.CATEGORY_COLUMN: "Grid-Column-boundary"})
+        walls = [r for r in got if r.category == layers.CATEGORY_STRUCT_WALL]
+        self.assertEqual(len(walls), 1, "the wall zone's wall is not wanted now")
 
-    def test_skip_this_zone_means_skip_it(self):
-        records = [_box("Boundary", -10, -10, 400, 100),
-                   _box("Grid-Column-boundary", 0, 0, 50, 20),
-                   _marker(10, 10),
-                   _box("Wall-boundary", 200, 0, 50, 20),
-                   _marker(210, 10),
-                   _thing("S-COLUMN", 20, 12, layers.CATEGORY_COLUMN),
-                   _thing("S-WALL", 220, 12, layers.CATEGORY_STRUCT_WALL)]
-        got, _t, _h, _n = zone_plan.merge_zones(
+    def test_a_zone_the_table_names_for_nothing_builds_nothing(self):
+        records = self.drawing()
+        got, _t, _h, notes = zone_plan.merge_zones(
             records, storey_layer="Boundary",
-            mapping={"Wall-boundary": zone_plan.GROUP_IGNORE})
+            element_zones={layers.CATEGORY_COLUMN: "Grid-Column-boundary"})
         self.assertEqual(
             len([r for r in got
                  if r.category == layers.CATEGORY_STRUCT_WALL]), 0)
-        self.assertEqual(
-            len([r for r in got if r.category == layers.CATEGORY_COLUMN]), 1)
+        self.assertTrue(any("build nothing" in note for note in notes), notes)
+
+
+class TheBoundaryAndOriginLayersAreNotMapped(unittest.TestCase):
+    """FEAT-19. The owner: "we don't require `floor boundary` and `floor origin`
+    on layer mapping so i want all the origin and boundary thing to be on multi
+    storey tab only then."
+
+    They were the same setting asked twice: the Multi-storey tab names those two
+    layers directly, and the run stamps its answer AFTER the layer table, so an
+    entry on the table could only agree with the picker or be overruled by it.
+    """
+
+    def test_the_layers_table_no_longer_offers_them(self):
+        for category in (layers.CATEGORY_FLOOR_BOUNDARY,
+                         layers.CATEGORY_FLOOR_ORIGIN):
+            self.assertNotIn(category, layers.MAPPABLE_CATEGORIES, category)
+
+    def test_every_other_category_is_still_offered(self):
+        for category in layers.ALL_CATEGORIES:
+            if category in (layers.CATEGORY_FLOOR_BOUNDARY,
+                            layers.CATEGORY_FLOOR_ORIGIN):
+                continue
+            self.assertIn(category, layers.MAPPABLE_CATEGORIES, category)
+
+    def test_the_categories_themselves_are_untouched(self):
+        # The readers still use them; only the dropdown stopped offering them.
+        self.assertIn(layers.CATEGORY_FLOOR_BOUNDARY, layers.ALL_CATEGORIES)
+        self.assertIn(layers.CATEGORY_FLOOR_ORIGIN, layers.ALL_CATEGORIES)
+
+    def test_a_zone_is_still_found_with_nothing_mapped(self):
+        # Which is the state a zone drawing is in now: its boxes carry no
+        # category at all until the Multi-storey picker names one.
+        records = [_Rec("Grid-Column-boundary",
+                        [(0, 0), (50, 0), (50, 20), (0, 20), (0, 0)], None),
+                   _Rec("Origin", [(10, 10)], None, kind="point")]
+        found = zone_plan.zones(records, origin_layer="Origin")
+        self.assertEqual(len(found), 1)
+        self.assertIsNotNone(found[0].origin)
 
 
 class ADrawingWithNoZones(unittest.TestCase):
@@ -342,7 +438,9 @@ class ZonesInsideOneStorey(unittest.TestCase):
         got, _t, _h, _n = zone_plan.merge_zones(
             records, storey_layer="Boundary",
             mapping={"Wall-boundary": [layers.CATEGORY_STRUCT_WALL,
-                                       layers.CATEGORY_COLUMN]})
+                                       layers.CATEGORY_COLUMN],
+                     "Grid-Column-boundary": [layers.CATEGORY_COLUMN],
+                     "Beam-Slab-boundary": [layers.CATEGORY_BEAM]})
         self.assertEqual(
             len([r for r in got if r.category == layers.CATEGORY_COLUMN]), 2)
 

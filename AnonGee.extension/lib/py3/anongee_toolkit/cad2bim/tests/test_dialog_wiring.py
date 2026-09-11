@@ -2250,8 +2250,20 @@ class TheSectionsAreARailNotATabStrip(unittest.TestCase):
         rail = _xaml_source().split('x:Name="nav_list"', 1)[1]
         rail = rail.split("</ListBox>", 1)[0]
         self.assertEqual(rail.count("<Path Data="), len(_tab_outline()))
-        # ...and the label goes away with the rail, the icon stays
-        self.assertEqual(rail.count("ElementName=btn_rail"), len(_tab_outline()))
+        self.assertEqual(rail.count("<TextBlock Text="), len(_tab_outline()))
+
+    def test_the_collapse_is_animated_rather_than_a_jump(self):
+        """The owner: "can you add smooth transition to the collapse and
+        reopening action?" It needs a width of its OWN to animate between --
+        a column that sizes itself to its labels has nothing to tween."""
+        block = _xaml_source().split('x:Name="rail_panel"', 1)[1]
+        block = block.split("</Border.Style>", 1)[0]
+        self.assertIn('Width="176"', block[:200])
+        self.assertIn("ClipToBounds", block[:200])
+        self.assertIn("DoubleAnimation", block)
+        self.assertIn("EnterActions", block)
+        self.assertIn("ExitActions", block)
+        self.assertIn("ElementName=btn_rail", block)
 
     def test_collapsing_the_rail_is_remembered_like_any_other_setting(self):
         # It is a ToggleButton with a name, so the settings capture reads it --
@@ -2279,9 +2291,16 @@ class TheZoneTableIsWired(unittest.TestCase):
         source = _window_source()
         self.assertIn('self._build_rows(find("zone_rows")', source)
 
-    def test_the_dropdown_offers_groups_not_raw_categories(self):
-        source = _window_source()
-        self.assertIn("zone_plan.group_names()", source)
+    def test_the_rows_are_elements_and_the_dropdown_is_zones(self):
+        # The owner: "make left side independent of each element. like don't do
+        # beam+slab+stairs there. only do the beam, slab and stair separately."
+        source = _script_source()
+        self.assertIn("zone_plan.ZONED_CATEGORIES", source)
+        self.assertIn("zone_plan.zone_choices(zone_boxes)", source)
+        xaml = _xaml_source()
+        block = xaml.split('x:Name="zone_rows"', 1)[0][-700:]
+        self.assertIn('Text="Element"', block)
+        self.assertIn('Text="Read from"', block)
 
     def test_the_answer_reaches_the_fold(self):
         window = _window_source()
@@ -2290,12 +2309,20 @@ class TheZoneTableIsWired(unittest.TestCase):
         block = block.split("\nclass ", 1)[0]
         self.assertIn('selections.get("zone_mapping")', block)
 
-    def test_the_rows_come_from_the_drawing_s_own_layer_names(self):
-        # This runs before any mapping exists, so it reads names, not
-        # categories -- and it leaves out the box that HOLDS the zones.
+    def test_the_table_is_filled_in_from_the_drawing_not_the_names(self):
+        # Counting which zone actually holds each element gets a
+        # `Stair-boundary` right, and no naming convention would.
         source = _script_source()
-        self.assertIn("zone_plan.is_zone_layer(name, storey_layer)", source)
-        self.assertIn("zone_plan.default_group(name)", source)
+        self.assertIn("zone_plan.suggest_element_zones(", source)
+
+    def test_the_boundary_and_origin_layers_are_the_multi_storey_tab_s_alone(self):
+        """FEAT-19. The owner: "we don't require `floor boundary` and `floor
+        origin` on layer mapping so i want all the origin and boundary thing to
+        be on multi storey tab only then." They were the same setting asked
+        twice, and the Multi-storey pickers already won."""
+        self.assertIn("list(layers.MAPPABLE_CATEGORIES)", _script_source())
+        self.assertEqual(_tab_homes().get("cb_boundary_layer"), "Multi-storey")
+        self.assertEqual(_tab_homes().get("cb_origin_layer"), "Multi-storey")
 
     def test_a_drawing_with_no_zones_says_so_rather_than_showing_nothing(self):
         self.assertIn('find("zone_note").Text', _window_source())

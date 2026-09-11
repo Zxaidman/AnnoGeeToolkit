@@ -72,41 +72,43 @@ ZONE_SUFFIX = "-boundary"
 # drawing and builds as it always has.
 COMBINE_TOKEN = "combine"
 
-# Which categories a zone claims, by what its layer is called. A drawing may
-# override this from the dialog; the convention is what fills that table in.
-# Ordered: the first token found in the layer name wins, so `Grid-Column`
-# cannot be read as a wall zone because it contains no wall token.
+# Which categories a zone's NAME claims, ONE ELEMENT AT A TIME. The owner, on a
+# first cut that bundled them: "make left side independent of each element. like
+# don't do beam+slab+stairs there. only do the beam, slab and stair separately
+# [...] because sometimes user can also separate those in each boundaries or
+# grid+column etc also." A bundle is a guess about how somebody draws; a token
+# per element is the drawing's own word for it, and a name carrying two of them
+# (`Beam-Slab-boundary`) claims both.
+#
+# Only ever a FALLBACK now: `suggest_element_zones` reads the drawing instead,
+# which answers a `Stair-boundary` correctly and no naming convention would.
 _CONVENTION = (
-    ("grid", (CATEGORY_GRID, CATEGORY_COLUMN)),
-    ("col", (CATEGORY_GRID, CATEGORY_COLUMN)),
-    ("beam", (CATEGORY_BEAM, CATEGORY_SLAB_EDGE, CATEGORY_STAIR,
-              CATEGORY_FOLD, CATEGORY_SUNK, CATEGORY_CUTOUT,
-              CATEGORY_SLAB_STOP)),
-    ("slab", (CATEGORY_BEAM, CATEGORY_SLAB_EDGE, CATEGORY_STAIR,
-              CATEGORY_FOLD, CATEGORY_SUNK, CATEGORY_CUTOUT,
-              CATEGORY_SLAB_STOP)),
+    ("grid", (CATEGORY_GRID,)),
+    ("col", (CATEGORY_COLUMN,)),
+    ("beam", (CATEGORY_BEAM,)),
+    # a slab's own features travel with it: a fold, a sunk step, a cutout and a
+    # slab stop are all edges OF a slab, drawn beside it and never on their own
+    ("slab", (CATEGORY_SLAB_EDGE, CATEGORY_FOLD, CATEGORY_SUNK,
+              CATEGORY_CUTOUT, CATEGORY_SLAB_STOP)),
+    ("stair", (CATEGORY_STAIR,)),
     ("wall", (CATEGORY_STRUCT_WALL, CATEGORY_ARCH_WALL)),
     ("found", (CATEGORY_FOUNDATION,)),
     ("footing", (CATEGORY_FOUNDATION,)),
-    ("stair", (CATEGORY_STAIR,)),
 )
 
-# What the dialog offers per zone, in the order the table shows them. A zone
-# holds a FAMILY of elements, not one category, so the table's dropdown names
-# the family and this is where the name becomes categories -- which keeps the
-# dialog free of category lists and keeps this decision testable.
-GROUP_EVERYTHING = "everything in it"
-GROUP_IGNORE = "nothing -- skip this zone"
-ZONE_GROUPS = (
-    (GROUP_EVERYTHING, None),
-    ("grids + columns", (CATEGORY_GRID, CATEGORY_COLUMN)),
-    ("beams + slabs + stairs", (CATEGORY_BEAM, CATEGORY_SLAB_EDGE,
-                                CATEGORY_STAIR, CATEGORY_FOLD, CATEGORY_SUNK,
-                                CATEGORY_CUTOUT, CATEGORY_SLAB_STOP)),
-    ("walls", (CATEGORY_STRUCT_WALL, CATEGORY_ARCH_WALL)),
-    ("foundations", (CATEGORY_FOUNDATION,)),
-    (GROUP_IGNORE, ()),
+# The rows the dialog's table shows, top to bottom: one per element the user
+# might give a zone of its own. `_CONVENTION` says what a NAME means; this says
+# what the table asks about.
+ZONED_CATEGORIES = (
+    CATEGORY_GRID, CATEGORY_COLUMN, CATEGORY_BEAM, CATEGORY_SLAB_EDGE,
+    CATEGORY_STAIR, CATEGORY_STRUCT_WALL, CATEGORY_ARCH_WALL,
+    CATEGORY_FOUNDATION, CATEGORY_FOLD, CATEGORY_SUNK, CATEGORY_CUTOUT,
+    CATEGORY_SLAB_STOP,
 )
+
+# What a row says when no zone owns that element: it is read wherever it is
+# drawn, which is what every drawing without zones has always done.
+ANY_ZONE = "(wherever it is drawn)"
 
 # Two boxes are the same size when they differ by less than this, in feet. The
 # zone boxes in the example are identical to well under a millimetre; this only
@@ -150,33 +152,84 @@ def default_categories(layer):
     return tuple(claimed) or None
 
 
-def group_names():
-    """The dropdown's rows, in order."""
-    return [name for name, _categories in ZONE_GROUPS]
+def suggest_element_zones(records, zone_list=None, storey_layer=None,
+                          origin_layer=None):
+    """{category: zone layer} read off THE DRAWING, for the table's first draft.
 
+    Each element goes to the zone whose box actually holds the most records of
+    it. That is better than reading the zone names, and not by a little: it
+    answers a `Stair-boundary` or a `Zone-3` correctly, it survives an office
+    that names its boxes in another language, and it cannot disagree with what
+    is drawn -- which a convention can, quietly.
 
-def categories_for(group):
-    """The categories a named group claims: None for all, () for none."""
-    for name, categories in ZONE_GROUPS:
-        if str(group).strip().lower() == name.lower():
-            return categories
-    return None
+    The COMBINED copy is left out of the count. It holds a copy of everything,
+    so it would win every row and the table would say the drawing has no zones
+    at all.
 
-
-def default_group(layer):
-    """Which group a zone's own NAME puts it in, for the table's first draft.
-
-    The combined copy answers "everything in it" because that is what it holds;
-    it is still skipped at fold time whenever specific zones exist, and the
-    dialog says so rather than the user having to know it.
+    An element no zone holds comes back as `ANY_ZONE`: read wherever it is
+    drawn, which is what a drawing without zones has always done.
     """
-    claimed = default_categories(layer)
-    if claimed is None:
-        return GROUP_EVERYTHING
-    for name, categories in ZONE_GROUPS:
-        if categories and set(categories) == set(claimed):
-            return name
-    return GROUP_EVERYTHING
+    zone_list = (zone_list if zone_list is not None
+                 else zones(records, storey_layer, origin_layer))
+    specific = [zone for zone in zone_list if not is_combine(zone.layer)]
+    counts = {}
+    for record in records or ():
+        category = getattr(record, "category", None)
+        if category not in ZONED_CATEGORIES:
+            continue
+        points = getattr(record, "points", None) or []
+        if not points:
+            continue
+        x, y = _record_point(record)
+        for zone in specific:
+            if zone.contains(x, y):
+                seen = counts.setdefault(category, {})
+                seen[zone.layer] = seen.get(zone.layer, 0) + 1
+                break
+    out = {}
+    for category in ZONED_CATEGORIES:
+        seen = counts.get(category) or {}
+        if not seen:
+            out[category] = ANY_ZONE
+            continue
+        # the zone holding the most of them; the name breaks a tie, so the
+        # answer does not depend on the order the records were read in
+        out[category] = max(sorted(seen), key=lambda layer: seen[layer])
+    return out
+
+
+def zone_choices(zone_list):
+    """What the table's dropdown offers: every zone, and "wherever it is drawn".
+
+    The combined copy is not offered. It is the fallback for a drawing that has
+    no specific zones, and pointing an element at it while specific zones exist
+    would ask for the copy that is deliberately not built.
+    """
+    names = [zone.layer for zone in (zone_list or ())
+             if not is_combine(zone.layer)]
+    seen, ordered = set(), []
+    for name in names:
+        if name not in seen:
+            seen.add(name)
+            ordered.append(name)
+    return ordered + [ANY_ZONE]
+
+
+def claims_from_elements(element_zones):
+    """{zone layer: (categories)} -- the table's answer, turned back round.
+
+    The table asks per ELEMENT ("where do beams come from?"); the fold works per
+    ZONE ("what does this box hold?"). This is the one place the two meet.
+    """
+    claims = {}
+    for category, layer in (element_zones or {}).items():
+        if not layer or str(layer) == ANY_ZONE:
+            continue
+        claims.setdefault(layer, [])
+        if category not in claims[layer]:
+            claims[layer].append(category)
+    return dict((layer, tuple(categories))
+                for layer, categories in claims.items())
 
 
 class Zone(object):
@@ -318,7 +371,8 @@ def _cells(zone_list, storeys, markers=()):
 
 
 def merge_zones(records, texts=None, hatches=None, storey_layer=None,
-                mapping=None, marker_records=None, origin_layer=None):
+                mapping=None, marker_records=None, origin_layer=None,
+                element_zones=None):
     """(records, texts, hatches, notes) with every zone folded onto one plan.
 
     This runs BEFORE `split_floors` and hands it a drawing shaped exactly like
@@ -344,6 +398,9 @@ def merge_zones(records, texts=None, hatches=None, storey_layer=None,
     """
     markers_from = marker_records if marker_records is not None else records
     zone_list = zones(markers_from, storey_layer, origin_layer)
+    if element_zones:
+        # the dialog answers per element; the fold asks per zone
+        mapping = claims_from_elements(element_zones)
     if not zone_list:
         return list(records or ()), list(texts or ()), list(hatches or ()), []
 
@@ -361,7 +418,8 @@ def merge_zones(records, texts=None, hatches=None, storey_layer=None,
         # combined copy: "nothing" is an answer, and a zone that claims no
         # category must not have its contents fall through as strays.
         skipped_zones = [cell for cell in group
-                         if _claimed_by(cell.layer, mapping) == ()]
+                         if not is_combine(cell.layer)
+                         and _claimed_by(cell.layer, mapping) == ()]
         for cell in skipped_zones:
             notes.append("zone '{0}' is set to build nothing, so its contents "
                          "were left out".format(cell.layer))
@@ -521,18 +579,18 @@ def _without_combine(group, notes):
 def _claimed_by(layer, mapping):
     """The categories this zone takes: the dialog's answer, else the name's.
 
-    The dialog answers with a GROUP NAME ("grids + columns"), because that is
-    what its table offers; a caller may also hand a category list straight in.
-    An empty list is a real answer -- "skip this zone" -- and is kept apart from
-    None, which means "everything in it".
+    `mapping` is {zone layer: categories}, which is what the dialog's per-element
+    table comes to through `claims_from_elements`. An empty tuple is a real
+    answer -- this zone holds nothing the build wants -- and is kept apart from
+    None, which means everything in it.
     """
     if mapping:
         for key, answer in mapping.items():
             if str(key).strip().lower() != str(layer).strip().lower():
                 continue
-            if answer is None:
-                return None
-            if isinstance(answer, str):
-                return categories_for(answer)
-            return tuple(answer)
+            return None if answer is None else tuple(answer)
+        # A zone the table names NOTHING for holds nothing the build wants: the
+        # user pointed every element somewhere else. Its contents are turned
+        # away by the same rule a stray column in the wall zone is.
+        return ()
     return default_categories(layer)

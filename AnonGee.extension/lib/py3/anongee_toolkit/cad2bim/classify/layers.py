@@ -138,6 +138,19 @@ ALL_CATEGORIES = (
     CATEGORY_UNMAPPED,
 )
 
+# What the LAYERS TAB offers on each row. The owner (FEAT-19): "we don't require
+# `floor boundary` and `floor origin` on layer mapping so i want all the origin
+# and boundary thing to be on multi storey tab only then."
+#
+# He is right, and it was the same setting asked twice: the Multi-storey tab
+# names those two layers directly, and its answer is stamped onto the records
+# AFTER this table is applied -- so an entry here could only agree with that
+# picker or be silently overruled by it. The categories themselves stay: they
+# are what `split_floors`, `zone_plan` and the auto-detection read.
+MAPPABLE_CATEGORIES = tuple(
+    category for category in ALL_CATEGORIES
+    if category not in (CATEGORY_FLOOR_BOUNDARY, CATEGORY_FLOOR_ORIGIN))
+
 # Text/label layers carry the size marks (e.g. "S-COLS-IDEN", "S-BEAM-IDEN").
 # They are routed separately from geometry: a column-text label refines/merges
 # columns, a beam-text label refines beams. The geometry exclusion of "iden"

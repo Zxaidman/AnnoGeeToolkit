@@ -301,7 +301,8 @@ class CadToBimWindow(object):
                  default_hatch_mapping=None, hatch_notes=None,
                  hatch_row_patterns=None, hatch_step_depths=None,
                  wall_type_options=None, blanket_note=None,
-                 zone_layer_rows=None, default_zone_mapping=None):
+                 zone_element_rows=None, zone_choices=None,
+                 suggested_element_zones=None):
         self.result = None
         self._spreading = False
         self._combos = []
@@ -340,15 +341,19 @@ class CadToBimWindow(object):
                          row_patterns=hatch_row_patterns,
                          depth_store=self._hatch_depth_boxes)
 
-        # FEAT-17: one row per boundary ZONE, saying what that zone holds. The
-        # same builder as the three mapping tables, so it selects and spreads
-        # the same way (FEAT-13) and a sheet with eight zones is eight clicks,
-        # not eight trips. Empty on an ordinary drawing, and it says so.
-        self._build_rows(find("zone_rows"), zone_layer_rows or [],
-                         zone_plan.group_names(), default_zone_mapping or {},
+        # FEAT-17: one row per ELEMENT, saying which boundary zone it is read
+        # from. The owner asked for it this way round -- "only do the beam, slab
+        # and stair separately [...] because sometimes user can also separate
+        # those in each boundaries" -- so a drawing that splits beams from slabs
+        # says so on two rows and one that keeps them together points both at
+        # the same zone. The same builder as the three mapping tables, so it
+        # selects and spreads the same way (FEAT-13). Empty on an ordinary
+        # drawing, and it says so rather than showing a blank box.
+        self._build_rows(find("zone_rows"), zone_element_rows or [],
+                         zone_choices or [], suggested_element_zones or {},
                          self._zone_combos)
         find("zone_note").Text = (
-            "" if zone_layer_rows else
+            "" if zone_element_rows else
             "This drawing has no zone layers -- nothing here to set. Every "
             "element is read from the plan as a whole, exactly as before.")
 
@@ -1148,10 +1153,10 @@ class CadToBimWindow(object):
             for layer, combo in self._text_combos:
                 text_mapping[layer] = (combo.SelectedItem
                                        or layers.CATEGORY_TEXT_IGNORE)
+        # {element category: the zone it is read from}
         zone_mapping = {}
-        for layer, combo in self._zone_combos:
-            zone_mapping[layer] = (combo.SelectedItem
-                                   or zone_plan.GROUP_EVERYTHING)
+        for category, combo in self._zone_combos:
+            zone_mapping[category] = (combo.SelectedItem or zone_plan.ANY_ZONE)
         if hatch_mapping is None:
             hatch_mapping = {}
             for layer, combo in self._hatch_combos:

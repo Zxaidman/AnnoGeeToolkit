@@ -602,26 +602,34 @@ def main():
                  "beam depth" if key == "beam_depth_mm" else "slab thickness",
                  ", ".join("{0:g}mm".format(v) for v in values)))
 
-    # FEAT-17: the boundary ZONES this drawing carries, one row per zone layer
-    # for the Multi-storey tab's table. Read off the layer NAMES, because this
-    # runs before any mapping exists -- and the storey boundary is left out of
-    # the list, since it is the box that holds the zones rather than one of them.
-    zone_layer_rows = []
-    default_zone_mapping = {}
-    storey_layer = getattr(storey_detection, "boundary_layer", None)
-    zone_counts = {}
-    for record in dxf_result.records:
-        name = record.layer_key
-        if zone_plan.is_zone_layer(name, storey_layer):
-            zone_counts[name] = zone_counts.get(name, 0) + 1
-    for name in sorted(zone_counts):
-        zone_layer_rows.append((name, zone_counts[name]))
-        default_zone_mapping[name] = zone_plan.default_group(name)
-    if zone_layer_rows:
+    # FEAT-17: what each ELEMENT is read from, for the Multi-storey tab's table.
+    # Suggested by counting which zone box actually holds each category -- the
+    # drawing's own answer, which beats reading the zone names: it gets a
+    # `Stair-boundary` right, and an office that names its boxes in another
+    # language too.
+    zone_boxes = zone_plan.zones(dxf_result.records,
+                                 getattr(storey_detection, "boundary_layer",
+                                         None),
+                                 getattr(storey_detection, "origin_layer",
+                                         None))
+    zone_element_rows = []
+    zone_choices = []
+    suggested_element_zones = {}
+    if zone_boxes:
+        zone_choices = zone_plan.zone_choices(zone_boxes)
+        suggested_element_zones = zone_plan.suggest_element_zones(
+            dxf_result.records, zone_boxes)
+        counts = {}
+        for record in dxf_result.records:
+            counts[record.category] = counts.get(record.category, 0) + 1
+        zone_element_rows = [(category, counts.get(category, 0))
+                             for category in zone_plan.ZONED_CATEGORIES]
         _say("Boundary zones: {0} found -- {1}".format(
-            len(zone_layer_rows),
-            ", ".join("{0} ({1})".format(name, count)
-                      for name, count in zone_layer_rows)))
+            len(zone_boxes), ", ".join(zone_choices[:-1])))
+        for category in zone_plan.ZONED_CATEGORIES:
+            if counts.get(category):
+                _say("  {0}: read from {1}".format(
+                    category, suggested_element_zones.get(category)))
 
     # The dialog can hand the view back so the user DRAWS the stair outlines:
     # it closes, the outlines are picked in the model, and it reopens with every
@@ -631,7 +639,7 @@ def main():
     _close_progress()          # the read is done: the dialog is the user's turn
     while True:
         window = CadToBimWindow(dxf_result.source_name, layer_rows,
-                                list(layers.ALL_CATEGORIES), default_mapping,
+                                list(layers.MAPPABLE_CATEGORIES), default_mapping,
                                 column_symbols, level_options, beam_symbols,
                                 floor_type_options,
                                 text_layer_rows, list(layers.TEXT_CATEGORIES),
@@ -651,8 +659,9 @@ def main():
                                     layers.HATCH_CATEGORIES),
                                 default_hatch_mapping=default_hatch_mapping,
                                 hatch_notes=legend_notes,
-                                zone_layer_rows=zone_layer_rows,
-                                default_zone_mapping=default_zone_mapping,
+                                zone_element_rows=zone_element_rows,
+                                zone_choices=zone_choices,
+                                suggested_element_zones=suggested_element_zones,
                                 hatch_row_patterns=hatch_row_patterns,
                                 hatch_step_depths=hatch_step_depths,
                                 blanket_note=blanket_note)
@@ -852,14 +861,14 @@ def _fold_zones(revit_result, dxf_result, selections):
     found = zone_plan.zones(dxf_result.records, storey_layer, origin_layer)
     if not found:
         return
-    mapping = selections.get("zone_mapping")
+    element_zones = selections.get("zone_mapping")
     records, texts, hatches, notes = zone_plan.merge_zones(
         revit_result.records, dxf_result.texts, dxf_result.regions,
-        storey_layer=storey_layer, mapping=mapping,
+        storey_layer=storey_layer, element_zones=element_zones,
         marker_records=dxf_result.records, origin_layer=origin_layer)
     dxf_records, _t, _h, _n = zone_plan.merge_zones(
-        dxf_result.records, storey_layer=storey_layer, mapping=mapping,
-        origin_layer=origin_layer)
+        dxf_result.records, storey_layer=storey_layer,
+        element_zones=element_zones, origin_layer=origin_layer)
     revit_result.records = records
     dxf_result.records = dxf_records
     dxf_result.texts = texts
