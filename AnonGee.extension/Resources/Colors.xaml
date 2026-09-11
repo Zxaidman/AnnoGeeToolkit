@@ -106,39 +106,62 @@
     <SolidColorBrush x:Key="BrushTableRowSelectedBorder" Color="{StaticResource ColorVividRed}"/>
 
     <!-- ═══ Dark Surface Palette ═══ -->
-    <!-- Added v3.3. The light palette above is the default and is unchanged.
-         These tokens exist for one situation only: UI that is embedded inside
-         Revit's own chrome — dockable panes. See brand guidelines §3.8 for
-         when a surface is dark and when it is not. Every ratio below is
-         computed, not eyeballed; the table is in §10.1. -->
+    <!-- Added v3.3, re-based on Revit's own grey in v3.4. The light palette
+         above is the default and is unchanged. These tokens exist for one
+         situation only: UI embedded inside Revit's chrome — dockable panes.
+         See brand guidelines §3.8 for when a surface is dark and when it is
+         not. Every ratio below is computed, not eyeballed; the table is in
+         §10.1 and tests/test_filterpane_ui.py recomputes it from this file.
 
-    <!-- Surface ramp, stepped up from Charcoal Black so a dark AnonGee panel
-         still reads as ours beside Revit's grey. -->
-    <Color x:Key="ColorDarkCanvas">#FF1B1B1E</Color>
-    <Color x:Key="ColorDarkSurface">#FF232327</Color>
-    <Color x:Key="ColorDarkSurfaceHover">#FF2E2E34</Color>
-    <Color x:Key="ColorDarkSurfacePressed">#FF3A3A42</Color>
+         WHY THIS IS GREY AND NOT NEAR-BLACK
+         v3.3 used #1B1B1E, reasoning from the brand's Charcoal. In Revit it
+         read as a hole: the pane docks in the same column as the Properties
+         palette and the Project Browser, both of which sit at Revit's own
+         panel grey, and a near-black slab between them looks like a control
+         that failed to paint rather than a darker one. Matching the host is
+         the point of a dark embedded surface. -->
+
+    <!-- Surface ramp. The canvas matches Revit 2025's dark palette background;
+         raised faces step UP from it, monotonically, so hover always reads as
+         lighter than rest and pressed as lighter than hover. -->
+    <Color x:Key="ColorDarkCanvas">#FF383838</Color>
+    <Color x:Key="ColorDarkSurface">#FF434347</Color>
+    <Color x:Key="ColorDarkSurfaceHover">#FF4E4E55</Color>
+    <Color x:Key="ColorDarkSurfacePressed">#FF5A5A63</Color>
 
     <!-- Two borders, and the difference matters. DarkBorder is decorative
          (dividers, rules) and is deliberately quiet. DarkBorderStrong is the
          boundary of an INTERACTIVE control and clears WCAG 2.1 1.4.11's 3:1
-         against both dark surfaces — 3.51:1 on canvas, 3.19:1 on surface. -->
-    <Color x:Key="ColorDarkBorder">#FF34343C</Color>
-    <Color x:Key="ColorDarkBorderStrong">#FF6F707C</Color>
+         against all three surfaces — 4.55:1 on canvas, 3.82:1 on surface,
+         3.20:1 on hover, which is the tightest of the three and why it is
+         this light. -->
+    <Color x:Key="ColorDarkBorder">#FF4A4A4E</Color>
+    <Color x:Key="ColorDarkBorderStrong">#FF9EA1AB</Color>
 
-    <!-- Text. Silver Steel is already the brand's on-dark secondary (10.96:1
-         on Charcoal, §10.1), so it is reused rather than replaced. -->
+    <!-- Text. -->
     <Color x:Key="ColorDarkTextPrimary">#FFF2F3F5</Color>
-    <Color x:Key="ColorDarkTextMuted">#FF9AA2B3</Color>
-    <Color x:Key="ColorDarkDisabled">#FF767E8E</Color>
+    <Color x:Key="ColorDarkTextMuted">#FFB4BBC8</Color>
+    <Color x:Key="ColorDarkDisabled">#FF8A8D96</Color>
 
-    <!-- Semantic colors lifted for dark. The light-surface values are too dark
-         to read on #1B1B1E — Error Red is 2.3:1 there and fails outright. Hue
-         is preserved so the meaning does not move; only lightness changes. -->
+    <!-- Vivid Red, lifted for dark. This is NOT a second brand colour: it is
+         the accent and border use only, and it exists because the grey canvas
+         forced it. Vivid Red is 2.46:1 on #383838 — under 1.4.11's 3:1, so an
+         outlined button drawn with it has no legal boundary at all. The lifted
+         one is 3.90:1 on canvas and 3.28:1 on a raised face.
+
+         Vivid Red PROPER is unchanged and still correct wherever it is a FILL
+         behind white text: white-on-red is 4.78:1 whatever is behind the
+         button. So: fills stay ColorVividRed, accents and borders take this. -->
+    <Color x:Key="ColorVividRedOnDark">#FFFF5F4C</Color>
+
+    <!-- Semantic colours lifted for dark. Hue is preserved so the meaning does
+         not move; only lightness changes. Error and Info are lighter than v3.3
+         used, because the grey canvas is a smaller step from the light
+         originals and 3.3's values no longer cleared AA on a raised face. -->
     <Color x:Key="ColorSuccessGreenOnDark">#FF4ADE80</Color>
     <Color x:Key="ColorCautionAmberOnDark">#FFFBBF24</Color>
-    <Color x:Key="ColorErrorRedOnDark">#FFF87171</Color>
-    <Color x:Key="ColorInfoBlueOnDark">#FF60A5FA</Color>
+    <Color x:Key="ColorErrorRedOnDark">#FFFF9A93</Color>
+    <Color x:Key="ColorInfoBlueOnDark">#FF8FC1FF</Color>
 
     <!-- Dark surface brushes -->
     <SolidColorBrush x:Key="BrushDarkCanvas"          Color="{StaticResource ColorDarkCanvas}"/>
@@ -151,6 +174,7 @@
     <SolidColorBrush x:Key="BrushDarkTextSecondary"   Color="{StaticResource ColorSilverSteel}"/>
     <SolidColorBrush x:Key="BrushDarkTextMuted"       Color="{StaticResource ColorDarkTextMuted}"/>
     <SolidColorBrush x:Key="BrushDarkDisabled"        Color="{StaticResource ColorDarkDisabled}"/>
+    <SolidColorBrush x:Key="BrushVividRedOnDark"      Color="{StaticResource ColorVividRedOnDark}"/>
     <SolidColorBrush x:Key="BrushSuccessGreenOnDark"  Color="{StaticResource ColorSuccessGreenOnDark}"/>
     <SolidColorBrush x:Key="BrushCautionAmberOnDark"  Color="{StaticResource ColorCautionAmberOnDark}"/>
     <SolidColorBrush x:Key="BrushErrorRedOnDark"      Color="{StaticResource ColorErrorRedOnDark}"/>

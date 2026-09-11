@@ -355,12 +355,33 @@ docked to the right eating the width, and clipped the second rule off the edge
 behind a *horizontal* scrollbar. One control was doing neither shape.
 
 0.3.0 decides the orientation from the pane's own measured size, in
-`FilterViewPane._layout`, and applies it to four things at once: which edge the
+`FilterViewPane._layout`, and applies it to five things at once: which edge the
 actions dock to, which way the two stacks run, which single scrollbar is live,
-and how each rule chip is aligned and margined. There is still **one element
-tree** — only its properties move — so the two shapes cannot drift apart the
-way two layouts would. The work is gated on the orientation actually flipping,
-because `SizeChanged` fires on every pixel of a drag.
+whether the chip container gives up its own alignment, and how each chip is
+aligned and margined. There is still **one element tree** — only its properties
+move — so the two shapes cannot drift apart the way two layouts would. The work
+is gated on the orientation actually flipping, because `SizeChanged` fires on
+every pixel of a drag.
+
+### 7.4 Where the panel's thinking lives
+
+`provider.py` imports `clr` at module scope, so it cannot be imported on any
+machine that runs the suite. A rule that lives in it can only ever be checked by
+reading its source text; a rule that lives beside it can be **run**.
+
+`tests/test_filterrules.py` holds that line with a ceiling — no Revit-coupled
+module may carry more logic, counted in statements, than the largest tested one.
+`provider.py` crossed it in 0.4.0, and the honest answer to crossing it is to
+move the thinking out rather than raise the bar. So:
+
+| Module | Holds | Testable |
+| --- | --- | --- |
+| `anongee_filterpane/layout.py` | Which orientation a size implies, how far a wheel notch goes, which brush a status tone takes, the chip style key | **Yes** — imported and run |
+| `anongee_filterpane/provider.py` | `IDockablePaneProvider`, the `ExternalEvent`, XAML loading, WPF property assignment | No — checked by AST |
+| `anongee_filterpane/__init__.py` | The GUID, the startup record, `register()` | **Yes** — deliberately Revit-free |
+
+The split is not tidiness. It is the difference between a layout rule that is
+asserted about and one that is exercised.
 
 ---
 

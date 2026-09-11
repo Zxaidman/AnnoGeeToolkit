@@ -318,6 +318,89 @@ class XamlTests(unittest.TestCase):
                           "{0} is not in the sanctioned theme".format(key))
 
 
+class RuleSelectionTests(unittest.TestCase):
+    """Ctrl+click, Shift+click and the tick that reports them."""
+
+    def _rule_list(self):
+        for element in _tree().iter():
+            if element.get(_X + "Name") == "RuleList":
+                return element
+        self.fail("RuleList is not in the XAML")
+
+    def test_the_saved_rules_list_takes_a_multiple_selection(self):
+        """``Extended`` is the whole of Ctrl+click and Shift+click -- WPF does
+        both natively -- and is the mode cad2bim's layer mapping already uses,
+        so the two tools behave the same way under the same gesture."""
+        self.assertEqual(self._rule_list().get("SelectionMode"), "Extended")
+
+    def test_the_rows_stretch_so_the_tick_column_lines_up(self):
+        """Left-aligned rows make a ragged column of checkboxes, and the ones
+        beside a short rule name sit nowhere near the ones beside a long."""
+        self.assertEqual(self._rule_list().get("HorizontalContentAlignment"),
+                         "Stretch")
+
+    def test_the_tick_reports_the_selection_rather_than_being_a_second_one(self):
+        """§12.7.Q. A Python bool does not coerce for ``IsChecked``, so the
+        binding goes to the native container's own ``IsSelected``; and it is
+        one-way and not hit-testable, so clicking the box selects the row
+        exactly as clicking the name does. Two independent notions of
+        "chosen" in one list is the bug this avoids.
+        """
+        for element in _tree().iter():
+            if _tag(element) != "CheckBox":
+                continue
+            checked = element.get("IsChecked") or ""
+            if "IsSelected" not in checked:
+                continue
+            self.assertIn("RelativeSource", checked)
+            self.assertIn("Mode=OneWay", checked)
+            self.assertEqual(element.get("IsHitTestVisible"), "False")
+            return
+        self.fail("no checkbox is bound to its row's IsSelected")
+
+    def test_the_list_offers_all_four_places_to_move_a_rule(self):
+        """One place at a time is fine for two rules and useless for thirty."""
+        names = set(window_names())
+        for name in ("MoveUpBtn", "MoveDownBtn", "MoveTopBtn", "MoveBottomBtn"):
+            self.assertIn(name, names)
+
+    def test_the_editor_does_not_load_a_rule_when_several_are_selected(self):
+        """There is one editor and it cannot show two rules. Loading the last
+        one clicked would silently discard whatever was being edited."""
+        self.assertIn("SelectedItems.Count != 1", _read(_SCRIPT))
+
+    def test_moving_keeps_the_block_selected(self):
+        """A move rewrites the list, which drops the selection. Without the
+        memo the block you just moved is deselected and the second press does
+        nothing -- which reads as the button being broken."""
+        source = _read(_SCRIPT)
+        self.assertIn("_keep_selected", source)
+        # Scoped to _rebuild_rules: the category list re-ticks itself the same
+        # way, so an unscoped search is green whatever this function does.
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.FunctionDef) and node.name == "_rebuild_rules":
+                body = ast.get_source_segment(source, node) or ""
+                self.assertIn("_keep_selected", body)
+                self.assertIn("SelectedItems.Add(row)", body)
+                return
+        self.fail("_rebuild_rules is not in script.py")
+
+    def test_the_bulk_actions_go_through_the_tested_block_move(self):
+        """``move`` one at a time reverses a selection going up and collapses
+        it going down. The block move is in ``RuleSet.reorder``, where it can
+        be tested without a window."""
+        tree = ast.parse(_read(_SCRIPT))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name == "_move":
+                body = ast.get_source_segment(_read(_SCRIPT), node) or ""
+                self.assertIn("rule_set.reorder(", body)
+                return
+        self.fail("_move is not in script.py")
+
+    def test_delete_removes_the_whole_selection_in_one_go(self):
+        self.assertIn("remove_many(", _read(_SCRIPT))
+
+
 class ScriptWiringTests(unittest.TestCase):
 
     def test_every_looked_up_control_exists_in_the_xaml(self):

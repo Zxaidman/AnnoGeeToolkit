@@ -679,32 +679,54 @@
                                    Style="{StaticResource TextCaption}" VerticalAlignment="Center"/>
                     </Grid>
 
+                    <!-- SelectionMode="Extended" is the whole of Ctrl+click and
+                         Shift+click: WPF does both natively once the mode is
+                         right, and the same mode is what cad2bim's layer
+                         mapping uses. The tick is a REPORT of selection, not a
+                         second way to make one - it is bound one-way to the
+                         row's own IsSelected and is not hit-testable, so
+                         clicking it selects the row exactly as clicking the
+                         name does (section 12.7.Q: a Python bool does not
+                         coerce for a checkbox, so the binding has to go to the
+                         native container). -->
                     <ListBox Grid.Row="1" x:Name="RuleList"
                              Background="{StaticResource BrushPureWhite}"
                              BorderBrush="{StaticResource BrushLightBorder}" BorderThickness="1"
+                             SelectionMode="Extended"
+                             HorizontalContentAlignment="Stretch"
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                             ToolTip="Your saved rules. Select one to load it into the editor, then press Apply to isolate what it matches.">
+                             ToolTip="Your saved rules. Click one to load it into the editor. Ctrl+click adds to the selection and Shift+click takes a run of them - Duplicate, Delete and the four Move buttons act on everything ticked.">
                         <ListBox.ItemTemplate>
                             <DataTemplate>
-                                <StackPanel Margin="0,2">
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="Auto"/>
-                                        </Grid.ColumnDefinitions>
-                                        <TextBlock Grid.Column="0" Text="{Binding Name}"
-                                                   FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-                                        <Border Grid.Column="1" Background="{StaticResource BrushInfoBadgeBackground}"
-                                                CornerRadius="3" Padding="6,1" Margin="6,0,0,0">
-                                            <TextBlock Text="{Binding Badge}"
-                                                       FontFamily="{StaticResource FontMono}"
-                                                       FontSize="{StaticResource FontSizeCaption}"
-                                                       Foreground="{StaticResource BrushInfoBadgeText}"/>
-                                        </Border>
-                                    </Grid>
-                                    <TextBlock Text="{Binding Summary}" Style="{StaticResource TextCaption}"
-                                               TextTrimming="CharacterEllipsis"/>
-                                </StackPanel>
+                                <Grid Margin="0,2">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <CheckBox Grid.Column="0" Style="{StaticResource GridCheckBox}"
+                                              IsHitTestVisible="False"
+                                              IsChecked="{Binding IsSelected, Mode=OneWay, RelativeSource={RelativeSource AncestorType=ListBoxItem}}"
+                                              VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                    <StackPanel Grid.Column="1">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="{Binding Name}"
+                                                       FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                            <Border Grid.Column="1" Background="{StaticResource BrushInfoBadgeBackground}"
+                                                    CornerRadius="3" Padding="6,1" Margin="6,0,0,0">
+                                                <TextBlock Text="{Binding Badge}"
+                                                           FontFamily="{StaticResource FontMono}"
+                                                           FontSize="{StaticResource FontSizeCaption}"
+                                                           Foreground="{StaticResource BrushInfoBadgeText}"/>
+                                            </Border>
+                                        </Grid>
+                                        <TextBlock Text="{Binding Summary}" Style="{StaticResource TextCaption}"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                    </StackPanel>
+                                </Grid>
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
@@ -721,7 +743,7 @@
                                     ToolTip="Clear the editor and start a new rule. Nothing is saved until you press Save rule."/>
                             <Button Grid.Column="2" x:Name="DuplicateRuleBtn" Content="Duplicate"
                                     Style="{StaticResource ButtonNeutral}"
-                                    ToolTip="Copy the selected rule under a new name, so you can change one thing without losing the original."/>
+                                    ToolTip="Copy everything selected under new names, so you can change one thing without losing the original."/>
                         </Grid>
                         <Grid Margin="0,0,0,6">
                             <Grid.ColumnDefinitions>
@@ -731,14 +753,27 @@
                             </Grid.ColumnDefinitions>
                             <Button Grid.Column="0" x:Name="MoveUpBtn" Content="Move up"
                                     Style="{StaticResource ButtonNeutral}"
-                                    ToolTip="Move the selected rule up. The order here is the order the dockable panel will draw its buttons in."/>
+                                    ToolTip="Move everything selected up one place. The order here is the order the dockable panel draws its buttons in."/>
                             <Button Grid.Column="2" x:Name="MoveDownBtn" Content="Move down"
                                     Style="{StaticResource ButtonNeutral}"
-                                    ToolTip="Move the selected rule down."/>
+                                    ToolTip="Move everything selected down one place."/>
+                        </Grid>
+                        <Grid Margin="0,0,0,6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="6"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Button Grid.Column="0" x:Name="MoveTopBtn" Content="To top"
+                                    Style="{StaticResource ButtonNeutral}"
+                                    ToolTip="Send everything selected straight to the top of the list, in one step, keeping the order it is in."/>
+                            <Button Grid.Column="2" x:Name="MoveBottomBtn" Content="To bottom"
+                                    Style="{StaticResource ButtonNeutral}"
+                                    ToolTip="Send everything selected straight to the bottom of the list, keeping the order it is in."/>
                         </Grid>
                         <Button x:Name="DeleteRuleBtn" Content="Delete rule"
                                 Style="{StaticResource ButtonGhost}"
-                                ToolTip="Delete the selected rule. You are asked to confirm first, and only this rule is removed."/>
+                                ToolTip="Delete everything selected. You are asked to confirm first, and it says how many. Nothing in the model changes."/>
                     </StackPanel>
                 </Grid>
             </Border>

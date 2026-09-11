@@ -38,6 +38,17 @@ tooltip: |
     • A rule whose type this project does not have is greyed and says what it
       could not find. It is never deleted or rewritten.
 
+  Choosing rules
+    • Click a rule to load it into the editor.
+    • Ctrl+click adds to the selection; Shift+click takes a run of them —
+      the same gestures as cad2bim's layer mapping. The tick on the left
+      shows what is selected; it is a report, not a second switch.
+    • Duplicate, Delete and the four Move buttons act on EVERYTHING
+      selected. Move up/down shift the block one place; To top and To
+      bottom send it straight to either end, keeping its own order.
+    • The editor holds one rule, so it loads only when exactly one is
+      selected — picking several never discards what you were editing.
+
   Buttons
     Count   how many elements match, changing nothing
     Select  push the matches into Revit's selection
@@ -56,8 +67,11 @@ tooltip: |
     • Press Panel to show it. It docks under the ribbon as a strip of rule
       buttons, and can be dragged to either edge like Properties. It does
       NOT appear on its own when Revit starts.
-    • It follows the dark surface palette, because it sits inside Revit's
-      own chrome beside Properties and the Project Browser.
+    • It follows the dark surface palette — Revit's OWN grey, so it sits
+      beside Properties and the Project Browser rather than punching a
+      hole between them.
+    • The mouse wheel scrolls whichever way the rules run: sideways in a
+      top or bottom dock, down the column at either edge.
     • Docked top or bottom the rules run across and scroll sideways; docked
       left or right they stack and scroll down. It changes shape with the
       dock, so a long list is reachable either way.
@@ -69,4 +83,4 @@ tooltip: |
       the rules file and the panel reads it, and they run on different
       Python engines that share a folder rather than a module.
 
-  Version: 0.3.0
+  Version: 0.4.0
