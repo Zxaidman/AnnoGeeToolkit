@@ -807,6 +807,26 @@
                             <TextBox x:Name="RuleNameBox" Style="{StaticResource InputTextBox}" Margin="0,0,0,12"
                                      ToolTip="What the button will be called. This is the only thing you will see on the dockable panel, so name it for what it shows."/>
 
+                            <!-- A choice between two named places, not an on/off,
+                                 so radios (section 9.4) rather than the toggle
+                                 switch (section 9.9). Changing it and pressing
+                                 Save MOVES the rule: written to one store and
+                                 removed from the other. -->
+                            <TextBlock Text="Saved in" Style="{StaticResource FieldLabel}" Margin="0,0,0,4"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                <RadioButton x:Name="StoreMachineRadio" Content="This workstation"
+                                             GroupName="RuleStore"
+                                             Style="{StaticResource TabRadio}" IsChecked="True"
+                                             ToolTip="Your AppData. The rule follows YOU into every project on this machine, and survives a Revit restart."/>
+                                <RadioButton x:Name="StoreProjectRadio" Content="This project"
+                                             GroupName="RuleStore"
+                                             Style="{StaticResource TabRadio}" Margin="6,0,0,0"
+                                             ToolTip="A file beside the model, in an AnonGee folder. The rule travels with the MODEL, so anyone opening it gets the same rule."/>
+                            </StackPanel>
+                            <TextBlock x:Name="StoreHint" Style="{StaticResource TextCaption}" Margin="0,0,0,12"
+                                       TextWrapping="Wrap"
+                                       Text="Rules here follow you into the next project."/>
+
                             <Grid Margin="0,0,0,4">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto"/>

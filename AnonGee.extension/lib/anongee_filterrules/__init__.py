@@ -67,7 +67,10 @@ start.
 #: something it could not do before and every saved rule is untouched.
 #: 0.4.0 re-bases that dark on Revit's own grey and adds multiple
 #: selection to the saved rules -- MINOR again, for the same two reasons.
-VERSION = "0.4.1"
+#: 0.5.0 finishes the project store: a rule can be saved beside the MODEL
+#: rather than in AppData, and moved between the two. MINOR -- every rule
+#: already saved stays exactly where it is and keeps working.
+VERSION = "0.5.0"
 
 #: The pure half is imported freely. ``compat``, ``revit_query`` and
 #: ``revit_apply`` are NOT listed: they import ``Autodesk.Revit.DB`` at

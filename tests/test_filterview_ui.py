@@ -337,6 +337,89 @@ def methods_assigning(attribute):
     return found
 
 
+class RuleStoreTests(unittest.TestCase):
+    """FEAT-14 -- a rule can live beside the model, and can move there."""
+
+    def _radios(self):
+        found = {}
+        for element in _tree().iter():
+            name = element.get(_X + "Name") or ""
+            if name.startswith("Store") and _tag(element) == "RadioButton":
+                found[name] = element
+        return found
+
+    def test_the_editor_offers_both_stores(self):
+        self.assertEqual(sorted(self._radios()),
+                         ["StoreMachineRadio", "StoreProjectRadio"])
+
+    def test_the_two_stores_are_one_choice_and_not_two_switches(self):
+        """Without a shared GroupName both can be on at once, and a rule would
+        be marked for two files."""
+        groups = set(radio.get("GroupName") for radio in self._radios().values())
+        self.assertEqual(len(groups), 1, "the store radios are not one group")
+        self.assertNotIn(None, groups)
+
+    def test_it_is_radios_and_not_the_toggle_switch(self):
+        """§9.9 reserves the toggle for a binary on/off. This is a choice
+        between two NAMED places, and a toggle cannot label either side."""
+        for radio in self._radios().values():
+            self.assertNotEqual(radio.get("Style"),
+                                "{StaticResource ToggleSwitch}")
+
+    def test_a_saved_rule_carries_the_store_it_was_marked_for(self):
+        """``current_rule()`` is what Save writes. Without the source on it the
+        rule is written wherever the default happens to land, and the radio is
+        decoration."""
+        source = _read(_SCRIPT)
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.FunctionDef) and node.name == "current_rule":
+                body = ast.get_source_segment(source, node) or ""
+                self.assertIn("source=", body)
+                return
+        self.fail("current_rule is not in script.py")
+
+    def test_saving_writes_both_stores(self):
+        """A move is a write to BOTH files -- added to one, gone from the
+        other. Writing only the store a rule arrived in leaves the old copy on
+        disk and the next load shows it twice."""
+        source = _read(_SCRIPT)
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.FunctionDef) and node.name == "_write":
+                body = ast.get_source_segment(source, node) or ""
+                self.assertIn("store.save_all(", body)
+                return
+        self.fail("_write is not in script.py")
+
+    def test_the_store_is_asked_for_rather_than_read_off_the_radio(self):
+        """An unsaved model has no folder, so a rule can never be marked for a
+        project file that does not exist."""
+        self.assertIn("store.destination(", _read(_SCRIPT))
+
+    def test_loading_a_rule_points_the_radios_at_where_it_came_from(self):
+        source = _read(_SCRIPT)
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.FunctionDef) and node.name == "_on_rule_selected":
+                body = ast.get_source_segment(source, node) or ""
+                self.assertIn("_show_store(rule.source)", body)
+                return
+        self.fail("_on_rule_selected is not in script.py")
+
+    def test_the_disabled_store_says_why_it_is_disabled(self):
+        """§8.2 and §10.3 -- a greyed control with no sentence beside it reads
+        as the tool being broken rather than as the model needing a save."""
+        source = _read(_SCRIPT)
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.FunctionDef) and node.name == "_show_store_hint":
+                body = ast.get_source_segment(source, node) or ""
+                self.assertIn("StoreProjectRadio.IsEnabled", body)
+                self.assertIn("never been saved", body)
+                return
+        self.fail("_show_store_hint is not in script.py")
+
+    def test_the_hint_is_bound_and_shown(self):
+        self.assertIn("StoreHint", window_names())
+
+
 class CascadeTests(unittest.TestCase):
     """BUG-13 -- what the editor shows must follow what is picked.
 

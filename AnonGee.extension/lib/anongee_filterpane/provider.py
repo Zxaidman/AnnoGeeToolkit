@@ -105,6 +105,10 @@ class IsolateHandler(IExternalEventHandler):
         self.rule = None
         self.action = "apply"
         self.report = None
+        #: Called with the model's project-store path on every run. The pane
+        #: has no document of its own, so this is the only moment it can learn
+        #: where the model keeps its rules -- see FilterViewPane.on_paths.
+        self.on_paths = None
 
     def Execute(self, uiapp):
         try:
@@ -121,6 +125,11 @@ class IsolateHandler(IExternalEventHandler):
             return
         doc = uidoc.Document
         view = doc.ActiveView
+        self._tell_paths(doc)
+
+        if self.action == "refresh":
+            # Nothing to do in the model: the point of the trip was the path.
+            return
 
         if self.action == "clear":
             ok, message = revit_apply.clear(doc, view)
@@ -139,6 +148,21 @@ class IsolateHandler(IExternalEventHandler):
         count, message = revit_apply.isolate(doc, view, matched)
         self._say(message or "{0}: {1} element(s) isolated".format(
             self.rule.name, count), "ok" if count else "error")
+
+    def _tell_paths(self, doc):
+        """Hand the pane the model's project-store path.
+
+        A dockable pane is not a command and never sees a document, so it
+        cannot work out where THIS model keeps its rules. Every trip through
+        the external event has one, so every trip carries the answer back.
+        """
+        if self.on_paths is None:
+            return
+        try:
+            from anongee_filterrules import store
+            self.on_paths(store.project_path(doc.PathName))
+        except Exception:
+            pass
 
     def _say(self, message, tone="info"):
         if self.report is not None:
@@ -164,8 +188,12 @@ class FilterViewPane(IDockablePaneProvider):
         #: None until the first measured size arrives, so the first real
         #: SizeChanged always applies a layout rather than matching a guess.
         self.vertical = None
+        #: Where this model keeps its rules, once a trip through the external
+        #: event has told us. None until then, and for a model never saved.
+        self.project_path = None
         self.handler = IsolateHandler()
         self.handler.report = self._show
+        self.handler.on_paths = self.on_paths
         self.event = ExternalEvent.Create(self.handler)
         self._build()
 
@@ -277,14 +305,19 @@ class FilterViewPane(IDockablePaneProvider):
     def _draw(self):
         """Redraw the buttons from the rules file. Never raises.
 
-        The window writes that file and this reads it -- the two run on
-        different engines and share a folder, not a module. It is re-read on
+        The window writes those files and this reads them -- the two run on
+        different engines and share a folder, not a module. They are re-read on
         every refresh rather than cached, so a rule saved in the window is one
         press away from appearing here.
+
+        Both stores, once a trip through the external event has said where the
+        project one is. Until then it is the machine store alone, which is the
+        honest answer rather than a guess at the model's folder.
         """
         try:
             from anongee_filterrules import store
-            rules = list(store.load_all(store.machine_path(), None))
+            rules = list(store.load_all(store.machine_path(),
+                                        self.project_path))
         except Exception as error:
             self._show("the rules could not be read: {0}".format(error), "error")
             return
@@ -395,8 +428,29 @@ class FilterViewPane(IDockablePaneProvider):
         self.handler.action = "clear"
         self.event.Raise()
 
+    def on_paths(self, project_path):
+        """Revit's thread, with a document in hand. Redraw if it moved.
+
+        Runs on Revit's main thread, which is also the thread this pane's WPF
+        content lives on -- the same reason the status line can be written
+        from the handler. A different model, or the first press in a session,
+        brings rules that were not on screen a moment ago.
+        """
+        if project_path == self.project_path:
+            return
+        self.project_path = project_path
+        try:
+            self._draw()
+        except Exception:
+            pass
+
     def _on_refresh(self, sender, args):
         self.reload()
+        # The rules beside the MODEL cannot be read without a document, and a
+        # pane has none. This trip is only for the path; on_paths redraws if
+        # it turns out to be a different one.
+        self.handler.action = "refresh"
+        self.event.Raise()
 
     def _on_wheel(self, sender, args):
         """Send the wheel to the axis that is actually scrolling.

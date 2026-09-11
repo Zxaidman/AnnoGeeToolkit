@@ -28,11 +28,26 @@ tooltip: |
     • A rule with no conditions matches everything in its cascade, which is a
       legitimate rule — "all the structural columns".
 
-  Where rules live
-    • %APPDATA%/Zxaidman/AnonGee/BIM-Toolkit/filter_view_rules.json, so they
-      follow YOU into the next project and survive a Revit restart.
-    • A rules file beside the model is read as well, and those rules are
-      badged PROJECT. Both are shown; neither wins.
+  Where rules live — you choose, per rule
+    • THIS WORKSTATION (the default)
+      %APPDATA%/Zxaidman/AnonGee/BIM-Toolkit/filter_view_rules.json. The
+      rule follows YOU into every project on this machine and survives a
+      Revit restart. Nobody else gets it.
+    • THIS PROJECT
+      <model folder>/AnonGee/filter_view_rules.json. The rule travels with
+      the MODEL, so anyone who opens it gets the same rule. Use it for the
+      views a job needs rather than the ones you always use.
+    • Change 'Saved in' and press Save rule and the rule MOVES — written
+      to one store, removed from the other. It is never in both by
+      accident.
+    • A model that has never been saved has no folder to put a file in, so
+      'This project' is greyed until you save it and press Re-read model.
+    • The same name in both stores gives two rules, each badged. Neither
+      wins and neither is hidden — they are different rules that happen to
+      share a label.
+    • The dockable panel shows both, once you have pressed one of its
+      buttons or Refresh: a panel has no document of its own, so that trip
+      is how it learns where the model keeps its rules.
     • A rule stores NAMES, never element ids — ids do not survive a session,
       let alone another project.
     • A rule whose type this project does not have is greyed and says what it
@@ -84,4 +99,4 @@ tooltip: |
       the rules file and the panel reads it, and they run on different
       Python engines that share a folder rather than a module.
 
-  Version: 0.4.1
+  Version: 0.5.0
