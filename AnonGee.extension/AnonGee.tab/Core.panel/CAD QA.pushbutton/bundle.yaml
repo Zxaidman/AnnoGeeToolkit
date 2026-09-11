@@ -1,0 +1,32 @@
+title: CAD QA
+author: AnonGee
+tooltip: |
+  Check a structural DXF BEFORE converting it with cad2bim.
+
+  Reads the drawing exactly the way cad2bim reads it — the same reader, the
+  same layer classifier, the same mark grammar — and reports every place that
+  reading is going to produce a wrong or incomplete model.
+
+  It answers the question that is expensive to answer late: is this drawing
+  worth converting yet? A layer cad2bim cannot classify is geometry it will
+  silently ignore; a label it cannot parse is a member built at a default
+  size; a storey with no origin marker lands on top of the one below.
+
+  Four families of check, 28 rules:
+
+    L  layers and classification — what will be ignored
+    M  marks, labels and sizes   — what will be built at the wrong size
+    G  geometry integrity        — what will not be built at all
+    S  grid and storey structure — what will be built in the wrong place
+
+  Advisory. It opens no document, writes nothing to the model, and blocks
+  nothing — it has no transaction and leaves no undo step. Findings are
+  graded Error / Warning / Info, where Error means cad2bim will build the
+  wrong model rather than that anything will crash.
+
+  Writes a JSON report and an .xlsx workbook beside the drawing. The JSON is
+  the format the accuracy checker and the cross-checker read later.
+
+  Needs no open model. Runs on a DXF alone.
+
+  Version: 1.0.0

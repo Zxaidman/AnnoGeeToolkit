@@ -35,6 +35,78 @@ of view of someone using the thing rather than someone reading the diff:
 
 ---
 
+## Unreleased
+
+### CAD QA 1.0.0 — check the drawing before converting it
+
+A new Core panel tool, and the first of the QA utilities. It reads a structural
+DXF **using cad2bim's own reader, layer classifier and mark grammar**, and
+reports every place that reading is going to produce a wrong or incomplete
+model. It is the answer to the question that is expensive to answer late: is
+this drawing worth converting yet?
+
+Advisory by design. It opens no document, writes nothing to the model, leaves
+no undo step, and never blocks anything.
+
+**28 rules in four families**, declared once in `cad_qa/rules.py` — which is
+the rulebook, with each rule's severity and its fix beside it:
+
+| | |
+| --- | --- |
+| `L001`-`L009` | layers and classification — what cad2bim will silently ignore |
+| `M001`-`M006` | marks, labels and sizes — what will be built at the wrong size |
+| `G001`-`G007` | geometry integrity — what will not be built at all |
+| `S001`-`S006` | grid and storey structure — what will be built in the wrong place |
+
+Rule ids are permanent: a rule is retired rather than renumbered, so a report
+filed against last month's drawing still means what it said.
+
+**Three ways in.** A ribbon button beside cad2bim; a library call
+(`cad_qa.run_file`); and a command line that needs no Revit at all —
+`python -m cad_qa plan.dxf`, or a folder for a batch sweep. The offline route
+is what lets the whole thing be tested in CI.
+
+**Three outputs.** A console report, an `.xlsx` workbook (SUMMARY / FINDINGS /
+RULES, so "what does L006 mean" is answered inside the file), and a JSON
+findings file that is a published contract — the accuracy checker and the
+cross-checker will read it, so fields are added and never renamed. The JSON
+carries no timestamp by default, so two runs of one drawing are identical byte
+for byte and a QA archive can be diffed between drawing revisions.
+
+**Severity was calibrated against the corpus, not guessed.** The first build
+reported an Error on 14 of the 23 corpus drawings — all of which cad2bim
+converts. An Error that fires on most of a known-good corpus teaches the reader
+to ignore Errors, so three rules were corrected against measured evidence:
+
+- `L001` had escalated to Error on share of record count. On test6 that fired
+  on `A-DETL-THIN` (579 records, 64% of the drawing) — architectural detail
+  linework that is *supposed* to be ignored. Record count measures drafting
+  density, not structural importance, so the escalation is gone.
+- `L002` (no grid) was an Error and tripped on 8 of 23 — staircase plans,
+  detail plans and an architectural layout, none of which carry a setting-out
+  grid. cad2bim still builds without one, from absolute coordinates. Warning.
+- `M002` (no sizes) now asks the schedule first. test15 and StaircasePlan-Test2
+  carry no sized label on the plan and 119 schedule rows each; reporting those
+  as "no sizes anywhere" was simply false.
+
+It now reports an Error on 2 of 23, both verified as drawings with no sizes and
+no schedule. A regression test pins the share so the calibration cannot drift
+back.
+
+**Tested.** 138 unit tests running in 0.4 s with no DXF and no Revit, plus a
+`regression_corpus` leg that fingerprints all 23 corpus drawings against a
+golden baseline — reusing `cad2bim/tests/_golden.py` rather than growing a
+second baseline mechanism beside it. The gate was proved to bite by perturbing
+a baseline number and watching it name the one that moved.
+
+### Not in this release
+
+`cad.check` as a bridge command. The bridge holds a declared command to a bound
+handler, a VBA macro and a workbook button, and the envelope deliberately
+carries *which sheet* to read and never a payload — a DXF path is neither, so
+wiring this up is a change to the envelope format and not a registry line. It
+belongs with the cross-checker that will drive it.
+
 ## 2.0.0
 
 **Changed**

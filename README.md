@@ -77,6 +77,7 @@ Build a model from an external source.
 | **BIM Generation** | Build a structural Revit model from a PLANWIN / FRAMEWIN **INP** file. Creates levels, structural columns, beams and floors with auto-sized type duplicates. |
 | **FramewinToBIM** | Generate a structural RC frame (columns / beams / slabs) from FRAMEWIN data. |
 | **cad2bim** | Pick a **DXF**, link it with unit and positioning settings, then build Revit grids, columns, beams, slabs and stairs from it. Hybrid extraction — the Revit link's geometry plus ezdxf for geometry and text — with layer classification and size refinement from text marks ("C1 400x400"). |
+| **CAD QA** *(v1.0.0)* | Check a structural **DXF before** converting it. Reads the drawing the way cad2bim reads it — same reader, same layer classifier, same mark grammar — and reports every place that reading will produce a wrong or incomplete model: layers it cannot classify, size labels it cannot parse, outlines that do not close, storeys that will land on top of each other. 28 rules in four families, graded Error / Warning / Info. Advisory: no model is opened, nothing is written, no undo step is left. Writes a JSON report (the format the later cross-checkers read) and an `.xlsx` workbook beside the drawing. Also runs with no Revit at all: `python -m cad_qa plan.dxf`. |
 
 ### 🟠 Dev Panel
 
