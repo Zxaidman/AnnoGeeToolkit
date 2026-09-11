@@ -39,7 +39,8 @@ tooltip: |
       could not find. It is never deleted or rewritten.
 
   Choosing rules
-    • Click a rule to load it into the editor.
+    • Click a rule to load it into the editor — name, categories,
+      family, type and every condition, as it was saved.
     • Ctrl+click adds to the selection; Shift+click takes a run of them —
       the same gestures as cad2bim's layer mapping. The tick on the left
       shows what is selected; it is a report, not a second switch.
@@ -83,4 +84,4 @@ tooltip: |
       the rules file and the panel reads it, and they run on different
       Python engines that share a folder rather than a module.
 
-  Version: 0.4.0
+  Version: 0.4.1

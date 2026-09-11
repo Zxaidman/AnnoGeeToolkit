@@ -318,6 +318,102 @@ class XamlTests(unittest.TestCase):
                           "{0} is not in the sanctioned theme".format(key))
 
 
+def methods_assigning(attribute):
+    """``{method name: source}`` for every method that assigns ``self.<attr>``."""
+    source = _read(_SCRIPT)
+    found = {}
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        for inner in ast.walk(node):
+            if not isinstance(inner, ast.Assign):
+                continue
+            for target in inner.targets:
+                if (isinstance(target, ast.Attribute)
+                        and target.attr == attribute
+                        and isinstance(target.value, ast.Name)
+                        and target.value.id == "self"):
+                    found[node.name] = ast.get_source_segment(source, node) or ""
+    return found
+
+
+class CascadeTests(unittest.TestCase):
+    """BUG-13 -- what the editor shows must follow what is picked.
+
+    Loading a saved rule set ``self.picked`` and redrew the category list, and
+    stopped there. ``_rebuild_categories`` raises the ``rebuilding`` flag
+    around its own selection loop -- rightly, or a search would re-ask Revit
+    on every keystroke -- so ``_on_category_selected`` never ran and nothing
+    ever asked Revit for the families, types and parameters.
+
+    The editor therefore showed the rule's name, categories and conditions and
+    nothing else. And because ``current_rule()`` reads the family and type off
+    those two empty combos, **Apply, Count and Select built a rule with no
+    family and no type** and isolated a broader set than the rule named. A
+    silent wrong answer, not a blank box.
+    """
+
+    EXEMPT = ("__init__",)      # runs before there is a model to ask about
+
+    def test_every_path_that_changes_the_categories_refreshes_the_cascade(self):
+        """The invariant, stated once and checked everywhere.
+
+        Naming the three methods individually would pass the day a fourth is
+        written, which is precisely how BUG-13 arrived.
+        """
+        missing = []
+        for name, body in sorted(methods_assigning("picked").items()):
+            if name in self.EXEMPT or name == "_refresh_cascade":
+                continue
+            if "_refresh_cascade()" not in body:
+                missing.append(name)
+        self.assertEqual(
+            missing, [],
+            "these change self.picked without re-reading the cascade, so the "
+            "Family, Type and Parameter lists go stale: {0}".format(missing))
+
+    def test_loading_a_rule_asks_revit_for_its_family_and_type(self):
+        source = _read(_SCRIPT)
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.FunctionDef) and node.name == "_on_rule_selected":
+                body = ast.get_source_segment(source, node) or ""
+                self.assertIn("_refresh_cascade()", body)
+                # Order matters: _receive consumes the pendings when the answer
+                # lands, so they have to be set before the answer is asked for.
+                self.assertLess(body.index("self.pending_family"),
+                                body.index("self._refresh_cascade()"),
+                                "the cascade is asked for before the family "
+                                "and type it is meant to restore are recorded")
+                return
+        self.fail("_on_rule_selected is not in script.py")
+
+    def test_a_pending_family_is_dropped_when_nothing_can_consume_it(self):
+        """With no categories picked no cascade is asked for and no answer
+        arrives. A pending left set is applied to whatever rule is being
+        edited when the NEXT one lands -- one rule's family appearing on
+        another, with nothing on screen to explain it."""
+        for node in ast.walk(ast.parse(_read(_SCRIPT))):
+            if isinstance(node, ast.FunctionDef) and node.name == "_refresh_cascade":
+                body = ast.get_source_segment(_read(_SCRIPT), node) or ""
+                head = body[:body.index("self._fill_combo")]
+                self.assertIn("self.pending_family = None", head)
+                self.assertIn("self.pending_type = None", head)
+                return
+        self.fail("_refresh_cascade is not in script.py")
+
+    def test_both_pendings_are_consumed_where_the_answer_lands(self):
+        """They are cleared as they are applied, or the next cascade re-applies
+        them to a rule that never had them."""
+        source = _read(_SCRIPT)
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.FunctionDef) and node.name == "_receive":
+                body = ast.get_source_segment(source, node) or ""
+                self.assertIn("self.pending_family = None", body)
+                self.assertIn("self.pending_type = None", body)
+                return
+        self.fail("_receive is not in script.py")
+
+
 class RuleSelectionTests(unittest.TestCase):
     """Ctrl+click, Shift+click and the tick that reports them."""
 

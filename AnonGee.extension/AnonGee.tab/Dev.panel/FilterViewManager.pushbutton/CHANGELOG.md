@@ -15,6 +15,70 @@ holds Auto Level Manager's four copies together.
 
 ---
 
+## 0.4.1 - 2026-09-11
+
+One fix, reported as *"when i click the saved rule, its condition plus,
+selected Family, type don't show as a time of create it, so i have again
+reselect and apply same config again"* -- and it was worse than it looked.
+
+### Loading a saved rule never asked Revit anything (BUG-13)
+
+Clicking a rule set `self.picked` from its categories and redrew the category
+list. `_rebuild_categories` raises the `rebuilding` flag around its own
+selection loop -- **rightly**, or typing in the category search would re-ask
+Revit on every keystroke -- so `_on_category_selected` never ran, and
+`_refresh_cascade()` is only reached from there.
+
+Nothing therefore asked Revit for the families, types and parameters of the
+rule's categories. What followed:
+
+- the **Family** and **Type** combos were never filled, so the rule's own
+  family and type could not be shown;
+- `pending_family` and `pending_type` were set for `_receive` to restore and
+  **no answer ever arrived to consume them**;
+- `self.parameters` kept whatever the last cascade left, so the Parameter
+  dropdown offered the *previous* rule's parameters, or none at all on a
+  freshly opened window.
+
+**And it was not only a display fault.** `current_rule()` reads the family and
+type off those two combos. Empty combos mean `family=None, type_name=None`, so
+pressing **Apply, Count or Select** straight after loading a rule built a rule
+with no family and no type and quietly isolated a **broader set than the rule
+names**. A wrong answer with nothing on screen to suggest it was wrong -- which
+is the kind this project's error contract (§8.2) exists to prevent.
+
+The fix is one line in the right place, and the invariant behind it is now
+stated once and checked everywhere: **every path that changes `self.picked`
+ends at `_refresh_cascade()`.** `tests/test_filterview_ui.py` walks the AST for
+methods that assign it and fails any that do not. Naming the three current
+methods individually would have passed the day a fourth was written, which is
+exactly how this arrived.
+
+### Two leaks found while reading it (BUG-14)
+
+- **A pending family outlived its rule.** With no categories picked, no
+  cascade is asked for and no answer arrives -- so a pending left set was
+  applied to whatever rule was being edited when the *next* one landed. One
+  rule's family quietly appearing on another. `_refresh_cascade` now drops
+  both pendings on the empty branch.
+- **New kept the old rule's dropdowns.** `_on_new` emptied `picked` but never
+  refreshed, so a new rule started from a loaded one still listed the previous
+  categories' families and types -- a choice with nothing behind it. Routing
+  `_on_new` through `_refresh_cascade()` fixes it and falls out of the same
+  invariant.
+
+The rule engine was never at fault: a saved rule round-trips its family, type
+and conditions intact, which was checked before a line was changed.
+
+### Also
+
+- 4 new tests (1357 -> 1361). Each was proved by putting the fault back; the
+  ordering gate looked asleep at first and was not -- the fault injected
+  against it did not actually violate what it asserts, and re-aiming it caught
+  the real inversion.
+
+---
+
 ## 0.4.0 - 2026-09-11
 
 The second in-Revit run of the panel. Everything 0.3.0 set out to fix was

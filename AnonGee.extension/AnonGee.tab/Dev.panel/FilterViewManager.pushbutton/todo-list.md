@@ -151,6 +151,8 @@ none of them was findable any other way.
 | BUG-10 | The dark was near-black, and read as a hole between the Properties palette and the Project Browser | 0.3.0 in Revit | Fixed 0.4.0 — canvas re-based on Revit's own panel grey, and every token measured against it moved with it. It also forced a lifted brand red: `ColorVividRed` is 2.46:1 on grey, under 1.4.11 |
 | BUG-11 | The mouse wheel did nothing in a top or bottom dock | 0.3.0 in Revit | Fixed 0.4.0 — WPF's wheel only drives the vertical axis, and a strip has none. `PreviewMouseWheel` now scrolls whichever axis is live |
 | BUG-12 | An appearance change needed a full Revit restart to show | 0.3.0 in Revit | Fixed 0.4.0 — Revit takes the `FrameworkElement` once, but holds the `UserControl` and not its contents, so Refresh re-reads `pane.xaml` and swaps them underneath it |
+| BUG-13 | Clicking a saved rule showed its name, categories and conditions and nothing else — family, type and the parameter list stayed empty | 0.4.0 in Revit | Fixed 0.4.1 — loading a rule never reached `_refresh_cascade()`, because `_rebuild_categories` suppresses the selection handler it was reached from. **Apply/Count/Select were also building a rule with no family and no type**, isolating a broader set than the rule named |
+| BUG-14 | A pending family could be applied to a different rule; New kept the previous rule's dropdowns | found reading BUG-13 | Fixed 0.4.1 — both fall out of the same invariant: every path that changes `picked` ends at `_refresh_cascade()`, and the gate walks the AST rather than naming the methods |
 
 BUG-5 and BUG-6 were folded into BUG-4's fix and never carried IDs of their own;
 the numbering is kept rather than closed up, so a reference in an older entry
