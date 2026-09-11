@@ -138,7 +138,7 @@ for every other pre-P1 file.
 
 ## 2. Errors and bugs
 
-### BUG-39 — The size label grows a closed outline's leg past the outline · `pending`
+### BUG-39 — The size label grows a closed outline's leg past the outline · `testing`
 
 **This is what the owner's eight screenshots actually show**, and BUG-37 is not it. His export says so:
 the run he photographed is `1.0.1_column_test17_with_textmode.json`, whose `source` is
@@ -196,9 +196,61 @@ CLOSED: the drawing stated that member's size by drawing it, and its legs are a 
 damage. The case the pass genuinely exists for is a column a beam SLICED — an open path, recovered as
 a fragment — and that is a different status entirely.
 
-**Two things to change, then**: protect every rectangle that came from a closed outline, not just the
-one-rectangle kind; and stop `_is_split_pair` fusing two complete rings into one member. Both to be
-measured before and after on his drawing and on test17-clean, and the DXF sweep leg will move.
+**And BUG-34's fix never ran.** Looking for where the growth happens, it is not
+`correct_columns_with_text` at all — that is the pass BUG-34 taught, and its `text_corrected` is 83 in
+his export. The growth is in **`_apply_column_marks`**, which runs INSIDE `build_column_sections`,
+resizes every rectangle to the nearest mark within 1300 mm with no protection whatever, and had
+already done so by the time the later pass looked. His export says `text_sized` — no, it says
+`text_corrected: 83`; the sizing pass reported **257** refinements on that drawing offline. So BUG-34
+stated the right rule in the wrong place and the owner never saw any of it.
+
+**FIXED in v1.0.3**, by putting the rule where the sizing happens:
+
+* `_CLOSED_RINGS` is `("rectangle", "composite")` — a ring the drawing closed, however many
+  rectangles it decomposes to. `oriented_rect` is deliberately NOT one: it is the tightest box round
+  a ring that would not lie on the axes and its entry says `approx=True`, so a label does know
+  better.
+* `_apply_column_marks` **names** such a rectangle from its label and leaves its size alone. A
+  recovered fragment or a line spine is still refined, which is the case the pass exists for.
+* `_whole_rings` widens to the same set, so the later pass agrees with the earlier one.
+* Two CLOSED rings are never a split pair. Fusing them spans the gap BETWEEN them and builds a member
+  where the drawing has nothing — the bars with no outline under them in shots 2 and 4. Seven labels
+  did this on the drawing he ran.
+
+| rectangles reaching outside every drawn outline | v1.0.2 | v1.0.3 |
+| --- | --- | --- |
+| `…-separate-boundary-zones.dxf` — **the drawing he ran** | **76** of 342 | **0** |
+| …how much of each lay outside | median 12%, worst 56% | — |
+| `StructuralPlan-Test17-clean.dxf`, 13 storeys | **597** of 2531 | **6** |
+| …how much of each lay outside | median 13%, worst 85% | — |
+| rectangles resized by a label (`text_sized`) | 257 / 1855 | 0 / 6 |
+
+**The 6 that remain on test17-clean are all `line_spine`** — members derived from bare lines, which
+have no closed outline to be inside. That is the pass doing its job, not a residue.
+
+With the labels switched off, both drawings put **0** rectangles outside their outlines, before and
+after. The labels now agree with that instead of overruling it.
+
+**The DXF sweep moved, and every line of it is the column footprint being the DRAWN size now.** The
+fingerprint and storey legs did not move at all. Measured directly, the only input that changed:
+
+| drawing | column rectangles | footprint area | resized by a label |
+| --- | --- | --- | --- |
+| `StructuralPlan-Test8.dxf` | 79 → 79 | 47.15 → 47.77 m² | 75 → 11 |
+| `LayoutPlan-Project1.dxf` | 310 → **308** | 187.22 → 190.52 m² | 270 → 66 |
+| `StructuralPlan-Test14.dxf` | 408 → 408 | 184.46 → **237.52 m²** | 165 → **0** |
+
+**In these drawings the labels were SHRINKING the outlines**, so the footprints grow. Everything else
+the sweep reports is downstream of that: `split_beams_at_columns` trims beams where a column stands,
+so a bigger footprint trims more (Test8's beams 217 → 195, Project1's 563 → 516), and the slab loops
+the beam graph closes follow the beams (Test8's 13 → 17).
+
+**Two things the owner may want to look at.** Test14's column footprint grows 29% — every one of its
+408 rectangles is a closed ring and all 165 label resizes are gone, so if its linework is drawn
+thicker than its columns really are, that drawing will now build thicker. And Project1 loses 2
+rectangles: at their drawn size they fall outside the column size limits (`out_of_range` 33 → 35),
+where the label had been shrinking them inside. The limits are on the Advanced tab if 1500 mm is too
+tight for that drawing.
 
 ### WORK-12 — The gate files an export by its FILENAME, so test17 now measures another drawing · `pending`
 

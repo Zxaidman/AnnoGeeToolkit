@@ -365,11 +365,20 @@ def _pts_mm(points):
 _TEXT_SIZE_OK_MM = 80.0   # a single column already this close to its label is left as-is
 _CLIP_TOL_MM = 20.0       # ...unless geometry is shorter than the label by more than this
 #                           (a real clip), in which case it is resized up to the label
-# What `parse_column_polyline` calls a single closed ring decomposed to ONE
-# rectangle -- a column whose size the drawing stated by drawing it. Every other
-# status here is a PIECE (a leg, a recovered fragment, a box round a shape that
-# would not close), and a piece is what a size label is allowed to correct.
-_WHOLE_RING = "rectangle"
+# What `parse_column_polyline` calls a ring the drawing CLOSED: "rectangle" is
+# one decomposed to a single rectangle, "composite" one decomposed to the legs
+# of an L, a C or a T. Either way the drawing stated that member's size by
+# drawing it round, and a size label may NAME it but not resize it (BUG-34 for
+# the first, BUG-39 for the second).
+#
+# "oriented_rect" is deliberately NOT here: it is the tightest box round a ring
+# that would not lie on the axes, and the entry carries approx=True saying so. A
+# label knows that member's size better than a bounding box does.
+#
+# Everything else this pass sees is a real PIECE -- a fragment the recovery
+# reassembled out of a column a beam sliced, a spine derived from bare lines --
+# and a piece is exactly what a size label exists to correct.
+_CLOSED_RINGS = ("rectangle", "composite")
 _SPLIT_CENTRE_SLACK_MM = 80.0      # split fragments' centres lie within (long side + this)
 _SPLIT_NO_SIZE_MAX_CENTRE_MM = 800.0   # no label size: only fuse pieces this close
 
@@ -447,12 +456,21 @@ def correct_columns_with_text(sections, column_texts, radius_ft, schedule=None,
             continue   # none, or a multi-leg lift/stair core: leave the geometry
         size = _label_size(text, schedule)   # (small, big) mm, or None
 
-        if len(near) == 2 and not _is_split_pair(near, size):
+        if len(near) == 2 and (not _is_split_pair(near, size)
+                               or all(id(rect) in whole for rect in near)):
             # One label per column, but an offset label on a tight grid bay (e.g.
             # grids ~1500mm apart) can reach a NEIGHBOURING column too. These are
             # two complete, separate columns -- bind this label to its OWN
             # (nearest) column and leave the other for its own label, instead of
             # fusing them into one column mid-bay with its orientation lost.
+            #
+            # TWO CLOSED RINGS are never a split pair, however much they look
+            # like one (BUG-39). A split pair is a column a beam CUT, whose
+            # pieces the recovery reassembled from open paths; a ring the
+            # drawing closed is a whole member. Fusing two of them spans the gap
+            # BETWEEN them and builds a member where the drawing has nothing --
+            # the bars with no outline under them in the owner's screenshots.
+            # Seven labels did this on the drawing he ran.
             near = [min(near, key=lambda r:
                         (r["center"][0] - tx) ** 2 + (r["center"][1] - ty) ** 2)]
 
@@ -573,14 +591,31 @@ def _fills_size(rect, size):
 
 
 def _whole_rings(entries):
-    """The ids of rectangles whose own outline states their size (BUG-34).
+    """The ids of rectangles whose own outline states their size (BUG-34/39).
 
-    One closed ring, decomposed to one rectangle: the drawing said how big that
-    column is by drawing it, so a size label may NAME it but not resize it.
-    Every other status here is a piece -- a leg of an L or a C, a fragment the
-    recovery reassembled, a box drawn round a shape that would not close -- and
-    a piece is exactly what a label is allowed to correct, because a piece
-    really is smaller than the column its label states.
+    A ring the drawing CLOSED: the drawing said how big that member is by
+    drawing it round, so a size label may NAME it but not resize it. That holds
+    whether the ring came out as one rectangle or as the legs of an L.
+
+    **The legs too, since v1.0.3.** BUG-34 protected only the one-rectangle kind
+    and said of the rest that "a leg really is smaller than the column its label
+    states". On the owner's own drawing that is the corner, counted twice:
+    `decompose_to_rectangles` gives the corner to ONE leg, so the other stops at
+    its face, while the label measures the arm to the outer face. Resizing the
+    leg up to the label puts the corner back on:
+
+        drawn leg 1300 -> label 1500  (+200)    the other leg is 200 thick
+        drawn leg 1325 -> label 1525  (+200)    the other leg is 200 thick
+        drawn leg 1950 -> label 2150  (+200)    the other leg is 200 thick
+
+    MEASURED: 11 of the 13 legs a label resized on
+    `StructuralPlan-Test17-separate-boundary-zones.dxf` grow by exactly another
+    leg's thickness, and 59 of 86 on `StructuralPlan-Test17-clean.dxf`. It is
+    not a clip being corrected, and the result is a member standing outside the
+    outline it was drawn with -- which is what the owner photographed.
+
+    A fragment the recovery reassembled, or a spine derived from bare lines, is
+    a real piece and is still exactly what a label is allowed to correct.
 
     The owner: "in some place column size and its outline is not matching with
     Linked cad." Resizing to a label is deliberate -- DONE-22 built it so a
@@ -599,14 +634,14 @@ def _whole_rings(entries):
     were drawn with -- 250x1200 built as 250x1500 -- and 152 of the 158 grown
     had a drawn size that is a round 25 mm on BOTH sides. A junction clip leaves
     an arbitrary sliver (187, 213); a round number is a section somebody drew on
-    purpose. The 31 legs are the case the pass exists for and they still grow:
-    a leg really is smaller than the column its label states.
+    purpose. The 31 legs read then as the case the pass exists for; v1.0.3 says
+    they are not, for the reason above.
 
     The mark is stamped either way -- keeping the size must not cost the naming,
     which the schedule, the naming template and the abutment recovery all use.
     """
     return set(id(rect) for entry in entries or ()
-               if entry.get("status") == _WHOLE_RING
+               if entry.get("status") in _CLOSED_RINGS
                for rect in entry.get("rectangles") or ())
 
 
@@ -1022,6 +1057,20 @@ def _apply_column_marks(entries, texts, radius_ft):
     `width_ft`/`height_ft` are updated with the millimetres, which they were not:
     `column_geom._bbox_half` reads the FEET, so a trim footprint was being
     computed from the drawn size while the column was placed at the labelled one.
+
+    A RING THE DRAWING CLOSED IS NAMED HERE, NOT RESIZED (BUG-39). This is where
+    the owner's screenshots come from, and it is the same rule `_whole_rings`
+    states for the later pass -- which was the whole of BUG-34's fix, and had no
+    effect on what he saw, because this pass runs FIRST and had already resized
+    everything by the time that one looked. Measured on the drawing he ran: of
+    342 rectangles, NONE reach outside the outlines they were drawn with until
+    this pass runs, and 76 do afterwards -- median 12% of the rectangle outside,
+    56% at worst. A leg is not clipped; it stops at the face of the leg holding
+    the corner, while the label measures the arm to the outer face.
+
+    A recovered fragment or a derived spine is still refined, which is the case
+    this exists for: there the geometry really is a piece of the member and the
+    label really does know better.
     """
     candidates = marks.sized_texts(texts or [])
     if not candidates:
@@ -1029,11 +1078,15 @@ def _apply_column_marks(entries, texts, radius_ft):
     count = 0
     for entry in entries:
         rects = entry["rectangles"]
+        closed = entry.get("status") in _CLOSED_RINGS
         anchors = _shared_faces(rects)
         for rect, (x_anchor, y_anchor) in zip(rects, anchors):
             cx, cy, cz = rect["center"]
             hit = marks.nearest_sized_text(cx, cy, candidates, radius_ft)
             if hit is None:
+                continue
+            if closed:
+                rect["mark"] = hit.mark    # named by the label, sized by itself
                 continue
             small_t, big_t = min(hit.b_mm, hit.h_mm), max(hit.b_mm, hit.h_mm)
             box = _rect_box(rect)

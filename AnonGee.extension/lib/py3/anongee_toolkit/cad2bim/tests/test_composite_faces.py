@@ -102,12 +102,32 @@ class WhichFaceIsHeldWhenAPieceIsResized(unittest.TestCase):
 
 
 class AResizedStubStaysOnItsBlade(unittest.TestCase):
-    """The label correction, end to end, on test14's own two failures."""
+    """The label correction, end to end, on test14's own two failures.
+
+    The entry is a RECOVERED one, because since v1.0.3 a ring the drawing closed
+    is named by a label and not resized by it (BUG-39), so the only multi-piece
+    entries this arithmetic still runs on are the ones reassembled out of a
+    column a beam cut. The arithmetic is unchanged and so is the case for it:
+    a piece that is resized must keep the face it shares with its neighbour.
+    """
 
     def _apply(self, rects, texts):
-        report._apply_column_marks([{"rectangles": rects}], texts,
-                                   2000.0 * _FT)
+        report._apply_column_marks(
+            [{"status": "recovered_rect", "rectangles": rects}], texts,
+            2000.0 * _FT)
         return rects
+
+    def test_a_ring_the_drawing_CLOSED_is_named_but_not_resized(self):
+        # BUG-39, at this pass -- which is the one that was doing it. The later
+        # pass had the rule already and never got the chance to apply it.
+        leg = _rect(0, 0, 250, 1200)
+        blade = _rect(0, 1200, 250, 3000)
+        report._apply_column_marks(
+            [{"status": "composite", "rectangles": [leg, blade]}],
+            [_Text("C1", 250.0, 1500.0, 125.0, 600.0)], 2000.0 * _FT)
+        self.assertAlmostEqual(leg["width_mm"], 250.0, places=6)
+        self.assertAlmostEqual(leg["height_mm"], 1200.0, places=6)
+        self.assertEqual(leg.get("mark"), "C1")
 
     def test_the_gap_case_ends_exactly_on_the_blade(self):
         # test14: a 249 x 350 stub relabelled 200 x 600 used to stop 24 mm short.

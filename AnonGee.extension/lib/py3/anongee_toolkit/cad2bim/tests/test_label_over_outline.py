@@ -104,13 +104,35 @@ class AWholeRingKeepsTheSizeItWasDrawnAt(unittest.TestCase):
         self.assertEqual(_size(got[0]), (250, 1500))
 
 
-class APieceIsStillGrownToItsLabel(unittest.TestCase):
-    """DONE-22's case, which is why the pass exists at all."""
+class ALegOfAClosedOutlineIsNotAPiece(unittest.TestCase):
+    """BUG-39. The owner photographed the other reading.
 
-    def test_a_leg_of_a_composite_takes_the_labelled_size(self):
+    A closed L is split into legs by `decompose_to_rectangles`, which gives the
+    shared corner to ONE of them, so the other stops at its face. The label
+    measures the arm to the outer face. Growing the leg to the label puts the
+    corner back on and stands the member outside the outline it was drawn with
+    -- measured, 11 of the 13 legs a label resized on the drawing he ran grew by
+    exactly the other leg's thickness.
+    """
+
+    def test_a_leg_of_a_composite_keeps_the_size_it_was_drawn(self):
         leg = _rect(0, 0, 250, 1200)
         got = _run([leg], [_Lbl("C1", 0, 477, b=250, h=1500)], "composite")
-        self.assertEqual(_size(got[0]), (250, 1500))
+        self.assertEqual(_size(got[0]), (250, 1200))
+
+    def test_the_leg_is_still_named(self):
+        leg = _rect(0, 0, 250, 1200)
+        got = _run([leg], [_Lbl("C7", 0, 477, b=250, h=1500)], "composite")
+        self.assertEqual(got[0].get("mark"), "C7")
+
+
+class APieceIsStillGrownToItsLabel(unittest.TestCase):
+    """DONE-22's case, which is why the pass exists at all.
+
+    A piece is what the drawing did NOT close: a fragment reassembled out of a
+    column a beam sliced, a spine derived from bare lines, a box round a ring
+    that would not lie on the axes. There the label really does know better.
+    """
 
     def test_a_recovered_fragment_takes_it_too(self):
         piece = _rect(0, 0, 270, 300)
@@ -128,13 +150,27 @@ class APieceIsStillGrownToItsLabel(unittest.TestCase):
         self.assertEqual(_size(got[0]), (250, 1500))
 
     def test_two_split_pieces_still_merge_into_one_column(self):
-        # The merge branch is untouched: two fragments of one column, one label.
+        # The merge branch is untouched for real pieces: two fragments of one
+        # column a beam cut, recovered from open paths, and one label.
+        left = _rect(-350, 0, 200, 300)
+        right = _rect(350, 0, 200, 300)
+        got = _run([left, right], [_Lbl("C1", 0, 200, b=300, h=900)],
+                   "recovered_rect")
+        self.assertEqual(len(got), 1)
+        self.assertEqual(_size(got[0]), (300, 900))
+
+    def test_two_CLOSED_rings_are_never_fused(self):
+        # BUG-39: fusing them spans the gap BETWEEN them and builds a member
+        # where the drawing has nothing -- the bars with no outline under them
+        # in the owner's screenshots. Seven labels did this on the drawing he
+        # ran. Each ring keeps itself; the label names its nearest.
         left = _rect(-350, 0, 200, 300)
         right = _rect(350, 0, 200, 300)
         got = _run([left, right], [_Lbl("C1", 0, 200, b=300, h=900)],
                    "rectangle")
-        self.assertEqual(len(got), 1)
-        self.assertEqual(_size(got[0]), (300, 900))
+        self.assertEqual(len(got), 2)
+        self.assertEqual(sorted(_size(rect) for rect in got),
+                         [(200, 300), (200, 300)])
 
 
 if __name__ == "__main__":
