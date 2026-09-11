@@ -618,6 +618,116 @@ class RuleSetTests(unittest.TestCase):
 # store — the file
 # ═══════════════════════════════════════════════════════════════════════════
 
+class ReorderTests(unittest.TestCase):
+    """Moving a BLOCK of rules, which is not moving several rules one by one.
+
+    ``move`` one at a time reverses a multiple selection going up and collapses
+    it going down, depending which end you start from. That is why this exists
+    and why the window calls it instead of looping.
+    """
+
+    def setUp(self):
+        self.set = rules.RuleSet()
+        self.ids = []
+        for name in "ABCDE":
+            self.ids.append(self.set.add(a_rule(name=name)).id)
+
+    def order(self):
+        return "".join(rule.name for rule in self.set)
+
+    def pick(self, names):
+        return [self.ids["ABCDE".index(name)] for name in names]
+
+    def test_up_moves_a_block_one_place(self):
+        self.assertTrue(self.set.reorder(self.pick("CD"), rules.UP))
+        self.assertEqual(self.order(), "ACDBE")
+
+    def test_down_moves_a_block_one_place(self):
+        self.assertTrue(self.set.reorder(self.pick("BC"), rules.DOWN))
+        self.assertEqual(self.order(), "ADBCE")
+
+    def test_a_non_contiguous_selection_keeps_its_gaps(self):
+        """The case that breaks a naive loop: B and D each swap with the
+        unchosen rule above, and neither is dragged through the other."""
+        self.assertTrue(self.set.reorder(self.pick("BD"), rules.UP))
+        self.assertEqual(self.order(), "BADCE")
+
+    def test_to_top_keeps_the_selection_in_its_own_order(self):
+        """Picked bottom-up, they still land top-down. The user means "these,
+        as they are", not "these, in the order I happened to click"."""
+        self.assertTrue(self.set.reorder(self.pick("DB"), rules.TOP))
+        self.assertEqual(self.order(), "BDACE")
+
+    def test_to_bottom_keeps_the_selection_in_its_own_order(self):
+        self.assertTrue(self.set.reorder(self.pick("DB"), rules.BOTTOM))
+        self.assertEqual(self.order(), "ACEBD")
+
+    def test_a_block_against_the_top_edge_does_not_move(self):
+        self.assertFalse(self.set.reorder(self.pick("AB"), rules.UP))
+        self.assertEqual(self.order(), "ABCDE")
+
+    def test_a_block_against_the_bottom_edge_does_not_move(self):
+        self.assertFalse(self.set.reorder(self.pick("DE"), rules.DOWN))
+        self.assertEqual(self.order(), "ABCDE")
+
+    def test_one_rule_pinned_at_the_edge_does_not_pin_the_others(self):
+        """A travels nowhere; C still moves up past B."""
+        self.assertTrue(self.set.reorder(self.pick("AC"), rules.UP))
+        self.assertEqual(self.order(), "ACBDE")
+
+    def test_selecting_everything_is_a_no_op_in_every_direction(self):
+        for where in rules.DESTINATIONS:
+            self.assertFalse(self.set.reorder(self.pick("ABCDE"), where), where)
+            self.assertEqual(self.order(), "ABCDE")
+
+    def test_an_unknown_destination_changes_nothing(self):
+        self.assertFalse(self.set.reorder(self.pick("B"), "sideways"))
+        self.assertEqual(self.order(), "ABCDE")
+
+    def test_ids_that_are_not_in_the_set_are_ignored(self):
+        """The window's selection and the rules on disk can disagree for one
+        redraw. That is not worth an exception."""
+        self.assertTrue(self.set.reorder(self.pick("C") + ["ghost"], rules.UP))
+        self.assertEqual(self.order(), "ACBDE")
+
+    def test_an_empty_selection_changes_nothing(self):
+        self.assertFalse(self.set.reorder([], rules.TOP))
+        self.assertFalse(self.set.reorder(None, rules.TOP))
+
+    def test_order_is_renumbered_after_every_move(self):
+        """``order`` is what gets serialised, so a stale one survives a save
+        and the panel draws its buttons in a sequence nobody chose."""
+        self.set.reorder(self.pick("DE"), rules.TOP)
+        self.assertEqual([rule.order for rule in self.set], [0, 1, 2, 3, 4])
+
+    def test_a_move_survives_a_round_trip_through_json(self):
+        self.set.reorder(self.pick("E"), rules.TOP)
+        again = rules.RuleSet.from_list(self.set.to_list())
+        self.assertEqual([r.name for r in again], [r.name for r in self.set])
+
+
+class RemoveManyTests(unittest.TestCase):
+
+    def setUp(self):
+        self.set = rules.RuleSet()
+        self.ids = [self.set.add(a_rule(name=n)).id for n in "ABC"]
+
+    def test_it_reports_how_many_actually_went(self):
+        self.assertEqual(self.set.remove_many([self.ids[0], self.ids[2]]), 2)
+        self.assertEqual([r.name for r in self.set], ["B"])
+
+    def test_an_id_that_is_not_there_is_not_counted(self):
+        self.assertEqual(self.set.remove_many([self.ids[0], "ghost"]), 1)
+
+    def test_removing_nothing_leaves_the_order_alone(self):
+        self.assertEqual(self.set.remove_many([]), 0)
+        self.assertEqual([r.order for r in self.set], [0, 1, 2])
+
+    def test_the_survivors_are_renumbered(self):
+        self.set.remove_many([self.ids[0]])
+        self.assertEqual([r.order for r in self.set], [0, 1])
+
+
 class StorePathTests(unittest.TestCase):
 
     def setUp(self):
@@ -878,7 +988,7 @@ REVIT = ("compat.py", "revit_query.py", "revit_apply.py")
 #: obeys the same five rules and is checked by the same gates. ``__init__`` is
 #: Revit-free on purpose -- the CPython window imports it to read the startup
 #: record -- and ``provider`` is the half that touches Revit.
-PANE_PURE = ("__init__.py",)
+PANE_PURE = ("__init__.py", "layout.py")
 PANE_REVIT = ("provider.py",)
 
 

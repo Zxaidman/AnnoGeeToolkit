@@ -63,31 +63,27 @@ from Autodesk.Revit.UI import (DockablePaneId, DockPosition,       # noqa: E402
 from System.IO import FileAccess, FileMode, FileStream              # noqa: E402
 from System.Windows import (HorizontalAlignment, TextWrapping,      # noqa: E402
                             Thickness)
+from System.Windows.Input import Keyboard, ModifierKeys             # noqa: E402
 from System.Windows.Controls import (Button, Dock, DockPanel,       # noqa: E402
                                      Orientation, ScrollBarVisibility)
 from System.Windows.Markup import XamlReader                        # noqa: E402
 
 from . import PANE_GUID, PANE_TITLE
+from .layout import (CHIP_MAX_WIDTH, CHIP_STYLE, tone_brush,
+                     wants_vertical, wheel_step)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-
-#: Below this width the pane is treated as a side dock and lays out as a
-#: column. It is a hair wider than the 240-360 a side-docked pane is allowed
-#: to be (brand guidelines S12.4) so that dragging one to the edge switches
-#: layout before the buttons start clipping, rather than after.
-NARROW_WIDTH = 420.0
-
-#: How wide a rule chip may get in the across-the-top layout. A rule may be
-#: named anything; without this one long name pushes every other button off
-#: the strip. Down the side there is no cap -- the chip fills the column and
-#: the label ellipsizes inside it.
-CHIP_MAX_WIDTH = 220.0
 
 #: Held for the life of the Revit session. Revit keeps its own reference to the
 #: provider, but the ExternalEvent and the handler would otherwise be collected
 #: the moment registration returned, and the buttons would stop working with no
 #: error to show for it.
 _live = {}
+
+#: ``ModifierKeys.None`` cannot be written down -- ``None`` is a Python
+#: keyword, so the attribute access is a SyntaxError on both engines and
+#: getattr is the only way to name the .NET member.
+NO_MODIFIER = getattr(ModifierKeys, "None")
 
 
 def pane_id():
@@ -205,26 +201,80 @@ class FilterViewPane(IDockablePaneProvider):
     # -- the control -------------------------------------------------------
 
     def _build(self):
-        path = os.path.join(HERE, "pane.xaml")
-        stream = FileStream(path, FileMode.Open, FileAccess.Read)
-        try:
-            self.control = XamlReader.Load(stream)
-        finally:
-            stream.Close()
-        self.status = self.control.FindName("PaneStatus")
-        self.buttons = self.control.FindName("PaneButtons")
-        self.actions = self.control.FindName("PaneActions")
-        self.scroll = self.control.FindName("PaneScroll")
-        refresh = self.control.FindName("PaneRefresh")
+        self.control = _load()
+        self._adopt(self.control)
+        self.control.SizeChanged += self._on_size
+        self._draw()
+
+    def _adopt(self, tree):
+        """Take the named controls out of *tree* and wire them up.
+
+        Used for the first build and for every re-skin, so the two cannot
+        drift -- a control wired only in one of them is a button that stops
+        working the first time somebody presses Refresh.
+        """
+        self.status = tree.FindName("PaneStatus")
+        self.buttons = tree.FindName("PaneButtons")
+        self.actions = tree.FindName("PaneActions")
+        self.scroll = tree.FindName("PaneScroll")
+        refresh = tree.FindName("PaneRefresh")
         if refresh is not None:
             refresh.Click += self._on_refresh
-        clear = self.control.FindName("PaneClear")
+        clear = tree.FindName("PaneClear")
         if clear is not None:
             clear.Click += self._on_clear
-        self.control.SizeChanged += self._on_size
-        self.reload()
+        if self.scroll is not None:
+            # The wheel scrolls whichever axis is live. WPF only ever scrolls
+            # the vertical one, so across the top -- where there IS no vertical
+            # axis -- the wheel did nothing at all.
+            self.scroll.PreviewMouseWheel += self._on_wheel
+        return self.status is not None and self.buttons is not None
+
+    def _reskin(self):
+        """Re-read pane.xaml into the live control. ``True`` if it took.
+
+        Revit is handed the ``FrameworkElement`` once, at registration, and
+        will not take another -- so a pyRevit reload leaves the OLD control on
+        screen and an appearance change needs a full Revit restart. That is a
+        poor trade for a panel being iterated on, and it is avoidable: Revit
+        holds the UserControl, not its contents, so the contents can be
+        replaced underneath it.
+
+        The order matters. Names are resolved from the fresh tree BEFORE its
+        content is detached, because re-parenting the content does not carry
+        its name scope with it and ``FindName`` on the live control would
+        return None afterwards. The element references stay valid; only the
+        lookup would not.
+
+        Any failure leaves the tree that is already on screen alone. A pane
+        showing the previous theme is a blemish; a pane showing nothing is a
+        lost tool.
+        """
+        try:
+            fresh = _load()
+            old = (self.status, self.buttons, self.actions, self.scroll)
+            if not self._adopt(fresh):
+                self.status, self.buttons, self.actions, self.scroll = old
+                return False
+            content = fresh.Content
+            fresh.Content = None          # an element may have one parent
+            self.control.Resources = fresh.Resources
+            self.control.Content = content
+            self.vertical = None          # whatever it was, re-decide it
+            return True
+        except Exception:
+            return False
 
     def reload(self):
+        """Everything Refresh does: re-read the pane's own XAML, then the rules.
+
+        Two separate re-reads, and they are separate on purpose -- the first
+        build has just parsed the XAML and has no reason to parse it twice.
+        """
+        self._reskin()
+        self._draw()
+
+    def _draw(self):
         """Redraw the buttons from the rules file. Never raises.
 
         The window writes that file and this reads it -- the two run on
@@ -240,7 +290,7 @@ class FilterViewPane(IDockablePaneProvider):
             return
 
         try:
-            chip_style = self.control.TryFindResource("ButtonRuleOnDark")
+            chip_style = self.control.TryFindResource(CHIP_STYLE)
             self.buttons.Children.Clear()
             self.chips = []
             for rule in rules:
@@ -258,6 +308,7 @@ class FilterViewPane(IDockablePaneProvider):
             self._show("the buttons could not be drawn: {0}".format(error), "error")
             return
 
+        self._on_size(None, None)     # a content swap raises no SizeChanged
         self._show("{0} rule(s). Press one to isolate it in the active "
                    "view.".format(len(rules)) if rules else
                    "No saved rules yet. Build one in Filter View Manager.")
@@ -272,8 +323,8 @@ class FilterViewPane(IDockablePaneProvider):
         margins of every chip several hundred times.
         """
         try:
-            self._layout(_wants_vertical(self.control.ActualWidth,
-                                         self.control.ActualHeight))
+            self._layout(wants_vertical(self.control.ActualWidth,
+                                        self.control.ActualHeight))
         except Exception:
             pass
 
@@ -347,6 +398,28 @@ class FilterViewPane(IDockablePaneProvider):
     def _on_refresh(self, sender, args):
         self.reload()
 
+    def _on_wheel(self, sender, args):
+        """Send the wheel to the axis that is actually scrolling.
+
+        Down the side the default is already right, so this stands aside and
+        lets WPF handle it. Across the top there is no vertical axis at all,
+        and WPF's default is to scroll one -- so the wheel did nothing and the
+        rules past the fold were reachable only by dragging the scrollbar.
+
+        Shift+wheel is left alone in both orientations: that is the platform's
+        own "scroll sideways" and overriding it would be rude.
+        """
+        if self.vertical or self.scroll is None:
+            return
+        try:
+            if Keyboard.Modifiers != NO_MODIFIER:
+                return        # Shift-wheel is the platform's own sideways
+            self.scroll.ScrollToHorizontalOffset(
+                wheel_step(args.Delta, self.scroll.HorizontalOffset))
+            args.Handled = True
+        except Exception:
+            pass
+
     def _show(self, message, tone="info"):
         """Say what happened, in a colour that agrees with the words.
 
@@ -358,38 +431,21 @@ class FilterViewPane(IDockablePaneProvider):
             return
         try:
             self.status.Text = message
-            brush = self.control.TryFindResource(_TONE_BRUSH.get(
-                tone, "BrushDarkTextMuted"))
+            brush = self.control.TryFindResource(tone_brush(tone))
             if brush is not None:
                 self.status.Foreground = brush
         except Exception:
             pass
 
 
-#: Status tone to the brush that carries it. Keys are checked against
-#: pane.xaml by tests/test_filterview_ui.py, so a renamed brush is a failed
-#: test rather than a silently uncoloured status line.
-_TONE_BRUSH = {
-    "info": "BrushDarkTextMuted",
-    "ok": "BrushSuccessGreenOnDark",
-    "error": "BrushErrorRedOnDark",
-}
-
-
-def _wants_vertical(width, height):
-    """Is this pane shaped like a side dock?
-
-    Two questions, because neither answers it alone. A side dock is narrow --
-    that is the ordinary case and ``NARROW_WIDTH`` catches it. But a floating
-    pane can be narrow-ish and very tall, or wide and short, and there the
-    shape is the better guide than the width.
-
-    Before the first layout pass both are zero, and a zero-sized control gets
-    the horizontal layout the XAML already declares -- no flicker on load.
-    """
-    if width <= 0 or height <= 0:
-        return False
-    return width <= NARROW_WIDTH or height > width
+def _load():
+    """Parse pane.xaml into a fresh UserControl."""
+    path = os.path.join(HERE, "pane.xaml")
+    stream = FileStream(path, FileMode.Open, FileAccess.Read)
+    try:
+        return XamlReader.Load(stream)
+    finally:
+        stream.Close()
 
 
 def _wrapping(vertical):

@@ -43,6 +43,18 @@ MATCH_MODES = (MATCH_ALL, MATCH_ANY)
 _counter = [0]
 
 
+#: Where ``RuleSet.reorder`` puts a block of rules. Strings rather than an
+#: enum because they cross into the window's own code and into no file --
+#: nothing serialises these, so they are named for reading, not for storing.
+UP = "up"
+DOWN = "down"
+TOP = "top"
+BOTTOM = "bottom"
+
+#: Every destination, for a caller that wants to check one before using it.
+DESTINATIONS = (UP, DOWN, TOP, BOTTOM)
+
+
 def new_rule_id():
     """A short, stable, sortable id for a rule.
 
@@ -443,6 +455,70 @@ class RuleSet(object):
         self._rules.insert(position, rule)
         self._renumber()
         return True
+
+    def reorder(self, rule_ids, where):
+        """Move several rules as a block. ``True`` if anything moved.
+
+        *where* is ``UP``, ``DOWN``, ``TOP`` or ``BOTTOM``. The selection keeps
+        its own relative order wherever it lands, which is what a person means
+        by "move these up" and is not what moving them one at a time does --
+        that reverses them, or collapses them onto each other, depending on
+        which end you start from.
+
+        A **non-contiguous** selection is the case worth being careful about.
+        Stepping is done by swapping each chosen rule with its unchosen
+        neighbour, walking top-down to go up and bottom-up to go down, so a
+        chosen rule already sitting against another chosen one is not dragged
+        through it. Two rules picked from opposite ends of the list travel
+        independently and both stop when they reach the edge.
+
+        Ids that are not in the set are ignored rather than refused: the
+        window's selection and the rules on disk can disagree for one redraw.
+        """
+        wanted = set(rule_ids or ())
+        chosen = [rule for rule in self._rules if rule.id in wanted]
+        if not chosen or len(chosen) == len(self._rules):
+            # Everything selected: every destination is the order it is in.
+            return False
+
+        if where == TOP:
+            rest = [rule for rule in self._rules if rule.id not in wanted]
+            ordered = chosen + rest
+        elif where == BOTTOM:
+            rest = [rule for rule in self._rules if rule.id not in wanted]
+            ordered = rest + chosen
+        elif where in (UP, DOWN):
+            step = -1 if where == UP else 1
+            ordered = list(self._rules)
+            positions = (range(len(ordered)) if step < 0
+                         else range(len(ordered) - 1, -1, -1))
+            for index in positions:
+                if ordered[index].id not in wanted:
+                    continue
+                target = index + step
+                if target < 0 or target >= len(ordered):
+                    continue
+                if ordered[target].id in wanted:
+                    continue          # blocked by another chosen rule
+                ordered[index], ordered[target] = ordered[target], ordered[index]
+        else:
+            return False
+
+        if [rule.id for rule in ordered] == [rule.id for rule in self._rules]:
+            return False
+        self._rules = ordered
+        self._renumber()
+        return True
+
+    def remove_many(self, rule_ids):
+        """Remove several rules. Returns how many actually went."""
+        wanted = set(rule_ids or ())
+        keep = [rule for rule in self._rules if rule.id not in wanted]
+        gone = len(self._rules) - len(keep)
+        if gone:
+            self._rules = keep
+            self._renumber()
+        return gone
 
     # -- serialisation ----------------------------------------------------
 

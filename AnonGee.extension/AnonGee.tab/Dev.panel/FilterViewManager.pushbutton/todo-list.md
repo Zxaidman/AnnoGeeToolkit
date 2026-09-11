@@ -147,7 +147,10 @@ none of them was findable any other way.
 | BUG-4 | Panel would not register: "no UIControlledApplicatio..." | 0.2.0 in Revit | Fixed 0.2.1 — the spike guessed `__uicontrolledapplication__`; pyRevit binds **`__revit__`**, listed in this repo's own `tests/test_scripts.py` the whole time |
 | BUG-7 | The panel appeared on Revit start with no button pressed | 0.2.1 in Revit | Fixed 0.3.0 — `DockablePaneProviderData.VisibleByDefault` **defaults to `True`**. Registration and visibility are separate concepts with a shared default |
 | BUG-8 | The panel was white between two dark Revit palettes | 0.2.1 in Revit | Fixed 0.3.0 — the design system had no dark anything. Added §3.8 / §9.10 and the tokens behind them, then applied |
-| BUG-9 | Docked right: one button centred in dead space, the second clipped behind a horizontal scrollbar, actions eating the width | 0.2.1 in Revit | Fixed 0.3.0 — `WrapPanel` reflows but does not re-align. Orientation is now decided from the measured size and applied to four things |
+| BUG-9 | Docked right: one button centred in dead space, the second clipped behind a horizontal scrollbar, actions eating the width | 0.2.1 in Revit | Fixed 0.3.0 — `WrapPanel` reflows but does not re-align. Orientation is now decided from the measured size and applied to five things |
+| BUG-10 | The dark was near-black, and read as a hole between the Properties palette and the Project Browser | 0.3.0 in Revit | Fixed 0.4.0 — canvas re-based on Revit's own panel grey, and every token measured against it moved with it. It also forced a lifted brand red: `ColorVividRed` is 2.46:1 on grey, under 1.4.11 |
+| BUG-11 | The mouse wheel did nothing in a top or bottom dock | 0.3.0 in Revit | Fixed 0.4.0 — WPF's wheel only drives the vertical axis, and a strip has none. `PreviewMouseWheel` now scrolls whichever axis is live |
+| BUG-12 | An appearance change needed a full Revit restart to show | 0.3.0 in Revit | Fixed 0.4.0 — Revit takes the `FrameworkElement` once, but holds the `UserControl` and not its contents, so Refresh re-reads `pane.xaml` and swaps them underneath it |
 
 BUG-5 and BUG-6 were folded into BUG-4's fix and never carried IDs of their own;
 the numbering is kept rather than closed up, so a reference in an older entry
@@ -176,6 +179,8 @@ nothing here is agreed until it says so.
 | FEAT-11 | Apply a rule across several views at once, skipping views that cannot take filters (§13.7) | `pending` |
 | FEAT-12 | Import / export a rule set, so an office shares one | `pending` |
 | FEAT-13 | Convert a saved rule into a real `ParameterFilterElement` in the project — only possible for rules whose every parameter passed the CRIT-2 flag. Not wanted today; recorded because CRIT-2's answer paid for it | `pending` |
+| FEAT-17 | **Multiple selection on the saved rules** — Ctrl+click, Shift+click and a tick that reports the selection, with Duplicate, Delete and all four Moves acting on the block | `testing` — built in 0.4.0, modelled on cad2bim's layer mapping so the same gesture means the same thing in both tools |
+| FEAT-18 | **Move a rule to either end of the list in one step** — To top / To bottom beside Move up / Move down | `testing` — built in 0.4.0 on `RuleSet.reorder`, which moves a block rather than looping single moves |
 | FEAT-15 | **Dark inputs.** §9.10 ships dark buttons, a dark scrollbar and a dark card, and no dark `InputTextBox` / `InputComboBox` / `InputCheckBox` / `InputListBox`, because nothing dark has needed one — the only dark surface is a pane of buttons. Specify in §9.10 first, then build | `pending` |
 | FEAT-16 | **One scrollbar template, themed by token.** `ScrollBarOnDark` duplicates the light template to swap three brushes, which is what WPF forces unless the shared template reads its brushes through `{DynamicResource}` — then a dark container redefines three keys and the template is written once. It is the better design; it also touches every tool's inline theme copy, so it is a design-system change, not a tool one | `pending` |
 | FEAT-14 | Per-project rule store — **decided and read-side built**: `<model folder>/AnonGee/filter_view_rules.json`, one per folder, no precedence (both shown, each badged). Not Extensible Storage, because writing that modifies the model and PRD S6.1 forbids it. The window has no UI for it yet | `building` |
@@ -270,7 +275,12 @@ record and one answer needed correcting.
 height, length being viewport"* **and** *"just like property or project browser,
 dock left or right"*. Revit gives both for free: register with
 `DockPosition.Top` and it opens as a horizontal strip across the drawing area,
-and the user can re-dock it left or right like any Revit pane. Nothing special
-is needed — but the layout has to survive both shapes, and §12.4 of the brand
-guidelines only covers the tall one (`MinWidth=240 / MaxWidth=360`). Recorded as
-a design-system reconciliation item in `ARCHITECTURE.md` §7.
+and the user can re-dock it left or right like any Revit pane.
+
+"Nothing special is needed" was wrong, and it took two in-Revit runs to find
+out how wrong. The layout has to survive both shapes and a `WrapPanel` survives
+neither (BUG-9); the wheel has to be pointed at the live axis or it does nothing
+across the top (BUG-11); and §12.4 described only the tall shape. **All of that
+is now written down**: §12.4 covers both orientations, the wheel, the top-align
+rule, `VisibleByDefault`, and the fact that Revit takes the `FrameworkElement`
+only once. The reconciliation item in `ARCHITECTURE.md` §7.3 is closed.
