@@ -577,7 +577,23 @@ class FilterViewApp(object):
         self._refresh_cascade()
 
     def _refresh_cascade(self):
+        """Re-read families, types and parameters for whatever is picked now.
+
+        **Every path that changes ``self.picked`` ends here**, and that is the
+        invariant, not a convention -- ``tests/test_filterview_ui.py`` fails a
+        method that moves ``picked`` without it. BUG-13 was exactly that gap:
+        loading a saved rule set ``picked`` and rebuilt the category list, but
+        ``_rebuild_categories`` raises the ``rebuilding`` flag around its own
+        selection loop (rightly -- a search must not re-ask Revit for every
+        keystroke), so ``_on_category_selected`` never ran and nothing ever
+        asked for the cascade.
+        """
         if not self.picked:
+            # Nothing will come back, so nothing will consume these. Left set,
+            # they are applied to whatever rule is being edited when the NEXT
+            # cascade lands -- one rule's family quietly appearing on another.
+            self.pending_family = None
+            self.pending_type = None
             self._fill_combo(self.FamilyCombo, ANY_FAMILY, [])
             self._fill_combo(self.TypeCombo, ANY_TYPE, [])
             self.parameters = []
@@ -727,13 +743,22 @@ class FilterViewApp(object):
         self.conditions = list(rule.conditions)
         self.MatchAllRadio.IsChecked = rule.match == rules.MATCH_ALL
         self.MatchAnyRadio.IsChecked = rule.match == rules.MATCH_ANY
-        self._rebuild_categories()
-        self._rebuild_conditions()
-        # The cascade is fetched on Revit's thread, so the family and type
-        # cannot be selected until it comes back. Held here and applied in
-        # _receive, which is the only place that knows they have arrived.
+        # Set BEFORE the cascade is asked for, because _receive consumes them
+        # the moment the answer lands. The cascade is fetched on Revit's
+        # thread, so the family and type cannot be selected until it comes
+        # back; _receive is the only place that knows they have arrived.
         self.pending_family = rule.family
         self.pending_type = rule.type_name
+        self._rebuild_categories()
+        self._rebuild_conditions()
+        # BUG-13. Without this the editor showed the rule's NAME, categories
+        # and conditions and nothing else: the Family and Type combos were
+        # never filled, so the rule's own family and type could not be shown
+        # and the two pendings above sat unconsumed forever. Worse than a
+        # display fault -- current_rule() reads family and type off those
+        # combos, so Apply, Count and Select built a rule with NO family and
+        # NO type and quietly isolated a broader set than the rule names.
+        self._refresh_cascade()
         self._validate()
         self._status("Loaded {0!r}. Press Apply to isolate what it "
                      "matches.".format(rule.name), "info")
@@ -747,6 +772,11 @@ class FilterViewApp(object):
         self.RuleList.SelectedIndex = -1
         self._rebuild_categories()
         self._rebuild_conditions()
+        # Clears the combos and the parameter list too. Without it a new rule
+        # started from a loaded one kept the old rule's families and types in
+        # its dropdowns, offering a choice that no longer had anything behind
+        # it -- and kept its pendings, which the next cascade would apply.
+        self._refresh_cascade()
         self._validate()
         self._status("New rule. Tick the categories it should look in.", "info")
 

@@ -67,7 +67,7 @@ start.
 #: something it could not do before and every saved rule is untouched.
 #: 0.4.0 re-bases that dark on Revit's own grey and adds multiple
 #: selection to the saved rules -- MINOR again, for the same two reasons.
-VERSION = "0.4.0"
+VERSION = "0.4.1"
 
 #: The pure half is imported freely. ``compat``, ``revit_query`` and
 #: ``revit_apply`` are NOT listed: they import ``Autodesk.Revit.DB`` at
