@@ -19,12 +19,35 @@ import re
 
 # size token: 400x400, 230 x 500, 400X600, 400*600 (b first, h second -- order kept)
 _SIZE_RE = re.compile(r"(\d+(?:\.\d+)?)\s*[x×X*]\s*(\d+(?:\.\d+)?)")
-# mark token: one to three letters then digits, optional trailing letter (C1, RB12, C1A).
+# mark token: letters then digits, REPEATED, with an optional trailing letter --
+# "C1", "RB12", "C1A", and "T1SW41a", "T2CW3B", which alternate twice.
 # The token may butt directly against a size with an underscore ("C16_300 X 600"): an
 # underscore is a regex word char, so a trailing \b would NOT fire there and the mark was
 # lost. A negative lookahead instead just forbids the token running on into another
 # letter/digit, so "_", a space, or end-of-string all close it.
-_MARK_RE = re.compile(r"\b([A-Za-z]{1,3}\d+[A-Za-z]?)(?![A-Za-z0-9])")
+#
+# The repeat arrived with BUG-41 -- the owner's shear walls are "T1SW41a" and one
+# letters-then-digits group could not reach them. MEASURED over all 36119 texts in
+# the corpus before widening it: the answer CHANGES on none of them, and 415 texts
+# newly match, every one of the shape T#SW#, T#W#, T#CW#, T#PW# or T#Y#.
+#
+# `(?![xX]\d)` is what keeps it a mark and not a size: without it "B200x2380" --
+# a beam labelled by its section -- reads as one long mark "B200X2380", because
+# "x2380" is a perfectly good letters-then-digits group. The size separator never
+# continues a mark.
+_MARK_RE = re.compile(r"\b([A-Za-z]{1,3}\d+(?:(?![xX]\d)[A-Za-z]{1,3}\d+)*"
+                      r"[A-Za-z]?)(?![A-Za-z0-9])")
+
+# How near a NAME-only text has to be to a SIZE-only text before the two are read
+# as the two halves of one label. MEASURED across every fixture drawing, over the
+# 367 size-only texts that have a name-only text on their own layer:
+#
+#     nearest name        min 223   10th  270   median  340   90th  411
+#     SECOND nearest      min 836   10th 1086   median 2276   90th 3422
+#
+# The band from 411 to 836 mm is EMPTY -- no label's own name sits beyond 411 and
+# no other label's name comes nearer than 836. 600 is the middle of the gap.
+_LABEL_HALVES_MM = 600.0
 # "B20(c)" -- the mark carries a parenthesised SCHEDULE KEY instead of a size;
 # the size lives in a MARK/SIZE table whose mark column reads "(a)", "(b)"...
 _SIZE_KEY_RE = re.compile(r"\(\s*([A-Za-z0-9]{1,3})\s*\)")
@@ -87,7 +110,66 @@ def parse_texts(texts):
         record.b_mm = b_mm
         record.h_mm = h_mm
         record.size_key = size_key(record.text)
+    join_split_labels(texts)
     return texts
+
+
+def join_split_labels(texts, radius_mm=None):
+    """Give a size-only text the name written just beside it (BUG-41).
+
+    A drawing does not have to put a member's name and its section in one piece
+    of text. The owner's writes them as two, the name directly above the size:
+
+        T1SW1            <- one DXF text, a name and no size
+        250X2750         <- another, a size and no name
+
+    Read one at a time, neither half is a label: the size text names nothing, so
+    every member it sizes is built unnamed, and the name text sizes nothing, so
+    it is never looked at. His drawing is an exact 340 / 340 split of the two,
+    and all 171 members came out with the schedule mark blank.
+
+    So a size-only text takes the mark of the nearest name-only text ON ITS OWN
+    LAYER within `radius_mm` (`_LABEL_HALVES_MM`, read off an empty band -- see
+    the constant). Same layer because that is what the drawing itself groups by,
+    and it stops a beam's name crossing to a column's size where the two happen
+    to be drawn close.
+
+    In place, and idempotent: a text that already carries both is never touched,
+    and neither is a name-only text -- it keeps naming nothing, because what it
+    names is the member the size text sits on.
+
+    Returns the number of size texts that gained a name.
+    """
+    reach = (_LABEL_HALVES_MM if radius_mm is None else float(radius_mm)) / 304.8
+    sizes, names = {}, {}
+    for record in texts or ():
+        point = getattr(record, "point_internal", None)
+        if not point:
+            continue
+        sized = (getattr(record, "b_mm", None) is not None
+                 and getattr(record, "h_mm", None) is not None)
+        named = bool(getattr(record, "mark", None))
+        if sized and not named:
+            sizes.setdefault(getattr(record, "layer", ""), []).append(record)
+        elif named and not sized:
+            names.setdefault(getattr(record, "layer", ""), []).append(record)
+    joined = 0
+    for layer, wanting in sizes.items():
+        offering = names.get(layer)
+        if not offering:
+            continue
+        for record in wanting:
+            x, y = record.point_internal[0], record.point_internal[1]
+            best, best_d2 = None, reach * reach
+            for other in offering:
+                d2 = ((other.point_internal[0] - x) ** 2
+                      + (other.point_internal[1] - y) ** 2)
+                if d2 <= best_d2:
+                    best, best_d2 = other, d2
+            if best is not None:
+                record.mark = best.mark
+                joined += 1
+    return joined
 
 
 def sized_texts(texts):

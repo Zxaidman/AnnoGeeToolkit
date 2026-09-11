@@ -138,6 +138,198 @@ for every other pre-P1 file.
 
 ## 2. Errors and bugs
 
+### BUG-44 — "Grids created: 0" does not say WHY, so a correct answer reads as a failure · `testing`
+
+**The owner:** "grids are not being made, maybe because cad has small line only? in next test i would
+try to extend and check again".
+
+**Nothing is wrong with the reading, and his export already said so** — it just never reached the
+console:
+
+    "grids": {"created": 0, "skipped": 37, "errors": 0,
+              "skip_details": [{"reason": "grid already in the model", "count": 37}]}
+
+**His model already has those 37 grids**, and the run declined to draw them a second time. That is the
+behaviour anybody would want; it is only the console that made it look like a fault, because
+`_create_grids` printed the COUNTS and then only the errors:
+
+    Grids -- created: 0, skipped: 37, errors: 0
+
+A count with no reason beside it reads as a failure whatever it actually was. The skip reasons were
+being grouped for the export already, so v1.0.4 prints the same grouping:
+
+    Grids -- created: 0, skipped: 37, errors: 0
+      grid: 37 -- grid already in the model
+
+**So the short lines are a red herring** and he does not need to redraw anything. (For the record they
+ARE short — the drawing's 229 grid-category records run to a 1827 mm maximum and a 896 mm median, so
+they are bubble leaders — but that is not what stopped them: a short grid would have been created.
+What stopped them is that they lie on grids the model already has, which is the right call either
+way.)
+
+### BUG-43 — Only 107 beams of the drawing's 810 · `pending`
+
+**The owner:** "now we have to fix the beam almost very few beam are drawn even on them there are some
+which is not correct." Two different causes, and the big one is not in the beam code:
+
+| | count |
+| --- | --- |
+| `S-BEAM` curves in the DXF | 1755 |
+| beam segments the reader derives OFFLINE | **810** |
+| curves the **Revit link** delivered | **213** |
+| beams his run built | **107** |
+
+**The 810 → 213 is BUG-36** — the link eating overlapping outlines, the same fault that takes the
+whole drawing from 1855 curves to 1614. Nothing in the beam code can recover a curve that never
+arrived. **The 810 → 130 is this item**: offline, only **130 of the 810 segments get a depth** and
+**none get a mark**, which is BUG-42 — their labels carry a name and no size, and the size is in the
+schedule table.
+
+So the order is: BUG-42 first (the labels), then measure again, then BUG-36 for what is still missing.
+
+### BUG-42 — A beam mark is only read off a label that also carries a size · `testing`
+
+**Measured on the drawing he ran.** Its `S-BEAM-IDEN` layer holds **870 texts, 822 of which parse as a
+mark** (`B12`, `B20`) — and **not one of them carries a size**. The sizes live in the schedule table on
+`G-ANNO-SCHD`, keyed by the mark, which is exactly how he described it.
+
+But `_apply_beam_marks` is driven by `sized_labels` — labels carrying a BxH — and takes
+`segment["mark"] = text.mark` as a by-product. A label with a name and no size is never in that list,
+so it names nothing. Offline: **810 segments, 0 marked**. In Revit: 107 built, **3 marked**.
+
+**But the chain was already there, and the routing is right.** `_sized_beam_labels` sizes a mark-only
+label from `schedule[mark]`, and the DEFAULT text mapping already sends his layers to the right
+places: `S-BEAM-IDEN` → beam text (870), `S-COL-IDEN` → column text (680), `G-ANNO-SCHD` → schedule
+(19). Reading his beam schedule offline gives 6 rows — `B1 200x650`, `B3 300x650`, `B4 200x300`,
+`B5 400x650`, `B6 200x325`, `B7 200x375` — and **626 of the 822 beam marks are in it**.
+
+Fed that schedule, the reader sizes **618 of 836 segments** and names **5**.
+
+**So the size was arriving and the NAME was being stripped**, by `_dedupe_marks`. It exists for a real
+case — one label drawn between two parallel members, both taking it, only the nearer keeping the name
+— but it grouped the segments by their mark TEXT and measured them all against the FIRST label
+carrying that text. That assumes a drawing names every beam differently: B1, B2, B3.
+
+**His names beams by TYPE.** 822 labels, **8 distinct marks** between them, every 200x650 member
+reading "B1". Against the one B1 label the sweep happened to keep, the other 89 B1 beams are all
+"further away", so every one of them was stripped.
+
+**FIXED in v1.0.4.** The sweep works per LABEL, not per mark string: a label is one piece of text at
+one place and names the member it sits on. Two segments contending for ONE label is the case it exists
+for and is untouched; two segments that took two different labels keep both names, and that the two
+labels say the same word is the drawing's business. Duplicate marks are not Revit's problem here
+either — `set_element_mark` writes the user's configured parameter first (his is `S-ScheduleMark`),
+and the duplicate-mark warning belongs to the built-in `Mark` alone.
+
+| his drawing, 836 beam segments | before | after |
+| --- | --- | --- |
+| carrying a size | 618 | 618 |
+| **carrying a mark** | **5** | **548** |
+
+### BUG-41 — The column label is TWO texts and neither half is read · `testing`
+
+**Measured on `S-COL-IDEN`: 680 texts, an exact 340 / 340 split.**
+
+| what the text is | parses as | count |
+| --- | --- | --- |
+| `250x2750` | a SIZE, no mark | **340** |
+| `T1SW1`, `T1SW33b`, `T1SW125a` | **neither** | **340** |
+
+Two faults on top of each other:
+
+**1. `T1SW1` does not parse as a mark at all.** `_MARK_RE` is
+`\b([A-Za-z]{1,3}\d+[A-Za-z]?)(?![A-Za-z0-9])` — one to three letters, digits, at most one trailing
+letter. `T1SW41a` is letters-digits-letters-digits-letter and matches nothing. Beam marks (`B20`) fit
+the pattern, which is why 822 of those do parse.
+
+**2. Even parsed, nothing joins the two halves.** The name is a separate DXF entity sitting directly
+ABOVE its size — measured over all 340 pairs, the nearest name text is **223 mm** away at the closest,
+**336 mm** at the median, **539 mm** at the furthest, and `dy` is positive every single time.
+
+    'T1SW126b'  above  '200x1800'    dy=+223  dx=  +3
+    'T1SW33b'   above  '250x2150'    dy=+245  dx= +28
+    'T1SW23'    above  '250x1300'    dy=+380  dx=+382
+
+**FIXED in v1.0.4, both halves, each read off a measurement.**
+
+**The pattern**, widened to letters-then-digits REPEATED with an optional trailing letter. Widening it
+is the risky half — it runs over EVERY text in every drawing — so it was measured over **all 36119
+texts in the corpus** first:
+
+| | |
+| --- | --- |
+| answers that CHANGE | **0** |
+| texts that newly match | **415** |
+| …their shapes | `T#SW#`, `T#W#`, `T#CW#`, `T#PW#`, `T#Y#` — every one a member mark |
+
+One false positive showed up in that measurement and is guarded: without `(?![xX]\d)`, **`B200x2380`**
+— a beam labelled by its section — reads as one long mark `B200X2380`, because `x2380` is a perfectly
+good letters-then-digits group. The size separator never continues a mark. With the guard, **0** of the
+415 contain one.
+
+**The join.** A size-only text takes the mark of the nearest name-only text ON ITS OWN LAYER within
+600 mm. Measured across every fixture drawing, over the 367 size-only texts that have a name-only text
+on their layer:
+
+    nearest name      min 223   10th  270   median  340   90th  411
+    SECOND nearest    min 836   10th 1086   median 2276   90th 3422
+
+**The band from 411 to 836 mm is empty** — no label's own name sits beyond 411 and no other label's
+name comes nearer than 836. 600 is the middle of the gap. Same layer because that is what the drawing
+groups by, and it stops a beam's name crossing to a column's size where the two are drawn close. The
+name text is deliberately left naming nothing: what it names is the member the SIZE text sits on, and
+giving it a size of its own would invent a second member at the name's position.
+
+| his drawing | before | after |
+| --- | --- | --- |
+| sized texts carrying a mark | 0 of 346 | **340** of 346 |
+| **column rectangles carrying a mark** | **0** of 342 | **257** of 342 |
+| beam segments carrying a mark | 0 of 810 | 98 of 810 |
+
+The join runs inside `parse_texts`, so there is one call site and no pipeline can be wired up and
+quietly miss it.
+
+### BUG-40 — A member built as a WALL gets neither its mark nor its grade · `testing`
+
+**The owner:** "for some reason mark and grade is not being assign correctly for both column and
+beam", with a screenshot of a wall whose `S-ConcreteGrade` and `S-ScheduleMark` are both **empty**
+while its geometry is right (250 x 2750, the label beside it reading `T1SW1 250X2750`).
+
+**His settings are correct** — `cb_grade_param: S-ConcreteGrade`, `cb_name_param: S-ScheduleMark`,
+`tb_grade_column: M40`, `tb_grade_beam: M30`. Nothing is misconfigured.
+
+**His run built 171 vertical members and every one of them is a WALL**: `{"rect": 0, "circular": 0,
+"walls": 171}`. And `place_vertical_members` says what happens to those, in its own words:
+
+> `"wall_ids"` the walls this pass created. **Kept OUT of "created" on purpose**: the caller files
+> "created" as the columns for the material pass, and a wall type keeps no structural material
+> parameter to write
+
+So `_apply_materials` reads `outcomes["columns"][_element_ids]`, finds the 171 walls are not in it,
+and stamps nothing. `builders/columns.py` calls `_set_mark` on the rectangular and circular paths;
+`builders/walls.py` never does.
+
+**The reasoning holds for MATERIAL and not for the other two.** A wall type genuinely has no
+structural-material parameter to set. But the grade is a text parameter the user NAMES
+(`S-ConcreteGrade`), and the mark is another (`S-ScheduleMark`) — his screenshot shows the wall
+carrying both, empty. A wall can hold them perfectly well; it was never asked to.
+
+**FIXED in v1.0.4**, one end each:
+
+* `place_walls` stamps `segment["mark"]`, exactly as the column builder stamps its rectangles'.
+  `wall_plan` has put the drawing's mark on every segment since it was written
+  (`segment["mark"] = rect.get("mark")`) and this was the one end that never read it.
+* the created wall ids ride in `_WALL_IDS`, beside `_IDS` rather than inside it, and `_apply_materials`
+  stamps the GRADE on both lists and the MATERIAL on `_IDS` alone. The two passes want different
+  answers about a wall, so they read different lists; the original reason for leaving walls out stands
+  for the one that still excludes them.
+* `_strip_ids` drops the new key too — an ElementId is no more serialisable than it was.
+
+**On his drawing this is worth nothing without BUG-41**, and that is the order they were done in: the
+mark it stamps is the one the rectangle carries, and before BUG-41 no rectangle carried one at all.
+Together they take his 171 members from 0 named to 257 of 342 rectangles named, and the grade from
+stamped-on-nothing to stamped on all 171.
+
 ### BUG-39 — The size label grows a closed outline's leg past the outline · `testing`
 
 **This is what the owner's eight screenshots actually show**, and BUG-37 is not it. His export says so:
@@ -251,6 +443,21 @@ thicker than its columns really are, that drawing will now build thicker. And Pr
 rectangles: at their drawn size they fall outside the column size limits (`out_of_range` 33 → 35),
 where the label had been shrinking them inside. The limits are on the Advanced tab if 1500 mm is too
 tight for that drawing.
+
+### WORK-13 — The gate never feeds a beam SCHEDULE, so BUG-42's path is uncovered · `pending`
+
+**Noticed while fixing BUG-42.** The DXF sweep calls `build_beam_segments(..., schedule=None)` and
+hands it every text in the drawing rather than the routed ones, so the whole mark → schedule → size
+chain is outside the gate. On the owner's drawing that chain is everything the beams have: with it,
+618 of 836 segments are sized and 548 named; without it, 130 and 0. The sweep sees the second number
+and calls it normal.
+
+That is how BUG-42 survived — a pass with no coverage, whose output looked plausible.
+
+**What it needs**: the sweep parsing each drawing's own schedule-routed texts and passing the result,
+the way the run does. Held rather than done in the same breath, because it also means routing the beam
+texts as the run routes them, and that moves `beams`, `sized_beams` and `marked_beams` on several
+drawings at once — a baseline move wanted on its own, attributed on its own, not folded into a fix.
 
 ### WORK-12 — The gate files an export by its FILENAME, so test17 now measures another drawing · `pending`
 

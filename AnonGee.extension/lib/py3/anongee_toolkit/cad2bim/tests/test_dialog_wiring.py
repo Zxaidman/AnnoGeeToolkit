@@ -962,6 +962,36 @@ class TheWallsReachTheBuilder(unittest.TestCase):
         with open(_WALLS_BUILDER, "rb") as handle:
             return handle.read().decode("utf-8")
 
+    def test_a_wall_is_NAMED_with_the_mark_the_split_carried(self):
+        # BUG-40. `wall_plan` has put the drawing's mark on every segment since
+        # it was written; this was the one end that never read it, so a drawing
+        # whose members all route to walls -- every one of the owner's 171 --
+        # came out with the schedule mark blank on all of them.
+        source = self._walls_source()
+        self.assertIn("set_element_mark", source)
+        self.assertIn('_set_mark(instance, segment.get("mark"))', source)
+
+    def test_the_grade_reaches_those_walls_and_the_material_does_not(self):
+        # A wall type has no structural material parameter, which is why the
+        # wall ids were kept out in the first place. The grade is a text
+        # parameter the user names, and a wall carries it as happily as a
+        # column -- so the two passes read two different lists.
+        source = _builders_source()
+        self.assertIn("_WALL_IDS", source)
+        block = source.split("def _apply_materials(", 1)[1].split("\ndef ", 1)[0]
+        self.assertIn("_WALL_IDS", block)
+        self.assertIn("materials.apply_grade(\n                    doc, graded",
+                      block)
+        # the MATERIAL still goes only to what `_IDS` holds
+        material = block.split("if material_id is None:", 1)[1]
+        self.assertNotIn("_WALL_IDS", material)
+
+    def test_the_wall_ids_never_reach_the_export(self):
+        # Same reason `_IDS` is stripped: an ElementId is not serialisable.
+        block = _builders_source().split("def _strip_ids(", 1)[1]
+        block = block.split("\ndef ", 1)[0]
+        self.assertIn("(_IDS, _WALL_IDS)", block)
+
     def test_each_kind_lives_on_its_own_discipline_tab(self):
         # the user's tab set: structural walls belong to Structure, arch
         # walls give Architecture its first real content

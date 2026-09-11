@@ -44,7 +44,7 @@ import math
 from Autodesk.Revit.DB import (BuiltInParameter, FilteredElementCollector,
                                Line, Wall, WallKind, WallType, WallUtils, XYZ)
 
-from ..compat import get_element_name
+from ..compat import get_element_name, set_element_mark
 from .. import config
 from .. import naming
 from .. import type_names
@@ -244,6 +244,14 @@ def place_walls(doc, segments, base_type_id, base_level_id, top_level_id=None,
     out to the other's far face and stopped the other on its side), and leaving
     the join on would hand that corner straight back to Revit to re-mitre.
 
+    A segment carrying a `mark` is NAMED with it, the same way the column
+    builder names what it places (BUG-40). The vertical-member split has
+    carried the drawing's mark on every segment since it was written
+    (`wall_plan`: `segment["mark"] = rect.get("mark")`) and this was the one end
+    that never read it -- so a drawing whose members all route to walls, which
+    is every one of the owner's 171, came out with the schedule mark blank on
+    all of them.
+
     Returns {"created": [ids], "skipped": [reasons], "errors": [reasons],
     "notes": [...]} -- the builders' shared shape, one bad segment never
     failing the batch. Runs inside a caller-owned Transaction.
@@ -298,6 +306,7 @@ def place_walls(doc, segments, base_type_id, base_level_id, top_level_id=None,
             problem = _disallow_joins(instance)
             if problem and problem not in result["skipped"]:
                 result["skipped"].append(problem)
+            _set_mark(instance, segment.get("mark"))
             result["created"].append(instance.Id)
         except Exception as placement_error:
             result["errors"].append(str(placement_error))

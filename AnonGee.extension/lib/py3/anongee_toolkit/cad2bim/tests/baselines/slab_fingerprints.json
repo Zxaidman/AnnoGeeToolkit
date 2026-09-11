@@ -257,8 +257,8 @@
   "test17": {
     "beams": 494,
     "column_circles": 0,
-    "column_footprints": 169,
-    "column_rectangles": 169,
+    "column_footprints": 171,
+    "column_rectangles": 171,
     "link_cross_marks": 88,
     "link_cutout_strokes": 496,
     "loops_from_beam_graph": 0,

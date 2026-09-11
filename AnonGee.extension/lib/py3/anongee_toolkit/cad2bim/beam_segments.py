@@ -778,6 +778,7 @@ def _apply_beam_marks(segments, sized_labels, radius_ft, width_max_mm=None):
         if best_i is not None:
             owners.setdefault(best_i, []).append((best_d, text, small, big))
     count = 0
+    took = []
     for i, segment in enumerate(segments):
         if width_max_mm is not None and segment["width_mm"] > width_max_mm:
             continue
@@ -791,8 +792,9 @@ def _apply_beam_marks(segments, sized_labels, radius_ft, width_max_mm=None):
         segment["width_mm"] = small
         segment["depth_mm"] = big
         segment["mark"] = text.mark
+        took.append((segment, text))
         count += 1
-    _dedupe_marks(segments, sized_labels)
+    _dedupe_marks(took)
     return count
 
 
@@ -835,26 +837,38 @@ def _label_matches_orientation(text, segment):
     return diff <= _LABEL_ANGLE_TOL_DEG
 
 
-def _dedupe_marks(segments, sized_labels):
-    """A mark names ONE beam: when two segments both took the same label (it sits between
-    them), keep the mark on the segment nearest that label and clear it on the others.
+def _dedupe_marks(took):
+    """One LABEL names one beam: where two segments took the SAME label -- it sits
+    between them -- keep the mark on the segment nearest it and clear the others.
 
     The de-named segment keeps its size (a real member, just unnamed) -- placing two beams
     with the same Mark would otherwise trip Revit's duplicate-mark warning.
+
+    PER LABEL, not per mark string (BUG-42). This grouped the segments by their
+    mark TEXT and measured them all against the first label carrying it, which
+    assumes a drawing names every beam differently -- B1, B2, B3. The owner's
+    names beams by TYPE: its 822 beam labels carry **8 distinct marks** between
+    them, every 200x650 member reading "B1". Against one B1 label, the other 89
+    B1 beams are all "further away", so they were all stripped: 618 segments
+    sized, **5** left named.
+
+    A label is one piece of text at one place, and each names the member it sits
+    on. Two segments contending for ONE label is the case this exists for and is
+    unchanged; two segments that took two different labels keep both names, and
+    that the two labels say the same word is the drawing's business, not ours.
+    Duplicate marks are not Revit's problem either when a name parameter is
+    configured -- `set_element_mark` writes THAT first, and the duplicate warning
+    is the built-in Mark's alone.
+
+    `took` is [(segment, the label it took)], in the order they were assigned.
     """
-    label_pt = {}
-    for text, _small, _big in sized_labels:
-        if text.mark and text.mark not in label_pt:
-            label_pt[text.mark] = text.point_internal
-    by_mark = {}
-    for seg in segments:
-        m = seg.get("mark")
-        if m:
-            by_mark.setdefault(m, []).append(seg)
-    for mark, group in by_mark.items():
-        if len(group) < 2 or mark not in label_pt:
+    by_label = {}
+    for segment, text in took or ():
+        by_label.setdefault(id(text), (text, []))[1].append(segment)
+    for text, group in by_label.values():
+        if len(group) < 2 or not text.mark or not text.point_internal:
             continue
-        px, py = label_pt[mark][0], label_pt[mark][1]
+        px, py = text.point_internal[0], text.point_internal[1]
 
         def _d(seg):
             # centreline distance, matching the ownership metric -- a midpoint

@@ -41,6 +41,13 @@ from .ui_dialogs import _alert, _error, _persisted, _rollback_alert
 # outcomes are JSON-exported and an ElementId is not serialisable -- so they go
 # under a key that _strip_ids() removes before anything is written.
 _IDS = "_element_ids"
+# The same, for members this run built as WALLS. Separate from `_IDS` because
+# the two passes want different answers about them: a wall type has no
+# structural material parameter, so the MATERIAL pass must not see them -- but
+# the GRADE is a text parameter the user names (`S-ConcreteGrade`), which a wall
+# carries as happily as a column, and leaving them out of that stamped nothing
+# on all 171 of the owner's members (BUG-40).
+_WALL_IDS = "_wall_element_ids"
 
 
 _SKIP_DETAIL_KINDS = 12       # distinct reasons kept; the rest are counted
@@ -51,7 +58,8 @@ def _strip_ids(outcomes):
     clean = {}
     for key, value in (outcomes or {}).items():
         if isinstance(value, dict):
-            clean[key] = dict((k, v) for k, v in value.items() if k != _IDS)
+            clean[key] = dict((k, v) for k, v in value.items()
+                              if k not in (_IDS, _WALL_IDS))
         else:
             clean[key] = value
     return clean
@@ -353,6 +361,13 @@ def _create_grids(doc, records, grid_texts=None):
 
     _say("Grids -- created: {0}, skipped: {1}, errors: {2}".format(
         len(result["created"]), len(result["skipped"]), len(result["errors"])))
+    # WHY they were skipped, not just how many. "created: 0, skipped: 37" sent
+    # the owner looking for a bug in the reading when the answer was already
+    # known and benign -- his model has those 37 grids already, and the run
+    # declined to draw them twice. A count with no reason beside it reads as a
+    # failure whatever it actually was (BUG-44).
+    for reason in _skip_details(result["skipped"]):
+        _say("  grid: {0} -- {1}".format(reason["count"], reason["reason"]))
     for message in result["errors"]:
         _say_error("  grid: {0}".format(message))
     return {"created": len(result["created"]), "skipped": len(result["skipped"]),
@@ -549,6 +564,7 @@ def _create_columns(doc, sections, selections):
     return {"rect": len(result["created"]), "circular": len(circular["created"]),
             "walls": len(result.get("wall_ids") or []),
             _IDS: result["created"] + circular["created"],
+            _WALL_IDS: list(result.get("wall_ids") or []),
             "skipped": len(result["skipped"]),
             "errors": len(result["errors"]) + len(circular["errors"]),
             "error_details": [str(e)[:220] for e
@@ -1014,13 +1030,19 @@ def _apply_materials(doc, outcomes, selections):
             key = source.get(kind)
             ids = (outcomes.get(key) or {}).get(_IDS) if key else None
             elements = materials.elements_of(doc, ids)
-            if elements and grades.get(kind):
+            # The GRADE also goes on the members this run built as walls. It is
+            # a text parameter the user names, which a wall carries as happily
+            # as a column; the material below is the one a wall type has no slot
+            # for, and that is why the two read different lists (BUG-40).
+            wall_ids = (outcomes.get(key) or {}).get(_WALL_IDS) if key else None
+            graded = elements + materials.elements_of(doc, wall_ids)
+            if graded and grades.get(kind):
                 stamped, missed = materials.apply_grade(
-                    doc, elements, grades[kind],
+                    doc, graded, grades[kind],
                     selections.get("grade_parameter"),
                     append_to_name=bool(selections.get("grade_in_mark")))
                 _say("grade: {0} -- {1} of {2} element(s) stamped {3}".format(
-                    kind, stamped, len(elements), grades[kind]))
+                    kind, stamped, len(graded), grades[kind]))
                 summary.setdefault(kind, {})["graded"] = stamped
                 summary[kind]["grade_missed"] = missed
             if material_id is None:
