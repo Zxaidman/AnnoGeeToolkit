@@ -55,6 +55,14 @@ _STOP_MARKS = ("_STOP", "-STOP", " STOP")
 # has to absorb drafting noise, not real movement.
 _SAME_COLUMN_FT = 100.0 / 304.8
 
+# How much of the smaller outline two footprints must share before one is
+# read as standing where the other does. MEASURED on test17's first three
+# storeys: of the 198 pairs where a `_STOP` outline meets an ordinary one, the
+# overlap is a full 1.000 at the median and 0.567 at the tenth percentile, and
+# NOTHING AT ALL lies between 0.20 and 0.50 -- the same 181 pairs are caught at
+# either end of that gap. A third sits in the middle of the empty band.
+_SAME_PLACE_SHARE = 1.0 / 3.0
+
 # The step a drawn section is read to, in millimetres, before two storeys are
 # called the same size. MEASURED on test17's 2344 column footprints: within one
 # column, two footprints that are the same section differ by at most 0.195 mm
@@ -276,14 +284,20 @@ def plan(storeys):
     and matching afterwards would let the same column start a new cluster on
     each floor, which is the failure this exists to prevent.
     """
+    storeys = list(storeys or ())
     flat, where = [], []
-    for index, storey in enumerate(storeys or ()):
+    for index, storey in enumerate(storeys):
         for position, row in enumerate(storey or ()):
             flat.append(row[0])
             where.append((index, position))
     places, centres = clusters(flat)
 
-    marked = [[] for _ in (storeys or ())]
+    # Where a plan shows a column ENDING and another carrying on in the same
+    # place, the second one belongs to the storey above -- see
+    # `starts_above_the_stop`. Built as drawn they stand in each other.
+    lifted = [starts_above_the_stop(storey) for storey in storeys]
+
+    marked = [[] for _ in storeys]
     columns, order = {}, []
     for flat_index, (index, position) in enumerate(where):
         place = places.get(flat_index)
@@ -298,8 +312,76 @@ def plan(storeys):
             half_y = 0.0 if not section else float(section[1]) / 304.8 / 2.0
             columns[key] = len(order)
             order.append((x, y, half_x, half_y, section))
-        marked[index].append((columns[key], mark_of(row[1])))
+        # the storey it is BUILT on, which is the one above when it is the
+        # column carrying on past a stop. The top storey has nothing above it,
+        # so a column lifted off it stays where it is drawn rather than
+        # vanishing: what is drawn is always built.
+        at = index
+        if position in lifted[index] and index + 1 < len(storeys):
+            at = index + 1
+        marked[at].append((columns[key], mark_of(row[1])))
     return extents(marked), order
+
+
+def starts_above_the_stop(storey_rows):
+    """Which footprints on one plan are the column ABOVE, not the one below.
+
+    A structural plan is a section just over the floor, so where a column
+    changes at that level the plan shows BOTH: the one coming up from below,
+    drawn on the `_STOP` layer because that is where it ends, and the one
+    carrying on upward, drawn ordinarily. The owner said as much -- "stop means
+    that layer column is stop on that particular floor means it can go above
+    (if is shows on ground level, then it can make above ground level to 1st
+    level)".
+
+    Built as drawn, both stand on that storey and one runs through the other.
+    Measured on test17's ground plan: of the 167 pairs of built rectangles that
+    stood inside each other, **every single one was a `_STOP` outline against an
+    ordinary one** -- 161 `S-COLUMN` and 6 `S-COLUMN_START`, and not one pair of
+    two ordinary columns. That is what the owner photographed: two members in
+    the same place, the smaller inside the larger.
+
+    So an ordinary footprint sharing a place with a stopping one belongs to the
+    NEXT storey up. `storey_rows` is [(centre, layer, size)] for one plan;
+    the answer is the set of row indices that start above it.
+    """
+    boxes, stops = [], []
+    for index, row in enumerate(storey_rows or ()):
+        centre = row[0]
+        size = section_of(row[2] if len(row) > 2 else None)
+        if not centre or not size:
+            boxes.append(None)
+            continue
+        half_x = float(size[0]) / 2.0
+        half_y = float(size[1]) / 2.0
+        x = float(centre[0]) * 304.8
+        y = float(centre[1]) * 304.8
+        box = (x - half_x, y - half_y, x + half_x, y + half_y)
+        boxes.append(box)
+        if mark_of(row[1]) == "stop":
+            stops.append(box)
+    above = set()
+    if not stops:
+        return above
+    for index, row in enumerate(storey_rows or ()):
+        box = boxes[index]
+        if box is None or mark_of(row[1]) == "stop":
+            continue
+        for stop in stops:
+            if _shared_share(box, stop) > _SAME_PLACE_SHARE:
+                above.add(index)
+                break
+    return above
+
+
+def _shared_share(a, b):
+    """How much of the SMALLER of two boxes the two share, 0 to 1."""
+    wide = min(a[2], b[2]) - max(a[0], b[0])
+    high = min(a[3], b[3]) - max(a[1], b[1])
+    if wide <= 0.0 or high <= 0.0:
+        return 0.0
+    smaller = min((a[2] - a[0]) * (a[3] - a[1]), (b[2] - b[0]) * (b[3] - b[1]))
+    return (wide * high) / smaller if smaller else 0.0
 
 
 def run_at(spans, key, storey):
@@ -317,7 +399,7 @@ def run_at(spans, key, storey):
     return None
 
 
-def plan_storey(keys, spans, storey):
+def plan_storey(keys, spans, storey, rows=None, storeys=None):
     """({footprint: the storey whose TOP it reaches}, [footprints to skip]).
 
     `keys` is one column id per footprint on THIS storey, `None` where the
@@ -325,16 +407,57 @@ def plan_storey(keys, spans, storey):
     and is skipped; one that begins here reaches the top of the storey its span
     ends on; a footprint belonging to no run at all is built exactly as it
     always was, on this storey alone.
+
+    `rows` is [(centre, layer, size_mm)] for the SAME rectangles as `keys` and
+    `storeys` is how many plans the stack has. With both, the stop rule is
+    applied to what is actually BUILT and not only to what was planned: a
+    rectangle standing where a `_STOP` rectangle stands is the column carrying
+    on above (`starts_above_the_stop`) and is skipped here. It has to be asked
+    twice because the two lists are not the same list -- `plan` reads the
+    drawing's outlines, the builder places the rectangles those outlines
+    decompose into, and a leg of an L is smaller than the flat outline that
+    stops beside it, so the leg can be matched to the stopping column however
+    carefully `assign` looks. The layer it was drawn on does not lie.
+
+    Not on the top plan, which has nowhere above to build the lifted column, and
+    the rule the whole thing rests on is that what is drawn is always built. So
+    BOTH are needed: given `rows` without `storeys` it does nothing at all,
+    rather than guess there is a floor above and lose a column if there is not.
+    Of the two ways to be wrong, leaving a clash is the one the owner can SEE.
     """
+    above = set()
+    if rows is not None and storeys is not None and storey + 1 < storeys:
+        above = starts_above_the_stop(rows)
     built, skipped = {}, []
     for index, key in enumerate(keys or ()):
+        if index in above:
+            skipped.append(index)
+            continue
         run = run_at(spans, key, storey)
         span = (spans or {}).get(run) if run is not None else None
         if span is None:
-            built[index] = storey
+            # No run covers this storey. Either the column is not in the plan at
+            # all -- build it exactly as it always was -- or every run it has
+            # BEGINS ABOVE, which is the column carrying on past a stop: the
+            # plan draws it here because a plan is a section over the floor, and
+            # building it here would stand it inside the one that stops
+            # (BUG-37). It is built on the storey it belongs to, once.
+            if _begins_above(spans, key, storey):
+                skipped.append(index)
+            else:
+                built[index] = storey
             continue
         if span[0] != storey:
             skipped.append(index)
             continue
         built[index] = span[1]
     return built, skipped
+
+
+def _begins_above(spans, key, storey):
+    """Whether this column has runs and every one of them starts higher up."""
+    if key is None:
+        return False
+    mine = [span for candidate, span in (spans or {}).items()
+            if candidate[0] == key]
+    return bool(mine) and all(span[0] > storey for span in mine)

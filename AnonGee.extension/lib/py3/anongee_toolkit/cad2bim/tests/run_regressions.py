@@ -38,7 +38,7 @@ LEGS = (
     ("DXF sweep", "regression_dxf_sweep",
      ("_fixtures", "fixture drawings")),
     ("storey replay", "regression_storeys",
-     ("_multi_storey_corpus", "storey stacks")),
+     ("_everything_replayed", "exports and drawings")),
 )
 
 _LABEL_WIDTH = 18

@@ -138,6 +138,120 @@ for every other pre-P1 file.
 
 ## 2. Errors and bugs
 
+### BUG-38 — Two column LAYERS drawing the same member build it twice · `pending`
+
+**Found by the column-extent baseline BUG-37 added**, which records per storey how many built
+rectangles stand more than a third inside each other. Across the 11 fixture stacks the answer is now
+zero everywhere except two drawings, and neither of them is BUG-37's fault — neither carries a
+`_STOP` outline in the clash at all:
+
+| drawing | storey | pairs | the two layers |
+| --- | --- | --- | --- |
+| `StructuralPlan-Test9.dxf` | 2 | **13** | `COL` + `PI_COLUMN & SHEAR WALL` |
+| `StructuralPlan-Test12.dxf` | 0 | **2** | `COL` + `COL` |
+
+    COL                     3795 x 400  @(11520,29917)
+    PI_COLUMN & SHEAR WALL  3795 x 300  @(11520,29967)     the same member, twice
+
+**Test9 is two layers over one member.** Both map to the column category and both draw the same
+shear-wall columns, 50 mm apart in depth. Whether that is a duplicate or a deliberate second element
+is not something the geometry can settle — `PI_COLUMN & SHEAR WALL` may well be meant to build
+something the plain `COL` outline does not. **It needs the owner's word before anything is changed**,
+which is why this is recorded rather than fixed.
+
+**Test12 is one layer drawing it twice**, 650x240 and 650x300 at the same grid point 30 mm apart. That
+looks like the drawing's own duplicate, but 2 pairs in 204 is not enough to read a rule off.
+
+**Held, not ignored.** The gate now pins both counts, so neither can grow without the run saying so,
+and the drawing the owner is actually testing (test17) is at zero.
+
+### BUG-37 — A column and the column it stands on are both built on the same floor · `testing`
+
+**The owner, on the v1.0.1 column-only run of test17:** "only column test show this many problem
+still check the zip archive i have given you with 7 to 8 image" — eight screenshots, and the fault in
+almost all of them is one thing seen from different angles: **two members standing in the same place,
+the smaller inside the larger**, plus the legs and phantom bars that are what that looks like where
+the members are L- or C-shaped.
+
+**Measured on `StructuralPlan-Test17-clean.dxf`, all 13 storeys, v1.0.1.** Of the 338 rectangles the
+ground plan builds, **167 pairs stand more than a third inside each other** — and every single pair is
+a `_STOP` outline against an ordinary one:
+
+| the two layers in the clashing pair | pairs |
+| --- | --- |
+| `S-COLUM_STOP` + `S-COLUMN` | **161** |
+| `S-COLUM_STOP` + `S-COLUMN_START` | **6** |
+| two ordinary columns | **0** |
+
+    S-COLUM_STOP  250 x 2150  @grid       <->  S-COLUMN  200 x 2150  @the same grid
+    S-COLUM_STOP 1500 x  250  @grid       <->  S-COLUMN   850 x  200  x2, inside it
+
+**So the drawing is right and the reading was wrong.** A structural plan is a section just above the
+floor, so where a column CHANGES at that level the plan shows **both** of them: the one coming up from
+below, drawn on `_STOP` because that is where it ends, and the one carrying on upward, drawn
+ordinarily. The owner said exactly this — "stop means that layer column is stop on that particular
+floor means it can go above (if is shows on ground level, then it can make above ground level to 1st
+level)". Built as drawn, the second one starts on the floor the first one is still occupying, and the
+250 x 2150 has a 200 x 2150 running up the middle of it. That is the photograph.
+
+**FIXED in v1.0.2. An ordinary outline sharing a place with a stopping one belongs to the storey
+ABOVE** — it stands on the one that stops, so its base is that one's top.
+
+* `starts_above_the_stop(rows)` names those rows on one plan, by the share of the SMALLER of the two
+  outlines the two have in common — a share, not a distance, because these members share a face line
+  and not a centre.
+* `plan` lifts them one storey before it works the runs out, so the spans come out
+  `250 span 0-0` and `200 span 1-…` instead of both starting on the ground.
+* `plan_storey` asks the same question of the RECTANGLES, which it can now do because it is given the
+  layer each was drawn on. It has to be asked twice: `plan` reads the drawing's outlines, the builder
+  places the rectangles those outlines decompose into, and **a leg of an L is smaller than the flat
+  outline stopping beside it** — so `assign`, which can only measure boxes, gives the leg to the
+  column that stops however carefully it looks. The layer does not lie. This is the last 19.
+* Never on the top plan, which has nowhere above to put it: what is drawn is always built. Given the
+  rectangles but not the stack's height, `plan_storey` does nothing at all rather than guess there is
+  a floor above — of the two ways to be wrong, leaving a clash is the one the owner can SEE.
+* **The run says it out loud**, because the rule moves members between storeys and a silent move is
+  noticed a release later:
+
+      columns: 187 of those outlines are drawn over a _STOP outline -- they are the column
+      carrying on above it, and are built on the next floor up, not on the floor they are drawn on
+
+**The threshold is read off an empty band, not chosen.** Across the first three plans, of the 198
+pairs where a `_STOP` outline meets an ordinary one the overlap is **1.000 at the median and 0.567 at
+the tenth percentile**, and the same **181** pairs are caught at >20%, at >30% and at >50% — *nothing
+at all lies between 0.20 and 0.50*. `_SAME_PLACE_SHARE` is 1/3, the middle of the gap.
+
+| `StructuralPlan-Test17-clean.dxf`, 2344 outlines → 345 columns | v1.0.1 | v1.0.2 |
+| --- | --- | --- |
+| ground plan builds | 338 | **171** |
+| …of which stand inside another | **167 pairs** | **0** |
+| first floor builds | 15 | **167** |
+| the whole stack builds | 475 | **460** |
+| …of which stand inside another | **167 pairs** | **0** |
+
+**and nothing is lost.** All **345** columns still have something built in their place. Every one of
+the 187 rows the lift moves (179 off the ground plan, 8 off the eleventh) **is drawn on the storey
+above**, 187 of 187 — the lift never sends a column somewhere the drawing does not draw it. The 19
+rectangles the layer rule drops from the ground plan are **19 of 19 built on the first floor**. The
+first floor going 15 → 167 is the same reading from the other side: the members that carry on past the
+ground-floor stop are now built where they stand, on top of it, instead of being crammed onto the
+ground with it.
+
+**The gate could not see ANY of this, and now can.** All three legs passed this change unchanged,
+which is not reassurance — it is the finding. The fingerprint and sweep legs replay ONE plan each, and
+the storey replay reads archived exports, which record a placed column's x, y, b and h and **never the
+layer it was drawn on** — so the `_START`/`_STOP` reading is unreplayable from an export. The most
+delicate part of the column path had no coverage at all. The storey leg now reads the **11 fixture
+DXFs that split into a stack** as a second corpus and records, per storey, the columns, the runs, what
+builds, and **how many built rectangles stand inside each other**. It runs 40s → 70s. The fault itself
+is in the baseline, so it cannot come back quietly:
+
+    StructuralPlan-Test17-clean.dxf   builds  [171, 167, 11, 11, 11, 11, 11, 11, 10, 9, 11, 18, 8]
+                                      clashes [  0,   0,  0,  0,  0,  0,  0,  0,  0, 0,  0,  0, 0]
+
+Two other stacks still record clashes, from a different cause and on layers with no `_STOP` among
+them — **BUG-38**.
+
 ### BUG-36 — The link imports 213 of 877 beam curves, and no `DROP SLAB` at all · `pending`
 
 **The owner, on the zoned fixture:** "currently it does not working as i am expecting".
@@ -567,8 +681,9 @@ rules. Which of these is meant:
     and calls them two columns, which is the one job it has. Free to do because `floor_plans` hands
     each storey's records ALREADY SHIFTED so that plan's origin sits at (0, 0);
   * `extents(storeys)` gives `{(column, run): (first storey, last storey)}` under rule A;
-  * `plan_storey(keys, spans, storey)` says, for one plan, what it builds and what was already
-    built below it.
+  * `plan_storey(keys, spans, storey, rows, storeys)` says, for one plan, what it builds and what was
+    already built below it. `rows` and `storeys` arrived with BUG-37: the layer each rectangle was
+    drawn on, and how tall the stack is.
 
 **Wired into the build in v0.97.0**, and the wiring found three things the planner alone could not.
 

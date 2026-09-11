@@ -798,7 +798,8 @@ def main():
         column_spans, column_list = column_extent.plan(column_plans)
         top_ids = dict((i, pair[1]) for i, pair in enumerate(level_pairs))
         _say_column_spans(column_spans, len(built),
-                          sum(len(plan) for plan in column_plans))
+                          sum(len(plan) for plan in column_plans),
+                          plans=column_plans)
         storey_payloads = []
         all_outcomes = {}
         for index, (region, label) in enumerate(built):
@@ -814,7 +815,7 @@ def main():
             storey_selections["build_footings"] = (index == 0)
             storey_selections["column_extents"] = {
                 "columns": column_list, "spans": column_spans,
-                "storey": index, "top_ids": top_ids}
+                "storey": index, "storeys": len(built), "top_ids": top_ids}
             storey_result = _StoreyResult(revit_result, region.records)
             outcomes = _build_one_storey(
                 doc, storey_result, region.texts, storey_selections,
@@ -930,7 +931,7 @@ def _column_footprints(records):
     return out
 
 
-def _say_column_spans(spans, storeys, footprints):
+def _say_column_spans(spans, storeys, footprints, plans=None):
     """One line on how the stack was read, before a single column is placed.
 
     Silent when nothing runs past its own floor, because then every column is
@@ -947,6 +948,18 @@ def _say_column_spans(spans, storeys, footprints):
          "section and their _START/_STOP layers, and each is built once".format(
              footprints, storeys, len(spans), len(multi),
              max(span[1] - span[0] + 1 for span in multi)))
+    # And how many of them were drawn on a floor they do not stand on. A plan is
+    # a section just over the floor, so where a column changes it shows both the
+    # one ending and the one going up; the second is built on the floor above,
+    # standing ON the first rather than IN it (BUG-37). Said out loud because it
+    # MOVES members between storeys, and a silent move is the kind of thing that
+    # is only noticed a release later.
+    lifted = sum(len(column_extent.starts_above_the_stop(plan))
+                 for plan in (plans or ())[:-1])
+    if lifted:
+        _say("columns: {0} of those outlines are drawn over a _STOP outline -- "
+             "they are the column carrying on above it, and are built on the "
+             "next floor up, not on the floor they are drawn on".format(lifted))
 
 
 def _storey_level_pairs(doc, selections, built):

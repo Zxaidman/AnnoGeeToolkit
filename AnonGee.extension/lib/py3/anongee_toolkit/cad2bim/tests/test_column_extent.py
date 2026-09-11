@@ -303,19 +303,55 @@ class PlanningTheWholeStack(unittest.TestCase):
         stopping = column_extent.assign(columns, here, (250.0, 1200.0))
         carrying = column_extent.assign(columns, here, (200.0, 1200.0))
         self.assertNotEqual(stopping, carrying)
+        # the 250 holds the ground storey alone; the 200 takes it from there up
         self.assertEqual(spans[column_extent.run_at(spans, stopping, 0)], (0, 0))
-        self.assertEqual(spans[column_extent.run_at(spans, carrying, 0)], (0, 2))
+        self.assertIsNone(column_extent.run_at(spans, carrying, 0))
+        self.assertEqual(spans[column_extent.run_at(spans, carrying, 1)], (1, 2))
 
-    def test_the_stopping_column_does_not_swallow_the_one_above(self):
-        # The failure the owner saw: whichever record arrived first decided,
-        # and the column that carries on up was built as the one that stops.
+    def test_the_one_carrying_on_does_not_stand_in_the_one_that_stops(self):
+        # BUG-37, photographed by the owner: two members on one grid point, the
+        # smaller inside the larger. A plan is a section just over the floor, so
+        # where a column changes it shows BOTH -- the one ending there on the
+        # `_STOP` layer and the one going up, drawn ordinarily. Built as drawn,
+        # they stand in each other.
         here = (10.0, 10.0)
         spans, columns = column_extent.plan(
             [[(here, "S-COLUMN", (200.0, 1200.0)),
               (here, "S-COLUM_STOP", (250.0, 1200.0))],
              [(here, "S-COLUMN", (200.0, 1200.0))]])
         carrying = column_extent.assign(columns, here, (200.0, 1200.0))
-        self.assertEqual(spans[column_extent.run_at(spans, carrying, 0)], (0, 1))
+        self.assertIsNone(column_extent.run_at(spans, carrying, 0),
+                          "the column above must not stand on the stop's floor")
+        self.assertEqual(spans[column_extent.run_at(spans, carrying, 1)], (1, 1))
+
+    def test_the_order_the_records_arrive_in_does_not_decide(self):
+        here = (10.0, 10.0)
+        stop = (here, "S-COLUM_STOP", (250.0, 1200.0))
+        plain = (here, "S-COLUMN", (200.0, 1200.0))
+        first, second = (column_extent.plan([[stop, plain], [plain]])[0],
+                         column_extent.plan([[plain, stop], [plain]])[0])
+        self.assertEqual(sorted(first.values()), sorted(second.values()))
+
+    def test_a_column_lifted_off_the_TOP_storey_is_still_built(self):
+        # Nothing above it to be lifted to, and what is drawn is always built.
+        here = (10.0, 10.0)
+        spans, columns = column_extent.plan(
+            [[(here, "S-COLUM_STOP", (250.0, 1200.0)),
+              (here, "S-COLUMN", (200.0, 1200.0))]])
+        carrying = column_extent.assign(columns, here, (200.0, 1200.0))
+        self.assertEqual(spans[column_extent.run_at(spans, carrying, 0)], (0, 0))
+
+    def test_a_column_merely_NEAR_a_stop_is_left_where_it_is(self):
+        # Two real columns a bay apart: the rule only moves what stands in the
+        # same place, which is why it is measured as a share of the smaller
+        # outline rather than a distance.
+        stop_at = (10.0, 10.0)
+        other = (10.0 + 3000 * _FT, 10.0)
+        spans, columns = column_extent.plan(
+            [[(stop_at, "S-COLUM_STOP", (250.0, 1200.0)),
+              (other, "S-COLUMN", (200.0, 1200.0))]])
+        near = column_extent.assign(columns, other, (200.0, 1200.0))
+        self.assertEqual(spans[column_extent.run_at(spans, near, 0)], (0, 0))
 
     def test_a_rectangle_near_no_column_belongs_to_none(self):
         _spans, boxes = column_extent.plan(self.stack())
@@ -404,6 +440,61 @@ class PlanningOneStorey(unittest.TestCase):
     def test_nothing_at_all_is_not_a_crash(self):
         self.assertEqual(column_extent.plan_storey([], {}, 0), ({}, []))
         self.assertEqual(column_extent.plan_storey(None, None, 0), ({}, []))
+
+
+class TheStopRuleAskedOfTheRECTANGLES(unittest.TestCase):
+    """`plan_storey` is given the layer each rectangle was drawn on.
+
+    The outlines and the rectangles are not the same list: a leg of an L is
+    smaller than the flat outline stopping beside it, so `assign` -- which can
+    only measure boxes -- hands the leg to the column that stops. The layer says
+    otherwise, and it is the drawing's own word (BUG-37).
+    """
+
+    def rows(self, *drawn):
+        return [((x * _FT, y * _FT), layer, (w, h)) for x, y, layer, w, h in drawn]
+
+    def test_a_plain_rectangle_inside_a_stopping_one_is_left_to_the_storey_above(self):
+        rows = self.rows((0, 0, "S-COLUM_STOP", 1500.0, 250.0),
+                         (325, 0, "S-COLUMN", 850.0, 200.0))
+        built, skipped = column_extent.plan_storey(
+            ["A", "A"], {("A", 0): (0, 3)}, 0, rows=rows, storeys=4)
+        self.assertEqual(built, {0: 3}, "the one that stops is still built")
+        self.assertEqual(skipped, [1])
+
+    def test_the_top_plan_builds_it_anyway(self):
+        # Nowhere above to lift it to, and what is drawn is always built.
+        rows = self.rows((0, 0, "S-COLUM_STOP", 1500.0, 250.0),
+                         (325, 0, "S-COLUMN", 850.0, 200.0))
+        built, skipped = column_extent.plan_storey(
+            ["A", "A"], {("A", 0): (3, 3)}, 3, rows=rows, storeys=4)
+        self.assertEqual(sorted(built), [0, 1])
+        self.assertEqual(skipped, [])
+
+    def test_a_rectangle_standing_clear_of_the_stop_is_untouched(self):
+        rows = self.rows((0, 0, "S-COLUM_STOP", 250.0, 250.0),
+                         (3000, 0, "S-COLUMN", 250.0, 250.0))
+        built, skipped = column_extent.plan_storey(
+            ["A", "B"], {("A", 0): (0, 1), ("B", 0): (0, 2)}, 0,
+            rows=rows, storeys=4)
+        self.assertEqual(built, {0: 1, 1: 2})
+        self.assertEqual(skipped, [])
+
+    def test_without_the_rows_it_answers_exactly_as_it_did(self):
+        spans = {("A", 0): (0, 3)}
+        self.assertEqual(column_extent.plan_storey(["A", "A"], spans, 0),
+                         ({0: 3, 1: 3}, []))
+
+    def test_rows_without_a_stack_height_change_nothing(self):
+        # Not knowing how tall the stack is, it cannot know this is not the top
+        # plan -- and lifting a column off the top plan loses it for good, which
+        # is the one failure nobody would see.
+        rows = self.rows((0, 0, "S-COLUM_STOP", 1500.0, 250.0),
+                         (325, 0, "S-COLUMN", 850.0, 200.0))
+        built, skipped = column_extent.plan_storey(
+            ["A", "A"], {("A", 0): (0, 3)}, 0, rows=rows)
+        self.assertEqual(sorted(built), [0, 1])
+        self.assertEqual(skipped, [])
 
 
 if __name__ == "__main__":

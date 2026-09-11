@@ -1,0 +1,246 @@
+{
+  "LayoutPlan-Project1.dxf": {
+    "builds_per_storey": [
+      55,
+      40,
+      9,
+      5,
+      2
+    ],
+    "clashing_pairs_per_storey": [
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "columns": 155,
+    "outlines": 311,
+    "runs": 155,
+    "storeys": 5
+  },
+  "StructuralPlan-Test10.dxf": {
+    "builds_per_storey": [
+      55,
+      54,
+      45,
+      44,
+      36,
+      36,
+      5
+    ],
+    "clashing_pairs_per_storey": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "columns": 91,
+    "outlines": 166,
+    "runs": 91,
+    "storeys": 7
+  },
+  "StructuralPlan-Test11.dxf": {
+    "builds_per_storey": [
+      31,
+      0,
+      0,
+      0
+    ],
+    "clashing_pairs_per_storey": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "columns": 31,
+    "outlines": 124,
+    "runs": 31,
+    "storeys": 4
+  },
+  "StructuralPlan-Test12.dxf": {
+    "builds_per_storey": [
+      204,
+      111,
+      1,
+      61,
+      151
+    ],
+    "clashing_pairs_per_storey": [
+      2,
+      0,
+      0,
+      0,
+      0
+    ],
+    "columns": 493,
+    "outlines": 887,
+    "runs": 493,
+    "storeys": 5
+  },
+  "StructuralPlan-Test13.dxf": {
+    "builds_per_storey": [
+      134,
+      134,
+      134,
+      134,
+      47
+    ],
+    "clashing_pairs_per_storey": [
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "columns": 0,
+    "outlines": 0,
+    "runs": 0,
+    "storeys": 5
+  },
+  "StructuralPlan-Test14.dxf": {
+    "builds_per_storey": [
+      136,
+      0,
+      0
+    ],
+    "clashing_pairs_per_storey": [
+      0,
+      0,
+      0
+    ],
+    "columns": 65,
+    "outlines": 195,
+    "runs": 65,
+    "storeys": 3
+  },
+  "StructuralPlan-Test15.dxf": {
+    "builds_per_storey": [
+      43,
+      43,
+      41,
+      2
+    ],
+    "clashing_pairs_per_storey": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "columns": 8,
+    "outlines": 20,
+    "runs": 8,
+    "storeys": 4
+  },
+  "StructuralPlan-Test16.dxf": {
+    "builds_per_storey": [
+      77,
+      0,
+      0,
+      0,
+      10
+    ],
+    "clashing_pairs_per_storey": [
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "columns": 83,
+    "outlines": 308,
+    "runs": 83,
+    "storeys": 5
+  },
+  "StructuralPlan-Test17-clean.dxf": {
+    "builds_per_storey": [
+      171,
+      167,
+      11,
+      11,
+      11,
+      11,
+      11,
+      11,
+      10,
+      9,
+      11,
+      18,
+      8
+    ],
+    "clashing_pairs_per_storey": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "columns": 345,
+    "outlines": 2344,
+    "runs": 386,
+    "storeys": 13
+  },
+  "StructuralPlan-Test17.dxf": {
+    "builds_per_storey": [
+      179,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      2,
+      1,
+      3,
+      24,
+      0
+    ],
+    "clashing_pairs_per_storey": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "columns": 195,
+    "outlines": 2166,
+    "runs": 195,
+    "storeys": 13
+  },
+  "StructuralPlan-Test9.dxf": {
+    "builds_per_storey": [
+      26,
+      4,
+      50
+    ],
+    "clashing_pairs_per_storey": [
+      0,
+      0,
+      13
+    ],
+    "columns": 56,
+    "outlines": 97,
+    "runs": 56,
+    "storeys": 3
+  }
+}

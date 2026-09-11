@@ -406,7 +406,15 @@ def _column_groups(sections, selections):
     keys = [column_extent.assign(columns, rect["center"],
                                  (rect["width_mm"], rect["height_mm"]))
             for _number, rect in rects]
-    built, skipped = column_extent.plan_storey(keys, spans, storey)
+    # The layer each rectangle was DRAWN on, carried by the entry it came out
+    # of, so the stop rule can be asked of the rectangles as well as of the
+    # outlines they came from -- a leg is smaller than the flat outline that
+    # stops beside it, and `assign` can only measure boxes (BUG-37).
+    rows = [(rect["center"], source[number].get("layer") or "",
+             (rect["width_mm"], rect["height_mm"]))
+            for number, rect in rects]
+    built, skipped = column_extent.plan_storey(
+        keys, spans, storey, rows=rows, storeys=plan.get("storeys"))
     by_top = {}
     for index, reach in built.items():
         number, rect = rects[index]

@@ -2125,7 +2125,30 @@ class AColumnIsBuiltOnceOverItsWholeRun(unittest.TestCase):
         # section -- and position alone gives the rectangle to whichever of them
         # the records happened to list first (BUG-35).
         self.assertIn('(rect["width_mm"], rect["height_mm"])', block)
-        self.assertIn("column_extent.plan_storey(keys, spans, storey)", block)
+        self.assertIn("column_extent.plan_storey(", block)
+        # AND WITH THE LAYER IT WAS DRAWN ON. A leg is smaller than the flat
+        # outline that stops beside it, so measuring boxes hands the leg to the
+        # column that stops; the layer is the drawing's own word (BUG-37).
+        self.assertIn('source[number].get("layer")', block)
+        self.assertIn('rows=rows, storeys=plan.get("storeys")', block)
+
+    def test_the_storey_plan_is_told_how_tall_the_stack_is(self):
+        # Without it the top plan would lift a column off itself, to nowhere.
+        block = _script_source().split("storey_selections[\"column_extents\"]", 1)[1]
+        block = block.split("\n\n", 1)[0]
+        self.assertIn('"storeys": len(built)', block)
+
+    def test_the_run_says_how_many_columns_it_moved_up_a_floor(self):
+        # The rule MOVES members between storeys. A silent move is the kind of
+        # thing that is noticed a release later, so the run says the number and
+        # the owner can hold it against the drawing (BUG-37).
+        block = _script_source().split("def _say_column_spans(", 1)[1]
+        block = block.split("\ndef ", 1)[0]
+        self.assertIn("column_extent.starts_above_the_stop(plan)", block)
+        # never the TOP plan: nothing there was lifted, and counting it would
+        # report members that were built exactly where they are drawn
+        self.assertIn("(plans or ())[:-1]", block)
+        self.assertIn("built on the", block)
 
     def test_a_group_keeps_the_entries_it_came_from(self):
         # The entry carries the drawing's own layer and whether the outline was
