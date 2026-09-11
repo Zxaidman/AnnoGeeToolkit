@@ -223,6 +223,64 @@ def _atomic_write(path, text):
         raise
 
 
+def destination(wanted, project_available):
+    """Which store a rule actually goes to. Never raises, never returns junk.
+
+    *wanted* is what the window asked for; *project_available* says whether
+    this model has a folder to put a file in at all. A model that has never
+    been saved has none, and that is the ordinary case for a new project
+    rather than an error -- so asking for the project store there is
+    **downgraded to the machine store** rather than refused. The window says
+    so; nothing is silently lost either way.
+
+    An unrecognised value lands on the machine store, because that is the one
+    that always exists.
+    """
+    if wanted == PROJECT and project_available:
+        return PROJECT
+    return MACHINE
+
+
+def partition(rule_set, project_available=True):
+    """``{MACHINE: [rules], PROJECT: [rules]}``, by each rule's own source.
+
+    Order within each list is the order of *rule_set*, so writing and reading
+    back preserves the sequence the panel draws its buttons in.
+    """
+    split = {MACHINE: [], PROJECT: []}
+    for rule in rule_set:
+        split[destination(rule.source, project_available)].append(rule)
+    return split
+
+
+def save_all(rule_set, machine=None, project=None):
+    """Write every rule to the store it belongs to. ``(ok, problems)``.
+
+    The whole point of two stores is that a rule can **move** between them, and
+    a move is a write to both files: added to one, gone from the other. Saving
+    only the store a rule arrived in leaves the old copy on disk, and the next
+    load shows the rule twice -- which is what happened before this existed.
+
+    The project file is written when there are project rules **or** when one is
+    already there (so emptying it actually empties it), and not otherwise --
+    a model whose owner never used the project store does not get an empty
+    ``AnonGee`` folder dropped beside it.
+    """
+    if machine is None:
+        machine = machine_path()
+    split = partition(rule_set, project_available=bool(project))
+    problems = []
+
+    if not save(_rules.RuleSet(split[MACHINE]), machine):
+        problems.append(last_error() or "the workstation store would not write")
+
+    if project and (split[PROJECT] or os.path.exists(project)):
+        if not save(_rules.RuleSet(split[PROJECT]), project):
+            problems.append(last_error() or "the project store would not write")
+
+    return (not problems), problems
+
+
 def save(rule_set, path=None, version=None):
     """Write *rule_set* to *path*. ``True`` on success.
 

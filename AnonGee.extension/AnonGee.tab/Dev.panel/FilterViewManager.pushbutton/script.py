@@ -259,6 +259,7 @@ class FilterViewApp(object):
                 "VersionText", "HintText",
                 "RuleList", "RuleCountText", "NewRuleBtn", "DuplicateRuleBtn",
                 "MoveTopBtn", "MoveBottomBtn",
+                "StoreMachineRadio", "StoreProjectRadio", "StoreHint",
                 "MoveUpBtn", "MoveDownBtn", "DeleteRuleBtn",
                 "RefreshBtn", "PanelBtn", "RuleNameBox", "CategoryPickedText",
                 "CategorySearch", "CategoryList", "FamilyCombo", "TypeCombo",
@@ -307,6 +308,8 @@ class FilterViewApp(object):
         self.FamilyCombo.DropDownClosed += self._on_family_chosen
         self.MatchAllRadio.Checked += self._on_match_changed
         self.MatchAnyRadio.Checked += self._on_match_changed
+        self.StoreMachineRadio.Checked += self._on_store_changed
+        self.StoreProjectRadio.Checked += self._on_store_changed
 
     # -- the thread bridge -------------------------------------------------
 
@@ -400,6 +403,9 @@ class FilterViewApp(object):
             self.project_path = answer["project"]
             self._rebuild_categories()
             self._load_saved_rules()
+            # project_path only exists once the model has answered, so this is
+            # the first moment the store choice can say anything true.
+            self._show_store_hint()
             note = answer["view"]
             if not answer["can_isolate"]:
                 note = "{0} — {1}".format(note, answer["why"])
@@ -668,7 +674,59 @@ class FilterViewApp(object):
             type_name=self._combo_value(self.TypeCombo, ANY_TYPE),
             match=rules.MATCH_ALL if self.MatchAllRadio.IsChecked
             else rules.MATCH_ANY,
-            conditions=list(self.conditions))
+            conditions=list(self.conditions),
+            source=self._chosen_store())
+
+    # -- which store a rule lives in --------------------------------------
+
+    def _chosen_store(self):
+        """The store the editor is pointing at, as the engine spells it.
+
+        Asked through ``store.destination`` rather than read straight off the
+        radio, so a rule can never be marked for a project file that does not
+        exist -- an unsaved model has no folder to put one in.
+        """
+        return store.destination(
+            store.PROJECT if self.StoreProjectRadio.IsChecked else store.MACHINE,
+            bool(self.project_path))
+
+    def _show_store(self, source):
+        """Point the radios at *source* and say what it means."""
+        self.rebuilding = True
+        try:
+            project = store.destination(source, bool(self.project_path)) == store.PROJECT
+            self.StoreProjectRadio.IsChecked = project
+            self.StoreMachineRadio.IsChecked = not project
+        finally:
+            self.rebuilding = False
+        self._show_store_hint()
+
+    def _show_store_hint(self):
+        """Say where a Save will land, and why it cannot land elsewhere.
+
+        A disabled control that does not say why is the failure S8.2 is about:
+        "This project" is greyed for a model that has never been saved, and
+        without a sentence that looks like the tool is broken rather than like
+        the model needs saving first.
+        """
+        self.StoreProjectRadio.IsEnabled = bool(self.project_path)
+        if not self.project_path:
+            self.StoreHint.Text = (
+                "This project: not yet. The model has never been saved, so "
+                "there is no folder to put a rules file in. Save the model and "
+                "press Re-read model.")
+        elif self.StoreProjectRadio.IsChecked:
+            self.StoreHint.Text = (
+                "Travels with the model: {0}".format(self.project_path))
+        else:
+            self.StoreHint.Text = ("Follows you into the next project: "
+                                   "{0}".format(self.machine_path))
+
+    def _on_store_changed(self, sender, args):
+        if self.rebuilding:
+            return
+        self._show_store_hint()
+        self._validate()
 
     def _validate(self):
         """Show the first problem, or the rule read back as a sentence."""
@@ -743,6 +801,7 @@ class FilterViewApp(object):
         self.conditions = list(rule.conditions)
         self.MatchAllRadio.IsChecked = rule.match == rules.MATCH_ALL
         self.MatchAnyRadio.IsChecked = rule.match == rules.MATCH_ANY
+        self._show_store(rule.source)
         # Set BEFORE the cascade is asked for, because _receive consumes them
         # the moment the answer lands. The cascade is fetched on Revit's
         # thread, so the family and type cannot be selected until it comes
@@ -769,6 +828,7 @@ class FilterViewApp(object):
         self.picked = set()
         self.conditions = []
         self.MatchAllRadio.IsChecked = True
+        self._show_store(store.MACHINE)
         self.RuleList.SelectedIndex = -1
         self._rebuild_categories()
         self._rebuild_conditions()
@@ -797,22 +857,27 @@ class FilterViewApp(object):
         self._write()
 
     def _write(self):
-        """Machine rules only. A project rule is read but not yet written.
+        """Write every rule to the store it belongs to.
 
-        Writing the project store is FEAT-14 and needs its own decision about
-        what happens when the same name is in both; until then a rule saved
-        here goes where it will follow the user, which is the promise the tool
-        actually made.
+        **Both files, every time.** A rule can move between stores, and a move
+        is a write to both: added to one, gone from the other. Until 0.5.0 only
+        the machine store was written, so editing a project rule wrote a copy
+        to AppData and left the original beside the model -- and the next load
+        showed the rule twice, with no way to tell which one Apply had used.
         """
-        keep = rules.RuleSet([r for r in self.rule_set
-                              if r.source != store.PROJECT])
-        if store.save(keep, self.machine_path):
-            self._rebuild_rules()
-            self._status("Saved. It will be here next time, and in your next "
-                         "project.", "ok")
-        else:
-            self._status("Could not save: {0}".format(store.last_error()),
-                         "error")
+        ok, problems = store.save_all(self.rule_set, self.machine_path,
+                                      self.project_path)
+        self._rebuild_rules()
+        if not ok:
+            self._status("; ".join(problems), "error")
+            return
+        counts = store.partition(self.rule_set, bool(self.project_path))
+        project = len(counts[store.PROJECT])
+        self._status(
+            "Saved. {0} on this workstation{1}.".format(
+                len(counts[store.MACHINE]),
+                ", {0} with the model".format(project) if project else ""),
+            "ok")
 
     def _on_duplicate(self, sender, args):
         chosen = self._selected_rules()
@@ -821,7 +886,9 @@ class FilterViewApp(object):
             return
         for rule in chosen:
             copy = self.rule_set.duplicate(rule.id)
-            copy.source = store.MACHINE
+            # A copy of a project rule belongs beside the model too. Downgraded
+            # when there is no project folder, which is what destination is for.
+            copy.source = store.destination(rule.source, bool(self.project_path))
         self._write()
 
     def _on_delete(self, sender, args):

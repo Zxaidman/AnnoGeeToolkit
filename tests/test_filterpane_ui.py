@@ -691,6 +691,48 @@ class OrientationTests(unittest.TestCase):
                          "centred in a dockable pane: {0}".format(offenders))
 
 
+class PanelStoreTests(unittest.TestCase):
+    """FEAT-14 on the panel. A rule saved beside the model has to appear here
+    too, or "saved with the model" means "saved, and invisible from the
+    panel"."""
+
+    def test_the_panel_reads_both_stores(self):
+        draw = function_source("_draw")
+        self.assertIn("store.load_all(", draw)
+        self.assertIn("self.project_path", draw)
+
+    def test_it_does_not_guess_the_model_folder(self):
+        """A pane is not a command and never sees a document. Until a trip
+        through the external event says where the model is, the machine store
+        alone is the honest answer."""
+        self.assertIn("self.project_path = None", _read(_PROVIDER))
+
+    def test_every_trip_through_the_event_carries_the_path_back(self):
+        """The handler is the only place with a document in hand."""
+        run = function_source("_run")
+        self.assertIn("self._tell_paths(doc)", run)
+        self.assertIn("store.project_path(", function_source("_tell_paths"))
+
+    def test_the_path_is_learned_before_the_action_that_needed_it(self):
+        """A refresh that isolates nothing still has to come back with the
+        path, so the call sits above every early return."""
+        run = function_source("_run")
+        self.assertLess(run.index("self._tell_paths(doc)"),
+                        run.index('if self.action == "clear"'))
+
+    def test_refresh_asks_revit_where_the_model_keeps_its_rules(self):
+        refresh = function_source("_on_refresh")
+        self.assertIn('self.handler.action = "refresh"', refresh)
+        self.assertIn("self.event.Raise()", refresh)
+
+    def test_a_path_that_has_not_moved_does_not_redraw(self):
+        """Every press of every rule button comes back through here. Redrawing
+        each time would rebuild the whole strip under the cursor mid-click."""
+        paths = function_source("on_paths")
+        self.assertIn("if project_path == self.project_path:", paths)
+        self.assertIn("return", paths)
+
+
 class ReskinTests(unittest.TestCase):
     """Revit hands out the FrameworkElement once; the contents need not be."""
 

@@ -183,9 +183,10 @@ nothing here is agreed until it says so.
 | FEAT-13 | Convert a saved rule into a real `ParameterFilterElement` in the project — only possible for rules whose every parameter passed the CRIT-2 flag. Not wanted today; recorded because CRIT-2's answer paid for it | `pending` |
 | FEAT-17 | **Multiple selection on the saved rules** — Ctrl+click, Shift+click and a tick that reports the selection, with Duplicate, Delete and all four Moves acting on the block | `testing` — built in 0.4.0, modelled on cad2bim's layer mapping so the same gesture means the same thing in both tools |
 | FEAT-18 | **Move a rule to either end of the list in one step** — To top / To bottom beside Move up / Move down | `testing` — built in 0.4.0 on `RuleSet.reorder`, which moves a block rather than looping single moves |
+| FEAT-19 | **A rule store the user points at** — a path per project, so an office shares one set from a network folder rather than one copy per model. The third candidate from the FEAT-14 decision, and the only one that serves a team rather than a machine or a model | `pending` |
 | FEAT-15 | **Dark inputs.** §9.10 ships dark buttons, a dark scrollbar and a dark card, and no dark `InputTextBox` / `InputComboBox` / `InputCheckBox` / `InputListBox`, because nothing dark has needed one — the only dark surface is a pane of buttons. Specify in §9.10 first, then build | `pending` |
 | FEAT-16 | **One scrollbar template, themed by token.** `ScrollBarOnDark` duplicates the light template to swap three brushes, which is what WPF forces unless the shared template reads its brushes through `{DynamicResource}` — then a dark container redefines three keys and the template is written once. It is the better design; it also touches every tool's inline theme copy, so it is a design-system change, not a tool one | `pending` |
-| FEAT-14 | Per-project rule store — **decided and read-side built**: `<model folder>/AnonGee/filter_view_rules.json`, one per folder, no precedence (both shown, each badged). Not Extensible Storage, because writing that modifies the model and PRD S6.1 forbids it. The window has no UI for it yet | `building` |
+| FEAT-14 | Per-project rule store — **done in 0.5.0**: `<model folder>/AnonGee/filter_view_rules.json`, chosen per rule in the editor, with Save writing both files so a rule can move between them. No precedence: the same name in both gives two rules, each badged. Not Extensible Storage, because writing that modifies the model and PRD S6.1 forbids it | `testing` |
 
 ---
 
@@ -259,17 +260,18 @@ record and one answer needed correcting.
 | 3 | Dockable panel in the first build? | **No** — modeless window first, panel after. But it still needs a startup component; see the correction in CRIT-3. |
 | 4 | Where do rules live? | **`%APPDATA%/Zxaidman/AnonGee/BIM-Toolkit/*.json`**, machine-level. A **per-project override** is wanted; its location and precedence are still to be discussed → FEAT-14. |
 
-### Still open, and needed before FEAT-14 is built
+### Answered in 0.5.0
 
-1. **Where does a per-project rule store live?** Three candidates, and they
-   behave differently: a JSON file beside the `.rvt` (visible, editable, easy to
-   lose in a move), Extensible Storage inside the `.rvt` (travels with the
-   model, invisible outside Revit, needs a schema GUID that can never change),
-   or a path the user points at per project (a shared network folder — which is
-   how an office actually shares one).
-2. **Precedence when both stores hold a rule of the same name** — does the
-   project win, does the machine win, or are both shown with their source
-   marked? Both-shown is the only one that never silently loses a rule.
+1. **Where does a per-project rule store live?** A **JSON file beside the
+   `.rvt`**, at `<model folder>/AnonGee/filter_view_rules.json`. Not Extensible
+   Storage: it writes into the model and needs a transaction, which PRD §6.1
+   forbids, and a schema GUID that can never change afterwards. A file can be
+   read by anything, edited by hand, and deleted without touching the model.
+   The third candidate — a path the user points at per project, for a shared
+   network folder — is **still open** and is now FEAT-19.
+2. **Precedence when both stores hold a rule of the same name** — **neither
+   wins.** Two rules, each badged, both shown. It is the only answer that never
+   silently loses a rule, and it was already how `load_all` behaved.
 
 ### Answered by reading, not by asking
 

@@ -905,6 +905,136 @@ class StoreToleranceTests(unittest.TestCase):
         self.assertEqual([r.name for r in store.load(self.path)], ["Keep me"])
 
 
+class DestinationTests(unittest.TestCase):
+    """Which store a rule actually goes to."""
+
+    def test_the_project_store_is_used_when_the_model_has_a_folder(self):
+        self.assertEqual(store.destination(store.PROJECT, True), store.PROJECT)
+
+    def test_a_project_rule_is_downgraded_when_there_is_nowhere_to_put_it(self):
+        """A model that has never been saved has no folder. That is the
+        ordinary case for a new project, not an error, so the rule lands on
+        the machine store rather than being refused and lost."""
+        self.assertEqual(store.destination(store.PROJECT, False), store.MACHINE)
+
+    def test_anything_unrecognised_lands_on_the_store_that_always_exists(self):
+        for wanted in ("", None, "elsewhere", store.MACHINE):
+            self.assertEqual(store.destination(wanted, True), store.MACHINE)
+
+
+class PartitionTests(unittest.TestCase):
+
+    def setUp(self):
+        self.set = rules.RuleSet([
+            a_rule(name="M1", source=store.MACHINE),
+            a_rule(name="P1", source=store.PROJECT),
+            a_rule(name="M2", source=store.MACHINE),
+            a_rule(name="U", source=""),
+        ])
+
+    def test_each_rule_goes_to_its_own_source(self):
+        split = store.partition(self.set)
+        self.assertEqual([r.name for r in split[store.MACHINE]], ["M1", "M2", "U"])
+        self.assertEqual([r.name for r in split[store.PROJECT]], ["P1"])
+
+    def test_order_within_a_store_is_the_order_of_the_set(self):
+        """Writing and reading back must not shuffle the buttons the panel
+        draws."""
+        split = store.partition(self.set)
+        self.assertEqual([r.name for r in split[store.MACHINE]], ["M1", "M2", "U"])
+
+    def test_without_a_project_folder_everything_is_a_machine_rule(self):
+        split = store.partition(self.set, project_available=False)
+        self.assertEqual(len(split[store.PROJECT]), 0)
+        self.assertEqual(len(split[store.MACHINE]), 4)
+
+
+class SaveAllTests(unittest.TestCase):
+    """Both files, every time -- because a move is a write to both."""
+
+    def setUp(self):
+        self.folder = tempfile.mkdtemp()
+        self.machine = os.path.join(self.folder, "machine.json")
+        self.project = os.path.join(self.folder, "beside-the-model",
+                                    "filter_view_rules.json")
+
+    def tearDown(self):
+        shutil.rmtree(self.folder, ignore_errors=True)
+
+    def names_in(self, path):
+        return [rule.name for rule in store.load(path)]
+
+    def test_each_rule_is_written_to_its_own_store(self):
+        ok, problems = store.save_all(rules.RuleSet([
+            a_rule(name="Mine", source=store.MACHINE),
+            a_rule(name="Ours", source=store.PROJECT)]),
+            self.machine, self.project)
+        self.assertTrue(ok, problems)
+        self.assertEqual(self.names_in(self.machine), ["Mine"])
+        self.assertEqual(self.names_in(self.project), ["Ours"])
+
+    def test_moving_a_rule_removes_it_from_the_store_it_left(self):
+        """The bug this function exists for. Writing only the store a rule
+        arrived in leaves the old copy on disk, and the next load shows the
+        rule twice with no way to tell which one Apply used."""
+        rule = a_rule(name="Travels", source=store.MACHINE)
+        store.save_all(rules.RuleSet([rule]), self.machine, self.project)
+        self.assertEqual(self.names_in(self.machine), ["Travels"])
+
+        rule.source = store.PROJECT
+        store.save_all(rules.RuleSet([rule]), self.machine, self.project)
+        self.assertEqual(self.names_in(self.machine), [])
+        self.assertEqual(self.names_in(self.project), ["Travels"])
+
+    def test_a_model_that_never_used_the_project_store_gets_no_empty_file(self):
+        """Nobody wants an AnonGee folder appearing beside every model they
+        open."""
+        ok, _ = store.save_all(rules.RuleSet([a_rule(source=store.MACHINE)]),
+                               self.machine, self.project)
+        self.assertTrue(ok)
+        self.assertFalse(os.path.exists(self.project))
+
+    def test_emptying_the_project_store_actually_empties_it(self):
+        """Once the file exists it is written even when it is empty, or the
+        last rule moved out of it stays there for ever."""
+        store.save_all(rules.RuleSet([a_rule(name="Ours", source=store.PROJECT)]),
+                       self.machine, self.project)
+        self.assertTrue(os.path.exists(self.project))
+        store.save_all(rules.RuleSet([a_rule(name="Mine", source=store.MACHINE)]),
+                       self.machine, self.project)
+        self.assertEqual(self.names_in(self.project), [])
+
+    def test_with_no_project_path_nothing_is_lost(self):
+        ok, problems = store.save_all(
+            rules.RuleSet([a_rule(name="Ours", source=store.PROJECT)]),
+            self.machine, None)
+        self.assertTrue(ok, problems)
+        self.assertEqual(self.names_in(self.machine), ["Ours"])
+
+    def test_a_failed_write_is_reported_rather_than_swallowed(self):
+        """A path whose parent is a regular FILE. makedirs cannot create a
+        directory inside a file, so this fails the way a read-only folder or a
+        locked network share does -- rather than by not existing, which
+        makedirs would simply fix."""
+        handle = open(self.machine, "w")
+        handle.write("not a directory")
+        handle.close()
+        ok, problems = store.save_all(
+            rules.RuleSet([a_rule()]),
+            os.path.join(self.machine, "inside-a-file.json"), None)
+        self.assertFalse(ok)
+        self.assertTrue(problems)
+
+    def test_a_round_trip_through_both_stores_keeps_every_rule(self):
+        built = rules.RuleSet([a_rule(name="Mine", source=store.MACHINE),
+                               a_rule(name="Ours", source=store.PROJECT)])
+        store.save_all(built, self.machine, self.project)
+        back = store.load_all(self.machine, self.project)
+        self.assertEqual(sorted(r.name for r in back), ["Mine", "Ours"])
+        self.assertEqual(sorted((r.name, r.source) for r in back),
+                         [("Mine", store.MACHINE), ("Ours", store.PROJECT)])
+
+
 class StoreMergeTests(unittest.TestCase):
     """Machine rules and project rules are both shown, each marked.
 

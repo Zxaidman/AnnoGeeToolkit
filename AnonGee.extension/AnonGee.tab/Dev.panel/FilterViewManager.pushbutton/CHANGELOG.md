@@ -15,6 +15,92 @@ holds Auto Level Manager's four copies together.
 
 ---
 
+## 0.5.0 - 2026-09-11
+
+The project store, finished. It had been half-built since 0.1.0 -- the read
+side loaded a rules file beside the model and badged those rules `PROJECT`, and
+the write side went to AppData whatever the badge said.
+
+### Half-built was not neutral, it was wrong
+
+Editing a project rule and pressing Save wrote a **copy** into AppData and left
+the original beside the model. The next load showed the rule **twice** -- same
+name, one badged `MACHINE`, one badged `PROJECT` -- with nothing to say which
+one Apply had used. Nobody had to do anything unusual to get there; editing a
+project rule was enough.
+
+That is fixed at the root rather than patched: **a Save writes both files,
+every time**, because a rule can move between stores and a move is a write to
+both -- added to one, gone from the other.
+
+### You choose, per rule
+
+| Saved in | Where | Who gets it |
+| --- | --- | --- |
+| **This workstation** (default) | `%APPDATA%/Zxaidman/AnonGee/BIM-Toolkit/filter_view_rules.json` | You, in every project on this machine |
+| **This project** | `<model folder>/AnonGee/filter_view_rules.json` | Anyone who opens the model |
+
+Radios rather than the toggle switch: §9.9 reserves the toggle for a binary
+on/off, and this is a choice between two **named places** that a toggle cannot
+label. Change it, press Save rule, and the rule moves.
+
+**The location decision, as asked for in the first conversation.** A JSON file
+beside the model, **not** Extensible Storage -- ES writes into the `.rvt`
+itself and needs a transaction, which PRD §6.1 forbids, and it needs a schema
+GUID that can never change afterwards. A file can be read by anything, edited
+by hand, and deleted without touching the model.
+
+**Precedence: none, deliberately.** The same name in both stores gives two
+rules, each badged. They are different rules that happen to share a label, and
+both are shown rather than one quietly winning. That was decided in 0.1.0 and
+has not moved.
+
+### A model with nowhere to put a file
+
+A model that has never been saved has no folder, and that is the ordinary case
+for a new project rather than an error. **This project** is greyed there, and
+the line under it says why and what to do -- §10.3 keeps a disabled control
+visible, §8.2 makes it say what happened and what to do next. A greyed control
+with no sentence beside it reads as the tool being broken rather than as the
+model needing a save.
+
+`store.destination()` is the single place that decides, so a rule can never be
+marked for a file that cannot exist. Asking for the project store with nowhere
+to put it is **downgraded**, never refused: nothing is lost either way.
+
+### The panel reads both too
+
+A rule saved with the model had to appear on the dockable panel, or "saved with
+the model" would mean "saved, and invisible from the panel".
+
+A pane is not a command and never sees a document, so it cannot work out where
+*this* model keeps its rules. Every trip through the external event has one, so
+**every trip carries the path back** -- and pressing Refresh makes the trip on
+purpose. Until then it shows the machine store alone, which is the honest
+answer rather than a guess at the model's folder. A path that has not moved
+does not redraw, because every rule press comes back through the same place and
+rebuilding the strip under the cursor mid-click is its own bug.
+
+### Two smaller things that follow from it
+
+- **Duplicate keeps the store.** A copy of a project rule belongs beside the
+  model too. It was forced to AppData before, which was the only sensible
+  answer while AppData was the only writable store.
+- **No empty folders.** The project file is written when there are project
+  rules, or when one is already there so that emptying it actually empties it.
+  A model whose owner never used the project store does not get an `AnonGee`
+  folder dropped beside it.
+
+### Also
+
+- 28 new tests (1361 -> 1389). Eleven faults were put back one at a time; all
+  eleven gates caught theirs first time, which has not happened yet on this
+  tool.
+- One of them is the bug this release exists for: revert `_write` to the old
+  single-store save and `test_saving_writes_both_stores` fails.
+
+---
+
 ## 0.4.1 - 2026-09-11
 
 One fix, reported as *"when i click the saved rule, its condition plus,
