@@ -37,3 +37,7 @@ installer/signing/private/
 Thumbs.db
 .vscode/
 .idea/
+
+# --- AutoCAD & CAD Backup Files ---
+*.bak*
+*.dwl*
