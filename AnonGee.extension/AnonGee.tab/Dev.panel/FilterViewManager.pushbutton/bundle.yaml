@@ -37,6 +37,10 @@ tooltip: |
       <model folder>/AnonGee/filter_view_rules.json. The rule travels with
       the MODEL, so anyone who opens it gets the same rule. Use it for the
       views a job needs rather than the ones you always use.
+    • SHARED
+      One file the whole office points at, usually on a network drive.
+      Press Choose and pick the same file everybody else picks; the first
+      person to save creates it. Everyone reads and writes the one set.
     • Change 'Saved in' and press Save rule and the rule MOVES — written
       to one store, removed from the other. It is never in both by
       accident.
@@ -66,10 +70,34 @@ tooltip: |
       selected — picking several never discards what you were editing.
 
   Buttons
-    Count   how many elements match, changing nothing
-    Select  push the matches into Revit's selection
-    Apply   isolate them in the active view
-    Clear   put the view back
+    Count        how many elements match, changing nothing
+    Select       push the matches into Revit's selection
+    Apply        isolate them in the ACTIVE view
+    Views...     isolate them in SEVERAL views at once. Views that cannot
+                 take it are listed with the reason rather than hidden,
+                 and ONE Undo puts every view back.
+    Make filter  create a REAL Revit view filter in Manage > Filters.
+                 The ONLY thing here that writes to the project - you are
+                 shown exactly what will be created and asked first.
+    Clear        put the view back
+    Diagnostics  what the tool has done and anything that failed, with
+                 the full detail, and it opens the folder the log is in
+
+  The live count
+    • The number beside the buttons follows the rule as you build it,
+      a moment after you stop changing it. It says "counting..." while
+      it catches up, so a stale number never looks settled.
+
+  Sharing a rule set
+    • Export writes what is SELECTED, or all of them if nothing is.
+    • Import ADDS; it never replaces. A rule arriving with a name you
+      are using is brought in numbered, and the window says how many
+      were renamed.
+
+  When something goes wrong
+    • Every message starts with the feature that owns it - [FEAT-11],
+      [FEAT-13] - so a report can be one line. Press Diagnostics for the
+      full traceback and the log file to send on.
 
   Notes
     • Modeless — Revit stays interactive while the window is open. Pressing
@@ -99,4 +127,4 @@ tooltip: |
       the rules file and the panel reads it, and they run on different
       Python engines that share a folder rather than a module.
 
-  Version: 0.5.0
+  Version: 0.6.0

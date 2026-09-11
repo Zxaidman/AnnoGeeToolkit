@@ -764,6 +764,49 @@
         </Style.Triggers>
     </Style>
 
+    <!-- ═══ TEXTBOX, ON DARK ═══ -->
+    <!-- Geometry identical to InputTextBox; the palette is the difference.
+         The resting border is DarkBorderStrong rather than the decorative one
+         because an input is an interactive control and §3.8.3 makes that a
+         1.4.11 matter, not a preference. Focus takes the LIFTED red: Vivid
+         Red proper is 2.46:1 on Revit grey, so a focus ring drawn with it is
+         one a low-vision user cannot find (§3.8.5). -->
+    <Style x:Key="InputTextBoxOnDark" TargetType="TextBox">
+        <Setter Property="FontFamily"               Value="{StaticResource FontSans}"/>
+        <Setter Property="FontSize"                 Value="{StaticResource FontSizeBody}"/>
+        <Setter Property="Foreground"               Value="{StaticResource BrushDarkTextPrimary}"/>
+        <Setter Property="Background"               Value="{StaticResource BrushDarkSurface}"/>
+        <Setter Property="BorderBrush"              Value="{StaticResource BrushDarkBorderStrong}"/>
+        <Setter Property="BorderThickness"          Value="1"/>
+        <Setter Property="CaretBrush"               Value="{StaticResource BrushDarkTextPrimary}"/>
+        <Setter Property="SelectionBrush"           Value="{StaticResource BrushVividRedOnDark}"/>
+        <Setter Property="Padding"                  Value="8,0"/>
+        <Setter Property="Height"                   Value="26"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="TextBox">
+                    <Border Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="5">
+                        <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsFocused" Value="True">
+                            <Setter Property="BorderBrush"     Value="{StaticResource BrushVividRedOnDark}"/>
+                            <Setter Property="BorderThickness" Value="1.5"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="BorderBrush" Value="{StaticResource BrushDarkBorder}"/>
+                            <Setter Property="Foreground"  Value="{StaticResource BrushDarkDisabled}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- ═══ CARD, ON DARK ═══ -->
     <Style x:Key="CardBorderOnDark" TargetType="Border">
         <Setter Property="Background"      Value="{StaticResource BrushDarkSurface}"/>

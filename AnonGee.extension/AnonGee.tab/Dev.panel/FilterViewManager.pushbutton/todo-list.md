@@ -136,6 +136,12 @@ panel, and Panel reports rather than breaks.
 
 ## 2. Errors and bugs
 
+**Reporting one, from 0.6.0 on.** Every message the tool shows starts with the
+feature that owns it — `[FEAT-11]`, `[FEAT-13]` — so a report can be one line.
+Press **Diagnostics** for the full traceback and the log file:
+`%APPDATA%/Zxaidman/AnonGee/BIM-Toolkit/filter_view_diagnostics.log`.
+
+
 All closed. Each was found by the project owner running the tool in Revit, and
 none of them was findable any other way.
 
@@ -175,16 +181,16 @@ nothing here is agreed until it says so.
 | FEAT-5 | The saved rules as pressable buttons in a modeless window | `testing` — the list on the left; select one and press Apply |
 | FEAT-6 | Clear / restore the view to what it was before a rule was pressed | `testing` — the Clear button |
 | FEAT-7 | Edit, rename, duplicate, delete and reorder saved rules | `testing` — all five, and Delete asks first |
-| FEAT-8 | Live match count before applying, debounced (`ui/dialogs.DebounceTimer`) | `building` — the Count button gives the number on demand. It is not yet live-as-you-type, which is what the debounce is for |
+| FEAT-8 | Live match count before applying, debounced | `testing` — built in 0.6.0, hung off `_validate()` so it cannot be forgotten when a control is added. Was `building` — the Count button gives the number on demand. It is not yet live-as-you-type, which is what the debounce is for |
 | FEAT-9 | Select the matched elements in Revit (`revit/selection.set_selection`) | `testing` — the Select button |
 | FEAT-10 | The dockable panel — hidden until the pushbutton shows it, docked under the ribbon by default, re-dockable left/right like Properties | `verified` — registration confirmed in Revit 2025.4 via `__revit__`. 0.3.0 made it dark, hidden at startup, and correct in both dock shapes |
-| FEAT-11 | Apply a rule across several views at once, skipping views that cannot take filters (§13.7) | `pending` |
-| FEAT-12 | Import / export a rule set, so an office shares one | `pending` |
-| FEAT-13 | Convert a saved rule into a real `ParameterFilterElement` in the project — only possible for rules whose every parameter passed the CRIT-2 flag. Not wanted today; recorded because CRIT-2's answer paid for it | `pending` |
+| FEAT-11 | Apply a rule across several views at once, skipping views that cannot take filters (§13.7) | `testing` — built in 0.6.0. A modal picker; unusable views listed with the reason rather than hidden; ONE transaction so one Undo puts every view back |
+| FEAT-12 | Import / export a rule set, so an office shares one | `testing` — built in 0.6.0. Import ADDS and never replaces; a clashing name is numbered and counted |
+| FEAT-13 | Convert a saved rule into a real `ParameterFilterElement` in the project | `testing` — built in 0.6.0, **opt-in and explicit**. The only thing in the tool that writes to the model, so the confirmation shows the name, the categories and every rule before creating anything. Refuses a family/type narrowing and `between`, with all reasons at once |
 | FEAT-17 | **Multiple selection on the saved rules** — Ctrl+click, Shift+click and a tick that reports the selection, with Duplicate, Delete and all four Moves acting on the block | `testing` — built in 0.4.0, modelled on cad2bim's layer mapping so the same gesture means the same thing in both tools |
 | FEAT-18 | **Move a rule to either end of the list in one step** — To top / To bottom beside Move up / Move down | `testing` — built in 0.4.0 on `RuleSet.reorder`, which moves a block rather than looping single moves |
-| FEAT-19 | **A rule store the user points at** — a path per project, so an office shares one set from a network folder rather than one copy per model. The third candidate from the FEAT-14 decision, and the only one that serves a team rather than a machine or a model | `pending` |
-| FEAT-15 | **Dark inputs.** §9.10 ships dark buttons, a dark scrollbar and a dark card, and no dark `InputTextBox` / `InputComboBox` / `InputCheckBox` / `InputListBox`, because nothing dark has needed one — the only dark surface is a pane of buttons. Specify in §9.10 first, then build | `pending` |
+| FEAT-19 | **A rule store the user points at** — one file the office picks, usually on a network drive | `testing` — built in 0.6.0 as a third destination beside workstation and project. A FILE rather than a folder, because picking the same file is what sharing one set means |
+| FEAT-15 | **Dark inputs** | `testing` — `InputTextBoxOnDark` built in 0.6.0 and made load-bearing by a search box on the panel, so it ships exercised rather than speculative. The dark ComboBox / CheckBox / ListBox are still unbuilt because nothing dark needs one |
 | FEAT-16 | **One scrollbar template, themed by token.** `ScrollBarOnDark` duplicates the light template to swap three brushes, which is what WPF forces unless the shared template reads its brushes through `{DynamicResource}` — then a dark container redefines three keys and the template is written once. It is the better design; it also touches every tool's inline theme copy, so it is a design-system change, not a tool one | `pending` |
 | FEAT-14 | Per-project rule store — **done in 0.5.0**: `<model folder>/AnonGee/filter_view_rules.json`, chosen per rule in the editor, with Save writing both files so a rule can move between them. No precedence: the same name in both gives two rules, each badged. Not Extensible Storage, because writing that modifies the model and PRD S6.1 forbids it | `testing` |
 

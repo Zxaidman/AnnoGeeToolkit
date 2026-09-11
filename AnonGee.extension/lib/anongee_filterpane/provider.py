@@ -114,7 +114,11 @@ class IsolateHandler(IExternalEventHandler):
         try:
             self._run(uiapp)
         except Exception as error:                     # never let it out
-            self._say("could not be done: {0}".format(error), "error")
+            import traceback
+            from anongee_filterrules import diagnostics
+            self._say(diagnostics.failure("PANEL", self.action or "a press",
+                                          error, traceback.format_exc()),
+                      "error")
 
     def _run(self, uiapp):
         from anongee_filterrules import revit_apply, revit_query
@@ -184,7 +188,17 @@ class FilterViewPane(IDockablePaneProvider):
         self.buttons = None
         self.actions = None
         self.scroll = None
+        self.search = None
+        #: Every rule read from disk, unfiltered. The search narrows what is
+        #: DRAWN; it never narrows what is held, or clearing the box would
+        #: have nothing to bring back.
+        self.rules = []
         self.chips = []
+        #: Guard closures, held for the life of the pane. A Python closure
+        #: handed to a .NET event is not necessarily kept alive by the
+        #: subscription, and a collected handler is a button that silently
+        #: stops working.
+        self.guards = []
         #: None until the first measured size arrives, so the first real
         #: SizeChanged always applies a layout rather than matching a guess.
         self.vertical = None
@@ -245,12 +259,15 @@ class FilterViewPane(IDockablePaneProvider):
         self.buttons = tree.FindName("PaneButtons")
         self.actions = tree.FindName("PaneActions")
         self.scroll = tree.FindName("PaneScroll")
+        self.search = tree.FindName("PaneSearch")
+        if self.search is not None:
+            self.search.TextChanged += self._guard("Search", self._on_search)
         refresh = tree.FindName("PaneRefresh")
         if refresh is not None:
-            refresh.Click += self._on_refresh
+            refresh.Click += self._guard("Refresh", self._on_refresh)
         clear = tree.FindName("PaneClear")
         if clear is not None:
-            clear.Click += self._on_clear
+            clear.Click += self._guard("Clear", self._on_clear)
         if self.scroll is not None:
             # The wheel scrolls whichever axis is live. WPF only ever scrolls
             # the vertical one, so across the top -- where there IS no vertical
@@ -316,11 +333,23 @@ class FilterViewPane(IDockablePaneProvider):
         """
         try:
             from anongee_filterrules import store
-            rules = list(store.load_all(store.machine_path(),
-                                        self.project_path))
+            self.rules = list(store.load_all(store.machine_path(),
+                                             self.project_path,
+                                             store.shared_path()))
         except Exception as error:
             self._show("the rules could not be read: {0}".format(error), "error")
             return
+        self._paint()
+
+    def _paint(self):
+        """Draw the chips for whatever the search box currently allows."""
+        from anongee_filterrules import names
+
+        needle = ""
+        if self.search is not None:
+            needle = names.key(self.search.Text)
+        rules = [rule for rule in self.rules
+                 if not needle or needle in names.key(rule.name)]
 
         try:
             chip_style = self.control.TryFindResource(CHIP_STYLE)
@@ -333,7 +362,8 @@ class FilterViewPane(IDockablePaneProvider):
                     button.Style = chip_style
                 button.ToolTip = rule.summary()
                 button.Tag = rule
-                button.Click += self._on_rule
+                button.Click += self._guard("pressing {0}".format(rule.name),
+                                            self._on_rule)
                 self.buttons.Children.Add(button)
                 self.chips.append(button)
             self._dress_chips()
@@ -342,9 +372,17 @@ class FilterViewPane(IDockablePaneProvider):
             return
 
         self._on_size(None, None)     # a content swap raises no SizeChanged
-        self._show("{0} rule(s). Press one to isolate it in the active "
-                   "view.".format(len(rules)) if rules else
-                   "No saved rules yet. Build one in Filter View Manager.")
+        if rules:
+            self._show("{0}{1}. Press one to isolate it in the active "
+                       "view.".format(
+                           "{0} rule(s)".format(len(rules)),
+                           " of {0}".format(len(self.rules))
+                           if len(rules) != len(self.rules) else ""))
+        elif self.rules:
+            self._show("No rule matches that search. {0} saved in "
+                       "all.".format(len(self.rules)))
+        else:
+            self._show("No saved rules yet. Build one in Filter View Manager.")
 
     # -- layout ------------------------------------------------------------
 
@@ -418,6 +456,25 @@ class FilterViewPane(IDockablePaneProvider):
 
     # -- events ------------------------------------------------------------
 
+    def _guard(self, what, handler):
+        """*handler*, wrapped so a failure on this pane is loud and written.
+
+        The same reasoning as the window's guard: a Python exception inside a
+        WPF handler reaches no caller. Here it is worse -- a press that does
+        nothing looks exactly like a rule that matched nothing.
+        """
+        def wrapped(sender, args):
+            try:
+                handler(sender, args)
+            except Exception as error:                 # noqa: BLE001
+                import traceback
+                from anongee_filterrules import diagnostics
+                self._show(diagnostics.failure("PANEL", what, error,
+                                               traceback.format_exc()),
+                           "error")
+        self.guards.append(wrapped)
+        return wrapped
+
     def _on_rule(self, sender, args):
         self.handler.rule = sender.Tag
         self.handler.action = "apply"
@@ -443,6 +500,15 @@ class FilterViewPane(IDockablePaneProvider):
             self._draw()
         except Exception:
             pass
+
+    def _on_search(self, sender, args):
+        """Redraw from what is already held -- no disk, no Revit.
+
+        Narrowing what is DRAWN rather than what is held is the whole point:
+        clearing the box brings every rule straight back, and typing never
+        costs a file read.
+        """
+        self._paint()
 
     def _on_refresh(self, sender, args):
         self.reload()

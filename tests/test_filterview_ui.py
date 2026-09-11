@@ -26,10 +26,16 @@ the version number, held together so the header cannot lie about the build.
 import ast
 import io
 import os
+import sys
 import unittest
 import xml.etree.ElementTree as ET
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_LIB = os.path.join(_ROOT, "AnonGee.extension", "lib")
+if _LIB not in sys.path:
+    sys.path.insert(0, _LIB)
+
+from anongee_filterrules import store                              # noqa: E402
 _BUTTON = os.path.join(_ROOT, "AnonGee.extension", "AnonGee.tab", "Dev.panel",
                        "FilterViewManager.pushbutton")
 _XAML = os.path.join(_BUTTON, "ui.xaml")
@@ -337,6 +343,163 @@ def methods_assigning(attribute):
     return found
 
 
+_VIEWS_XAML = os.path.join(_BUTTON, "views.xaml")
+
+
+class MultiViewTests(unittest.TestCase):
+    """FEAT-11 -- one rule, several views, one Undo."""
+
+    def _body(self, name):
+        source = _read(_SCRIPT)
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.FunctionDef) and node.name == name:
+                return ast.get_source_segment(source, node) or ""
+        self.fail("{0} is not in script.py".format(name))
+
+    def test_the_picker_xaml_is_well_formed(self):
+        ET.parse(_VIEWS_XAML)
+
+    def test_every_control_the_picker_looks_up_exists_in_its_xaml(self):
+        names_in_xaml = set()
+        for element in ET.parse(_VIEWS_XAML).getroot().iter():
+            name = element.get(_X + "Name")
+            if name:
+                names_in_xaml.add(name)
+        source = _read(_SCRIPT)
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.ClassDef) and node.name == "ViewPicker":
+                for inner in ast.walk(node):
+                    if (isinstance(inner, ast.Assign)
+                            and any(getattr(t, "id", "") == "NAMES"
+                                    for t in inner.targets)):
+                        wanted = set(ast.literal_eval(inner.value))
+                        missing = sorted(wanted - names_in_xaml)
+                        self.assertEqual(missing, [], missing)
+                        return
+        self.fail("ViewPicker.NAMES is not in script.py")
+
+    def test_the_picker_uses_the_same_theme_as_the_window_it_opens_from(self):
+        """The two sit side by side on screen; any difference would show."""
+        picker = _read(_VIEWS_XAML)
+        window = _read(_XAML)
+        for key in ("ButtonPrimary", "ButtonGhost", "InputTextBox",
+                    "GridCheckBox", "TextCaption"):
+            self.assertIn('x:Key="{0}"'.format(key), picker)
+            self.assertIn('x:Key="{0}"'.format(key), window)
+
+    def test_the_picker_touches_no_revit_api(self):
+        """It is handed plain rows and hands back plain ids, so it can be
+        opened straight from the WPF thread without an external event
+        (§12.8.7.2). A Revit object here would be a crash, not a bug."""
+        source = _read(_SCRIPT)
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.ClassDef) and node.name == "ViewPicker":
+                body = ast.get_source_segment(source, node) or ""
+                for banned in ("revit_query", "revit_apply", "Transaction",
+                               "doc.", "uidoc"):
+                    self.assertNotIn(banned, body, banned)
+                return
+        self.fail("ViewPicker is not in script.py")
+
+    def test_views_that_cannot_be_isolated_are_listed_with_the_reason(self):
+        """Hiding them leaves a modeller hunting for a schedule that is simply
+        not there, with nothing to say it was excluded on purpose."""
+        self.assertIn("cannot be isolated", _read(_SCRIPT))
+
+    def test_select_all_leaves_the_unusable_ones_alone(self):
+        """Ticking something that will be refused is a promise the picker
+        cannot keep."""
+        self.assertIn("if row.Usable", self._body("_on_all"))
+
+    def test_a_ticked_view_that_cannot_be_isolated_is_dropped_and_recorded(self):
+        """Otherwise the count on the next screen is lower than the tick count
+        with nothing to explain the difference."""
+        body = self._body("_on_apply")
+        self.assertIn("refused", body)
+        self.assertIn("diagnostics.record(", body)
+
+    def test_a_search_does_not_untick_what_it_filters_out(self):
+        body = self._body("_rebuild")
+        self.assertIn("self.rebuilding = True", body)
+        self.assertIn("SelectedItems.Add(row)", body)
+
+    def test_the_rule_is_asked_for_before_the_views_are(self):
+        """No point listing two hundred views for a rule that will not pass
+        validation."""
+        body = self._body("_on_views")
+        self.assertLess(body.index("_guard_rule()"), body.index('kind="views"'))
+        # And it must actually STOP on a bad rule, not merely ask first.
+        self.assertIn("if payload is None:", body)
+        self.assertLess(body.index("if payload is None:"),
+                        body.index('kind="views"'))
+
+    def test_every_view_is_reported_including_the_skipped_ones(self):
+        """A multi-view apply that says "done" while quietly doing nothing in
+        four of eleven views is the failure this is written against."""
+        body = self._body("_report_many")
+        self.assertIn("skipped", body)
+        self.assertIn("diagnostics.record(", body)
+
+
+class LiveCountTests(unittest.TestCase):
+    """FEAT-8 -- the number follows the rule instead of waiting to be asked."""
+
+    def _body(self, name):
+        source = _read(_SCRIPT)
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.FunctionDef) and node.name == name:
+                return ast.get_source_segment(source, node) or ""
+        self.fail("{0} is not in script.py".format(name))
+
+    def test_the_count_hangs_off_the_one_call_every_change_already_makes(self):
+        """A category ticked, a family chosen, a condition added, a rule
+        loaded -- all of them end at ``_validate``. Hooking the count to a
+        list of controls instead would be forgotten the next time one is
+        added, which is exactly how BUG-13 happened."""
+        self.assertIn("self._bump_count(", self._body("_validate"))
+
+    def test_a_stale_number_is_withdrawn_before_the_new_one_arrives(self):
+        """A number left sitting there while a new one is computed is worse
+        than no number: it looks settled."""
+        body = self._body("_bump_count")
+        self.assertIn('self.LiveCount.Text = "counting..."', body)
+        self.assertIn("self.count_timer.reset()", body)
+
+    def test_an_invalid_rule_shows_no_count_at_all(self):
+        body = self._body("_bump_count")
+        self.assertIn("if problems:", body)
+        self.assertIn("self.count_timer.stop()", body)
+
+    def test_the_debounce_restarts_rather_than_merely_starts(self):
+        """A DispatcherTimer already running does not restart its interval on
+        Start, so without the Stop a user typing steadily never reaches a
+        quiet period and the count never arrives."""
+        body = self._body("reset")
+        self.assertLess(body.index("Stop()"), body.index("Start()"))
+
+    def test_counts_cannot_stack_on_a_slow_model(self):
+        self.assertIn("if self.counting:", self._body("_count_now"))
+
+    def test_a_failed_count_releases_the_latch(self):
+        """Unlatched in the branch that runs for every answer, not only the
+        successful one -- otherwise one bad count stops the live count for the
+        rest of the session."""
+        body = self._body("_receive")
+        self.assertLess(body.index("self.counting = False"),
+                        body.index('problem = answer.get("error")'))
+
+    def test_the_live_count_does_not_talk_over_the_status_bar(self):
+        """It writes the same label as the Count button and says nothing else,
+        or it would overwrite whatever the user was being told, once per
+        keystroke."""
+        self.assertIn('if answer.get("tag") != "FEAT-8":', self._body("_receive"))
+
+    def test_the_timer_is_stopped_when_the_window_closes(self):
+        """A DispatcherTimer left running holds a reference to a dead window
+        and keeps firing into it."""
+        self.assertIn("self.count_timer.stop()", self._body("_on_closed"))
+
+
 class RuleStoreTests(unittest.TestCase):
     """FEAT-14 -- a rule can live beside the model, and can move there."""
 
@@ -348,9 +511,16 @@ class RuleStoreTests(unittest.TestCase):
                 found[name] = element
         return found
 
-    def test_the_editor_offers_both_stores(self):
-        self.assertEqual(sorted(self._radios()),
-                         ["StoreMachineRadio", "StoreProjectRadio"])
+    def test_the_editor_offers_every_store_the_engine_knows(self):
+        """Three now (FEAT-19). Checked against the engine rather than a
+        hardcoded list, so adding a fourth store without a radio for it fails
+        here rather than being a destination nobody can pick."""
+        self.assertEqual(
+            sorted(self._radios()),
+            ["StoreMachineRadio", "StoreProjectRadio", "StoreSharedRadio"])
+        self.assertEqual(
+            sorted((store.MACHINE, store.PROJECT, store.SHARED)),
+            sorted(("machine", "project", "shared")))
 
     def test_the_two_stores_are_one_choice_and_not_two_switches(self):
         """Without a shared GroupName both can be on at once, and a rule would
@@ -633,16 +803,29 @@ class ScriptWiringTests(unittest.TestCase):
         the WPF thread, so it may only build dicts of ints and strings.
         """
         tree = ast.parse(_read(_SCRIPT))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef) and node.name == "serve":
-                returned = [n for n in ast.walk(node) if isinstance(n, ast.Return)]
-                self.assertTrue(returned)
-                for one in returned:
-                    self.assertIsInstance(
-                        one.value, ast.Dict,
-                        "serve() must return a plain dict, not a Revit object")
-                return
-        self.fail("serve() not found")
+        # ``serve`` and anything it delegates to. A branch lifted into a
+        # ``_serve_*`` helper is still on Revit's thread and still answers
+        # across the boundary, so the same rule applies to it -- and a gate
+        # that only looked at ``serve`` would be satisfied by moving the
+        # offending return one method away.
+        answering = [n for n in ast.walk(tree)
+                     if isinstance(n, ast.FunctionDef)
+                     and (n.name == "serve" or n.name.startswith("_serve_"))]
+        self.assertTrue(any(n.name == "serve" for n in answering),
+                        "serve() not found")
+        for node in answering:
+            returned = [n for n in ast.walk(node) if isinstance(n, ast.Return)]
+            self.assertTrue(returned, node.name)
+            for one in returned:
+                if isinstance(one.value, ast.Dict):
+                    continue
+                delegated = (isinstance(one.value, ast.Call)
+                             and isinstance(one.value.func, ast.Attribute)
+                             and one.value.func.attr.startswith("_serve_"))
+                self.assertTrue(
+                    delegated,
+                    "{0}() must return a plain dict or delegate to another "
+                    "_serve_ helper, not a Revit object".format(node.name))
 
     def test_the_selection_lists_are_rebuilt_behind_a_flag_not_a_detach(self):
         """``event -= self._handler`` may remove nothing.

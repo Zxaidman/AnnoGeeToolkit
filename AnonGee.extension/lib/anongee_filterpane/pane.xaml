@@ -207,6 +207,41 @@
                     </Setter.Value>
                 </Setter>
             </Style>
+            <Style x:Key="InputTextBoxOnDark" TargetType="TextBox">
+                <Setter Property="FontFamily"               Value="{StaticResource FontSans}"/>
+                <Setter Property="FontSize"                 Value="{StaticResource FontSizeBody}"/>
+                <Setter Property="Foreground"               Value="{StaticResource BrushDarkTextPrimary}"/>
+                <Setter Property="Background"               Value="{StaticResource BrushDarkSurface}"/>
+                <Setter Property="BorderBrush"              Value="{StaticResource BrushDarkBorderStrong}"/>
+                <Setter Property="BorderThickness"          Value="1"/>
+                <Setter Property="CaretBrush"               Value="{StaticResource BrushDarkTextPrimary}"/>
+                <Setter Property="SelectionBrush"           Value="{StaticResource BrushVividRedOnDark}"/>
+                <Setter Property="Padding"                  Value="8,0"/>
+                <Setter Property="Height"                   Value="26"/>
+                <Setter Property="VerticalContentAlignment" Value="Center"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="TextBox">
+                            <Border Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="5">
+                                <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsFocused" Value="True">
+                                    <Setter Property="BorderBrush"     Value="{StaticResource BrushVividRedOnDark}"/>
+                                    <Setter Property="BorderThickness" Value="1.5"/>
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter Property="BorderBrush" Value="{StaticResource BrushDarkBorder}"/>
+                                    <Setter Property="Foreground"  Value="{StaticResource BrushDarkDisabled}"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
             <Style x:Key="ScrollBarOnDark" TargetType="ScrollBar">
                 <Setter Property="Background" Value="Transparent"/>
                 <Setter Property="Width"      Value="8"/>
@@ -362,6 +397,15 @@
                        Text="Reading the saved rules..."
                        Style="{StaticResource TextCaptionOnDark}"
                        TextTrimming="CharacterEllipsis" Margin="2,4,2,0"/>
+
+            <!-- FEAT-15. Twenty-eight rules on a strip is a scroll bar and a
+                 memory test; this is what makes the dark input load-bearing
+                 rather than a style nobody exercises. Docked TOP so it stays
+                 put while the rules scroll under it. -->
+            <TextBox x:Name="PaneSearch" DockPanel.Dock="Top"
+                     Style="{StaticResource InputTextBoxOnDark}"
+                     Margin="0,0,0,4"
+                     ToolTip="Type to show only the rules whose name matches. Clearing it brings them all back."/>
 
             <ScrollViewer x:Name="PaneScroll"
                           VerticalScrollBarVisibility="Disabled"

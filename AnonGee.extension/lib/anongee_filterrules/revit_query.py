@@ -31,7 +31,7 @@ from Autodesk.Revit.DB import (BuiltInCategory, BuiltInParameter,            # n
                                CategoryType, ElementId,
                                ElementMulticategoryFilter,
                                FilteredElementCollector, LabelUtils,
-                               ParameterFilterUtilities, StorageType)
+                               ParameterFilterUtilities, StorageType, View)
 from System.Collections.Generic import List                                  # noqa: E402
 
 from . import compat
@@ -282,6 +282,38 @@ def _parameters_of(doc, element):
 # ---------------------------------------------------------------------------
 # What a rule matches
 # ---------------------------------------------------------------------------
+
+def views(doc, active=None):
+    """Every view a rule could be applied to, as plain data.
+
+    ``[(id, label, usable, why-not)]`` -- ids and strings only, because a Revit
+    object cannot cross to the WPF thread (S12.8.7.2).
+
+    Views that cannot be isolated are **listed anyway**, marked with the
+    reason. Hiding them would leave a modeller hunting for a schedule that is
+    simply not in the list, with nothing to say it was excluded on purpose.
+    Templates are dropped outright: they are not views a person applies to.
+    """
+    from . import revit_apply
+
+    found = []
+    collector = FilteredElementCollector(doc).OfClass(View)
+    for view in collector:
+        try:
+            if view.IsTemplate:
+                continue
+        except Exception:
+            continue
+        usable, why = revit_apply.can_isolate(view)
+        found.append((compat.id_value(view.Id), revit_apply.view_label(view),
+                      usable, why))
+    found.sort(key=lambda row: names.key(row[1]))
+    if active is not None:
+        # The active view first: it is the one a person means most often, and
+        # scrolling a list of two hundred to find it is the whole cost.
+        found.sort(key=lambda row: row[0] != active)
+    return found
+
 
 def read_value(doc, element, parameter_name):
     """One parameter off an element, as the plain value a rule compares to.

@@ -32,7 +32,7 @@ _LIB = os.path.join(_ROOT, "AnonGee.extension", "lib")
 if _LIB not in sys.path:
     sys.path.insert(0, _LIB)
 
-from anongee_filterrules import names, rules, store, values   # noqa: E402
+from anongee_filterrules import filters, names, rules, store, values  # noqa: E402
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -728,6 +728,340 @@ class RemoveManyTests(unittest.TestCase):
         self.assertEqual([r.order for r in self.set], [0, 1])
 
 
+class ConvertibleTests(unittest.TestCase):
+    """FEAT-13 -- which rules may become a real Revit view filter."""
+
+    def test_a_plain_rule_converts(self):
+        rule = a_rule(family=None, type_name=None,
+                      conditions=[rules.Condition("Comments", "equals", "X")])
+        ok, why = filters.convertible(rule, ["Comments"])
+        self.assertTrue(ok, why)
+
+    def test_a_family_narrowing_is_refused(self):
+        """Matched by NAME here, which a parameter filter cannot do -- the
+        filter would come out BROADER than the rule, which is the one outcome
+        worse than refusing."""
+        rule = a_rule(family="Basic Wall", type_name=None, conditions=[])
+        ok, why = filters.convertible(rule)
+        self.assertFalse(ok)
+        self.assertTrue(any("family" in reason for reason in why))
+
+    def test_a_type_narrowing_is_refused(self):
+        rule = a_rule(family=None, type_name="100mm", conditions=[])
+        self.assertFalse(filters.convertible(rule)[0])
+
+    def test_a_rule_with_no_categories_is_refused(self):
+        """A ParameterFilterElement is defined over categories and cannot
+        exist without one."""
+        rule = a_rule(categories=[], family=None, type_name=None, conditions=[])
+        self.assertFalse(filters.convertible(rule)[0])
+
+    def test_between_is_refused_rather_than_split_in_two(self):
+        """Revit has no between. Splitting one condition into two ANDed rules
+        would make the filter say something the rule does not."""
+        rule = a_rule(family=None, type_name=None,
+                      conditions=[rules.Condition("Area", "between", "1")])
+        ok, why = filters.convertible(rule, ["Area"])
+        self.assertFalse(ok)
+        # The SPECIFIC reason, not merely a refusal: dropping "between" from
+        # UNSUPPORTED still refuses it (nothing in FACTORY maps it) but with a
+        # message that says nothing about why splitting it would be wrong.
+        self.assertTrue(any("two rules joined by AND" in reason
+                            for reason in why), why)
+
+    def test_a_parameter_revit_will_not_filter_on_is_refused(self):
+        rule = a_rule(family=None, type_name=None,
+                      conditions=[rules.Condition("Volume", "equals", "1")])
+        ok, why = filters.convertible(rule, ["Comments"])
+        self.assertFalse(ok)
+        self.assertTrue(any("Volume" in reason for reason in why))
+
+    def test_the_parameter_check_is_skipped_when_nothing_is_known(self):
+        """``None`` means "not checked" -- for judging a rule's SHAPE before
+        a model has answered."""
+        rule = a_rule(family=None, type_name=None,
+                      conditions=[rules.Condition("Anything", "equals", "1")])
+        self.assertTrue(filters.convertible(rule, None)[0])
+
+    def test_every_reason_is_collected_rather_than_the_first(self):
+        """Somebody fixing a rule wants all three problems at once, not to
+        discover the second after fixing the first."""
+        rule = a_rule(family="Basic Wall", type_name="100mm",
+                      conditions=[rules.Condition("Area", "between", "1")])
+        ok, why = filters.convertible(rule, ["Area"])
+        self.assertFalse(ok)
+        self.assertGreaterEqual(len(why), 3)
+
+    def test_every_supported_operator_has_a_factory_behind_it(self):
+        for key in values.OPERATORS:
+            if key in filters.UNSUPPORTED:
+                continue
+            self.assertIn(key, filters.FACTORY, key)
+
+    def test_nothing_is_both_supported_and_unsupported(self):
+        for key in filters.UNSUPPORTED:
+            self.assertNotIn(key, filters.FACTORY, key)
+
+    def test_the_created_filter_says_where_it_came_from(self):
+        """It lands in a list a whole team shares. "Columns" on its own tells
+        the next person nothing about whether deleting it breaks something."""
+        self.assertTrue(filters.filter_name(a_rule(name="Columns"))
+                        .startswith("AnonGee"))
+
+    def test_the_plan_spells_out_every_condition(self):
+        """This is the one action that writes to the model, and "create a
+        filter from this rule" is not enough to say yes to."""
+        rule = a_rule(family=None, type_name=None, conditions=[
+            rules.Condition("Comments", "equals", "X"),
+            rules.Condition("Area", "greater", "100", "m2")])
+        lines = "\n".join(filters.plan(rule))
+        self.assertIn("Comments", lines)
+        self.assertIn("Area", lines)
+        self.assertIn("m2", lines)
+        self.assertIn(filters.filter_name(rule), lines)
+
+
+class RuleValueTests(unittest.TestCase):
+    """What Revit's rule factory is handed, decided where it can be tested."""
+
+    def test_an_operator_with_no_value_says_so(self):
+        kind, value = filters.rule_value(rules.Condition("P", "is_empty", ""))
+        self.assertEqual(kind, filters.NO_VALUE)
+        self.assertIsNone(value)
+
+    def test_text_stays_text(self):
+        kind, value = filters.rule_value(rules.Condition("P", "equals", "Phase2"))
+        self.assertEqual(kind, filters.TEXT)
+        self.assertEqual(value, "Phase2")
+
+    def test_a_number_arrives_in_revits_internal_units(self):
+        """"100 m2" arriving as 100 square FEET is the kind of bug that looks
+        like the filter simply matching the wrong things."""
+        kind, value = filters.rule_value(
+            rules.Condition("Area", "greater", "100", "m2"))
+        self.assertEqual(kind, filters.NUMBER)
+        self.assertAlmostEqual(value, values.to_internal(100.0, "m2"))
+        self.assertNotAlmostEqual(value, 100.0)
+
+    def test_a_number_with_no_unit_is_left_alone(self):
+        kind, value = filters.rule_value(rules.Condition("N", "greater", "5"))
+        self.assertEqual(kind, filters.NUMBER)
+        self.assertAlmostEqual(value, 5.0)
+
+
+class SharedStoreTests(unittest.TestCase):
+    """FEAT-19 -- one file an office points at, instead of a copy each."""
+
+    def setUp(self):
+        self.folder = tempfile.mkdtemp()
+        self.previous = os.environ.get("ANONGEE_PREFS_DIR")
+        os.environ["ANONGEE_PREFS_DIR"] = self.folder
+        self.machine = os.path.join(self.folder, "machine.json")
+        self.shared = os.path.join(self.folder, "office", "shared.json")
+
+    def tearDown(self):
+        if self.previous is None:
+            os.environ.pop("ANONGEE_PREFS_DIR", None)
+        else:
+            os.environ["ANONGEE_PREFS_DIR"] = self.previous
+        shutil.rmtree(self.folder, ignore_errors=True)
+
+    def test_nobody_has_chosen_one_yet_and_that_is_not_an_error(self):
+        self.assertIsNone(store.shared_path())
+
+    def test_a_choice_is_remembered(self):
+        self.assertTrue(store.set_shared_path(self.shared))
+        self.assertEqual(store.shared_path(), self.shared)
+
+    def test_a_choice_can_be_taken_back(self):
+        store.set_shared_path(self.shared)
+        store.set_shared_path(None)
+        self.assertIsNone(store.shared_path())
+
+    def test_a_path_is_not_checked_for_existence_when_it_is_read(self):
+        """A network share that is down should read as "the file could not be
+        opened" when somebody tries, not as "you never chose one"."""
+        store.set_shared_path(os.path.join(self.folder, "not-there-yet.json"))
+        self.assertIsNotNone(store.shared_path())
+
+    def test_the_preference_is_this_workstation_s_and_not_a_model_s(self):
+        """Which shared set THIS person uses is a fact about the machine."""
+        self.assertEqual(os.path.dirname(store.settings_path()), self.folder)
+
+    def test_a_shared_rule_is_downgraded_when_no_file_is_chosen(self):
+        self.assertEqual(store.destination(store.SHARED, True, False),
+                         store.MACHINE)
+        self.assertEqual(store.destination(store.SHARED, True, True),
+                         store.SHARED)
+
+    def test_all_three_stores_are_written_and_read_back(self):
+        built = rules.RuleSet([a_rule(name="Mine", source=store.MACHINE),
+                               a_rule(name="Office", source=store.SHARED)])
+        ok, problems = store.save_all(built, self.machine, None, self.shared)
+        self.assertTrue(ok, problems)
+        back = store.load_all(self.machine, None, self.shared)
+        self.assertEqual(sorted((r.name, r.source) for r in back),
+                         [("Mine", store.MACHINE), ("Office", store.SHARED)])
+
+    def test_a_rule_moves_out_of_the_shared_store_too(self):
+        """Same rule as the project store: a move is a write to BOTH."""
+        rule = a_rule(name="Travels", source=store.SHARED)
+        store.save_all(rules.RuleSet([rule]), self.machine, None, self.shared)
+        self.assertEqual([r.name for r in store.load(self.shared)], ["Travels"])
+        rule.source = store.MACHINE
+        store.save_all(rules.RuleSet([rule]), self.machine, None, self.shared)
+        self.assertEqual([r.name for r in store.load(self.shared)], [])
+        self.assertEqual([r.name for r in store.load(self.machine)], ["Travels"])
+
+    def test_an_unreachable_share_says_what_it_probably_is(self):
+        """A network path that will not write is the ordinary failure here,
+        and "IOError" is not what the person reading it needs."""
+        handle = open(os.path.join(self.folder, "blocker"), "w")
+        handle.write("not a directory")
+        handle.close()
+        ok, problems = store.save_all(
+            rules.RuleSet([a_rule(source=store.SHARED)]), self.machine, None,
+            os.path.join(self.folder, "blocker", "shared.json"))
+        self.assertFalse(ok)
+        self.assertTrue(any("network share" in p for p in problems), problems)
+
+    def test_partition_keeps_the_three_apart(self):
+        built = rules.RuleSet([a_rule(name="M", source=store.MACHINE),
+                               a_rule(name="P", source=store.PROJECT),
+                               a_rule(name="S", source=store.SHARED)])
+        split = store.partition(built, True, True)
+        self.assertEqual([r.name for r in split[store.MACHINE]], ["M"])
+        self.assertEqual([r.name for r in split[store.PROJECT]], ["P"])
+        self.assertEqual([r.name for r in split[store.SHARED]], ["S"])
+
+    def test_unreadable_settings_are_not_an_error(self):
+        handle = io.open(store.settings_path(), "w", encoding="utf-8")
+        handle.write(u"I am not JSON")
+        handle.close()
+        self.assertEqual(store.read_settings(), {})
+        self.assertIsNone(store.shared_path())
+
+
+class MergeTests(unittest.TestCase):
+    """FEAT-12 -- somebody else's rules arrive without replacing yours."""
+
+    def setUp(self):
+        self.mine = rules.RuleSet([a_rule(name="Columns"), a_rule(name="Beams")])
+        self.theirs = rules.RuleSet([a_rule(name="Columns"), a_rule(name="Slabs")])
+
+    def test_nothing_already_here_is_replaced(self):
+        """A rule set from someone else is a gift, not an instruction: it
+        cannot silently redefine a rule its recipient is using, because the
+        recipient would have no way of noticing."""
+        added, renamed = self.mine.merge(self.theirs)
+        self.assertEqual(added, 2)
+        self.assertEqual(renamed, 1)
+        self.assertEqual([r.name for r in self.mine],
+                         ["Columns", "Beams", "Columns 2", "Slabs"])
+
+    def test_every_arriving_rule_gets_a_new_id(self):
+        """Two people's sets are generated independently. A colliding id would
+        make one rule overwrite the other on the next save."""
+        shared = a_rule(name="Shared")
+        mine = rules.RuleSet([shared])
+        theirs = rules.RuleSet([rules.Rule.from_dict(shared.to_dict())])
+        mine.merge(theirs)
+        self.assertEqual(len(set(rule.id for rule in mine)), 2)
+
+    def test_a_clash_is_counted_so_the_window_can_say_so(self):
+        """Two rows reading the same thing, discovered later, is the failure.
+        The count is what lets the window say it at the time."""
+        _, renamed = self.mine.merge(self.theirs)
+        self.assertEqual(renamed, 1)
+
+    def test_importing_the_same_file_twice_is_noisy_rather_than_silent(self):
+        self.mine.merge(self.theirs)
+        self.mine.merge(self.theirs)
+        self.assertEqual([r.name for r in self.mine],
+                         ["Columns", "Beams", "Columns 2", "Slabs",
+                          "Columns 3", "Slabs 2"])
+
+    def test_a_clash_is_judged_revits_way(self):
+        """Revit calls "Columns" and " columns " the same name, so importing
+        the second under the first's nose would give two buttons a modeller
+        cannot tell apart."""
+        mine = rules.RuleSet([a_rule(name="Columns")])
+        mine.merge(rules.RuleSet([a_rule(name="  COLUMNS ")]))
+        self.assertEqual(len(mine), 2)
+        self.assertNotEqual(names.key(mine[0].name), names.key(mine[1].name))
+
+    def test_arriving_rules_take_the_store_they_are_put_in(self):
+        self.mine.merge(self.theirs, store.PROJECT)
+        self.assertEqual([r.source for r in self.mine][-2:],
+                         [store.PROJECT, store.PROJECT])
+
+    def test_merging_nothing_changes_nothing(self):
+        before = [r.name for r in self.mine]
+        self.assertEqual(self.mine.merge(rules.RuleSet()), (0, 0))
+        self.assertEqual([r.name for r in self.mine], before)
+
+    def test_the_order_is_renumbered_so_the_panel_draws_them(self):
+        self.mine.merge(self.theirs)
+        self.assertEqual([r.order for r in self.mine], [0, 1, 2, 3])
+
+
+class ImportExportTests(unittest.TestCase):
+
+    def setUp(self):
+        self.folder = tempfile.mkdtemp()
+        self.path = os.path.join(self.folder, "shared.json")
+
+    def tearDown(self):
+        shutil.rmtree(self.folder, ignore_errors=True)
+
+    def test_a_set_survives_the_round_trip(self):
+        going = rules.RuleSet([a_rule(name="One"), a_rule(name="Two")])
+        self.assertTrue(store.export_set(going, self.path))
+        back, problem = store.import_set(self.path)
+        self.assertEqual(problem, "")
+        self.assertEqual([r.name for r in back], ["One", "Two"])
+
+    def test_an_exported_file_is_a_store_file(self):
+        """So it can be dropped straight into a model's AnonGee folder by
+        somebody who would rather copy a file than press Import."""
+        store.export_set(rules.RuleSet([a_rule(name="One")]), self.path)
+        self.assertEqual([r.name for r in store.load(self.path)], ["One"])
+
+    def test_an_export_does_not_claim_a_store_it_has_never_seen(self):
+        going = rules.RuleSet([a_rule(name="One", source=store.PROJECT)])
+        store.export_set(going, self.path)
+        back, _ = store.import_set(self.path)
+        self.assertEqual(back[0].source, "")
+
+    def test_a_missing_file_says_so_in_a_sentence(self):
+        """It is going in front of somebody who chose the wrong file in a
+        dialog. An exception type is not what they need."""
+        got, problem = store.import_set(os.path.join(self.folder, "nope.json"))
+        self.assertIsNone(got)
+        self.assertIn("could not be read", problem)
+
+    def test_a_file_that_is_not_ours_says_so(self):
+        handle = io.open(self.path, "w", encoding="utf-8")
+        handle.write(u'{"something": "else"}')
+        handle.close()
+        got, problem = store.import_set(self.path)
+        self.assertIsNone(got)
+        self.assertIn("no rules in it", problem)
+
+    def test_a_file_that_is_not_json_at_all_says_so(self):
+        handle = io.open(self.path, "w", encoding="utf-8")
+        handle.write(u"I am a DWG, honestly")
+        handle.close()
+        self.assertIsNone(store.import_set(self.path)[0])
+
+    def test_an_empty_rule_set_is_refused_rather_than_imported_as_nothing(self):
+        """"Imported 0 rules" is a message that reads like success."""
+        store.export_set(rules.RuleSet(), self.path)
+        got, problem = store.import_set(self.path)
+        self.assertIsNone(got)
+        self.assertIn("holds no rules", problem)
+
+
 class StorePathTests(unittest.TestCase):
 
     def setUp(self):
@@ -1106,12 +1440,14 @@ _PY3_ONLY = {
 
 #: The modules that decide things. No Revit in any of them, which is why every
 #: test above this line exists at all.
-PURE = ("__init__.py", "values.py", "names.py", "rules.py", "store.py")
+PURE = ("__init__.py", "values.py", "names.py", "rules.py", "store.py",
+        "diagnostics.py", "filters.py")
 
 #: The modules that fetch and write. They import ``Autodesk.Revit.DB``, so they
 #: cannot be imported on this machine and only the static checks reach them --
 #: which is the reason they are kept as thin as they are.
-REVIT = ("compat.py", "revit_query.py", "revit_apply.py")
+REVIT = ("compat.py", "revit_query.py", "revit_apply.py",
+         "revit_filter.py")
 
 
 #: The dockable pane. Registered from ``startup.py`` on IronPython 2.7, so it

@@ -771,6 +771,19 @@
                                     Style="{StaticResource ButtonNeutral}"
                                     ToolTip="Send everything selected straight to the bottom of the list, keeping the order it is in."/>
                         </Grid>
+                        <Grid Margin="0,0,0,6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="6"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Button Grid.Column="0" x:Name="ImportBtn" Content="Import"
+                                    Style="{StaticResource ButtonNeutral}"
+                                    ToolTip="Add the rules from a file somebody sent you. Nothing you already have is replaced: an incoming rule with a name you are using is brought in under a numbered name, and the window says how many were renamed."/>
+                            <Button Grid.Column="2" x:Name="ExportBtn" Content="Export"
+                                    Style="{StaticResource ButtonNeutral}"
+                                    ToolTip="Write rules to a file to send on. Exports what is SELECTED, or all of them when nothing is selected."/>
+                        </Grid>
                         <Button x:Name="DeleteRuleBtn" Content="Delete rule"
                                 Style="{StaticResource ButtonGhost}"
                                 ToolTip="Delete everything selected. You are asked to confirm first, and it says how many. Nothing in the model changes."/>
@@ -822,6 +835,13 @@
                                              GroupName="RuleStore"
                                              Style="{StaticResource TabRadio}" Margin="6,0,0,0"
                                              ToolTip="A file beside the model, in an AnonGee folder. The rule travels with the MODEL, so anyone opening it gets the same rule."/>
+                                <RadioButton x:Name="StoreSharedRadio" Content="Shared"
+                                             GroupName="RuleStore"
+                                             Style="{StaticResource TabRadio}" Margin="6,0,0,0"
+                                             ToolTip="One file the whole office points at, usually on a network share. Everyone reads and writes the same set, so a rule added here appears for everybody."/>
+                                <Button x:Name="SharedPickBtn" Content="Choose..."
+                                        Style="{StaticResource ButtonGhost}" Margin="10,0,0,0"
+                                        ToolTip="Point this workstation at the shared rules file. Pick the same file everybody else picks - typically on a network drive. Choosing one you have not got yet creates it on the first save."/>
                             </StackPanel>
                             <TextBlock x:Name="StoreHint" Style="{StaticResource TextCaption}" Margin="0,0,0,12"
                                        TextWrapping="Wrap"
@@ -1003,6 +1023,10 @@
                            VerticalAlignment="Center" Margin="12,0,14,0"/>
 
                 <StackPanel Grid.Column="3" Orientation="Horizontal">
+                    <Button x:Name="DiagnosticsBtn" Content="Diagnostics" Width="96"
+                            Style="{StaticResource ButtonGhost}"
+                            Margin="0,0,6,0"
+                            ToolTip="What this tool has done and anything that failed, with the full detail. Press it when something did not work: it shows the last few entries and opens the folder the log is in, so the file can be sent on."/>
                     <Button x:Name="PanelBtn" Content="Panel" Width="86"
                             Style="{StaticResource ButtonNeutral}"
                             Margin="0,0,6,0"
@@ -1015,6 +1039,12 @@
                     <Button x:Name="ClearBtn" Content="Clear" Width="86" Style="{StaticResource ButtonSecondary}"
                             Margin="6,0,0,0"
                             ToolTip="Put the view back. The same as Revit's own Reset Temporary Hide/Isolate."/>
+                    <Button x:Name="FilterBtn" Content="Make filter" Width="104"
+                            Style="{StaticResource ButtonNeutral}" Margin="6,0,0,0"
+                            ToolTip="Create a REAL Revit view filter from this rule, in Manage &gt; Filters. This is the one thing here that WRITES to the project - it survives a save, it prints, and everyone opening the model sees it. You are shown exactly what will be created and asked first."/>
+                    <Button x:Name="ViewsBtn" Content="Views..." Width="92"
+                            Style="{StaticResource ButtonNeutral}" Margin="6,0,0,0"
+                            ToolTip="Isolate this rule in SEVERAL views at once. Views that cannot be isolated - schedules, sheets - are listed with the reason rather than hidden, and one Undo puts every view back."/>
                     <Button x:Name="ApplyBtn" Content="Apply" Width="110" Style="{StaticResource ButtonPrimary}"
                             Margin="6,0,0,0"
                             ToolTip="Isolate the matches in the active view. Temporary, this view only, and nothing is written to the project."/>
