@@ -738,6 +738,17 @@ def main():
                                                     config.DEFAULTS["compare_tol_mm"]))
     comparison = compare.diff(revit_result.records, dxf_result.records, compare_tol_ft)
     comparison["transform"] = {"method": transform_method}
+    # ...and WHERE it dropped them. "737 curves the link did not deliver" is a
+    # number nobody can act on; the layer names under it are the drawing the
+    # user is looking at. Same for the unmapped pile: a count is not a mapping.
+    for layer, link_count, drawn in compare.shortfall_by_layer(
+            revit_result.records, dxf_result.records):
+        _say("link: '{0}' -- Revit imported {1} of the drawing's {2} curve(s)"
+             .format(layer, link_count, drawn))
+    for layer, count in compare.unmapped_layers(revit_result.records,
+                                                layers.CATEGORY_UNMAPPED):
+        _say("unmapped: '{0}' -- {1} curve(s) no category claimed".format(
+            layer, count))
 
     # MULTI-STOREY: one dxf holding several floor plans, each boxed on the
     # boundary layer with an origin marker inside. Each storey is built by the

@@ -138,6 +138,44 @@ for every other pre-P1 file.
 
 ## 2. Errors and bugs
 
+### BUG-36 — The link imports 213 of 877 beam curves, and no `DROP SLAB` at all · `pending`
+
+**The owner, on the zoned fixture:** "currently it does not working as i am expecting".
+
+**His v0.99.0 export says where it goes, and it is not the fold.** Read against the drawing he ran:
+
+| layer | the DXF holds (folded) | Revit's link delivered | |
+| --- | --- | --- | --- |
+| `S-BEAM` | 877 | **213** | 664 gone |
+| `DROP SLAB` | 99 | **0** | all gone |
+| `SLAB FOLD` | 41 | **0** | all gone |
+| `S-CUTOUT` | 181 | 181 | whole |
+| `S-COL_STOP` | 161 | 161 | whole |
+| `S-NON STR RCC WALL` | 253 | 253 | whole |
+| `S-STAIR` | 44 | 40 | 4 gone |
+
+His run's own comparison block agrees: **1611 curves from the link against the DXF's 1862, 737
+dxf-only, 86 clipped** — and 529 of what did arrive was `unmapped`.
+
+**So the zones work.** Columns, walls, cutouts and stairs come through to the record, the fold halves
+the sheet exactly (his 171 vertical members are the same 171 the reader derives offline), grids build
+37, slabs 55, stairs 2. What is still being eaten is beams and slabs, and only them.
+
+**What it is NOT.** Not overlap inside the shared Beam-Slab zone: of 882 slab and fold segments in
+that box, **11** are drawn exactly on a beam line, and only 2 beam segments are drawn twice over. Not
+a frozen or switched-off layer either: every layer in the file is on, thawed and unlocked.
+
+**What would say.** The run had both halves of the drawing all along -- what the link produced and
+what the DXF holds -- and reported only totals. v1.0.1 adds the two lines that name names:
+
+    link: 'S-BEAM' -- Revit imported 213 of the drawing's 877 curve(s)
+    unmapped: 'DIM' -- 300 curve(s) no category claimed
+
+The first says which layers the import ate; the second turns "unmapped 529" into a mapping he can
+fix in the table he already has open. **Both are wanted on the next run of this fixture**, because
+between them they say whether the 664 beams are missing or merely arriving under a name nothing
+claims -- and those want opposite fixes.
+
 ### BUG-35 — Two columns on one grid point are read as one · `testing`
 
 **The owner, on the v0.97.1 run:** "results are worse now for column only fewer columns than before.

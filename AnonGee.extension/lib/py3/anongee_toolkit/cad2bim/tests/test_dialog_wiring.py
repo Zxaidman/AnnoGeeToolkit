@@ -2315,6 +2315,15 @@ class TheZoneTableIsWired(unittest.TestCase):
         source = _script_source()
         self.assertIn("zone_plan.suggest_element_zones(", source)
 
+    def test_the_run_says_which_layers_the_link_dropped(self):
+        # "737 dxf-only" is a number nobody can act on; the layer names under
+        # it are the drawing the user is looking at.
+        source = _script_source()
+        self.assertIn("compare.shortfall_by_layer(", source)
+        self.assertIn("compare.unmapped_layers(", source)
+        self.assertLess(source.index("comparison = compare.diff("),
+                        source.index("compare.shortfall_by_layer("))
+
     def test_the_boundary_and_origin_layers_are_the_multi_storey_tab_s_alone(self):
         """FEAT-19. The owner: "we don't require `floor boundary` and `floor
         origin` on layer mapping so i want all the origin and boundary thing to

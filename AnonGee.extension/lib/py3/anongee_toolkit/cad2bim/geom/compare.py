@@ -129,3 +129,54 @@ def format_console(comparison):
         "(building from DXF)".format(
             comparison["dxf_only"], len(comparison["clipped"])),
     ]
+
+
+def shortfall_by_layer(revit_records, dxf_records, limit=8):
+    """[(layer, revit count, dxf count)] where the LINK delivered fewer.
+
+    The run has both halves of the drawing -- what Revit's import produced and
+    what the DXF holds -- and until now it only said how many curves went
+    missing in total. Which LAYER they went missing on is the question that
+    actually leads somewhere, and it is one pass over two lists.
+
+    Measured on the owner's zoned test17: the link delivered `S-BEAM` 213 of the
+    DXF's 877 and not one of its 99 `DROP SLAB` or 41 `SLAB FOLD` records, while
+    columns, walls, cutouts and stairs came through to the record. A total of
+    "737 dxf-only" could not have told him that; three layer names can.
+
+    Biggest shortfall first, `limit` of them, ties broken by name so two runs of
+    the same drawing say the same thing.
+    """
+    def by_layer(records):
+        counts = {}
+        for record in records or ():
+            layer = getattr(record, "layer_key", None) or getattr(
+                record, "layer", None) or ""
+            counts[layer] = counts.get(layer, 0) + 1
+        return counts
+
+    link = by_layer(revit_records)
+    drawn = by_layer(dxf_records)
+    gaps = [(layer, link.get(layer, 0), count)
+            for layer, count in drawn.items()
+            if count > link.get(layer, 0)]
+    gaps.sort(key=lambda row: (-(row[2] - row[1]), str(row[0])))
+    return gaps[:limit]
+
+
+def unmapped_layers(records, unmapped, limit=8):
+    """[(layer, count)] for the records no category claimed, biggest first.
+
+    A run that says "unmapped 529" has told the user a number they can do
+    nothing with. The layer names under it are a mapping they can fix in the
+    table they already have open.
+    """
+    counts = {}
+    for record in records or ():
+        if getattr(record, "category", None) != unmapped:
+            continue
+        layer = getattr(record, "layer_key", None) or getattr(
+            record, "layer", None) or ""
+        counts[layer] = counts.get(layer, 0) + 1
+    rows = sorted(counts.items(), key=lambda row: (-row[1], str(row[0])))
+    return rows[:limit]
