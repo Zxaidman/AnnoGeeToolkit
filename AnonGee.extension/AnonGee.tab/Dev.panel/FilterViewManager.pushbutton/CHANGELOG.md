@@ -15,6 +15,142 @@ holds Auto Level Manager's four copies together.
 
 ---
 
+## 0.4.0 - 2026-09-11
+
+The second in-Revit run of the panel. Everything 0.3.0 set out to fix was
+fixed -- it stays hidden at startup, it remembers where it was docked, it lays
+out for both shapes. Two things it got wrong were things only the model in
+front of a user can show.
+
+### The dark was the wrong dark
+
+0.3.0 reasoned the palette down from the brand's Charcoal Black and landed on
+`#1B1B1E`. Beside the Properties palette and the Project Browser, both sitting
+at Revit's own panel grey, that reads as a **hole punched between them** rather
+than as a darker panel. Matching the host is the entire point of an embedded
+surface, and near-black does not match it.
+
+The canvas is now **Revit 2025's dark palette background**. That is not a
+repaint -- a lighter canvas is a *smaller* step from mid-tone colours, so every
+token measured against it had to move:
+
+| | 0.3.0 (near-black) | 0.4.0 (Revit grey) |
+| --- | --- | --- |
+| Canvas | `#1B1B1E` | `#383838` |
+| Interactive border | `#6F707C` | `#9EA1AB` |
+| Muted text | `#9AA2B3` | `#B4BBC8` |
+| Error on dark | `#F87171` | `#FF9A93` |
+
+**And it forced a lifted brand red.** On Revit grey `ColorVividRed` is
+**2.46:1** -- under WCAG 1.4.11's 3:1. That is not a preference about
+brightness: the Clear button's 1.5px red outline is an interactive boundary,
+and at 2.46:1 the control has no boundary a low-vision user can find. So
+`ColorVividRedOnDark` (`#FF5F4C`, 3.90:1) now carries every **accent and
+border** use on dark -- the 2px pane rule, a chip's left bar, an outlined
+button, a dragged scrollbar thumb.
+
+**Fills keep Vivid Red proper.** A Primary button is white-on-red at 4.78:1
+whatever sits behind it, so the fill never needed lifting and lifting it would
+have weakened the label. Two uses, two rules, and §3.8.5 now says which is
+which.
+
+Design system **v3.3 -> v3.4**.
+
+### Raised, not recessed
+
+A recessed ramp was tried first -- Revit's own inputs are darker than its
+panels -- and abandoned. With the canvas in the middle of the range, hover
+*crossed* it and landed at 1.04:1 against the thing it was supposed to stand
+out from. Faces now step up monotonically, so hover always reads as lighter
+than rest and pressed as lighter than hover.
+
+### The wheel did nothing across the top
+
+Docked as a strip there is no vertical axis, and WPF's wheel only ever drives
+the vertical one. So the wheel was inert and rules past the fold could only be
+reached by dragging an 8px scrollbar. The wheel now goes to whichever axis is
+live. Shift+wheel is left alone in both orientations -- that is the platform's
+own "scroll sideways" and overriding it would be rude.
+
+### Changing the panel's appearance no longer needs a Revit restart
+
+Revit is handed the `FrameworkElement` once, at registration, and will not take
+another -- so a pyRevit reload leaves the **old** control on screen and the new
+theme only appeared after a full restart. A poor trade for a panel being
+iterated on, and avoidable: Revit holds the `UserControl`, not its contents, so
+Refresh now re-reads `pane.xaml` and swaps the contents underneath it.
+
+The order matters and the gate says so: names are resolved from the fresh tree
+**before** its content is detached, because re-parenting does not carry the
+name scope with it and `FindName` returns `None` afterwards. Any failure leaves
+the tree that is already on screen alone -- a pane showing last build's theme
+is a blemish, a pane showing nothing is a lost tool.
+
+### The saved rules take a multiple selection
+
+Asked for directly, and modelled on cad2bim's layer mapping so the same gesture
+means the same thing in both tools:
+
+- **Ctrl+click** adds to the selection, **Shift+click** takes a run --
+  `SelectionMode="Extended"` and WPF does both natively.
+- A **tick** on the left of each row shows what is selected. It is a *report*,
+  not a second switch: bound one-way to the row's own `IsSelected` and not
+  hit-testable, so clicking it selects the row exactly as clicking the name
+  does (§12.7.Q -- a Python bool does not coerce for `IsChecked`, so the
+  binding has to reach the native container). Two independent notions of
+  "chosen" in one list is the bug this avoids.
+- **Duplicate, Delete and every Move** act on the whole selection. Delete names
+  up to six and counts the rest.
+- The editor holds one rule, so it loads only when **exactly one** is selected.
+  Picking several never discards what was being edited.
+
+### Two more places to put a rule
+
+**To top** and **To bottom** join Move up and Move down. One place at a time is
+fine for two rules and useless for thirty.
+
+All four go through `RuleSet.reorder`, which moves a **block** -- and a block
+move is not a loop over single moves. Looping reverses a multiple selection
+going up and collapses it going down, depending which end you start from.
+Stepping swaps each chosen rule with its *unchosen* neighbour, walking top-down
+to go up and bottom-up to go down, so a chosen rule pressed against another
+chosen one is never dragged through it and a block at the edge stays put
+instead of turning itself inside out.
+
+A move rewrites the list, which drops the selection, so the block is re-ticked
+afterwards. Without that the second press of Move up does nothing, which reads
+as the button being broken.
+
+### The size ceiling did its job
+
+`tests/test_filterrules.py` refuses to let a Revit-coupled module carry more
+logic than the largest **tested** one, and `provider.py` crossed it at 249
+statements. The honest answer to crossing that line is to move the thinking
+out, not to raise the bar: `anongee_filterpane/layout.py` now holds every
+decision the panel makes about its own shape -- which orientation, how far a
+wheel notch goes, which brush a status tone takes -- with none of the .NET
+plumbing that carries them out.
+
+They are **run** by the suite now rather than read. The previous release lifted
+`_wants_vertical` out of `provider.py` by compiling its AST, because the module
+cannot be imported without Revit; a module that can be imported does not need
+the trick.
+
+### Also
+
+- 27 new tests (1329 -> 1356). Fourteen faults were put back one at a time; **three
+  gates did not catch theirs.** One compared the wrong two lines, one matched
+  `SelectedItems.Add(row)` in the *category* list so it was green whatever the
+  rule list did, and one was pointed at a case that never exercised the guard
+  it was testing. All three were rewritten until they failed.
+- `_build` no longer parses `pane.xaml` twice: `reload` is re-skin plus redraw,
+  and the first build already has the tree in its hand.
+- `ModifierKeys.None` cannot be written down -- `None` is a Python keyword, so
+  the attribute access is a `SyntaxError` on both engines. `getattr` is the
+  only way to name the member, and there is a gate on it.
+
+---
+
 ## 0.3.0 - 2026-09-10
 
 The first in-Revit run of the panel. It registered, it read the rules and the

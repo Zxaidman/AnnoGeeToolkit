@@ -534,7 +534,7 @@
     </Style>
 
     <!-- ════════════════════════════════════════════════════════════════
-         DARK-SURFACE VARIANTS (v3.3)
+         DARK-SURFACE VARIANTS (v3.3, re-based on Revit grey in v3.4)
          For UI embedded in Revit's own chrome — dockable panes. Brand
          guidelines §3.8 decides when a surface is dark; §9.10 specifies
          these controls. The light styles above remain the default for
@@ -542,13 +542,15 @@
          ════════════════════════════════════════════════════════════════ -->
 
     <!-- ═══ SECONDARY BUTTON, ON DARK ═══ -->
-    <!-- Transparent fill, Vivid Red 1.5px border, LIGHT text. The label is not
-         red: §3.7 forbids Vivid Red text on a dark surface (3.6:1 — large only),
-         so the red carries as the border and the text stays readable. -->
+    <!-- Transparent fill, LIFTED red 1.5px border, LIGHT text. Two separate
+         rules meet here. The label is not red because §3.7 forbids Vivid Red
+         text on a dark surface. The BORDER is the lifted red because it is an
+         interactive boundary, and Vivid Red proper is 2.46:1 on Revit grey —
+         under 1.4.11's 3:1, so the button would have no legal outline. -->
     <Style x:Key="ButtonSecondaryOnDark" TargetType="Button" BasedOn="{StaticResource ButtonBaseStyle}">
         <Setter Property="Background"      Value="Transparent"/>
         <Setter Property="Foreground"      Value="{StaticResource BrushDarkTextPrimary}"/>
-        <Setter Property="BorderBrush"     Value="{StaticResource BrushVividRed}"/>
+        <Setter Property="BorderBrush"     Value="{StaticResource BrushVividRedOnDark}"/>
         <Setter Property="BorderThickness" Value="1.5"/>
         <Style.Triggers>
             <Trigger Property="IsMouseOver" Value="True">
@@ -595,7 +597,8 @@
          one Primary per view.
          The bar is the OUTER border's background showing through a 3px left
          margin on the inner fill, which is the only way to get a flat edge
-         inside a 5px radius without a clip.
+         inside a 5px radius without a clip. It is the LIFTED red: at 2.46:1
+         on Revit grey the brand red reads as dull brick rather than an accent.
          Content is a TextBlock, not a bare ContentPresenter, because a rule
          name is long and a narrow side dock must ellipsize rather than
          overflow — the failure the WrapPanel version shipped with. -->
@@ -609,7 +612,7 @@
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
                     <Border x:Name="Accent"
-                            Background="{StaticResource BrushVividRed}"
+                            Background="{StaticResource BrushVividRedOnDark}"
                             BorderBrush="{TemplateBinding BorderBrush}"
                             BorderThickness="{TemplateBinding BorderThickness}"
                             CornerRadius="5">
@@ -637,7 +640,7 @@
                         </Trigger>
                         <Trigger Property="IsKeyboardFocused" Value="True">
                             <Setter TargetName="Accent" Property="BorderBrush"
-                                    Value="{StaticResource BrushVividRed}"/>
+                                    Value="{StaticResource BrushVividRedOnDark}"/>
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter TargetName="Accent" Property="Background"
@@ -656,7 +659,7 @@
          three brushes swapped. It is KEYED, not implicit, so a dark
          container opts in with one BasedOn line and nothing else on the
          window changes.
-         DarkBorder → SilverSteel (hover) → VividRed (drag)
+         DarkBorderStrong → SilverSteel (hover) → lifted red (drag)
          ════════════════════════════════════════════════════════════════ -->
 
     <Style x:Key="ScrollBarOnDark" TargetType="ScrollBar">
@@ -695,7 +698,7 @@
                                                 </Trigger>
                                                 <Trigger Property="IsDragging" Value="True">
                                                     <Setter TargetName="ThumbBd" Property="Background"
-                                                            Value="{StaticResource BrushVividRed}"/>
+                                                            Value="{StaticResource BrushVividRedOnDark}"/>
                                                 </Trigger>
                                             </ControlTemplate.Triggers>
                                         </ControlTemplate>
@@ -745,7 +748,7 @@
                                                         </Trigger>
                                                         <Trigger Property="IsDragging" Value="True">
                                                             <Setter TargetName="ThumbBd" Property="Background"
-                                                                    Value="{StaticResource BrushVividRed}"/>
+                                                                    Value="{StaticResource BrushVividRedOnDark}"/>
                                                         </Trigger>
                                                     </ControlTemplate.Triggers>
                                                 </ControlTemplate>
