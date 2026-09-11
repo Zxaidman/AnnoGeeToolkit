@@ -229,6 +229,11 @@ class FilterViewApp(object):
         # delegate and remove nothing at all. A flag cannot be got wrong.
         self.rebuilding = False
 
+        #: Rule ids to re-tick after the next rebuild. A move rewrites the
+        #: list, which drops the selection; without this the block you just
+        #: moved is deselected and the next press does nothing.
+        self._keep_selected = []
+
         self._fill_static_combos()
         self._wire()
         self.window.Closed += self._on_closed
@@ -253,6 +258,7 @@ class FilterViewApp(object):
         for name in (
                 "VersionText", "HintText",
                 "RuleList", "RuleCountText", "NewRuleBtn", "DuplicateRuleBtn",
+                "MoveTopBtn", "MoveBottomBtn",
                 "MoveUpBtn", "MoveDownBtn", "DeleteRuleBtn",
                 "RefreshBtn", "PanelBtn", "RuleNameBox", "CategoryPickedText",
                 "CategorySearch", "CategoryList", "FamilyCombo", "TypeCombo",
@@ -283,6 +289,8 @@ class FilterViewApp(object):
         self.DeleteRuleBtn.Click += self._on_delete
         self.MoveUpBtn.Click += self._on_move_up
         self.MoveDownBtn.Click += self._on_move_down
+        self.MoveTopBtn.Click += self._on_move_top
+        self.MoveBottomBtn.Click += self._on_move_bottom
         self.SaveRuleBtn.Click += self._on_save
         self.AddConditionBtn.Click += self._on_add_condition
         self.RemoveConditionBtn.Click += self._on_remove_condition
@@ -666,6 +674,16 @@ class FilterViewApp(object):
         self.rebuilding = True
         try:
             self.RuleList.ItemsSource = rows
+            # Rebuilding drops the selection, and a move rebuilds. Without
+            # this, moving a block up one place deselects it and the second
+            # press moves nothing -- which reads as the button being broken.
+            keep = set(self._keep_selected)
+            self._keep_selected = []
+            if keep:
+                self.RuleList.SelectedItems.Clear()
+                for row in rows:
+                    if row.RuleId in keep:
+                        self.RuleList.SelectedItems.Add(row)
         finally:
             self.rebuilding = False
         self.RuleCountText.Text = "{0}".format(len(self.rule_set))
@@ -674,8 +692,31 @@ class FilterViewApp(object):
         row = self.RuleList.SelectedItem
         return self.rule_set.find(row.RuleId) if row is not None else None
 
+    def _selected_rules(self):
+        """Every ticked rule, in the order the list shows them.
+
+        ``SelectedItems`` comes back in the order the user clicked, which is
+        not the order they are looking at. Reading the set instead keeps a
+        multi-rule move predictable: "these three, as they are" rather than
+        "these three, shuffled into the order you happened to pick them".
+        """
+        wanted = set()
+        for row in self.RuleList.SelectedItems:
+            wanted.add(row.RuleId)
+        return [rule for rule in self.rule_set if rule.id in wanted]
+
     def _on_rule_selected(self, sender, args):
         if self.rebuilding:
+            return
+        if self.RuleList.SelectedItems.Count != 1:
+            # A multiple selection is for moving, copying and deleting. There
+            # is one editor and it cannot show two rules, so loading the last
+            # one clicked would silently discard whatever was being edited.
+            chosen = self.RuleList.SelectedItems.Count
+            if chosen:
+                self._status("{0} rules selected. Duplicate, Delete and the "
+                             "Move buttons act on all of them.".format(chosen),
+                             "info")
             return
         rule = self._selected_rule()
         if rule is None:
@@ -744,44 +785,69 @@ class FilterViewApp(object):
                          "error")
 
     def _on_duplicate(self, sender, args):
-        rule = self._selected_rule()
-        if rule is None:
+        chosen = self._selected_rules()
+        if not chosen:
             self._status("Select a rule to duplicate.", "error")
             return
-        copy = self.rule_set.duplicate(rule.id)
-        copy.source = store.MACHINE
+        for rule in chosen:
+            copy = self.rule_set.duplicate(rule.id)
+            copy.source = store.MACHINE
         self._write()
 
     def _on_delete(self, sender, args):
-        rule = self._selected_rule()
-        if rule is None:
+        chosen = self._selected_rules()
+        if not chosen:
             self._status("Select a rule to delete.", "error")
             return
         dialog = TaskDialog("Filter View Manager")
-        dialog.MainInstruction = "Delete {0!r}?".format(rule.name)
-        dialog.MainContent = ("Only this rule is removed. Nothing in the model "
-                             "changes.")
+        if len(chosen) == 1:
+            dialog.MainInstruction = "Delete {0!r}?".format(chosen[0].name)
+        else:
+            dialog.MainInstruction = "Delete {0} rules?".format(len(chosen))
+        # Named rather than counted up to a point: past a handful the list is
+        # longer than the dialog and a count is the more honest summary.
+        dialog.MainContent = (
+            "{0}\n\nNothing in the model changes.".format(
+                ", ".join(rule.name for rule in chosen[:6])
+                + (", and {0} more".format(len(chosen) - 6)
+                   if len(chosen) > 6 else "")))
         dialog.CommonButtons = (TaskDialogCommonButtons.Yes |
                                 TaskDialogCommonButtons.No)
         if dialog.Show() != TaskDialogResult.Yes:
             return
-        self.rule_set.remove(rule.id)
-        if self.editing_id == rule.id:
+        gone = [rule.id for rule in chosen]
+        self.rule_set.remove_many(gone)
+        if self.editing_id in gone:
             self.editing_id = None
         self._write()
 
     def _on_move_up(self, sender, args):
-        self._move(-1)
+        self._move(rules.UP)
 
     def _on_move_down(self, sender, args):
-        self._move(1)
+        self._move(rules.DOWN)
 
-    def _move(self, step):
-        rule = self._selected_rule()
-        if rule is None:
+    def _on_move_top(self, sender, args):
+        self._move(rules.TOP)
+
+    def _on_move_bottom(self, sender, args):
+        self._move(rules.BOTTOM)
+
+    def _move(self, where):
+        """Move the whole selection, keeping its own relative order.
+
+        One rule at a time would reverse a multiple selection going up and
+        collapse it going down, so the block move lives in ``RuleSet.reorder``
+        where it can be tested without a window.
+        """
+        chosen = self._selected_rules()
+        if not chosen:
             self._status("Select a rule to move.", "error")
             return
-        self.rule_set.move(rule.id, rule.order + step)
+        if not self.rule_set.reorder([rule.id for rule in chosen], where):
+            self._status("Already there.", "info")
+            return
+        self._keep_selected = [rule.id for rule in chosen]
         self._write()
 
     # -- the four actions --------------------------------------------------

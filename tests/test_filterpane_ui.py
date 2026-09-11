@@ -33,10 +33,17 @@ asserted as prose -- if someone nudges a token, the arithmetic notices.
 import ast
 import io
 import os
+import sys
 import unittest
 import xml.etree.ElementTree as ET
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_LIB = os.path.join(_ROOT, "AnonGee.extension", "lib")
+if _LIB not in sys.path:
+    sys.path.insert(0, _LIB)
+
+from anongee_filterpane import layout                              # noqa: E402
+
 _PANE = os.path.join(_ROOT, "AnonGee.extension", "lib", "anongee_filterpane")
 _XAML = os.path.join(_PANE, "pane.xaml")
 _PROVIDER = os.path.join(_PANE, "provider.py")
@@ -170,26 +177,8 @@ def function_source(name):
     raise KeyError(name)
 
 
-def load_function(name):
-    """Compile ONE function out of provider.py and hand it back callable.
-
-    ``provider.py`` imports ``clr`` at module scope and cannot be imported
-    here. But a pure function inside it can be lifted out and exercised for
-    real, which beats asserting on its source text -- these are the rules that
-    decide which layout a user gets, and they deserve to be run.
-    """
-    namespace = dict(module_constants())
-    exec(compile(ast.parse(function_source(name)), _PROVIDER, "exec"), namespace)
-    return namespace[name]
-
-
 def module_constants():
-    """Every module-level literal assignment in provider.py.
-
-    ``_wants_vertical`` reads ``NARROW_WIDTH``; lifting the function without
-    its constants gives a NameError that says nothing about the layout rule
-    it was meant to check.
-    """
+    """Every module-level literal assignment in provider.py."""
     found = {}
     for node in provider_tree().body:
         if not isinstance(node, ast.Assign):
@@ -202,10 +191,6 @@ def module_constants():
             except ValueError:
                 pass
     return found
-
-
-def module_constant(name):
-    return module_constants()[name]
 
 
 def provider_resource_keys():
@@ -223,7 +208,8 @@ def provider_resource_keys():
                 and node.args
                 and isinstance(node.args[0], ast.Constant)):
             found.add(node.args[0].value)
-    found.update(module_constant("_TONE_BRUSH").values())
+    found.update(layout.TONE_BRUSH.values())
+    found.add(layout.CHIP_STYLE)
     return found
 
 
@@ -236,6 +222,36 @@ def colors():
         if _tag(element) == "Color" and element.get(_X + "Key"):
             found[element.get(_X + "Key")] = (element.text or "").strip()
     return found
+
+
+def brushes():
+    """``{brush key: "#RRGGBB"}``, following each brush to the colour it names."""
+    palette = colors()
+    found = {}
+    for element in ET.parse(os.path.join(_RESOURCES, "Colors.xaml")).getroot():
+        key = element.get(_X + "Key")
+        if _tag(element) != "SolidColorBrush" or not key:
+            continue
+        value = (element.get("Color") or "").strip()
+        if value.startswith("{StaticResource "):
+            value = palette.get(value[len("{StaticResource "):].rstrip("}").strip(), "")
+        if value:
+            found[key] = value
+    return found
+
+
+def _plain(value):
+    """A hex as the guidelines write it.
+
+    WPF puts alpha FIRST, and the alpha is only noise when it is ``FF``. Drop
+    it then; keep it otherwise, because a token like ``ColorVividRed10``
+    (``#1AE02020``) IS its alpha -- strip that and a 10% tint becomes the solid
+    brand red, which is how this normaliser was wrong the first time.
+    """
+    digits = value.lstrip("#")
+    if len(digits) == 8 and digits[:2].upper() == "FF":
+        digits = digits[2:]
+    return "#" + digits
 
 
 def _luminance(value):
@@ -368,10 +384,14 @@ class DarkSurfaceTests(unittest.TestCase):
                          "light surface on a dark pane: {0}".format(problems))
 
     def test_the_brand_rule_is_still_on_the_pane(self):
-        """S12.6 -- the 2px Vivid Red rule is what makes it ours."""
+        """S12.6 -- the 2px red rule is what makes it ours.
+
+        It is the LIFTED red, not the brand red: see
+        ``test_no_accent_or_border_on_dark_uses_the_unlifted_brand_red``.
+        """
         source = _read(_XAML)
         self.assertIn('Height="2"', source)
-        self.assertIn('Fill="{StaticResource BrushVividRed}"', source)
+        self.assertIn('Fill="{StaticResource BrushVividRedOnDark}"', source)
 
 
 class DarkContrastTests(unittest.TestCase):
@@ -438,14 +458,12 @@ class DarkContrastTests(unittest.TestCase):
                 self._ratio(light, "ColorDarkCanvas"),
                 "{0} is no clearer on dark than {1}".format(dark, light))
 
-    def test_the_light_semantics_are_large_text_only_on_dark(self):
-        """The specific claim S3.8.4 makes, and the reason the set exists.
-
-        Error Red and Info Blue land at 3.56:1 and 3.32:1 on Dark Canvas --
-        above 3:1, so legal for large text, and below 4.5:1, so illegal for
-        the body text and status lines they would actually be used for.
-        """
-        for token in ("ColorErrorRed", "ColorInfoBlue"):
+    def test_no_light_semantic_survives_the_move_to_revit_grey(self):
+        """S3.8.6. On near-black two of the four still passed AA and the
+        claim had to be hedged. On Revit grey none of them do -- Error Red is
+        2.43:1 and Info Blue 2.27:1, below even the 3:1 large-text floor."""
+        for token in ("ColorSuccessGreen", "ColorCautionAmber",
+                      "ColorErrorRed", "ColorInfoBlue"):
             ratio = self._ratio(token, "ColorDarkCanvas")
             self.assertLess(ratio, 4.5,
                             "{0} is {1:.2f}:1 on dark".format(token, ratio))
@@ -464,6 +482,36 @@ class DarkContrastTests(unittest.TestCase):
                     offenders.append("{0}: {1}".format(key, line.strip()))
         self.assertEqual(offenders, [],
                          "Vivid Red as text on dark: {0}".format(offenders))
+
+    def test_the_lifted_red_is_a_legal_accent_and_the_brand_red_is_not(self):
+        """S3.8.5, and the reason ``ColorVividRedOnDark`` exists at all.
+
+        On Revit grey the brand red is 2.46:1 -- under 1.4.11's 3:1. An
+        outlined button drawn with it has no boundary a low-vision user can
+        find. This is not a preference about brightness; it is the difference
+        between a legal control and an illegal one.
+        """
+        self.assertLess(self._ratio("ColorVividRed", "ColorDarkCanvas"), 3.0)
+        for surface in ("ColorDarkCanvas", "ColorDarkSurface"):
+            ratio = self._ratio("ColorVividRedOnDark", surface)
+            self.assertGreaterEqual(
+                ratio, 3.0,
+                "ColorVividRedOnDark on {0} is {1:.2f}:1".format(surface, ratio))
+
+    def test_no_accent_or_border_on_dark_uses_the_unlifted_brand_red(self):
+        """Where the rule can actually be broken: a border, an accent fill or
+        a Fill= in the pane's markup. A FILL BEHIND WHITE TEXT is exempt and
+        is the one legitimate use -- white-on-red is 4.78:1 whatever is
+        behind the button, which is why Primary needs no dark twin."""
+        offenders = []
+        for line in _read(_XAML).split("\n"):
+            if "BrushVividRed}" not in line:
+                continue
+            if any(word in line for word in ('Property="BorderBrush"', "BorderBrush=",
+                                             "Fill=", 'Property="Fill"')):
+                offenders.append(line.strip())
+        self.assertEqual(offenders, [],
+                         "brand red as an accent on dark: {0}".format(offenders))
 
     def test_white_on_vivid_red_still_passes_so_primary_needs_no_dark_twin(self):
         """The reason S9.10 has no ``ButtonPrimaryOnDark``."""
@@ -506,27 +554,25 @@ class PaneWiringTests(unittest.TestCase):
     def test_the_chip_style_the_provider_asks_for_is_one_the_xaml_defines(self):
         """``TryFindResource`` returns None on a typo and the chips render as
         Windows default buttons -- grey, square, and nobody's."""
-        source = _read(_PROVIDER)
-        self.assertIn('TryFindResource("ButtonRuleOnDark")', source)
-        self.assertIn("ButtonRuleOnDark", pane_keys())
+        self.assertIn("TryFindResource(CHIP_STYLE)", _read(_PROVIDER))
+        self.assertIn(layout.CHIP_STYLE, pane_keys())
 
     def test_every_status_tone_names_a_brush_the_pane_defines(self):
-        for tone, key in sorted(module_constant("_TONE_BRUSH").items()):
+        for tone, key in sorted(layout.TONE_BRUSH.items()):
             self.assertIn(key, pane_keys(),
                           "tone {0!r} names {1}, which the pane does not "
                           "define".format(tone, key))
 
     def test_the_error_tone_is_the_lifted_red_and_not_the_light_one(self):
         """S3.8.4 -- ``BrushErrorRed`` on this canvas is 2.3:1."""
-        self.assertEqual(module_constant("_TONE_BRUSH")["error"],
-                         "BrushErrorRedOnDark")
+        self.assertEqual(layout.TONE_BRUSH["error"], "BrushErrorRedOnDark")
 
 
 class OrientationTests(unittest.TestCase):
     """BUG-9 -- the pane lays out for the shape it is actually in."""
 
     def setUp(self):
-        self.wants_vertical = load_function("_wants_vertical")
+        self.wants_vertical = layout.wants_vertical
 
     def test_a_top_docked_strip_runs_across(self):
         self.assertFalse(self.wants_vertical(1600.0, 90.0))
@@ -554,7 +600,7 @@ class OrientationTests(unittest.TestCase):
     def test_the_threshold_leaves_room_above_a_side_dock(self):
         """S12.4 caps a side dock at 360. The switch has to happen before the
         buttons start clipping, not after."""
-        self.assertGreater(module_constant("NARROW_WIDTH"), 360.0)
+        self.assertGreater(layout.NARROW_WIDTH, 360.0)
 
     def test_the_layout_moves_everything_the_orientation_touches(self):
         """Orientation alone is not enough -- the failure that shipped was a
@@ -592,6 +638,38 @@ class OrientationTests(unittest.TestCase):
         self.assertIn("if vertical == self.vertical:", layout)
         self.assertIn("return", layout)
 
+    def test_the_wheel_scrolls_the_axis_that_is_actually_live(self):
+        """Across the top there is no vertical axis, so WPF's wheel did
+        nothing at all and the rules past the fold could only be reached by
+        dragging the scrollbar."""
+        self.assertEqual(layout.wheel_step(-120, 0.0), layout.WHEEL_STEP,
+                         "wheel down must move right")
+        self.assertEqual(layout.wheel_step(120, 500.0),
+                         500.0 - layout.WHEEL_STEP, "wheel up must move left")
+
+    def test_the_wheel_never_scrolls_past_the_start(self):
+        """A negative offset is not a scroll position."""
+        self.assertEqual(layout.wheel_step(120, 0.0), 0.0)
+        self.assertEqual(layout.wheel_step(120, 10.0), 0.0)
+
+    def test_the_wheel_handler_stands_aside_in_a_side_dock(self):
+        """Down the column WPF's own default is already right, and a handler
+        that fought it would break momentum and Shift-wheel with it."""
+        wheel = function_source("_on_wheel")
+        self.assertIn("if self.vertical", wheel)
+        self.assertIn("NO_MODIFIER", wheel)
+
+    def test_the_dotnet_none_member_is_reached_through_getattr(self):
+        """``ModifierKeys.None`` is a SyntaxError on both engines -- ``None``
+        is a Python keyword. getattr is the only way to name the member."""
+        source = _read(_PROVIDER)
+        self.assertIn('getattr(ModifierKeys, "None")', source)
+        # Only code lines: the comment above it has to be free to name the
+        # member it is warning about.
+        code = [line.split("#")[0] for line in source.split("\n")]
+        self.assertEqual([line.strip() for line in code
+                          if "ModifierKeys.None" in line], [])
+
     def test_size_changed_is_subscribed(self):
         self.assertIn("SizeChanged += self._on_size", _read(_PROVIDER))
 
@@ -611,6 +689,51 @@ class OrientationTests(unittest.TestCase):
             offenders.append(_tag(element))
         self.assertEqual(offenders, [],
                          "centred in a dockable pane: {0}".format(offenders))
+
+
+class ReskinTests(unittest.TestCase):
+    """Revit hands out the FrameworkElement once; the contents need not be."""
+
+    def test_the_first_build_and_the_re_skin_wire_through_the_same_code(self):
+        """Two wiring paths mean a control wired in one of them and not the
+        other -- a button that works until somebody presses Refresh."""
+        for name in ("_build", "_reskin"):
+            self.assertIn("self._adopt(", function_source(name),
+                          "{0} does not wire through _adopt".format(name))
+
+    def test_names_are_resolved_before_the_content_is_detached(self):
+        """Re-parenting content does not carry its name scope with it, so
+        ``FindName`` on the live control returns None afterwards. The element
+        references stay valid; only the lookup would not."""
+        reskin = function_source("_reskin")
+        adopt = reskin.index("self._adopt(")
+        read = reskin.index("content = fresh.Content")
+        detach = reskin.index("fresh.Content = None")
+        self.assertLess(adopt, detach,
+                        "_reskin detaches the content before reading its names")
+        self.assertLess(read, detach,
+                        "_reskin reads fresh.Content after blanking it, which "
+                        "hands the live control None and empties the pane")
+
+    def test_a_failed_re_skin_leaves_the_live_tree_alone(self):
+        """A pane showing last build's theme is a blemish. A pane showing
+        nothing is a lost tool."""
+        reskin = function_source("_reskin")
+        self.assertIn("except Exception:", reskin)
+        self.assertIn("return False", reskin)
+
+    def test_the_re_skin_re_applies_the_layout_itself(self):
+        """Swapping a UserControl's content raises no SizeChanged, so nothing
+        else would ever put the new tree into the right orientation."""
+        self.assertIn("self._on_size(None, None)", function_source("_draw"))
+        self.assertIn("self._reskin()", function_source("reload"))
+
+    def test_the_first_build_does_not_parse_the_xaml_twice(self):
+        """``_build`` has the tree in its hand already. Routing it through
+        ``reload`` would re-read the file and throw away what it just made."""
+        build = function_source("_build")
+        self.assertIn("self._draw()", build)
+        self.assertNotIn("self.reload()", build)
 
 
 class GuidelinesTests(unittest.TestCase):
@@ -643,6 +766,32 @@ class GuidelinesTests(unittest.TestCase):
         self.assertEqual(undocumented, [],
                          "in Colors.xaml, not in the guidelines: {0}".format(
                              undocumented))
+
+    def test_the_token_quick_reference_matches_the_dictionary(self):
+        """§18.1 is a table of hexes, and a table of hexes goes stale silently.
+
+        It did: re-basing the palette on Revit grey moved nine of them and the
+        appendix still listed the near-black set, with nothing failing. The
+        earlier gate only asked that each token's NEW hex appear *somewhere* in
+        the document, which the v3.3-vs-v3.4 comparison table satisfied on its
+        own.
+        """
+        known = brushes()
+        wrong = []
+        for line in self.doc.split("\n"):
+            if not line.startswith("| `Brush"):
+                continue
+            cells = [cell.strip().strip("`") for cell in line.split("|")]
+            if len(cells) < 4:
+                continue
+            key, quoted = cells[1], cells[2]
+            if key not in known or not quoted.startswith("#"):
+                continue
+            actual = _plain(known[key])
+            if quoted.upper() != actual.upper():
+                wrong.append("{0}: document says {1}, Colors.xaml says {2}"
+                             .format(key, quoted, actual))
+        self.assertEqual(wrong, [], "; ".join(wrong))
 
     def test_the_visible_by_default_trap_is_written_down(self):
         """It cost a release. The next person gets it for free."""

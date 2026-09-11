@@ -65,7 +65,9 @@ start.
 #: panel the design system's new dark surface and a layout for each of the
 #: two shapes Revit can dock it in: also MINOR, because the panel does
 #: something it could not do before and every saved rule is untouched.
-VERSION = "0.3.0"
+#: 0.4.0 re-bases that dark on Revit's own grey and adds multiple
+#: selection to the saved rules -- MINOR again, for the same two reasons.
+VERSION = "0.4.0"
 
 #: The pure half is imported freely. ``compat``, ``revit_query`` and
 #: ``revit_apply`` are NOT listed: they import ``Autodesk.Revit.DB`` at
