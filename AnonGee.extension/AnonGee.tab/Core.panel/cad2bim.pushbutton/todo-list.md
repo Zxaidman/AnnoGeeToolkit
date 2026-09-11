@@ -138,6 +138,91 @@ for every other pre-P1 file.
 
 ## 2. Errors and bugs
 
+### BUG-39 — The size label grows a closed outline's leg past the outline · `pending`
+
+**This is what the owner's eight screenshots actually show**, and BUG-37 is not it. His export says so:
+the run he photographed is `1.0.1_column_test17_with_textmode.json`, whose `source` is
+**`StructuralPlan-Test17-separate-boundary-zones`** — the ONE-STOREY zoned fixture, not the 13-storey
+stack. On a single plan `column_extent` never runs, so BUG-37's fix cannot touch that run at all.
+BUG-37 is real and measured, but it is a fix for stacks; this is the one in the pictures.
+
+**Read straight off the screenshots.** Red is the outline the drawing closed, grey is what was placed:
+
+| shot | labels | what is wrong |
+| --- | --- | --- |
+| T1SW41a/b | 250x1525, 250x2150 | the grey arm of the L runs ~250 mm **past the red** to the right |
+| T1SW33a/b | 250x2850, 250x2150 | two grey bars across a wall with **no red outline under them** |
+| T1SW39a/b | 250x2850, 250x2150 | the same, on another grid |
+| T1SW46b/c | 200x2300, 200x1800 | this one is right — the grey fills the red L |
+
+**Measured on the drawing he ran.** Building its column sections twice, once with the size labels and
+once without:
+
+| `StructuralPlan-Test17-separate-boundary-zones.dxf` | without labels | with labels |
+| --- | --- | --- |
+| rectangles built | 342 | 342 |
+| **reaching outside every drawn outline** | **0** | **76** |
+| how much of each lies outside | — | median **12%**, worst **56%** |
+
+**0 → 76.** Of the 76, **64 were wholly inside their outline before the label pass and outside it
+after**. His own export agrees from the other side: `text_corrected: 83` of 169 placed.
+
+**It is the shared corner, counted twice.** `decompose_to_rectangles` splits a closed L into a
+vertical leg and a horizontal one, and the horizontal leg deliberately STOPS at the vertical leg's
+face — the corner belongs to one of them, not both. The label measures the arm to the outer face. So
+resizing the leg up to the label adds the corner back:
+
+    drawn leg 1300 -> label 1500   (+200)   the other leg is 200 thick
+    drawn leg 1325 -> label 1525   (+200)   the other leg is 200 thick
+    drawn leg 1950 -> label 2150   (+200)   the other leg is 200 thick
+
+**11 of the 13** legs resized on his drawing grow by exactly another leg's thickness, and **59 of 86**
+on test17-clean. It is not a clip being corrected. It is the corner.
+
+**Which branch does it, counted on his drawing** (1251 labels, 342 rectangles, 304 whole rings):
+
+| what the label did | times |
+| --- | --- |
+| whole ring: kept as drawn (BUG-34 working) | 171 |
+| mark only: kept | 68 |
+| already the right size: kept | 15 |
+| **one leg of a closed composite: RESIZED to the label** | **13** |
+| **two whole rings: MERGED into one at the label size** | **7** |
+| two composites: merged | 2 |
+
+**So BUG-34's principle was right and was not carried far enough.** `_whole_rings` protects only
+entries whose status is `rectangle` — one closed ring, one rectangle. But a `composite` is just as
+CLOSED: the drawing stated that member's size by drawing it, and its legs are a decomposition, not
+damage. The case the pass genuinely exists for is a column a beam SLICED — an open path, recovered as
+a fragment — and that is a different status entirely.
+
+**Two things to change, then**: protect every rectangle that came from a closed outline, not just the
+one-rectangle kind; and stop `_is_split_pair` fusing two complete rings into one member. Both to be
+measured before and after on his drawing and on test17-clean, and the DXF sweep leg will move.
+
+### WORK-12 — The gate files an export by its FILENAME, so test17 now measures another drawing · `pending`
+
+**Noticed when the owner's 1.0.1 exports landed** and all three legs moved. The corpus takes the
+newest export per drawing, and the drawing is read off the FILE NAME:
+`1.0.1_column_test17_with_textmode.json` → `test17`. But that run's own `source` field says
+**`StructuralPlan-Test17-separate-boundary-zones`** — he ran the zoned fixture and the file is named
+test17. So both new exports came from the zoned drawing, and both the `test17` and the
+`test17-separate-boundary-zones` fingerprints now measure it:
+
+    test17.storey:      %%U(TOWER 1)- GROUND FLOOR ROOF SLAB  ->  single
+    test17.records:     941 -> 991          test17.column_rectangles: 291 -> 169
+    storey replay:      test17: in the baseline but not measured
+
+**The 13-storey test17 export is no longer measured by either leg** — not because it was deleted, but
+because a single-storey file sorted ahead of it under the same name. The stack coverage that survives
+is the DXF side BUG-37 added, which reads `StructuralPlan-Test17.dxf` and its 13 storeys directly.
+
+**Two ways out, and the owner should pick.** Key the corpus off the export's own `source` field
+rather than the filename, which is what the run actually read — or keep the filename rule and name
+the files after the drawing. The first is the more faithful and needs no discipline from anybody;
+the second leaves his older exports keyed as they are. Not changed unilaterally: it re-keys the whole
+baseline either way.
+
 ### BUG-38 — Two column LAYERS drawing the same member build it twice · `pending`
 
 **Found by the column-extent baseline BUG-37 added**, which records per storey how many built
