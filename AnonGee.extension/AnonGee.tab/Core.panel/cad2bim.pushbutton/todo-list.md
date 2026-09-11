@@ -138,34 +138,93 @@ for every other pre-P1 file.
 
 ## 2. Errors and bugs
 
-### BUG-44 — "Grids created: 0" does not say WHY, so a correct answer reads as a failure · `testing`
+### WORK-14 — Answered: the Combine zone IS complete, and is deliberately not built · `pending`
 
-**The owner:** "grids are not being made, maybe because cad has small line only? in next test i would
-try to extend and check again".
+**The owner:** "our `combine-boundary` was supposed to hold the all column-boundary or beam or slab,
+once being made? but that is never happened."
 
-**Nothing is wrong with the reading, and his export already said so** — it just never reached the
-console:
+**It does hold all of them, and it is working as he specified.** Measured on his drawing with his own
+settings (`Boundary` / `Origin`), all four zone boxes are found, each 101387 x 39923 mm, each with its
+own origin marker inside it:
 
-    "grids": {"created": 0, "skipped": 37, "errors": 0,
-              "skip_details": [{"reason": "grid already in the model", "count": 37}]}
+| zone box | what it contains |
+| --- | --- |
+| **Combine-boundary** | **1839 records** — beam 877, cutout 256, wall 251, column 163, slab edge 124, grid 114 |
+| Grid-Column-boundary | 278 — column 163, grid 114 |
+| Wall-boundary | 254 — wall 253 |
+| Beam-Slab-boundary | 1306 — beam 877, cutout 256, slab edge 125, stair 44 |
 
-**His model already has those 37 grids**, and the run declined to draw them a second time. That is the
-behaviour anybody would want; it is only the console that made it look like a fault, because
-`_create_grids` printed the COUNTS and then only the errors:
+**The Combine copy holds the same members the other three hold between them**, category for category.
+The fold reports it in as many words:
 
-    Grids -- created: 0, skipped: 37, errors: 0
+    boundary zones: 3 folded onto one plan by their origin markers
+    zone 'Combine-boundary' is the combined copy and the drawing has 3 specific zone(s),
+    so it was not built twice
 
-A count with no reason beside it reads as a failure whatever it actually was. The skip reasons were
-being grouped for the export already, so v1.0.4 prints the same grouping:
+**It is used up, not skipped** — its records are marked claimed so they cannot fall back into the plan
+as strays. That is the answer he chose when this was designed ("Fallback only"), and it is what fixed
+his 0.97.1 run, which built 346 columns of which **178 were the combine copy's**. Building both copies
+puts every member in the model twice, half a sheet apart.
 
-    Grids -- created: 0, skipped: 37, errors: 0
-      grid: 37 -- grid already in the model
+**Nothing is missing.** 3698 records fold to 1853, and the result is the union of the three specific
+zones: beam 877, wall 253, column 163, grid 114, cutout 256, slab edge 125, stair 44.
 
-**So the short lines are a red herring** and he does not need to redraw anything. (For the record they
-ARE short — the drawing's 229 grid-category records run to a 1827 mm maximum and a 896 mm median, so
-they are bubble leaders — but that is not what stopped them: a short grid would have been created.
-What stopped them is that they lie on grids the model already has, which is the right call either
-way.)
+**So the Combine zone earns its place only when a specific zone is absent.** Delete `Grid-Column-
+boundary` from a sheet and the columns come from the Combine copy instead; with all four present it
+is a spare. **Open question for him**: whether he wants it to stay a spare, or to be the one that
+BUILDS with the others as the cross-check. Not changed on a guess — it is the difference between one
+model and two.
+
+### BUG-46 — The mark's NOUN sits next to the number, not at the front · `testing`
+
+**The owner, spelling his convention out:** "column mark which are made as wall is `T1SW95` where T1
+refer mean Tower-1 and SW as Shearwall and 95 is number so all this big `T1SW95` is mark for vertical
+member be it made with Structure Column or Wall."
+
+**The whole mark was already right** — BUG-41's widened pattern keeps `T1SW95` entire, and it is
+stamped whichever builder places the member (BUG-40 gave the wall builder its `_set_mark`). What was
+NOT being read is the **`SW`**. `mark_kind` took the letters before the FIRST digit, which on his
+marks is the "T" of the tower, so every shear wall abstained and was routed on its L/B ratio instead
+of on its name.
+
+**FIXED in v1.0.5.** `_mark_prefix` takes the letters before the LAST run of digits — the noun sits
+beside the number:
+
+    C1        -> "C"       SW1       -> "SW"
+    T1SW95    -> "SW"      T1SW109A  -> "SW"      T2CW3B  -> "CW"
+    T1B20     -> "B"       (not a noun either way: still abstains)
+
+**MEASURED over the 1573 distinct marks in the corpus before changing it: no answer changes**, and
+410 marks that abstained are now decided — every one of them an `SW` or `CW` wall.
+
+**On his own drawing it changes nothing he can see**, and that is worth saying plainly: all 257 marked
+rectangles were ALREADY being built as walls, by the ratio. What it changes is the case the ratio gets
+wrong — a squat shear wall, L/B under 4, which the ratio calls a column and the drawing calls a wall.
+
+### BUG-45 — The link reader discards non-curve geometry without counting it · `testing`
+
+**Chasing BUG-36.** His run has the same shortfall at 1.0.4 as at 1.0.3 — the link delivers 1614 of
+the drawing's 1855 curves, and 213 of its 877 `S-BEAM`. Two console lines already say how much is
+missing and on which layers. Neither can say **why**, because the two candidate causes look identical
+from outside:
+
+* Revit never imported the geometry, or
+* Revit imported it as something `geometry_reader` does not read.
+
+It reads curves and polylines, recurses into every nested `GeometryInstance`, and passes over solids,
+meshes, points and text **in silence**. So a beam that arrived as a filled region and a beam that
+never arrived both show up as one missing curve, and they want opposite fixes.
+
+**v1.0.5 counts them.** `ReadResult.skipped` is a census by type name, and the run says it:
+
+    link: the reader passed over 664 Mesh
+    link: the reader passed over 12 Curve that made no record
+
+`Curve that made no record` and `PolyLine that made no record` are counted too — a curve the reader
+DID look at and turned away is a third possibility, and it was as silent as the others.
+
+**Wanted on his next run.** If the census is empty, the geometry genuinely never arrived and the fix
+is on the Revit import side. If it is not, the fix is here.
 
 ### BUG-43 — Only 107 beams of the drawing's 810 · `pending`
 

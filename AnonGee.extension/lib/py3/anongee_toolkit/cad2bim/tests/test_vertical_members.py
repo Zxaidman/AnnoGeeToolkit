@@ -112,6 +112,22 @@ class TheMarkRuleReadsTheCorpusMarks(unittest.TestCase):
         self.assertEqual(marks.mark_kind("sw 1"), marks.KIND_WALL)
         self.assertEqual(marks.mark_kind("SW-11"), marks.KIND_WALL)
 
+    def test_the_NOUN_sits_next_to_the_number_not_at_the_front(self):
+        # The owner spelled his convention out: "T1 refer mean Tower-1 and SW as
+        # Shearwall and 95 is number". Read on the letters before the FIRST
+        # digit this saw only the "T" of the tower and abstained, so every one
+        # of his shear walls routed on its L/B ratio instead of on its name.
+        # MEASURED over the corpus's 1573 distinct marks: no answer changes, and
+        # 410 that abstained are now decided -- every one an SW or CW wall.
+        for mark in ("T1SW95", "T1SW1", "T1SW109A", "T2W10A"):
+            self.assertEqual(marks.mark_kind(mark), marks.KIND_WALL, mark)
+        self.assertEqual(marks.mark_kind("T2CW3B"), marks.KIND_WALL)
+
+    def test_a_tower_prefixed_beam_still_abstains(self):
+        # the noun has to BE a noun: "B" is not in the convention either way
+        for mark in ("T1B20", "T2RB12"):
+            self.assertIsNone(marks.mark_kind(mark), mark)
+
 
 class TheRatioRuleIsTheCodesRule(unittest.TestCase):
     def test_the_threshold_is_four(self):

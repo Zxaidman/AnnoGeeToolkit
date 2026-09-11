@@ -962,6 +962,21 @@ class TheWallsReachTheBuilder(unittest.TestCase):
         with open(_WALLS_BUILDER, "rb") as handle:
             return handle.read().decode("utf-8")
 
+    def test_the_run_says_what_the_link_reader_passed_over(self):
+        # BUG-36. Two lines already compare what arrived with what is drawn;
+        # this one says whether the difference is geometry Revit never imported
+        # or geometry it imported as something the reader does not read. They
+        # want opposite fixes and looked identical while it discarded silently.
+        script = _script_source()
+        self.assertIn('getattr(revit_result, "skipped", None)', script)
+        self.assertIn("the reader passed over", script)
+        reader = os.path.normpath(os.path.join(_HERE, "..", "readers",
+                                               "geometry_reader.py"))
+        with open(reader, "rb") as handle:
+            source = handle.read().decode("utf-8")
+        self.assertIn("_count(skipped, type(geom_obj).__name__)", source)
+        self.assertIn("ReadResult(source_name, records, skipped)", source)
+
     def test_a_wall_is_NAMED_with_the_mark_the_split_carried(self):
         # BUG-40. `wall_plan` has put the drawing's mark on every segment since
         # it was written; this was the one end that never read it, so a drawing

@@ -40,30 +40,54 @@ def read_link(doc, import_instance):
         return ReadResult(source_name, [])
 
     records = []
-    _walk(doc, geometry_element, records)
-    return ReadResult(source_name, records)
+    skipped = {}
+    _walk(doc, geometry_element, records, skipped)
+    return ReadResult(source_name, records, skipped)
 
 
-def _walk(doc, geometry_element, records):
-    """Depth-first walk; appends a CurveRecord for every curve/polyline found."""
+def _walk(doc, geometry_element, records, skipped=None):
+    """Depth-first walk; appends a CurveRecord for every curve/polyline found.
+
+    `skipped` counts, by type name, everything the walk passed over: the solids,
+    meshes, points and text that are not curves, and the curves that WERE curves
+    but produced no record. Both were silent, and a reader that discards without
+    counting leaves "the link delivered 213 of 877" with no way to tell a curve
+    that never arrived from one that arrived as something else (BUG-36).
+    """
     for geom_obj in geometry_element:
         if isinstance(geom_obj, GeometryInstance):
             instance_geometry = geom_obj.GetInstanceGeometry()  # project coords
             if instance_geometry is not None:
-                _walk(doc, instance_geometry, records)
+                _walk(doc, instance_geometry, records, skipped)
+            else:
+                _count(skipped, "GeometryInstance with no geometry")
             continue
 
         if isinstance(geom_obj, PolyLine):
             record = _polyline_to_record(doc, geom_obj)
             if record is not None:
                 records.append(record)
+            else:
+                _count(skipped, "PolyLine that made no record")
             continue
 
         if isinstance(geom_obj, Curve):
             record = _curve_to_record(doc, geom_obj)
             if record is not None:
                 records.append(record)
-        # Solids, meshes, points and text are intentionally ignored by the reader.
+            else:
+                _count(skipped, "Curve that made no record")
+            continue
+        # Solids, meshes, points and text are not curves and never become
+        # records -- but they are counted now, so a shortfall can say which.
+        _count(skipped, type(geom_obj).__name__)
+
+
+def _count(skipped, name):
+    """One more of `name`, when the caller asked for a census."""
+    if skipped is None:
+        return
+    skipped[name] = skipped.get(name, 0) + 1
 
 
 def _curve_to_record(doc, curve):

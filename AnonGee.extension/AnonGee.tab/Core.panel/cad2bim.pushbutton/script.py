@@ -749,6 +749,14 @@ def main():
                                                 layers.CATEGORY_UNMAPPED):
         _say("unmapped: '{0}' -- {1} curve(s) no category claimed".format(
             layer, count))
+    # ...and what the READER itself passed over. The two lines above compare
+    # what arrived with what is drawn; this one says whether the difference is
+    # geometry Revit never imported or geometry it imported as something this
+    # reader does not read -- a solid, a mesh, a region. They want opposite
+    # fixes and looked identical until now (BUG-36).
+    for kind, count in sorted((getattr(revit_result, "skipped", None) or {}).items(),
+                              key=lambda pair: -pair[1])[:8]:
+        _say("link: the reader passed over {0} {1}".format(count, kind))
 
     # MULTI-STOREY: one dxf holding several floor plans, each boxed on the
     # boundary layer with an origin marker inside. Each storey is built by the

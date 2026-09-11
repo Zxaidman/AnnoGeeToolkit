@@ -134,6 +134,17 @@ class ReadResultShape(unittest.TestCase):
         region = model.RegionRecord([(0, 0, 0)], "S-FND-SUNK", "ANSI37")
         self.assertFalse(model.DxfReadResult("x.dxf", [], [], [region]).is_empty())
 
+    def test_a_link_result_carries_what_the_reader_passed_over(self):
+        # BUG-36: "the link delivered 213 of the drawing's 877" has no answer
+        # while the reader discards non-curve geometry without counting it.
+        result = model.ReadResult("link.dwg", [], {"Solid": 12, "Mesh": 3})
+        self.assertEqual(result.skipped, {"Solid": 12, "Mesh": 3})
+
+    def test_an_older_link_result_still_takes_two_arguments(self):
+        result = model.ReadResult("link.dwg", [])
+        self.assertEqual(result.skipped, {})
+        self.assertTrue(result.is_empty())
+
 
 if __name__ == "__main__":
     unittest.main()

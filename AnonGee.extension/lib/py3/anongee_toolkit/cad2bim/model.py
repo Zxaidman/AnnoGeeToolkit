@@ -143,9 +143,17 @@ class DxfReadResult(object):
 class ReadResult(object):
     """The full outcome of reading one linked CAD."""
 
-    def __init__(self, source_name, records):
+    def __init__(self, source_name, records, skipped=None):
         self.source_name = source_name  # human-readable link name
         self.records = records          # list[CurveRecord]
+        # {geometry type: how many the walk passed over} -- solids, meshes,
+        # points and text are not curves and never become records. Counted
+        # rather than ignored in silence because the owner's link delivers 213
+        # of his drawing's 877 beam curves and "what happened to the other 664"
+        # has no answer while the reader throws them away without saying so
+        # (BUG-36). A census here says whether they never arrived or arrived as
+        # something this reader does not read.
+        self.skipped = dict(skipped or {})
 
     @property
     def layer_names(self):
