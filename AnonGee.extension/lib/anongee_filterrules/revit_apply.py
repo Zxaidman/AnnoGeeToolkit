@@ -113,6 +113,67 @@ def isolate(doc, view, element_ids):
     return (len(wanted), "")
 
 
+def isolate_many(doc, pairs):
+    """Isolate in several views at once. ``(done, reports)``.
+
+    *pairs* is ``[(view, element_ids)]`` -- the caller works out what matches
+    in each view, because that needs ``revit_query`` and this module
+    deliberately does not import it.
+
+    *reports* is ``[(view label, count, why-not)]`` for **every** view asked
+    about, including the ones that were skipped. A multi-view apply that says
+    "done" while quietly doing nothing in four of the eleven views is the
+    failure worth designing against: the caller gets a row per view and can
+    show it.
+
+    **One transaction for all of them.** Not because it is faster -- because a
+    single Ctrl+Z puts every view back. Eleven transactions would need eleven
+    undos, and a modeller who applied to a sheet set by mistake would have to
+    find that out one press at a time.
+    """
+    reports = []
+    doable = []
+    for view, element_ids in pairs or []:
+        name = view_label(view)
+        allowed, why = can_isolate(view)
+        if not allowed:
+            reports.append((name, 0, why))
+            continue
+        wanted = list(element_ids or [])
+        if not wanted:
+            # Same rule as the single-view isolate: Revit would happily leave
+            # a blank sheet of paper, which looks like a broken tool.
+            reports.append((name, 0, "nothing matched, so it is unchanged"))
+            continue
+        doable.append((view, wanted, name))
+
+    if not doable:
+        return (0, reports)
+
+    transaction = Transaction(doc, TRANSACTION_NAME)
+    try:
+        transaction.Start()
+        for view, wanted, _name in doable:
+            view.IsolateElementsTemporary(compat.id_list(wanted))
+        transaction.Commit()
+    except Exception as error:
+        # S12.9.4: gated rollback, never an orphaned transaction.
+        try:
+            if transaction.HasStarted() and not transaction.HasEnded():
+                transaction.RollBack()
+        except Exception:
+            pass
+        refused = "Revit refused the isolate: {0}".format(error)
+        # Every view is reported as untouched, because the rollback means
+        # every view IS untouched -- reporting the ones that had already been
+        # written inside the transaction would be a lie.
+        return (0, reports + [(name, 0, refused) for _v, _w, name in doable])
+
+    for _view, wanted, name in doable:
+        reports.append((name, len(wanted), ""))
+    return (len(doable), reports)
+
+
 def clear(doc, view):
     """Put *view* back. Returns ``(True, "")`` or ``(False, why)``.
 

@@ -733,6 +733,48 @@ class PanelStoreTests(unittest.TestCase):
         self.assertIn("return", paths)
 
 
+class PanelSearchTests(unittest.TestCase):
+    """FEAT-15 -- a dark input that is actually used for something."""
+
+    def test_the_pane_has_a_search_box(self):
+        self.assertIn("PaneSearch", pane_names())
+
+    def test_it_uses_the_dark_input_rather_than_the_light_one(self):
+        source = _read(_XAML)
+        self.assertIn("InputTextBoxOnDark", source)
+        self.assertNotIn('Style="{StaticResource InputTextBox}"', source)
+
+    def test_the_search_narrows_what_is_drawn_and_not_what_is_held(self):
+        """Clearing the box has to bring every rule straight back, which it
+        cannot do if the search filtered the list it reads from."""
+        draw = function_source("_draw")
+        paint = function_source("_paint")
+        self.assertIn("self.rules = list(", draw)
+        self.assertIn("self.rules", paint)
+        self.assertNotIn("store.load_all", paint)
+
+    def test_typing_costs_no_file_read_and_no_revit_call(self):
+        handler = function_source("_on_search")
+        self.assertIn("self._paint()", handler)
+        for banned in ("store.", "self.event", "load_all"):
+            self.assertNotIn(banned, handler, banned)
+
+    def test_a_search_that_matches_nothing_says_how_many_there_are(self):
+        """An empty strip with no explanation reads as the rules having been
+        lost."""
+        self.assertIn("No rule matches that search", function_source("_paint"))
+
+    def test_the_search_is_matched_revits_way(self):
+        """Revit calls "Columns" and " columns " the same name, and a modeller
+        typing lowercase is not asking for nothing."""
+        self.assertIn("names.key(", function_source("_paint"))
+
+    def test_the_panel_reads_the_shared_store_too(self):
+        """FEAT-19 has to reach the panel, or a shared rule is one nobody can
+        press."""
+        self.assertIn("store.shared_path()", function_source("_draw"))
+
+
 class ReskinTests(unittest.TestCase):
     """Revit hands out the FrameworkElement once; the contents need not be."""
 
@@ -767,7 +809,10 @@ class ReskinTests(unittest.TestCase):
     def test_the_re_skin_re_applies_the_layout_itself(self):
         """Swapping a UserControl's content raises no SizeChanged, so nothing
         else would ever put the new tree into the right orientation."""
-        self.assertIn("self._on_size(None, None)", function_source("_draw"))
+        # It moved into _paint when the search box arrived: _draw reads the
+        # rules, _paint draws whatever the search allows, and the layout has
+        # to follow the DRAWING.
+        self.assertIn("self._on_size(None, None)", function_source("_paint"))
         self.assertIn("self._reskin()", function_source("reload"))
 
     def test_the_first_build_does_not_parse_the_xaml_twice(self):

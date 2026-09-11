@@ -456,6 +456,41 @@ class RuleSet(object):
         self._renumber()
         return True
 
+    def merge(self, incoming, source=""):
+        """Add every rule in *incoming*. ``(added, renamed)``.
+
+        **Nothing already here is ever replaced**, and that is the whole
+        design. A rule set arriving from someone else is a gift, not an
+        instruction: it cannot silently redefine a rule its recipient has been
+        using, because the recipient would have no way of noticing.
+
+        So every incoming rule gets:
+
+        * a **new id**, because two people's rule sets are generated
+          independently and a collision would make one rule overwrite the
+          other on the next save;
+        * a **free name** if the name is taken, counted the same way
+          ``duplicate`` counts, so the two are distinguishable in a list of
+          buttons rather than being two rows reading the same thing.
+
+        Importing the same file twice therefore gives "X" and "X 2" rather
+        than one of them winning. That is noisy on purpose: the count comes
+        back so the window can say it out loud.
+        """
+        added = 0
+        renamed = 0
+        for rule in incoming:
+            copy = Rule.from_dict(rule.to_dict())
+            copy.id = new_rule_id()
+            free = self._free_name(copy.name)
+            if names.key(free) != names.key(copy.name):
+                renamed += 1
+                copy.name = free
+            copy.source = source
+            self.add(copy)
+            added += 1
+        return added, renamed
+
     def reorder(self, rule_ids, where):
         """Move several rules as a block. ``True`` if anything moved.
 

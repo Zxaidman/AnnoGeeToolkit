@@ -15,6 +15,163 @@ holds Auto Level Manager's four copies together.
 
 ---
 
+## 0.6.0 - 2026-09-11
+
+Everything left on the feature list, in one release, for a single test session
+-- and the thing that makes that survivable is not that it all works. It is
+that when something does not, the person pressing the button can say **which**
+and the reply can be a fix rather than a question.
+
+### Loud errors first, because everything else reports through them
+
+Every bug in this tool so far was found by pressing a button in Revit and
+seeing the **wrong thing** rather than an error. A Python exception raised
+inside a WPF handler reaches no caller: it goes to the dispatcher's unhandled
+path, which is at best a Revit crash dialog with no stack and at worst nothing
+at all.
+
+So, before any feature:
+
+- **Every handler is subscribed through a guard**, in both the window and the
+  panel. A test walks the AST of `_wire` and fails an unguarded `+=`.
+- **Every control has an owning feature.** `[FEAT-11]`, `[FEAT-13]` -- the tag
+  leads every message, so a bug report can be one line.
+- **The tag travels to Revit's thread and back.** An error out of `serve` used
+  to read "something went wrong"; now it names the feature that asked.
+- **The traceback goes to a file**, not to a dialog nobody can copy out of.
+  `filter_view_diagnostics.log`, beside the rules, appended across sessions and
+  trimmed at startup -- yesterday's run is usually what explains today's.
+- **A Diagnostics button** shows the last dozen entries and opens the folder,
+  so the file can be attached to a message. Through `Process.Start`, not
+  `subprocess`: this engine ships a stripped stdlib (§12.9.3).
+
+`diagnostics` cannot itself raise. A logger that throws inside an error handler
+turns a bad press into a lost session, and there is a test class for exactly
+that -- every entry point is exercised against an unwritable path.
+
+### FEAT-8 -- the count follows the rule
+
+The number beside the buttons updates as the rule is built, 350ms after the
+last change. It says "counting..." while it catches up, because a stale number
+left sitting there looks **settled**, which is worse than no number.
+
+Hung off `_validate()` -- the one call every rule change already ends at --
+rather than a list of controls. Hooking a list is what gets forgotten the next
+time a control is added, which is precisely how BUG-13 happened. A test holds
+it there.
+
+### FEAT-12 -- import and export
+
+Export writes the selection, or everything when nothing is ticked. Import
+**adds and never replaces**: a rule set from someone else is a gift, not an
+instruction, and it cannot silently redefine a rule its recipient is using
+because the recipient would have no way of noticing. Every arriving rule gets a
+new id and, if the name is taken, a numbered one -- and the count of renames
+comes back so the window says it out loud.
+
+An exported file **is** a store file, so it can be dropped straight into a
+model's `AnonGee` folder by somebody who would rather copy a file than press a
+button.
+
+### FEAT-11 -- isolate in several views at once
+
+A modal picker, listing every view. Views that **cannot** be isolated are shown
+with the reason rather than hidden: a modeller hunting for a schedule that is
+simply not in the list, with nothing to say it was left out on purpose, is the
+failure. "Select all usable" leaves them alone, because ticking something that
+will be refused is a promise the picker cannot keep.
+
+**One transaction for all of them** -- not for speed, but so a single Ctrl+Z
+puts every view back. Eleven transactions would need eleven undos, and somebody
+who applied to a sheet set by mistake would find that out one press at a time.
+
+What matches is worked out **per view**: the same rule can match different
+elements in a plan and a section, and reusing the active view's answer
+everywhere would isolate the wrong set in all but one.
+
+Every view is reported, including the skipped ones. "Done" while quietly doing
+nothing in four of eleven views is what this is written against.
+
+The picker touches **no** Revit API -- plain rows in, plain ids out -- so it
+can open straight from the WPF thread (§12.8.7.2), and a test enforces it.
+
+### FEAT-13 -- a real Revit view filter
+
+**The only thing this tool does that writes to the project.** It creates a
+`ParameterFilterElement` that appears in Manage > Filters, survives a save,
+prints, and is visible to everyone who opens the model. So it is never
+automatic, never a side effect of Apply, and the confirmation shows the name,
+the categories and **every rule** it is about to create -- "create a filter
+from this rule" is not enough to say yes to.
+
+Revit's filters are narrower than this tool's rules, so some are refused, and
+the reasons are collected rather than returned one at a time:
+
+- a parameter Revit will not filter on -- already marked "(no view filter)";
+- **`between`**, which Revit has no rule for. It is two rules joined by AND,
+  and splitting one condition in two would make the filter say something the
+  rule does not;
+- a **family or type** narrowing, matched by name here, which a parameter
+  filter cannot do -- the filter would come out *broader* than the rule, which
+  is the one outcome worse than refusing.
+
+An existing filter of the same name is never overwritten. A filter is used by
+views; replacing one changes what those views show, at a distance, with nothing
+on screen to say so.
+
+The unit conversion lives in the **tested** half. `tests/test_filterrules.py`
+refuses to let a Revit module import `values`, and it was right to: the first
+draft handed `parse_number`'s `(value, unit)` tuple straight to `to_internal`.
+It now goes through `Condition.expected()`, the one place a value becomes what
+Revit stores -- "100 m2" arriving as 100 square **feet** is the kind of bug
+that looks like the filter simply matching the wrong things.
+
+### FEAT-19 -- a rule store the office points at
+
+A third destination beside workstation and project: one file everyone picks,
+usually on a network drive. A **file** rather than a folder, because several
+people picking the same file is exactly what sharing one set means, and "which
+folder" leaves the filename to be agreed separately. Pointing at one that does
+not exist yet is how the first person sets it up.
+
+All three stores are written on every save, so a rule still **moves** between
+them rather than being copied. A share that will not write says so and says
+what it usually is, rather than surfacing an IOError.
+
+### FEAT-15 -- dark inputs, made load-bearing
+
+`InputTextBoxOnDark` joins the design system, and the panel gets a **search
+box** so the style ships exercised rather than speculative. Twenty-eight rules
+on a strip is a scrollbar and a memory test.
+
+The search narrows what is **drawn**, never what is held -- clearing the box
+brings every rule straight back, and typing costs no file read and no Revit
+call. Matched Revit's way, so lowercase finds things.
+
+The panel reads the **shared** store too, or a shared rule would be one nobody
+can press.
+
+### FEAT-16 is deliberately not here
+
+One scrollbar template themed by `DynamicResource` instead of two. It has no
+user-visible effect and it touches every tool's inline theme copy in the
+repository -- repo-wide churn the night before a test session is a bad trade.
+Still recorded.
+
+### Also
+
+- 121 new tests (1361 -> 1482). Fourteen faults were put back one at a time;
+  **three gates did not catch theirs** and were rewritten: one matched prose in
+  its own docstring, one could not tell a specific refusal from any refusal,
+  and one was aimed at a fault that did not violate what it asserted.
+- The thread-boundary gate now follows `_serve_*` helpers. It only looked at
+  `serve` before, so moving an offending return one method away would have
+  satisfied it.
+- `provider.py` crossed the logic ceiling again and the decisions moved out --
+  this time the search filtering into `_paint`.
+
+---
+
 ## 0.5.0 - 2026-09-11
 
 The project store, finished. It had been half-built since 0.1.0 -- the read

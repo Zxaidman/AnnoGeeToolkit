@@ -1,7 +1,7 @@
 # AnonGee BIM Tools
 ## Brand & Design System
 
-> **Version 3.4** · September 2026 · Confidential — Internal Reference
+> **Version 3.5** · September 2026 · Confidential — Internal Reference
 > Supersedes v3.0. The light palette is unchanged and remains the default. v3.3 added the **dark surface palette** (§3.8) and its controls (§9.10) for UI embedded in Revit's own chrome, and made §12.4's dockable-pane rules orientation-aware. **v3.4 re-bases that palette on Revit's own grey** — near-black read as a hole between two grey palettes — and lifts every token the move put under its floor, Vivid Red's accent use included (§3.8.5).
 
 ---
@@ -675,7 +675,9 @@ Track `DarkCanvas`, thumb `DarkBorderStrong` → Silver Steel (hover) → `Vivid
 
 **Text.** `TextSmallOnDark` and `TextCaptionOnDark` join the existing `TextH2OnDark` / `TextH3OnDark` / `TextBodyOnDark` in `Typography.xaml`.
 
-> **Known gap (v3.4).** There is no dark `InputTextBox`, `InputComboBox`, `InputCheckBox`, `InputListBox` or `CardBorderOnDark` state matrix yet, because nothing dark has needed one — the only dark surface shipping is a pane of buttons. Add them when a dark surface needs an input, and specify them here first.
+**`InputTextBoxOnDark`** joins them in v3.5. Same geometry as `InputTextBox`; the palette is the difference. Its resting border is `DarkBorderStrong` rather than the decorative one — an input is an interactive control, so §3.8.3 makes that a 1.4.11 matter and not a preference — and its focus ring is `VividRedOnDark`, because Vivid Red proper at 2.46:1 is a focus ring a low-vision user cannot find (§3.8.5).
+
+> **Known gap (v3.5).** No dark `InputComboBox`, `InputCheckBox` or `InputListBox` yet. A style is added when a dark surface needs it and not before — `InputTextBoxOnDark` shipped alongside the panel search box that uses it, which is the bar. Specify here first.
 
 ---
 

@@ -67,6 +67,16 @@ ENV_OVERRIDE = "ANONGEE_PREFS_DIR"
 #: What ``Rule.source`` is set to, and what the window's badges say.
 MACHINE = "machine"
 PROJECT = "project"
+#: FEAT-19. A file the user points at -- typically on a network share, so an
+#: office works from ONE set rather than a copy each. The third candidate from
+#: the FEAT-14 decision, and the only one that serves a team rather than a
+#: machine or a model.
+SHARED = "shared"
+
+#: Where the shared file's location is remembered. Beside the machine rules,
+#: because which shared set THIS person uses is a fact about this workstation,
+#: not about any model.
+SETTINGS_NAME = "filter_view_settings.json"
 
 _last_error = [None]
 
@@ -167,7 +177,7 @@ def load(path, source=""):
     return _rules.RuleSet.from_list(data.get("rules"), source=source)
 
 
-def load_all(machine=None, project=None):
+def load_all(machine=None, project=None, shared=None):
     """Both stores, machine first, each rule marked with where it came from.
 
     *project* may be ``None`` -- a model that has never been saved, or one
@@ -182,6 +192,8 @@ def load_all(machine=None, project=None):
     built = list(load(machine, source=MACHINE))
     if project:
         built.extend(load(project, source=PROJECT))
+    if shared:
+        built.extend(load(shared, source=SHARED))
     for position, rule in enumerate(built):
         rule.order = position
     return _rules.RuleSet(built)
@@ -223,37 +235,137 @@ def _atomic_write(path, text):
         raise
 
 
-def destination(wanted, project_available):
+def settings_path():
+    """Where this workstation's own preferences live."""
+    return os.path.join(os.path.dirname(machine_path()), SETTINGS_NAME)
+
+
+def read_settings():
+    """This workstation's preferences, as a dict. ``{}`` for anything wrong."""
+    data = _read_json(settings_path())
+    return data if isinstance(data, dict) else {}
+
+
+def write_settings(data):
+    """Save the preferences. ``True`` on success; ``last_error()`` says why."""
+    try:
+        _atomic_write(settings_path(),
+                      json.dumps(data, indent=2, sort_keys=True))
+    except (IOError, OSError, ValueError) as error:
+        _last_error[0] = "{0}: {1}".format(settings_path(), error)
+        return False
+    _last_error[0] = None
+    return True
+
+
+def shared_path():
+    """The shared rules file this workstation is pointed at, or ``None``.
+
+    ``None`` when nobody has chosen one, which is the ordinary state and not
+    an error. The path is NOT checked for existence here: a network share that
+    is down should read as "the file could not be opened" at the moment
+    somebody tries, not as "you never chose one".
+    """
+    chosen = read_settings().get("shared_path")
+    if not chosen or not "{0}".format(chosen).strip():
+        return None
+    return "{0}".format(chosen)
+
+
+def set_shared_path(path):
+    """Point this workstation at *path*, or clear it with ``None``."""
+    data = read_settings()
+    if path:
+        data["shared_path"] = "{0}".format(path)
+    else:
+        data.pop("shared_path", None)
+    return write_settings(data)
+
+
+def export_set(rule_set, path, version=None):
+    """Write *rule_set* to *path* for somebody else. ``True`` on success.
+
+    The same shape as a store file, deliberately: an exported set IS a store
+    file, so it can be dropped straight into a model's ``AnonGee`` folder by
+    someone who would rather copy a file than press Import.
+
+    ``source`` is not written -- it never is (see ``Rule``) -- so a set
+    exported from a project store does not arrive somewhere else claiming to
+    belong to a project it has never seen.
+    """
+    return save(rule_set, path, version)
+
+
+def import_set(path):
+    """``(RuleSet, problem)`` for the rules in *path*.
+
+    ``(None, why)`` when the file cannot be used, and *why* is a sentence
+    rather than an exception type, because it is going in front of somebody
+    who chose the wrong file in a dialog -- and "the file you picked is not a
+    rules file" is the whole of what they need to know.
+    """
+    data = _read_json(path)
+    if data is None:
+        return None, ("{0} could not be read. It is missing, locked, or not a "
+                      "rules file at all.".format(path))
+    listed = data.get("rules")
+    if not isinstance(listed, list):
+        return None, ("{0} is readable but has no rules in it. A rules file "
+                      "has a \"rules\" list at the top level.".format(path))
+    built = _rules.RuleSet.from_list(listed)
+    if not len(built):
+        return None, "{0} holds no rules.".format(path)
+    return built, ""
+
+
+def destination(wanted, project_available, shared_available=False):
     """Which store a rule actually goes to. Never raises, never returns junk.
 
-    *wanted* is what the window asked for; *project_available* says whether
-    this model has a folder to put a file in at all. A model that has never
-    been saved has none, and that is the ordinary case for a new project
-    rather than an error -- so asking for the project store there is
-    **downgraded to the machine store** rather than refused. The window says
-    so; nothing is silently lost either way.
+    *wanted* is what the window asked for. The two "available" flags say
+    whether that store exists to be written to at all: a model that has never
+    been saved has no folder, and a workstation nobody has pointed at a shared
+    file has no shared file. Both are ordinary states rather than errors, so
+    asking for either there is **downgraded to the machine store** rather than
+    refused -- the window says so, and nothing is silently lost either way.
 
     An unrecognised value lands on the machine store, because that is the one
     that always exists.
     """
     if wanted == PROJECT and project_available:
         return PROJECT
+    if wanted == SHARED and shared_available:
+        return SHARED
     return MACHINE
 
 
-def partition(rule_set, project_available=True):
-    """``{MACHINE: [rules], PROJECT: [rules]}``, by each rule's own source.
+def partition(rule_set, project_available=True, shared_available=True):
+    """``{MACHINE: [], PROJECT: [], SHARED: []}``, by each rule's own source.
 
     Order within each list is the order of *rule_set*, so writing and reading
     back preserves the sequence the panel draws its buttons in.
     """
-    split = {MACHINE: [], PROJECT: []}
+    split = {MACHINE: [], PROJECT: [], SHARED: []}
     for rule in rule_set:
-        split[destination(rule.source, project_available)].append(rule)
+        split[destination(rule.source, project_available,
+                          shared_available)].append(rule)
     return split
 
 
-def save_all(rule_set, machine=None, project=None):
+def _why(which, cause, hint=""):
+    """Name the store, the cause, and what it usually is.
+
+    The cause alone is an IOError with a path in it, which says what happened
+    and nothing about what to do. The hint alone would be a guess. Both, in
+    that order, because the reader needs to know which of three files failed
+    before anything else is useful.
+    """
+    said = "{0} would not write".format(which)
+    if cause:
+        said = "{0}: {1}".format(said, cause)
+    return "{0}. {1}".format(said, hint) if hint else "{0}.".format(said)
+
+
+def save_all(rule_set, machine=None, project=None, shared=None):
     """Write every rule to the store it belongs to. ``(ok, problems)``.
 
     The whole point of two stores is that a rule can **move** between them, and
@@ -268,15 +380,28 @@ def save_all(rule_set, machine=None, project=None):
     """
     if machine is None:
         machine = machine_path()
-    split = partition(rule_set, project_available=bool(project))
+    split = partition(rule_set, project_available=bool(project),
+                      shared_available=bool(shared))
     problems = []
 
     if not save(_rules.RuleSet(split[MACHINE]), machine):
-        problems.append(last_error() or "the workstation store would not write")
+        problems.append(_why("the workstation store", last_error()))
 
     if project and (split[PROJECT] or os.path.exists(project)):
         if not save(_rules.RuleSet(split[PROJECT]), project):
-            problems.append(last_error() or "the project store would not write")
+            problems.append(_why(
+                "the project store", last_error(),
+                "The model's folder is read-only, or somebody else has the "
+                "file open."))
+
+    if shared and (split[SHARED] or os.path.exists(shared)):
+        # The one store somebody else may be reading at this moment. The write
+        # is atomic like the others -- a colleague mid-read sees the old file
+        # whole or the new file whole, never half of either.
+        if not save(_rules.RuleSet(split[SHARED]), shared):
+            problems.append(_why(
+                "the shared store", last_error(),
+                "It is usually a network share that is down or read-only."))
 
     return (not problems), problems
 

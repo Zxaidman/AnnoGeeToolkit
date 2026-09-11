@@ -70,7 +70,11 @@ start.
 #: 0.5.0 finishes the project store: a rule can be saved beside the MODEL
 #: rather than in AppData, and moved between the two. MINOR -- every rule
 #: already saved stays exactly where it is and keeps working.
-VERSION = "0.5.0"
+#: 0.6.0 is the batch: a tagged diagnostics log so a failure names itself,
+#: the live count, import/export, apply-to-many-views, a real Revit view
+#: filter, a shared rule store and a panel search. MINOR -- six new
+#: capabilities and every rule already saved still works exactly as it did.
+VERSION = "0.6.0"
 
 #: The pure half is imported freely. ``compat``, ``revit_query`` and
 #: ``revit_apply`` are NOT listed: they import ``Autodesk.Revit.DB`` at

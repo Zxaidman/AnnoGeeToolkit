@@ -56,7 +56,9 @@ from Autodesk.Revit.UI import TaskDialogResult                 # noqa: E402
 from System import Action, Guid                                # noqa: E402
 from System.Collections import ArrayList                       # noqa: E402
 from System.IO import FileAccess, FileMode, FileStream         # noqa: E402
+from System import TimeSpan                                    # noqa: E402
 from System.Windows.Interop import WindowInteropHelper         # noqa: E402
+from System.Windows.Threading import DispatcherTimer           # noqa: E402
 from System.Windows.Markup import XamlReader                   # noqa: E402
 
 __title__ = "Filter\nView Manager"
@@ -87,6 +89,7 @@ def _lib_on_path():
 _LIB = _lib_on_path()
 
 from anongee_filterrules import VERSION                        # noqa: E402
+from anongee_filterrules import diagnostics, filters           # noqa: E402
 from anongee_filterrules import names, rules, store, values    # noqa: E402
 
 # Safe to import from CPython 3: this module holds the pane's identity and its
@@ -127,6 +130,59 @@ class CategoryRow(object):
 
     def __init__(self, name):
         self.Name = name
+
+
+class Debounce(object):
+    """Fire *callback* once, after *delay_ms* of silence.
+
+    A ``DispatcherTimer`` restarted on every change, which is the WPF way and
+    the one the reference implementation in ``OneFilterParameter`` uses.
+    Inlined rather than imported from ``anongee_toolkit.ui.dialogs``, which has
+    the same class: that package is CPython-only and reachable from here, but
+    a failed import takes the whole window with it, and the precedent for this
+    exact control is to carry its own.
+
+    ``reset`` is deliberately Stop-then-Start rather than Start alone -- a
+    ``DispatcherTimer`` already running does not restart its interval when
+    Start is called again, so without the Stop a user typing steadily would
+    never reach a quiet period and the count would never arrive.
+    """
+
+    __slots__ = ("_timer", "_callback")
+
+    def __init__(self, callback, delay_ms=350):
+        self._callback = callback
+        self._timer = DispatcherTimer()
+        self._timer.Interval = TimeSpan.FromMilliseconds(delay_ms)
+        self._timer.Tick += self._on_tick
+
+    def _on_tick(self, sender, args):
+        self._timer.Stop()
+        try:
+            self._callback()
+        except Exception as error:                          # noqa: BLE001
+            import traceback
+            diagnostics.failure("FEAT-8", "the live count", error,
+                                traceback.format_exc())
+
+    def reset(self):
+        self._timer.Stop()
+        self._timer.Start()
+
+    def stop(self):
+        self._timer.Stop()
+
+
+class ViewRow(object):
+    """A view in the picker. S12.7.G: plain slots, no INotifyPropertyChanged."""
+
+    __slots__ = ("Name", "Note", "ViewId", "Usable")
+
+    def __init__(self, view_id, name, usable, why):
+        self.Name = name
+        self.Note = "" if usable else "cannot be isolated -- {0}".format(why)
+        self.ViewId = view_id
+        self.Usable = usable
 
 
 class ConditionRow(object):
@@ -182,8 +238,17 @@ if _state.handler_cls is None:
                 try:
                     answer = app.serve(uiapp, request)
                 except Exception as error:                    # noqa: BLE001
-                    answer = {"kind": request.get("kind"),
-                              "error": "{0}".format(error)}
+                    # Revit's thread. Nothing above this catches, so an
+                    # escape here is a Revit crash dialog with no stack --
+                    # or silence. The tag travels with the request so the
+                    # window can say WHICH feature asked for this.
+                    import traceback
+                    answer = {
+                        "kind": request.get("kind"),
+                        "error": diagnostics.failure(
+                            request.get("tag", "UI"),
+                            request.get("what", request.get("kind", "a request")),
+                            error, traceback.format_exc())}
                 app.post(answer)
 
         def GetName(self):
@@ -197,6 +262,161 @@ else:
 # ═══════════════════════════════════════════════════════════════════════════
 # The window
 # ═══════════════════════════════════════════════════════════════════════════
+
+class ViewPicker(object):
+    """FEAT-11 -- the modal that answers "which views?".
+
+    Modal on purpose. The main window stays modeless so the model stays
+    interactive; this is one question, asked and answered. It touches **no**
+    Revit API at all: it is handed plain rows and hands back plain ids, so it
+    can be opened from the WPF thread without an external event (S12.8.7.2).
+
+    Views that cannot be isolated are **listed with the reason** rather than
+    hidden. A modeller hunting a missing schedule with nothing to say it was
+    excluded on purpose is the failure; a greyed row that says why is not.
+    """
+
+    NAMES = ("ViewList", "ViewSearch", "ViewApplyBtn", "ViewCancelBtn",
+             "ViewAllBtn", "ViewNoneBtn", "ViewStatus", "ViewCount",
+             "ViewsHint")
+
+    def __init__(self, owner, listed, heading):
+        self.listed = list(listed or [])
+        self.chosen = []
+        self.rebuilding = False
+        self._handlers = []
+        path = os.path.join(HERE, "views.xaml")
+        stream = FileStream(path, FileMode.Open, FileAccess.Read)
+        try:
+            self.window = XamlReader.Load(stream)
+        finally:
+            stream.Close()
+        for name in self.NAMES:
+            setattr(self, name, self.window.FindName(name))
+        try:
+            self.window.Owner = owner
+        except Exception:
+            # A picker that will not parent is still a usable picker.
+            pass
+        self.ViewsHint.Text = "{0}. {1}".format(
+            heading, self.ViewsHint.Text)
+        self._wire()
+        self._rebuild()
+
+    def _wire(self):
+        self.ViewSearch.TextChanged += self._guard(self._on_search)
+        self.ViewApplyBtn.Click += self._guard(self._on_apply)
+        self.ViewCancelBtn.Click += self._guard(self._on_cancel)
+        self.ViewAllBtn.Click += self._guard(self._on_all)
+        self.ViewNoneBtn.Click += self._guard(self._on_none)
+        self.ViewList.SelectionChanged += self._guard(self._on_changed)
+
+    def _guard(self, handler):
+        """Guarded, and kept alive. Same reasoning as the window's guard."""
+        def wrapped(sender, args):
+            try:
+                handler(sender, args)
+            except Exception as error:                      # noqa: BLE001
+                import traceback
+                self.ViewStatus.Text = diagnostics.failure(
+                    "FEAT-11", "the view picker", error, traceback.format_exc())
+        self._handlers.append(wrapped)
+        return wrapped
+
+    # -- the list ---------------------------------------------------------
+
+    def _rebuild(self):
+        """Redraw for the current search, keeping what is ticked.
+
+        ``self.chosen`` is the source of truth, not the ListBox -- rebuilding
+        ItemsSource drops the selection, and a search must not silently untick
+        the views it filters out. The same rule as the category list, and for
+        the same reason.
+        """
+        needle = names.key(self.ViewSearch.Text)
+        rows = ArrayList()
+        for view_id, name, usable, why in self.listed:
+            if needle and needle not in names.key(name):
+                continue
+            rows.Add(ViewRow(view_id, name, usable, why))
+        self.rebuilding = True
+        try:
+            self.ViewList.ItemsSource = rows
+            for row in self.ViewList.Items:
+                if row.ViewId in self.chosen:
+                    self.ViewList.SelectedItems.Add(row)
+        finally:
+            self.rebuilding = False
+        self._say()
+
+    def _say(self):
+        usable = sum(1 for _i, _n, ok, _w in self.listed if ok)
+        self.ViewCount.Text = "{0} ticked of {1} view(s), {2} usable".format(
+            len(self.chosen), len(self.listed), usable)
+
+    def _on_search(self, sender, args):
+        self._rebuild()
+
+    def _on_changed(self, sender, args):
+        if self.rebuilding:
+            return
+        shown = set(row.ViewId for row in self.ViewList.Items)
+        ticked = set(row.ViewId for row in self.ViewList.SelectedItems)
+        self.chosen = list((set(self.chosen) - shown) | ticked)
+        self._say()
+
+    def _on_all(self, sender, args):
+        """Every view in the list that can actually be isolated.
+
+        The ones that cannot are left alone rather than ticked and skipped
+        later -- ticking something that will be refused is a promise the
+        picker cannot keep.
+        """
+        shown = set(row.ViewId for row in self.ViewList.Items if row.Usable)
+        self.chosen = list(set(self.chosen) | shown)
+        self._rebuild()
+
+    def _on_none(self, sender, args):
+        shown = set(row.ViewId for row in self.ViewList.Items)
+        self.chosen = list(set(self.chosen) - shown)
+        self._rebuild()
+
+    # -- the answer -------------------------------------------------------
+
+    def _on_apply(self, sender, args):
+        usable = set(view_id for view_id, _n, ok, _w in self.listed if ok)
+        refused = [view_id for view_id in self.chosen if view_id not in usable]
+        keep = [view_id for view_id in self.chosen if view_id in usable]
+        if not keep:
+            self.ViewStatus.Text = diagnostics.headline(
+                "FEAT-11", "Tick at least one view that can be isolated.")
+            return
+        if refused:
+            # Reported rather than silently dropped: the count on the next
+            # screen would otherwise be lower than the tick count with nothing
+            # to explain the difference.
+            diagnostics.record("FEAT-11", "{0} ticked view(s) cannot be "
+                               "isolated and were dropped".format(len(refused)))
+        self.chosen = keep
+        self.window.DialogResult = True
+        self.window.Close()
+
+    def _on_cancel(self, sender, args):
+        self.chosen = []
+        self.window.DialogResult = False
+        self.window.Close()
+
+    def ask(self):
+        """Show it. Returns the ticked view ids, or ``[]`` for a cancel."""
+        try:
+            self.window.ShowDialog()
+        except Exception as error:                          # noqa: BLE001
+            import traceback
+            diagnostics.failure("FEAT-11", "opening the view picker", error,
+                                traceback.format_exc())
+            return []
+        return list(self.chosen)
+
 
 class FilterViewApp(object):
     """The WPF half. Knows nothing about Revit beyond the request names."""
@@ -234,6 +454,18 @@ class FilterViewApp(object):
         #: moved is deselected and the next press does nothing.
         self._keep_selected = []
 
+        #: FEAT-8. Restarted by every change to the rule, so a count is asked
+        #: for once the user stops rather than once per keystroke.
+        self.count_timer = Debounce(self._count_now, 350)
+        #: Set while a count is in flight, so a slow model cannot stack them.
+        self.counting = False
+        #: FEAT-11. The rule the view picker is being opened for, held between
+        #: asking Revit for the views and the picker coming back.
+        self.pending_views_rule = None
+        #: FEAT-19. The office's rules file, if this workstation has been
+        #: pointed at one. Read once at startup; changed by the Choose button.
+        self.shared_path = store.shared_path()
+
         self._fill_static_combos()
         self._wire()
         self.window.Closed += self._on_closed
@@ -260,6 +492,8 @@ class FilterViewApp(object):
                 "RuleList", "RuleCountText", "NewRuleBtn", "DuplicateRuleBtn",
                 "MoveTopBtn", "MoveBottomBtn",
                 "StoreMachineRadio", "StoreProjectRadio", "StoreHint",
+                "DiagnosticsBtn", "ImportBtn", "ExportBtn", "ViewsBtn",
+                "StoreSharedRadio", "SharedPickBtn", "FilterBtn",
                 "MoveUpBtn", "MoveDownBtn", "DeleteRuleBtn",
                 "RefreshBtn", "PanelBtn", "RuleNameBox", "CategoryPickedText",
                 "CategorySearch", "CategoryList", "FamilyCombo", "TypeCombo",
@@ -281,41 +515,136 @@ class FilterViewApp(object):
             self.UnitCombo.Items.Add(unit)
         self.UnitCombo.SelectedIndex = 0
 
+    #: Which feature owns a control's failures, and what a person would call
+    #: the thing they just pressed. One table rather than a tag repeated down
+    #: thirty subscription lines, so a new control cannot be wired without
+    #: someone deciding who owns it -- a test fails on a control that is
+    #: subscribed and not listed here.
+    OWNERS = {
+        "CloseBtn": ("UI", "Close"),
+        "RefreshBtn": ("UI", "Re-read model"),
+        "PanelBtn": ("PANEL", "Show the panel"),
+        "DiagnosticsBtn": ("UI", "Diagnostics"),
+        "NewRuleBtn": ("UI", "New rule"),
+        "DuplicateRuleBtn": ("UI", "Duplicate"),
+        "DeleteRuleBtn": ("UI", "Delete rule"),
+        "MoveUpBtn": ("UI", "Move up"),
+        "MoveDownBtn": ("UI", "Move down"),
+        "MoveTopBtn": ("UI", "Move to top"),
+        "MoveBottomBtn": ("UI", "Move to bottom"),
+        "SaveRuleBtn": ("STORE", "Save rule"),
+        "ImportBtn": ("FEAT-12", "Import rules"),
+        "ExportBtn": ("FEAT-12", "Export rules"),
+        "AddConditionBtn": ("UI", "Add condition"),
+        "RemoveConditionBtn": ("UI", "Remove condition"),
+        "ConditionList": ("UI", "Remove condition"),
+        "CountBtn": ("UI", "Count"),
+        "ApplyBtn": ("UI", "Apply"),
+        "ViewsBtn": ("FEAT-11", "Apply to views"),
+        "FilterBtn": ("FEAT-13", "Make a view filter"),
+        "ClearBtn": ("UI", "Clear"),
+        "SelectBtn": ("UI", "Select"),
+        "RuleList": ("UI", "Loading a rule"),
+        "CategoryList": ("UI", "Picking a category"),
+        "CategorySearch": ("UI", "Category search"),
+        "FamilyCombo": ("UI", "Choosing a family"),
+        "MatchAllRadio": ("UI", "Match mode"),
+        "MatchAnyRadio": ("UI", "Match mode"),
+        "StoreMachineRadio": ("FEAT-14", "Store choice"),
+        "StoreProjectRadio": ("FEAT-14", "Store choice"),
+        "StoreSharedRadio": ("FEAT-19", "Store choice"),
+        "SharedPickBtn": ("FEAT-19", "Choosing the shared file"),
+    }
+
     def _wire(self):
-        self.CloseBtn.Click += self._on_close
-        self.RefreshBtn.Click += self._on_refresh
-        self.PanelBtn.Click += self._on_panel
-        self.NewRuleBtn.Click += self._on_new
-        self.DuplicateRuleBtn.Click += self._on_duplicate
-        self.DeleteRuleBtn.Click += self._on_delete
-        self.MoveUpBtn.Click += self._on_move_up
-        self.MoveDownBtn.Click += self._on_move_down
-        self.MoveTopBtn.Click += self._on_move_top
-        self.MoveBottomBtn.Click += self._on_move_bottom
-        self.SaveRuleBtn.Click += self._on_save
-        self.AddConditionBtn.Click += self._on_add_condition
-        self.RemoveConditionBtn.Click += self._on_remove_condition
-        self.ConditionList.MouseDoubleClick += self._on_remove_condition
-        self.CountBtn.Click += self._on_count
-        self.ApplyBtn.Click += self._on_apply
-        self.ClearBtn.Click += self._on_clear
-        self.SelectBtn.Click += self._on_select
-        self.RuleList.SelectionChanged += self._on_rule_selected
-        self.CategoryList.SelectionChanged += self._on_category_selected
-        self.CategorySearch.TextChanged += self._on_category_search
-        # §12.7.P: dependent fields load on DropDownClosed, never on
+        """Subscribe every handler THROUGH a guard, so nothing fails quietly.
+
+        A Python exception raised inside a WPF event handler comes back to no
+        caller -- it goes to the dispatcher's unhandled path, which is at best
+        a Revit crash dialog with no stack and at worst nothing at all. Every
+        bug found in this tool so far was found by pressing a button and
+        seeing the WRONG THING rather than an error.
+
+        The subscriptions are written out rather than looped over a table.
+        A .NET event needs ``target.Event += handler`` -- through ``getattr``
+        the ``+=`` rebinds a local and subscribes nothing, silently, which is
+        precisely the failure this method exists to prevent.
+        """
+        self._handlers = []
+        self.CloseBtn.Click += self._guard("CloseBtn", self._on_close)
+        self.RefreshBtn.Click += self._guard("RefreshBtn", self._on_refresh)
+        self.PanelBtn.Click += self._guard("PanelBtn", self._on_panel)
+        self.DiagnosticsBtn.Click += self._guard("DiagnosticsBtn", self._on_diagnostics)
+        self.NewRuleBtn.Click += self._guard("NewRuleBtn", self._on_new)
+        self.DuplicateRuleBtn.Click += self._guard("DuplicateRuleBtn", self._on_duplicate)
+        self.DeleteRuleBtn.Click += self._guard("DeleteRuleBtn", self._on_delete)
+        self.MoveUpBtn.Click += self._guard("MoveUpBtn", self._on_move_up)
+        self.MoveDownBtn.Click += self._guard("MoveDownBtn", self._on_move_down)
+        self.MoveTopBtn.Click += self._guard("MoveTopBtn", self._on_move_top)
+        self.MoveBottomBtn.Click += self._guard("MoveBottomBtn", self._on_move_bottom)
+        self.SaveRuleBtn.Click += self._guard("SaveRuleBtn", self._on_save)
+        self.ImportBtn.Click += self._guard("ImportBtn", self._on_import)
+        self.ExportBtn.Click += self._guard("ExportBtn", self._on_export)
+        self.AddConditionBtn.Click += self._guard("AddConditionBtn", self._on_add_condition)
+        self.RemoveConditionBtn.Click += self._guard("RemoveConditionBtn", self._on_remove_condition)
+        self.ConditionList.MouseDoubleClick += self._guard("ConditionList", self._on_remove_condition)
+        self.CountBtn.Click += self._guard("CountBtn", self._on_count)
+        self.ApplyBtn.Click += self._guard("ApplyBtn", self._on_apply)
+        self.ViewsBtn.Click += self._guard("ViewsBtn", self._on_views)
+        self.FilterBtn.Click += self._guard("FilterBtn", self._on_make_filter)
+        self.ClearBtn.Click += self._guard("ClearBtn", self._on_clear)
+        self.SelectBtn.Click += self._guard("SelectBtn", self._on_select)
+        self.RuleList.SelectionChanged += self._guard("RuleList", self._on_rule_selected)
+        self.CategoryList.SelectionChanged += self._guard("CategoryList", self._on_category_selected)
+        self.CategorySearch.TextChanged += self._guard("CategorySearch", self._on_category_search)
+        # S12.7.P: dependent fields load on DropDownClosed, never on
         # SelectionChanged -- which fires for every item arrowed past.
-        self.FamilyCombo.DropDownClosed += self._on_family_chosen
-        self.MatchAllRadio.Checked += self._on_match_changed
-        self.MatchAnyRadio.Checked += self._on_match_changed
-        self.StoreMachineRadio.Checked += self._on_store_changed
-        self.StoreProjectRadio.Checked += self._on_store_changed
+        self.FamilyCombo.DropDownClosed += self._guard("FamilyCombo", self._on_family_chosen)
+        self.MatchAllRadio.Checked += self._guard("MatchAllRadio", self._on_match_changed)
+        self.MatchAnyRadio.Checked += self._guard("MatchAnyRadio", self._on_match_changed)
+        self.StoreMachineRadio.Checked += self._guard("StoreMachineRadio", self._on_store_changed)
+        self.StoreProjectRadio.Checked += self._guard("StoreProjectRadio", self._on_store_changed)
+        self.StoreSharedRadio.Checked += self._guard("StoreSharedRadio", self._on_store_changed)
+        self.SharedPickBtn.Click += self._guard("SharedPickBtn", self._on_pick_shared)
+
+    def _guard(self, control, handler):
+        """*handler*, wrapped so a failure is loud, tagged and written down."""
+        tag, what = self.OWNERS.get(control, ("UI", control))
+
+        def wrapped(sender, args):
+            try:
+                handler(sender, args)
+            except Exception as error:                  # noqa: BLE001
+                import traceback
+                self._blame(tag, what, error, traceback.format_exc())
+
+        # Held for the life of the window. A Python closure handed to a .NET
+        # event is not necessarily kept alive by the subscription, and a
+        # collected handler is a button that silently stops working.
+        self._handlers.append(wrapped)
+        return wrapped
+
+    def _blame(self, tag, what, error, detail=""):
+        """Say which feature failed, why, and where the rest of it is."""
+        try:
+            self._status(diagnostics.failure(tag, what, error, detail), "error")
+        except Exception:
+            pass
 
     # -- the thread bridge -------------------------------------------------
 
-    def ask(self, **request):
-        """Queue a request for Revit's thread and raise the event."""
+    def ask(self, tag="UI", what="", **request):
+        """Queue a request for Revit's thread and raise the event.
+
+        *tag* and *what* travel WITH the request so that a failure on Revit's
+        thread can name the feature that asked for it. Without them every
+        error from over there reads "something went wrong in serve", which is
+        the report that costs a round trip to act on.
+        """
+        request["tag"] = tag
+        request["what"] = what or request.get("kind", "a request")
         self.handler.queue.append(request)
+        diagnostics.record(tag, "asked Revit for {0}".format(request["what"]))
         self.event.Raise()
 
     def post(self, answer):
@@ -363,6 +692,9 @@ class FilterViewApp(object):
             pane.Show()
             return {"kind": kind, "ok": True, "message": ""}
 
+        if kind == "views":
+            return self._serve_views(doc, view, kind)
+
         if kind == "clear":
             ok, message = revit_apply.clear(doc, view)
             return {"kind": kind, "ok": ok, "message": message}
@@ -386,14 +718,90 @@ class FilterViewApp(object):
             uidoc.Selection.SetElementIds(compat.id_list(matched))
             return {"kind": kind, "count": len(matched)}
 
+        if kind == "make_filter":
+            from anongee_filterrules import revit_filter
+            made, why = revit_filter.create(doc, rule)
+            return {"kind": kind, "made": made, "why": why,
+                    "name": filters.filter_name(rule)}
+
+        if kind == "apply_many":
+            # FEAT-11. What matches is worked out PER VIEW: a rule narrowed by
+            # a category can match different elements in a plan and a section,
+            # and reusing the active view's answer everywhere would isolate
+            # the wrong set in all but one of them.
+            from anongee_filterrules import compat
+            pairs = []
+            for view_id in request.get("views") or []:
+                target = doc.GetElement(compat.element_id(view_id))
+                if target is None:
+                    continue
+                pairs.append((target,
+                              revit_query.matching_ids(doc, target, rule)))
+            done, reports = revit_apply.isolate_many(doc, pairs)
+            return {"kind": kind, "done": done, "reports": reports,
+                    "asked": len(request.get("views") or [])}
+
         return {"kind": kind, "error": "unknown request"}
+
+    def _report_many(self, answer):
+        """Say what happened in EVERY view, not only the ones that worked.
+
+        A multi-view apply that reports "done" while quietly doing nothing in
+        four of eleven views is the failure this is written against. Each view
+        gets a line in the log; the screen gets the count and a pointer,
+        because there is room for a sentence and not for eleven.
+        """
+        reports = answer.get("reports") or []
+        done = answer.get("done", 0)
+        skipped = [(name, why) for name, count, why in reports if why]
+        for name, count, why in reports:
+            diagnostics.record("FEAT-11", "{0}: {1}".format(
+                name, why or "isolated {0} element(s)".format(count)))
+        if not done:
+            self._status(diagnostics.headline("FEAT-11", (
+                "Nothing was isolated. {0}".format(
+                    skipped[0][1] if len(skipped) == 1 else
+                    "None of the {0} view(s) could take it -- press "
+                    "Diagnostics for the reason on each.".format(len(reports))
+                ))), "error")
+            return
+        total = sum(count for _n, count, why in reports if not why)
+        message = "Isolated in {0} view(s), {1} element(s) in all".format(
+            done, total)
+        if skipped:
+            message = ("{0}. {1} view(s) skipped -- press Diagnostics for "
+                       "which and why".format(message, len(skipped)))
+        self._status(diagnostics.headline("FEAT-11", message),
+                     "info" if skipped else "ok")
+
+    def _serve_views(self, doc, view, kind):
+        """Every view a rule could go to. Rule-free, so it is answered early."""
+        from anongee_filterrules import compat
+        active = None
+        try:
+            active = compat.id_value(view.Id) if view is not None else None
+        except Exception:
+            active = None
+        return {"kind": kind, "views": revit_query.views(doc, active)}
 
     def _receive(self, answer):
         """Runs on the WPF thread. The only place controls are written."""
         self.busy = False
         kind = answer.get("kind")
+        if kind == "count":
+            # Released here rather than in the branch below, so a FAILED count
+            # unlatches too -- otherwise one bad count stops the live one for
+            # the rest of the session.
+            self.counting = False
         problem = answer.get("error")
         if problem:
+            # Already tagged and already logged if it came from serve's guard;
+            # recorded here too when it is one of serve's own plain refusals
+            # ("no project is open"), which never reach that guard.
+            if not problem.startswith("["):
+                problem = diagnostics.headline(
+                    answer.get("tag", "UI"), problem)
+                diagnostics.record(answer.get("tag", "UI"), problem)
             self._status(problem, "error")
             return
 
@@ -454,7 +862,12 @@ class FilterViewApp(object):
             self._status("{0} type(s)".format(len(answer["types"])), "info")
         elif kind == "count":
             self.LiveCount.Text = "{0} matched".format(answer["count"])
-            self._status("Counted in the active view. Nothing changed.", "info")
+            if answer.get("tag") != "FEAT-8":
+                # The Count button was pressed. The live count writes the same
+                # label and says nothing else, or it would overwrite whatever
+                # the status bar was telling the user, once per keystroke.
+                self._status("Counted in the active view. Nothing changed.",
+                             "info")
         elif kind == "apply":
             if answer["message"]:
                 self._status(answer["message"], "error")
@@ -465,6 +878,24 @@ class FilterViewApp(object):
         elif kind == "select":
             self.LiveCount.Text = "{0} selected".format(answer["count"])
             self._status("Pushed to Revit's selection.", "ok")
+        elif kind == "make_filter":
+            if not answer.get("made"):
+                diagnostics.record("FEAT-13", "not created: {0}".format(
+                    answer.get("why")))
+                self._status(diagnostics.headline(
+                    "FEAT-13", answer.get("why") or "Nothing was created."),
+                    "error")
+            else:
+                diagnostics.record("FEAT-13", "created {0} (id {1})".format(
+                    answer.get("name"), answer.get("made")))
+                self._status(diagnostics.headline("FEAT-13", (
+                    "Created {0!r} in Manage > Filters. It is not on any view "
+                    "yet -- add it in Visibility/Graphics. Undo removes it."
+                    .format(answer.get("name")))), "ok")
+        elif kind == "views":
+            self._open_view_picker(answer["views"])
+        elif kind == "apply_many":
+            self._report_many(answer)
         elif kind == "panel":
             self._status("The panel is docked under the ribbon. Drag it to "
                          "either edge if you would rather have it there.", "ok")
@@ -683,20 +1114,28 @@ class FilterViewApp(object):
         """The store the editor is pointing at, as the engine spells it.
 
         Asked through ``store.destination`` rather than read straight off the
-        radio, so a rule can never be marked for a project file that does not
-        exist -- an unsaved model has no folder to put one in.
+        radios, so a rule can never be marked for a file that does not exist
+        -- an unsaved model has no folder, and a workstation nobody has
+        pointed at a shared file has no shared file.
         """
-        return store.destination(
-            store.PROJECT if self.StoreProjectRadio.IsChecked else store.MACHINE,
-            bool(self.project_path))
+        if self.StoreProjectRadio.IsChecked:
+            wanted = store.PROJECT
+        elif self.StoreSharedRadio.IsChecked:
+            wanted = store.SHARED
+        else:
+            wanted = store.MACHINE
+        return store.destination(wanted, bool(self.project_path),
+                                 bool(self.shared_path))
 
     def _show_store(self, source):
         """Point the radios at *source* and say what it means."""
         self.rebuilding = True
         try:
-            project = store.destination(source, bool(self.project_path)) == store.PROJECT
-            self.StoreProjectRadio.IsChecked = project
-            self.StoreMachineRadio.IsChecked = not project
+            landing = store.destination(source, bool(self.project_path),
+                                        bool(self.shared_path))
+            self.StoreProjectRadio.IsChecked = landing == store.PROJECT
+            self.StoreSharedRadio.IsChecked = landing == store.SHARED
+            self.StoreMachineRadio.IsChecked = landing == store.MACHINE
         finally:
             self.rebuilding = False
         self._show_store_hint()
@@ -710,17 +1149,63 @@ class FilterViewApp(object):
         the model needs saving first.
         """
         self.StoreProjectRadio.IsEnabled = bool(self.project_path)
-        if not self.project_path:
-            self.StoreHint.Text = (
-                "This project: not yet. The model has never been saved, so "
-                "there is no folder to put a rules file in. Save the model and "
-                "press Re-read model.")
-        elif self.StoreProjectRadio.IsChecked:
+        self.StoreSharedRadio.IsEnabled = bool(self.shared_path)
+        if self.StoreProjectRadio.IsChecked and self.project_path:
             self.StoreHint.Text = (
                 "Travels with the model: {0}".format(self.project_path))
+        elif self.StoreSharedRadio.IsChecked and self.shared_path:
+            self.StoreHint.Text = (
+                "Everyone pointed at this file shares it: {0}".format(
+                    self.shared_path))
+        elif not self.project_path and not self.shared_path:
+            self.StoreHint.Text = (
+                "Saved on this workstation. \"This project\" needs the model "
+                "saved first -- it has no folder yet. \"Shared\" needs a file "
+                "chosen; press Choose.")
+        elif not self.project_path:
+            self.StoreHint.Text = (
+                "Saved on this workstation. \"This project\" needs the model "
+                "saved first: it has never been saved, so there is no folder "
+                "to put a rules file in.")
+        elif not self.shared_path:
+            self.StoreHint.Text = (
+                "Saved on this workstation. \"Shared\" needs a file chosen "
+                "first -- press Choose and pick the one your office uses.")
         else:
             self.StoreHint.Text = ("Follows you into the next project: "
                                    "{0}".format(self.machine_path))
+
+    def _on_pick_shared(self, sender, args):
+        """Point this workstation at the office's rules file.
+
+        A FILE rather than a folder, on purpose. WPF has no folder picker
+        without dragging in WinForms, and pointing at the file is the better
+        question anyway: several people picking the same file is exactly what
+        sharing one set means, and "which folder" leaves the filename to be
+        agreed separately.
+        """
+        from Microsoft.Win32 import OpenFileDialog
+        dialog = OpenFileDialog()
+        dialog.Title = "Choose the shared rules file"
+        dialog.Filter = "Filter View rules (*.json)|*.json|All files (*.*)|*.*"
+        # False on purpose: pointing at a file nobody has created yet is how
+        # the FIRST person in an office sets one up. It is written on save.
+        dialog.CheckFileExists = False
+        dialog.FileName = self.shared_path or store.FILE_NAME
+        if not dialog.ShowDialog():
+            return
+        if not store.set_shared_path(dialog.FileName):
+            self._status(diagnostics.headline("FEAT-19", (
+                "Could not remember that choice: {0}".format(
+                    store.last_error()))), "error")
+            return
+        self.shared_path = store.shared_path()
+        diagnostics.record("FEAT-19", "shared store set to {0}".format(
+            self.shared_path))
+        self._load_saved_rules()
+        self._show_store_hint()
+        self._status(diagnostics.headline("FEAT-19", (
+            "Shared rules: {0}".format(self.shared_path))), "ok")
 
     def _on_store_changed(self, sender, args):
         if self.rebuilding:
@@ -729,16 +1214,57 @@ class FilterViewApp(object):
         self._validate()
 
     def _validate(self):
-        """Show the first problem, or the rule read back as a sentence."""
+        """Show the first problem, or the rule read back as a sentence.
+
+        Also the **single hook** for the live count (FEAT-8). Every change to
+        the rule's shape already ends here -- a category ticked, a family
+        chosen, a condition added, the match mode flipped, a rule loaded -- so
+        hanging the count off this one call is the only version that cannot be
+        forgotten when a new control is added. A test holds it here.
+        """
         rule = self.current_rule()
         problems = rule.problems()
         self.ProblemText.Text = problems[0] if problems else rule.summary()
+        self._bump_count(problems)
         return problems
+
+    # -- FEAT-8: the live count -------------------------------------------
+
+    def _bump_count(self, problems):
+        """The rule changed, so the number on screen is now a lie.
+
+        Said immediately and counted later. A stale number left sitting there
+        while a new one is computed is worse than no number: it looks settled.
+        """
+        if self.rebuilding:
+            return
+        if problems:
+            self.count_timer.stop()
+            self.LiveCount.Text = ""
+            return
+        self.LiveCount.Text = "counting..."
+        self.count_timer.reset()
+
+    def _count_now(self):
+        """The quiet period expired. Ask Revit, once."""
+        if self.counting:
+            # A slow model must not stack requests; the timer comes round
+            # again when this one lands.
+            self.count_timer.reset()
+            return
+        rule = self.current_rule()
+        if rule.problems():
+            self.LiveCount.Text = ""
+            return
+        self.counting = True
+        self.ask(kind="count", tag="FEAT-8", what="the live count",
+                 rule=rule.to_dict())
 
     # -- saved rules -------------------------------------------------------
 
     def _load_saved_rules(self):
-        self.rule_set = store.load_all(self.machine_path, self.project_path)
+        self.rule_set = store.load_all(self.machine_path, self.project_path,
+                                       self.shared_path)
         self._rebuild_rules()
 
     def _rebuild_rules(self):
@@ -866,17 +1392,20 @@ class FilterViewApp(object):
         showed the rule twice, with no way to tell which one Apply had used.
         """
         ok, problems = store.save_all(self.rule_set, self.machine_path,
-                                      self.project_path)
+                                      self.project_path, self.shared_path)
         self._rebuild_rules()
         if not ok:
             self._status("; ".join(problems), "error")
             return
-        counts = store.partition(self.rule_set, bool(self.project_path))
+        counts = store.partition(self.rule_set, bool(self.project_path),
+                                 bool(self.shared_path))
         project = len(counts[store.PROJECT])
+        shared = len(counts[store.SHARED])
         self._status(
-            "Saved. {0} on this workstation{1}.".format(
+            "Saved. {0} on this workstation{1}{2}.".format(
                 len(counts[store.MACHINE]),
-                ", {0} with the model".format(project) if project else ""),
+                ", {0} with the model".format(project) if project else "",
+                ", {0} shared".format(shared) if shared else ""),
             "ok")
 
     def _on_duplicate(self, sender, args):
@@ -888,7 +1417,9 @@ class FilterViewApp(object):
             copy = self.rule_set.duplicate(rule.id)
             # A copy of a project rule belongs beside the model too. Downgraded
             # when there is no project folder, which is what destination is for.
-            copy.source = store.destination(rule.source, bool(self.project_path))
+            copy.source = store.destination(rule.source,
+                                            bool(self.project_path),
+                                            bool(self.shared_path))
         self._write()
 
     def _on_delete(self, sender, args):
@@ -917,6 +1448,73 @@ class FilterViewApp(object):
         if self.editing_id in gone:
             self.editing_id = None
         self._write()
+
+    # -- FEAT-12: import and export ---------------------------------------
+
+    def _on_export(self, sender, args):
+        """Write rules to a file to send on.
+
+        The selection if there is one, everything otherwise. With thirty rules
+        saved, "export all" is rarely what somebody means when they have just
+        ticked four.
+        """
+        chosen = self._selected_rules()
+        going = rules.RuleSet(chosen) if chosen else self.rule_set
+        if not len(going):
+            self._status(diagnostics.headline(
+                "FEAT-12", "There are no rules to export."), "error")
+            return
+        from Microsoft.Win32 import SaveFileDialog
+        dialog = SaveFileDialog()
+        dialog.Title = "Export filter view rules"
+        dialog.Filter = "Filter View rules (*.json)|*.json|All files (*.*)|*.*"
+        dialog.FileName = store.FILE_NAME
+        if not dialog.ShowDialog():
+            return
+        if not store.export_set(going, dialog.FileName):
+            self._status(diagnostics.headline(
+                "FEAT-12", "Could not write {0}: {1}".format(
+                    dialog.FileName, store.last_error())), "error")
+            return
+        diagnostics.record("FEAT-12", "exported {0} rule(s) to {1}".format(
+            len(going), dialog.FileName))
+        self._status(diagnostics.headline("FEAT-12", (
+            "Exported {0} {1} to {2}".format(
+                len(going), "selected rule(s)" if chosen else "rule(s)",
+                dialog.FileName))), "ok")
+
+    def _on_import(self, sender, args):
+        """Add somebody else's rules. Never replace one of yours.
+
+        An incoming rule is a gift, not an instruction: it cannot silently
+        redefine a rule already in use, because nobody would notice. So every
+        one arrives with a new id and, if its name is taken, a numbered name
+        -- and the window says how many were renamed rather than leaving two
+        identical-looking buttons to be discovered later.
+        """
+        from Microsoft.Win32 import OpenFileDialog
+        dialog = OpenFileDialog()
+        dialog.Title = "Import filter view rules"
+        dialog.Filter = "Filter View rules (*.json)|*.json|All files (*.*)|*.*"
+        dialog.CheckFileExists = True
+        if not dialog.ShowDialog():
+            return
+        coming, problem = store.import_set(dialog.FileName)
+        if coming is None:
+            diagnostics.record("FEAT-12", "import refused: {0}".format(problem))
+            self._status(diagnostics.headline("FEAT-12", problem), "error")
+            return
+        added, renamed = self.rule_set.merge(coming, self._chosen_store())
+        diagnostics.record("FEAT-12", "imported {0} rule(s) from {1}, {2} "
+                           "renamed".format(added, dialog.FileName, renamed))
+        self._write()
+        self._status(diagnostics.headline("FEAT-12", (
+            "Imported {0} rule(s){1}. They were saved to {2}.".format(
+                added,
+                ", {0} renamed because the name was taken".format(renamed)
+                if renamed else "",
+                "this project" if self._chosen_store() == store.PROJECT
+                else "this workstation"))), "ok")
 
     def _on_move_up(self, sender, args):
         self._move(rules.UP)
@@ -949,32 +1547,132 @@ class FilterViewApp(object):
 
     # -- the four actions --------------------------------------------------
 
-    def _guard(self):
-        problems = self._validate()
-        if problems:
-            self._status(problems[0], "error")
-            return None
-        return self.current_rule().to_dict()
+    def _guard_payload(self):
+        """Kept as the name the four action buttons already call."""
+        return self._guard_rule()
 
     def _on_count(self, sender, args):
-        payload = self._guard()
+        payload = self._guard_payload()
         if payload:
             self._status("Counting...", "info")
             self.ask(kind="count", rule=payload)
 
     def _on_apply(self, sender, args):
-        payload = self._guard()
+        payload = self._guard_payload()
         if payload:
             self._status("Isolating...", "info")
             self.ask(kind="apply", rule=payload)
 
     def _on_select(self, sender, args):
-        payload = self._guard()
+        payload = self._guard_payload()
         if payload:
             self.ask(kind="select", rule=payload)
 
     def _on_clear(self, sender, args):
-        self.ask(kind="clear")
+        self.ask(kind="clear", what="clearing the view")
+
+    # -- FEAT-13: a real Revit view filter --------------------------------
+
+    def _on_make_filter(self, sender, args):
+        """Create a ParameterFilterElement. The one action here that WRITES.
+
+        Everything else this tool does is temporary and leaves no trace. This
+        creates an element that appears in Manage > Filters, survives a save,
+        prints, and is visible to everyone who opens the model -- so it asks
+        first, and it shows exactly what it is about to make rather than
+        summarising it.
+
+        The refusals are worked out here, on the window's side, from the
+        parameter list already on screen. Revit checks again on its own thread
+        (it is the only one that can be sure), but a rule that obviously
+        cannot convert should say so without a round trip.
+        """
+        payload = self._guard_rule()
+        if payload is None:
+            return
+        rule = self.current_rule()
+        allowed, reasons = filters.convertible(
+            rule, [name for name, ok in self.parameters if ok])
+        if not allowed:
+            diagnostics.record("FEAT-13", "refused: {0}".format("; ".join(reasons)))
+            dialog = TaskDialog("Filter View Manager")
+            dialog.MainInstruction = "This rule cannot become a Revit view filter"
+            dialog.MainContent = (
+                "It still works here -- pressing it isolates, which does not "
+                "need a filter. Revit's own filters are narrower:\n\n- {0}"
+                .format("\n- ".join(reasons)))
+            dialog.Show()
+            self._status(diagnostics.headline(
+                "FEAT-13", reasons[0]), "error")
+            return
+
+        dialog = TaskDialog("Filter View Manager")
+        dialog.MainInstruction = "Create a view filter in this project?"
+        dialog.MainContent = (
+            "This WRITES to the model. The filter appears in Manage > "
+            "Filters, survives a save, prints, and everyone who opens the "
+            "model will see it.\n\n{0}".format("\n".join(filters.plan(rule))))
+        dialog.ExpandedContent = (
+            "It is not added to any view. Add it where you want it in "
+            "Visibility/Graphics, exactly as you would a filter you made by "
+            "hand. Undo removes it.")
+        dialog.CommonButtons = (TaskDialogCommonButtons.Yes |
+                                TaskDialogCommonButtons.No)
+        if dialog.Show() != TaskDialogResult.Yes:
+            diagnostics.record("FEAT-13", "cancelled at the confirmation")
+            self._status(diagnostics.headline(
+                "FEAT-13", "Nothing was created."), "info")
+            return
+
+        self._status(diagnostics.headline(
+            "FEAT-13", "Creating {0}...".format(filters.filter_name(rule))),
+            "info")
+        self.ask(kind="make_filter", tag="FEAT-13",
+                 what="creating a view filter", rule=payload)
+
+    # -- FEAT-11: apply to several views ----------------------------------
+
+    def _on_views(self, sender, args):
+        """Ask Revit what views there are; the picker opens when they land."""
+        payload = self._guard_rule()
+        if payload is None:
+            return
+        self.pending_views_rule = payload
+        self._status(diagnostics.headline("FEAT-11", "Reading the views..."),
+                     "info")
+        self.ask(kind="views", tag="FEAT-11", what="reading the views")
+
+    def _open_view_picker(self, listed):
+        """The modal. Returns nothing; it asks for the isolate itself.
+
+        Built and shown here rather than in ``_receive`` so the answer handler
+        stays a dispatcher. A modal inside a dispatcher is how a window ends up
+        unable to process the next answer.
+        """
+        picker = ViewPicker(self.window, listed, self._view_label_for_rule())
+        chosen = picker.ask()
+        if not chosen:
+            self._status(diagnostics.headline(
+                "FEAT-11", "No views ticked, so nothing was changed."), "info")
+            return
+        self._status(diagnostics.headline(
+            "FEAT-11", "Isolating in {0} view(s)...".format(len(chosen))),
+            "info")
+        self.ask(kind="apply_many", tag="FEAT-11",
+                 what="isolating in {0} view(s)".format(len(chosen)),
+                 rule=self.pending_views_rule, views=list(chosen))
+
+    def _view_label_for_rule(self):
+        name = self.RuleNameBox.Text or "this rule"
+        return "Isolating {0!r}".format(name)
+
+    def _guard_rule(self):
+        """The rule as data, or None with the reason already on screen."""
+        problems = self._validate()
+        if problems:
+            self._status(problems[0], "error")
+            return None
+        return self.current_rule().to_dict()
 
     def _on_panel(self, sender, args):
         """Show the dockable pane, or say why there is not one.
@@ -1002,7 +1700,44 @@ class FilterViewApp(object):
 
     def _on_refresh(self, sender, args):
         self._status("Re-reading the model...", "info")
-        self.ask(kind="model")
+        self.ask(kind="model", what="reading the model")
+
+    def _on_diagnostics(self, sender, args):
+        """Show what happened, and put the log where it can be picked up.
+
+        Not a MessageBox of a traceback: a traceback nobody can copy out of is
+        the same as no traceback. The last few entries go in the window, and
+        the folder is opened so the file itself can be attached to a message.
+        """
+        lines = diagnostics.recent(12)
+        path = diagnostics.log_path()
+        dialog = TaskDialog("Filter View Manager")
+        dialog.MainInstruction = "Diagnostics"
+        dialog.MainContent = (
+            "Every action this tool takes is logged with the feature that owns "
+            "it, so a failure can be reported in one line.\n\n{0}".format(path))
+        dialog.ExpandedContent = ("\n".join(lines) if lines else
+                                  "Nothing logged yet this session.")
+        dialog.CommonButtons = (TaskDialogCommonButtons.Ok |
+                                TaskDialogCommonButtons.Cancel)
+        if dialog.Show() != TaskDialogResult.Ok:
+            return
+        folder = os.path.dirname(path)
+        if not os.path.isdir(folder):
+            self._status("Nothing has been logged yet, so there is no folder "
+                         "to open.", "info")
+            return
+        try:
+            # .NET rather than subprocess: this engine ships a STRIPPED stdlib
+            # (S12.9.3 -- no re, no csv), and finding out which way subprocess
+            # went is not worth it when Process.Start is always there.
+            from System.Diagnostics import Process
+            Process.Start(folder)
+            self._status("Diagnostics: opened {0}".format(folder), "info")
+        except Exception as error:                          # noqa: BLE001
+            # Never worth failing over: the path is on screen either way.
+            self._status("The log is at {0} ({1})".format(
+                path, diagnostics.describe(error)), "info")
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -1010,14 +1745,22 @@ class FilterViewApp(object):
         self.window.Close()
 
     def _on_closed(self, sender, args):
+        # A DispatcherTimer left running holds a reference to a dead window and
+        # keeps firing into it.
+        try:
+            self.count_timer.stop()
+        except Exception:
+            pass
+        diagnostics.record("UI", "window closed")
         _state.window_ref = None
 
     def show(self, host):
         helper = WindowInteropHelper(self.window)
         helper.Owner = host
         self.window.Show()
+        diagnostics.banner(VERSION)
         self._status("Reading the model...", "info")
-        self.ask(kind="model")
+        self.ask(kind="model", what="reading the model")
 
 
 def run():
