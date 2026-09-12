@@ -299,6 +299,70 @@ class TheBoundaryAndOriginLayersAreNotMapped(unittest.TestCase):
         self.assertIsNotNone(found[0].origin)
 
 
+class ThePickerIsAdvisoryNotAuthoritative(unittest.TestCase):
+    """BUG-48. The storey boundary HOLDS the zone boxes; a zone holds none.
+
+    The owner's v1.0.5 run had the floor-boundary picker on
+    `Beam-Slab-boundary`, so that zone was struck off BY NAME before any shape
+    was measured, and every beam, cutout, stair and slab stop in it sat inside
+    no zone at all -- left where drawn, a sheet's width from its columns. His
+    console showed the two readings disagreeing and could do nothing about it:
+
+        Boundary zones: 4 found -- Grid-Column-boundary, Wall-boundary, Beam-Slab-boundary
+        Boundary zones: 3 zone(s) -- Combine-boundary, Grid-Column-boundary, Wall-boundary
+    """
+
+    def sheet(self):
+        """Four sibling zone quadrants inside one storey box, as he draws it."""
+        return [
+            _box("Boundary", 0, 0, 200, 200),
+            _box("Combine-boundary", 5, 5, 90, 90),
+            _box("Grid-Column-boundary", 105, 5, 90, 90),
+            _box("Wall-boundary", 105, 105, 90, 90),
+            _box("Beam-Slab-boundary", 5, 105, 90, 90),
+            _marker(10, 10), _marker(110, 10), _marker(110, 110),
+            _marker(10, 110),
+        ]
+
+    def test_a_zone_named_as_the_storey_is_still_a_zone(self):
+        notes = []
+        found = zone_plan.zones(self.sheet(), "Beam-Slab-boundary", "Origin",
+                                notes)
+        self.assertIn("Beam-Slab-boundary", [z.layer for z in found])
+        self.assertEqual(len(found), 4)
+
+    def test_and_the_run_says_it_was_overruled(self):
+        notes = []
+        zone_plan.zones(self.sheet(), "Beam-Slab-boundary", "Origin", notes)
+        self.assertEqual(len(notes), 1)
+        self.assertIn("Beam-Slab-boundary", notes[0])
+        self.assertIn("holds none of the other boundary boxes", notes[0])
+
+    def test_a_picker_that_names_the_REAL_storey_is_obeyed(self):
+        # `Boundary` does not end `-boundary`, so nothing is doubted; and a
+        # storey layer that DOES end that way is obeyed when it holds the rest.
+        sheet = self.sheet()
+        sheet[0] = _box("Floor-boundary", 0, 0, 200, 200)
+        notes = []
+        found = zone_plan.zones(sheet, "Floor-boundary", "Origin", notes)
+        self.assertNotIn("Floor-boundary", [z.layer for z in found])
+        self.assertEqual(notes, [])
+
+    def test_the_storey_box_is_not_the_zone_being_folded(self):
+        boxes = zone_plan.storey_boxes(self.sheet(), "Beam-Slab-boundary")
+        self.assertEqual([z.layer for z in boxes], ["Boundary"])
+
+    def test_nothing_drawn_on_the_picked_layer_leaves_the_pick_alone(self):
+        self.assertEqual(
+            zone_plan.credible_storey_layer(self.sheet(), "Nothing-boundary"),
+            "Nothing-boundary")
+
+    def test_a_name_that_is_not_zone_shaped_is_never_doubted(self):
+        self.assertEqual(
+            zone_plan.credible_storey_layer(self.sheet(), "Boundary"),
+            "Boundary")
+
+
 class ADrawingWithNoZones(unittest.TestCase):
     """Every sheet drawn the old way must read exactly as it did."""
 

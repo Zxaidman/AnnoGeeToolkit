@@ -306,7 +306,10 @@ def place_walls(doc, segments, base_type_id, base_level_id, top_level_id=None,
             problem = _disallow_joins(instance)
             if problem and problem not in result["skipped"]:
                 result["skipped"].append(problem)
-            _set_mark(instance, segment.get("mark"))
+            # `set_element_mark` never raises and returns False when there is
+            # no mark, so naming stays best-effort: it must not be able to fail
+            # a placement that has already succeeded.
+            set_element_mark(instance, segment.get("mark"))
             result["created"].append(instance.Id)
         except Exception as placement_error:
             result["errors"].append(str(placement_error))

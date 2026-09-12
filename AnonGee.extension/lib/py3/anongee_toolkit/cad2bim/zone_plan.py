@@ -130,6 +130,59 @@ def is_zone_layer(layer, storey_layer=None):
     return name.lower().endswith(ZONE_SUFFIX)
 
 
+def credible_storey_layer(records, storey_layer, notes=None):
+    """The picked storey layer, unless the DRAWING says it is a zone (BUG-48).
+
+    A storey boundary HOLDS the zone boxes; a zone box sits beside its siblings
+    and holds none of them. That test is already what `zones` uses to find the
+    storey box when the picker is empty -- "told apart by shape rather than by
+    the layer the dialog happened to pick" -- and this makes the picker
+    advisory in the other direction too, which it was not.
+
+    It cost the owner a whole quarter of his sheet. His v1.0.5 run had the
+    floor-boundary picker on `Beam-Slab-boundary`, so that zone was struck off
+    by name before any shape was measured, and **563 records -- every one of
+    his 213 beams, 256 cutouts, 40 stairs and 54 slab stops -- sat inside no
+    zone at all** and were left where they are drawn, a sheet's width from the
+    columns they belong to. The run said so and nothing could act on it:
+
+        Boundary zones: 4 found -- Grid-Column-boundary, Wall-boundary, Beam-Slab-boundary
+        Boundary zones: 3 zone(s) -- Combine-boundary, Grid-Column-boundary, Wall-boundary
+
+    Two readings of one drawing, differing only in that the second was told a
+    zone was the storey. Returns None when the pick is not credible, so both
+    `zones` and `storey_boxes` fall back to the shape and the category.
+    """
+    name = str(storey_layer or "").strip()
+    if not name or not name.lower().endswith(ZONE_SUFFIX):
+        return storey_layer          # not a zone-shaped name: nothing to doubt
+    boxes = []
+    picked = []
+    for record in records or ():
+        layer = str(getattr(record, "layer", "") or "").strip()
+        if not layer.lower().endswith(ZONE_SUFFIX):
+            continue
+        points = getattr(record, "points", None) or []
+        if len(points) < 3:
+            continue
+        zone = Zone(layer, _record_bounds(record))
+        boxes.append(zone)
+        if layer.lower() == name.lower():
+            picked.append(zone)
+    if not picked:
+        return storey_layer          # nothing drawn on it: leave the pick alone
+    holds = any(other is not mine and other.inside(mine)
+                for mine in picked for other in boxes)
+    if holds:
+        return storey_layer          # it does hold the others: it IS the storey
+    if notes is not None:
+        notes.append(
+            "'{0}' is set as the floor boundary but holds none of the other "
+            "boundary boxes, so it was read as a ZONE like its siblings -- the "
+            "storey boundary is the box that holds them".format(name))
+    return None
+
+
 def is_combine(layer):
     """Whether this zone is the full copy that only stands in when alone."""
     return COMBINE_TOKEN in str(layer or "").lower()
@@ -261,7 +314,7 @@ class Zone(object):
             self.bounds[3] - self.bounds[1])
 
 
-def zones(records, storey_layer=None, origin_layer=None):
+def zones(records, storey_layer=None, origin_layer=None, notes=None):
     """[Zone] -- every zone box in the drawing, with its own origin marker.
 
     A zone box is a closed rectangle on a layer ending `-boundary` that is not
@@ -272,6 +325,7 @@ def zones(records, storey_layer=None, origin_layer=None):
     run before any layer mapping exists -- the same route every marker reader
     in `floor_plans` takes.
     """
+    storey_layer = credible_storey_layer(records, storey_layer, notes)
     found = []
     for record in records or ():
         layer = getattr(record, "layer", None)
@@ -308,7 +362,10 @@ def storey_boxes(records, storey_layer=None):
     ARE nested (in the sheets-inside-a-zone layout) and dissolving them would
     leave one box per zone instead of one per floor.
     """
-    name = str(storey_layer or "").strip().lower()
+    # ...and a layer the picker calls the storey while the drawing shows a zone
+    # is not the storey here either, or the box that is being folded would also
+    # be the box the folding is grouped by (BUG-48).
+    name = str(credible_storey_layer(records, storey_layer) or "").strip().lower()
     found = []
     for record in records or ():
         layer = str(getattr(record, "layer", "") or "").strip()
@@ -397,14 +454,17 @@ def merge_zones(records, texts=None, hatches=None, storey_layer=None,
     build uses.
     """
     markers_from = marker_records if marker_records is not None else records
-    zone_list = zones(markers_from, storey_layer, origin_layer)
+    notes = []
+    zone_list = zones(markers_from, storey_layer, origin_layer, notes)
     if element_zones:
         # the dialog answers per element; the fold asks per zone
         mapping = claims_from_elements(element_zones)
     if not zone_list:
-        return list(records or ()), list(texts or ()), list(hatches or ()), []
-
-    notes = []
+        return (list(records or ()), list(texts or ()), list(hatches or ()),
+                notes)
+    # one reading of which layer is the storey, used everywhere below: the box
+    # being folded must not also be the box the folding is grouped by (BUG-48)
+    storey_layer = credible_storey_layer(markers_from, storey_layer)
     markers = origin_points(markers_from, origin_layer)
     groups = _cells(zone_list, storey_boxes(markers_from, storey_layer),
                     markers)

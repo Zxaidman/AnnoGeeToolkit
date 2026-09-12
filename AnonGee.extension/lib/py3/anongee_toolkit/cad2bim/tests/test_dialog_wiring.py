@@ -983,8 +983,14 @@ class TheWallsReachTheBuilder(unittest.TestCase):
         # whose members all route to walls -- every one of the owner's 171 --
         # came out with the schedule mark blank on all of them.
         source = self._walls_source()
-        self.assertIn("set_element_mark", source)
-        self.assertIn('_set_mark(instance, segment.get("mark"))', source)
+        self.assertIn("from ..compat import get_element_name, set_element_mark",
+                      source)
+        # `set_element_mark`, NOT a `_set_mark` helper: that one lives in
+        # builders/columns.py, and calling it here is the NameError v1.0.4
+        # shipped -- 171 members planned, none placed (BUG-47). A text check
+        # cannot see that; test_names_resolve.py can, and does.
+        self.assertIn('set_element_mark(instance, segment.get("mark"))', source)
+        self.assertNotIn("_set_mark(", source)
 
     def test_the_grade_reaches_those_walls_and_the_material_does_not(self):
         # A wall type has no structural material parameter, which is why the

@@ -138,6 +138,75 @@ for every other pre-P1 file.
 
 ## 2. Errors and bugs
 
+### BUG-48 — Naming a ZONE as the floor boundary throws that quarter of the sheet away · `testing`
+
+**Found in his v1.0.5 console, which was reporting it and could do nothing about it.** Two readings
+of one drawing, four lines apart:
+
+    Boundary zones: 4 found -- Grid-Column-boundary, Wall-boundary, Beam-Slab-boundary
+    Boundary zones: 3 zone(s) -- Combine-boundary, Grid-Column-boundary, Wall-boundary
+    boundary zones: 2 folded onto one plan by their origin markers
+    563 record(s) sit inside no zone at all and were kept where they are drawn:
+        213 beam, 256 cutout, 54 slab stop, 40 stair
+
+**`Beam-Slab-boundary` is in the first list and not the second.** Both lines call the same `zones()`;
+the only input that differs is the floor-boundary layer, and `is_zone_layer` strikes that layer off
+**by name**, before any shape is measured. His run had the picker on `Beam-Slab-boundary`.
+
+**So every beam, cutout, stair and slab stop was left where it is drawn** — a sheet's width from the
+columns they belong to. They were still built; they were built in the wrong place. **Reproduced
+exactly** on the fixture at HEAD by setting the picker to that layer:
+
+| floor-boundary picker | zones kept | folded | outside every zone |
+| --- | --- | --- | --- |
+| `Boundary` (correct) | **4** | 3 | — |
+| `Beam-Slab-boundary` | **3** | 2 | **1303 records** — 878 beam, 256 cutout, 125 slab edge, 44 stair |
+| *(left empty)* | **4** | 3 | — |
+
+**FIXED in v1.0.6, by making the picker advisory — which the code already claimed it was.** `zones()`
+has always found the storey box by SHAPE, with the comment *"told apart by shape rather than by the
+layer the dialog happened to pick, so leaving that picker empty cannot fold the whole sheet onto one
+of its own quarters."* That protected the EMPTY picker and not a wrong one.
+
+`credible_storey_layer` applies the same test in the other direction: **a `-boundary` layer whose box
+holds none of the other boundary boxes is a zone, whatever the picker says.** `zones`, `storey_boxes`
+and the fold all take that one reading, so the box being folded can never also be the box the folding
+is grouped by. And the run says it was overruled rather than silently disagreeing with itself:
+
+    'Beam-Slab-boundary' is set as the floor boundary but holds none of the other boundary
+    boxes, so it was read as a ZONE like its siblings -- the storey boundary is the box
+    that holds them
+
+A picker naming a layer that really does hold the others is still obeyed, and a name that is not
+zone-shaped at all (`Boundary`) is never doubted.
+
+### BUG-47 — v1.0.4 called a helper that does not exist and built no columns at all · `testing`
+
+**MY REGRESSION, shipped in v1.0.4 and still in v1.0.5.** His export says it plainly:
+
+    "columns": {"rect": 0, "circular": 0, "walls": 0, "skipped": 0, "errors": 171,
+                "error_details": ["name '_set_mark' is not defined", ...]}
+
+**171 members planned and not one placed**, on a release shipped as a naming FIX. BUG-40 added
+`_set_mark(instance, segment.get("mark"))` to `builders/walls.py` — but `_set_mark` is a helper of
+`builders/columns.py`. I imported `set_element_mark` and called something else. Every wall placement
+raised `NameError`, the per-segment `except Exception` caught it, and 171 errors came back.
+
+**FIXED in v1.0.6**: `set_element_mark(instance, segment.get("mark"))`, which is also the right shape
+— it never raises and returns False when there is no mark, so naming cannot fail a placement that has
+already succeeded.
+
+**Why nothing caught it.** These builders import Revit at module level, so nothing offline can import
+them and no test executes a line of them. They are held by TEXT checks, and **a text check asks
+whether a line was written, never whether it can run** — the assertion I wrote for BUG-40 passed on
+the broken line, because the broken line was there.
+
+**`tests/test_names_resolve.py` closes that.** It resolves every called name in every module of the
+package statically — module defs, imports, classes, assignments, builtins, arguments, and every
+enclosing function scope for a closure — and fails on a call that is defined nowhere. Verified by
+putting the bug back: it reports `builders/walls.py line 312: _set_mark() is called and defined
+nowhere`, and the rest of the package is clean.
+
 ### WORK-14 — Answered: the Combine zone IS complete, and is deliberately not built · `pending`
 
 **The owner:** "our `combine-boundary` was supposed to hold the all column-boundary or beam or slab,
@@ -223,8 +292,16 @@ never arrived both show up as one missing curve, and they want opposite fixes.
 `Curve that made no record` and `PolyLine that made no record` are counted too — a curve the reader
 DID look at and turned away is a third possibility, and it was as silent as the others.
 
-**Wanted on his next run.** If the census is empty, the geometry genuinely never arrived and the fix
-is on the Revit import side. If it is not, the fix is here.
+**ANSWERED on his v1.0.5 run, and the answer is decisive:**
+
+    link: the reader passed over 4 Point
+    link: the reader passed over 3 Mesh
+    link: the reader passed over 1 Solid
+
+**Eight objects in the whole drawing.** The 664 missing beam curves are not geometry this reader
+turned away — **they never arrived from Revit.** So BUG-36 is an import problem and nothing in
+`geometry_reader` can recover it. The census did its job and this item is closed by it; what it hands
+on to BUG-36 is that the fix has to be on the Revit side of the link.
 
 ### BUG-43 — Only 107 beams of the drawing's 810 · `pending`
 
