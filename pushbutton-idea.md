@@ -4,6 +4,39 @@ Running log of pushbutton concepts for the AnonGee toolkit, one entry per idea, 
 
 ---
 
+## 2026-09-12 05:39 UTC
+
+**Idea name:** Sleeve & Opening Coordinator — MEP-clash-driven structural opening placement, sizing rules and blocked-zone reporting
+
+**Potential:**
+Every RCC project with MEP in the model or linked in hits the same weekly grind: a clash report (Navisworks export, or the linked MEP model itself) names 40–300 pipe/duct/conduit crossings through beams, walls, slabs and footings, and a modeler works through them one by one — measure the pipe/duct diameter and angle, check it against the beam's depth and the code's max-opening-to-depth ratio, check it isn't inside a column strip or too close to a support, place a generic opening or sleeve family at the right host/location/rotation, and tag it back to the clash ID for the MEP team to trace. Fifteen to forty crossings an hour by hand is optimistic once beam-depth and edge-distance checks are done properly instead of eyeballed, and a missed edge-distance check is exactly the kind of thing that surfaces as a site RFI months later. Every existing tool in the repo that touches structural elements (`ConvertFloor.pushbutton`, `RC Automation.pushbutton`, `RoundElementDist.pushbutton`) works host-by-host on elements already selected or already scoped by category — none of them read a second, MEP-side model and turn its crossings into structural openings; that geometry-intersection step doesn't exist anywhere in `anongee_toolkit` yet (`revit/geometry.py` has none, and there's no `sleeve`/`opening` module under `structural/`). On the market, this exact workflow is sold as a paid module inside larger BIM-coordination suites (Naviate/Symetri's openings tool, BIMOne's sleeve manager) — nothing free does clash-in, sized-and-code-checked-opening-out for Revit natively.
+
+**Description:**
+`Sleeve Coordinator.pushbutton` (new tool in `Essential.panel/StrucBIM.stack`, sibling to `Convert Slab.pushbutton` and `RoundElementDist.pushbutton`) runs in one window:
+
+1. **Load crossings** — either import a Navisworks clash report (CSV/XML export, matched by element GUID/UniqueId back to the host Revit model) or scan directly: pick a linked MEP model (or a category set in the same model), pick the structural host categories (Structural Framing, Walls, Floors, Foundations), and the tool geometrically intersects MEP curve-based elements (pipes, ducts, conduits, cable trays) against host solids to build the same crossing list itself, one row per penetration.
+2. **Resolve & size** — per crossing, works out opening shape (circular for pipe/conduit/round duct, rectangular for rectangular duct/tray) and size from the MEP element's diameter/width-height plus a configurable clearance allowance; checks it against per-category rules (max opening size as a fraction of beam depth/width, minimum edge distance from any column/support face or from another opening, no penetration inside a defined column-strip/shear-wall-boundary zone) — same shape as `ConvertFloor.pushbutton`'s pre-flight plan: every row resolves to **place** / **blocked** with the specific rule it failed.
+3. Preview checklist (`anongee_toolkit.ui.hostwnd` + `progressbar`, same shell `AutoLevel.pushbutton` and `Convert Slab.pushbutton` already use): tick rows to place, blocked rows pre-unticked with the reason shown, each row tagged with the source clash ID for traceability.
+4. **Place** — creates (or updates, if a sleeve at that clash ID already exists) a host-based opening/sleeve family instance per confirmed row, sets its size/rotation/host parameters and a "Clash Ref" instance parameter back to the originating clash ID; one `TransactionGroup`, one `Transaction` per element, same rollback-per-element posture as `Convert Slab.pushbutton`.
+5. **Report** — result table (placed / blocked / updated / removed-because-crossing-no-longer-exists-on-rerun) exportable to Excel via the same `openpyxl` path `Export Schedule.pushbutton` and `BBS Generator.pushbutton` already use, so the MEP team gets back exactly the list they need to close their clash report against.
+
+**Implementation:**
+- New `anongee_toolkit.structural.openings` module: crossing detection (`Solid`/`Curve` intersection via `Autodesk.Revit.DB.BooleanOperationsUtils` or bounding-box-then-exact-solid test against each MEP curve swept as a thin solid), sizing/rule evaluation, and opening-family placement, following the same host-parameter-matching convention (`BuiltInParameter` → shared GUID → name) `ConvertFloor.pushbutton` uses for its own parameter carry-over.
+- Reuses `anongee_toolkit.revit.geometry` for the low-level intersection/bounding-box helpers rather than duplicating them inline, and `anongee_toolkit.revit.transactions` for the per-element rollback pattern already proven there.
+- Clash-report import: a thin CSV/XML reader matching Navisworks' export columns (test-name, item1/item2 GUIDs, clash point) to Revit elements via `UniqueId`; falls back to the direct-scan mode when no report is supplied, so the tool works even for teams that don't run Navisworks.
+- Sizing/edge-distance rule set lives in a `sleeve_config.json` alongside `script.py`, mirroring `slab_convert_config.json`'s shape — per-category max-opening-ratio, min-edge-distance, clearance allowance, all overridable per project/firm standard.
+- Opening family itself: ships one parametric round + one rectangular generic-model-based-opening family (or a face-based void-cutting family, matching whatever the firm's existing opening family already is, if one exists in the extension's family library) with type parameters for diameter/width/height and an instance "Clash Ref" text parameter for traceability.
+- Excel report reuses the `openpyxl` write path already proven in `Export Schedule.pushbutton` / `BBS Generator.pushbutton` — no new dependency.
+- `bundle.yaml` / `README.md` / `CHANGELOG.md` layout following the root README's documented convention for versioned StrucBIM tools.
+
+**Future update:**
+- Re-run mode that diffs against the last placed set: crossings that moved get the sleeve relocated, crossings that vanished (pipe re-routed) get the orphaned sleeve flagged for removal instead of silently left behind.
+- Feed blocked rows (opening too big for the beam, or inside a shear-wall boundary) straight into a structural-engineer review queue, cross-referenced by the same "Clash Ref" id, so a redesign request is one export away instead of a re-explained email.
+- Extend past MEP crossings to structural-vs-structural coordination: a duct penetrating both a beam and the slab it frames into, reconciling the two openings into one that satisfies both hosts' rules.
+- Multi-linked-model support (structural host model with two or more linked MEP disciplines — plumbing, HVAC, electrical — scanned in one pass), each discipline's crossings tagged separately in the report.
+
+---
+
 ## 2026-09-12 00:38 UTC
 
 **Idea name:** Type Matrix Generator — Excel-driven bulk type creation, parameter sync and duplicate-type detection, across system families and loadable families
