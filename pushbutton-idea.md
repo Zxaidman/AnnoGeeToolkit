@@ -4,6 +4,36 @@ Running log of pushbutton concepts for the AnonGee toolkit, one entry per idea, 
 
 ---
 
+## 2026-09-12 00:38 UTC
+
+**Idea name:** Type Matrix Generator — Excel-driven bulk type creation, parameter sync and duplicate-type detection, across system families and loadable families
+
+**Potential:**
+Every structural revision that adds a new column/beam/wall size, or a schedule handed over by the engineer as "here are the 18 column sizes for this project," turns into the single most repetitive click-chain a BIM modeler does: open Type Properties, Duplicate, rename by hand, retype 3–6 dimension parameters, close, repeat — 2–4 minutes per type, 18 types is an hour of pure clicking, and a mistyped dimension on type 14 of 18 is invisible until a clash or a quantity take-off surfaces it. The toolkit already has a `type_name_mode` "convention" matcher baked into `ConvertFloor.pushbutton` and an Excel round-trip (`openpyxl`) proven in `Export Schedule.pushbutton` / `BBS Generator.pushbutton`, but nothing turns those two proven pieces into a general type factory — the closest thing, `BIMGeneration.pushbutton`'s "auto-sized type duplicates," is a hidden internal step of one INP-import workflow, not a tool a modeler can point at an arbitrary family and a spreadsheet. Revit's own answer, type catalogs, only works for loadable families that ship a `.txt` catalog and cannot touch system families (Structural Column, Structural Framing, Wall, Floor, Duct, Pipe) at all — which is exactly where a structural team's type churn actually happens. Paid market tools (e.g. Case/Ideate-style "batch type creator" add-ins) do the create-from-spreadsheet half for a fee; none of them add the other half this idea includes for free: scanning the project for types that are already duplicates of each other in every parameter but name, which is the silent bloat that makes a family's type list unusable a year into a project.
+
+**Description:**
+`Type Matrix Generator.pushbutton` (new `TypeTools.stack` in `Advance.panel`, alongside `Parameter Combine.pushbutton`) runs in three modes from one window:
+
+1. **Generate from matrix** — pick a category + family (any loaded family, system or component), pick a base type to duplicate from, then load a CSV/XLSX where each row is a new type: a name column (or name-template tokens: `{b}x{d}`, `{Prefix}-{Index:03}`) plus one column per parameter to set (dimensions, material, structural usage, cost code, comments — anything writable on that family). Live preview grid resolves every row to "will create" / "already exists, will update" / "blocked" (missing required parameter, invalid value, name collision) before anything runs.
+2. **Harvest to matrix** — the reverse: pick a category/family, tick which parameters matter, and export every existing type as a spreadsheet row — the fast way to hand an engineer "here is every column type in the model today" or to seed the input for mode 1 when duplicating a size series.
+3. **Duplicate-type finder** — scan a category (or the whole model) for types whose full parameter set matches another type in the same family bar name, surface them as merge candidates with a usage count (how many instances use each), and — on confirm — repoint every instance of the duplicate to the kept type via `ChangeTypeId` before deleting the redundant type, same "what's lost, confirm per row" gate the conversion tools already use.
+
+**Implementation:**
+- Excel read/write via the `openpyxl` path already vendored for `Export Schedule.pushbutton` / `BBS Generator.pushbutton` — no new dependency.
+- Row → type resolution: `Element.Duplicate` (or `ElementType.Duplicate`) for the create path, then set each mapped parameter by `BuiltInParameter` → shared GUID → name, exactly the matching order `ConvertFloor.pushbutton` already uses for its own parameter carry-over, so a name typo in the sheet falls back the same predictable way instead of silently no-op'ing.
+- Name-template tokens reuse the same small `re`-based token formatter proposed for the Universal Renamer idea below (`{b}`, `{d}`, `{Index:03}`, a regex capture from an existing name) — if that tool lands first, this one imports its formatter instead of re-implementing it.
+- Duplicate-type finder: compare each type's full writable-parameter dict (value + unit) pairwise within a family; `Element.GetDependentElements` / `FilteredElementCollector` filtered by `ElementId` gives the instance count and the instance list to repoint with `doc.Regenerate()` + `ChangeTypeId` inside the same per-element transaction-rollback pattern `ConvertFloor.pushbutton` uses.
+- One preview grid + Generate/Report-only toggle shared across all three modes, same modeless-window shell (`anongee_toolkit.ui.hostwnd` / `progressbar` / `theme`) `AutoLevel.pushbutton` already runs on, so the window behaves consistently with the rest of the toolkit.
+- Sits in a new `TypeTools.stack` in `Advance.panel` next to `Parameter Combine.pushbutton` (its natural sibling — one sets instance parameter values, this sets type parameter values and creates the types themselves); own `bundle.yaml` tooltip and `CHANGELOG.md` since, like `AutoLevel`, it is a tool that will keep growing new source categories.
+
+**Future update:**
+- Two-way live sync mode: re-import the same sheet after an engineer edits it and diff against current model types, so a revised design table updates existing types in place instead of only creating new ones.
+- Cross-project type library: save a matrix + base-family pairing as a firm-standard "type set" (e.g. "IS 456 column sizes 230–900mm"), reusable project to project without re-authoring the sheet.
+- Extend the duplicate-type finder into a background/report-only health-check mode runnable on a schedule, surfaced next to the model's other cleanup tools (`Bulk Delete.pulldown`) as a periodic "type bloat" report.
+- Feed the harvested matrix straight into `BBS Generator.pushbutton`'s member/diameter filters, so a rebar schedule and a type-dimension schedule stay traceable to the same source spreadsheet.
+
+---
+
 ## 2026-09-11 15:39 UTC
 
 **Idea name:** Convert Column ⇄ Wall — cross-category recreate for structural columns and shear/RC walls
