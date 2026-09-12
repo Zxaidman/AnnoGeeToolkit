@@ -4,6 +4,37 @@ Running log of pushbutton concepts for the AnonGee toolkit, one entry per idea, 
 
 ---
 
+## 2026-09-12 10:39 UTC
+
+**Idea name:** Warning Auditor — categorize, explain and batch-resolve Revit's own warning log, with a jump-to-element action for everything it can't safely fix
+
+**Potential:**
+Every model that survives more than a few weeks of team modelling accumulates a warning list that nobody reads until handover forces someone to: "Room is not in a properly enclosed region," "Elements are joined but do not intersect," "Highly used" duplicate-Mark warnings on rebar and framing, identical instances stacked at the same point after a copy/paste-align mistake. Revit's own **Manage → Review Warnings** dialog dumps every one of these into one flat, unsearchable, ungrouped list with no batch action at all — you click each row, "Show," look at it, close, next — so most teams either ignore the list until a coordination review flags it or burn an afternoon at handover clicking through 200+ rows by hand. This repo already fought exactly one instance of the pain this causes blind: `todo-list.md`'s own `BUG-22`/`BUG-23` record chasing a "duplicate-Mark" warning down manually in `RC Automation.pushbutton`'s column sync, the same failure mode this tool would have caught in seconds as a named, countable category instead of a build-log entry. Every tool in this repo that touches Revit's failure-suppression API (`ConvertFloor.pushbutton`, `AutoLevel.pushbutton`, `RC Automation.pushbutton`, `FramewinToBIM.pushbutton`) uses `IFailuresPreprocessor` only to *swallow* warnings during its own transaction — none of them ever calls `Document.GetWarnings()` to look at the model's standing list, and no such module exists anywhere under `anongee_toolkit`. On the market, this exact capability — read the warning log, group it, explain it, fix what's safe to fix automatically — exists only bundled as one feature among dozens inside paid whole-model BIM-QA suites (the kind of thing sold alongside clash detection and model-health dashboards); nothing free does this one job on its own for a modeler who just wants their warning count down before a Friday upload.
+
+**Description:**
+`Warning Auditor.pushbutton` (new tool in `Essential.panel/Bulk Tool.stack`, alongside `Bulk Delete.pulldown` — this is a cleanup tool in the same family) runs in one window:
+
+1. **Scan** — calls `doc.GetWarnings()` once, groups every `FailureMessage` by its `FailureDefinitionId` GUID, and resolves each GUID to a human category via a lookup table shipped with the tool (Revit doesn't expose a readable name for most of its own warning types through the API — only the pre-formatted description string, which the table is keyed against as a fallback for anything not in the GUID map). Results show as one row per category: warning text, instance count, and a severity tag (**auto-fixable** vs **report-only**).
+2. **Preview checklist** (`anongee_toolkit.ui.hostwnd` + `progressbar` + `checklist`, the same shell `ConvertFloor.pushbutton` and `AutoLevel.pushbutton` already run on) — auto-fixable categories are ticked by default per `warnings_config.json`, report-only categories are shown unticked and un-tickable, each with a **Locate** action per row that isolates the failing elements in the active view (`Selection.SetElementIds` + `ShowElements`) so a modeler jumps straight to the problem instead of hunting through Revit's own dialog one click at a time.
+3. **Fix** — for v1's three auto-fixable categories: (a) **exact-duplicate instances at the same location** (same category + type + placement point) are collapsed to one, keeping the lower ElementId unless the config says otherwise; (b) **duplicate `Mark` values within a category** are resolved by appending a configurable numeric suffix to every collision but the first — the identical failure `RC Automation · BUG-22/23` hit and fixed by hand; (c) **"joined but do not intersect"** pairs are unjoined and rejoined, reusing the exact refresh routine `JoinPriority.pushbutton` already implements for its own "refresh edge-to-edge joins" option. One `TransactionGroup`, one `Transaction` per category, so a bad fix in one category rolls back without touching the others.
+4. **Report** — a result table (per category: found / fixed / skipped / still-flagged) exportable via the same `openpyxl` path `Export Schedule.pushbutton` and `BBS Generator.pushbutton` already use, giving a QA sign-off artifact that says the warning count *and* what specifically changed to get there — the same audit trail `ConvertFloor.pushbutton`'s geometry-delta report gives for conversions.
+
+**Implementation:**
+- New `anongee_toolkit.revit.warnings` module: `doc.GetWarnings()` → group-by-GUID, a GUID→category lookup table (with a text-match fallback for unmapped GUIDs across Revit versions), and one fix function per auto-fixable category — kept separate from any one button's `script.py`, the same separation `anongee_toolkit.revit.geometry`/`transactions` already give `ConvertFloor.pushbutton`.
+- Duplicate-instance and duplicate-Mark detection use `FilteredElementCollector` + a dict keyed on (category, type, location) or (category, Mark) respectively — no geometry-intersection code needed, unlike the Sleeve Coordinator idea above.
+- Join refresh calls into `JoinPriority.pushbutton`'s existing unjoin/rejoin helper rather than reimplementing it, so the two tools can't drift on what "refresh a join" means.
+- `warnings_config.json` alongside `script.py`, mirroring `slab_convert_config.json`'s shape: which categories default-ticked for auto-fix, the Mark-suffix format, and which ElementId is kept on a duplicate-instance collapse — safe defaults ship with everything but duplicate-Mark and exact-duplicate-instance off, since join-refresh has a wider blast radius on a real model.
+- Report export reuses the `openpyxl` write path already proven in `Export Schedule.pushbutton`/`BBS Generator.pushbutton` — no new dependency.
+- Sits in `Essential.panel/Bulk Tool.stack/` next to `Bulk Delete.pulldown`, following the same `bundle.yaml`/`README.md`/`CHANGELOG.md` layout the root README documents for versioned tools, since — like `AutoLevel.pushbutton` — its category coverage is expected to keep growing.
+
+**Future update:**
+- Fold in the "type bloat" health-check the Type Matrix Generator idea above proposes as a future update, so one "Model Health" report covers duplicate types and standing warnings together.
+- Trend tracking: append each scan's category counts (timestamp + username) to a small CSV/Excel log, so a team lead can see whether a modeler's warning count is trending down over the week rather than only ever seeing a single snapshot.
+- Firm-specific fix rules loaded from `warnings_config.json` without touching code — e.g. a different Mark-collision naming convention per discipline — the same override-by-config posture `slab_convert_config.json` and the proposed `sleeve_config.json` already use.
+- Extend the auto-fixable set once these three are proven in production: snapping near-miss room-separation boundaries closed, and collapsing coincident line-based elements (detail lines, grid extents) reported as overlapping.
+
+---
+
 ## 2026-09-12 05:39 UTC
 
 **Idea name:** Sleeve & Opening Coordinator — MEP-clash-driven structural opening placement, sizing rules and blocked-zone reporting
