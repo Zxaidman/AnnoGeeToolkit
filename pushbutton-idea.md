@@ -4,6 +4,37 @@ Running log of pushbutton concepts for the AnonGee toolkit, one entry per idea, 
 
 ---
 
+## 2026-09-13 10:45 UTC
+
+**Idea name:** Bay Fill — one-pass batch slab placement across every enclosed structural bay `DrawFloor.pushbutton` already finds but only lets you click one at a time
+
+**Potential:**
+`DrawFloor.pushbutton` already solves the hard geometry problem of "find every enclosed region bounded by beams and columns in this plan" — it reads exact footprints, splits them into a planar graph and traces closed cycles into candidate faces (`build_graph`/`trace_faces`/`FaceIndex`, `DrawFloor.pushbutton/script.py:674-806`), then filters them down to a real, already-computed list of usable regions (`usable = [f for f in faces if abs(signed_area(points, f)) >= MIN_FACE_AREA]`, `script.py:1255`) before the user ever touches the mouse. But `main()`'s only way to turn a face into a slab is `draw_session()`'s `while True: uidoc.Selection.PickPoint(...)` loop (`script.py:1306-1397`), which places exactly one `Floor.Create` per click (`script.py:1368`) and never walks the `usable` list it already built end-to-end — a modeler filling a podium or a typical floor plate with 40–150 structural bays clicks every single one by hand, waits for the pick prompt each time, and gets no indication of which bays remain. Worse, nothing in the file checks whether a bay already has a floor in it (no `OST_Floors` collector anywhere in `script.py` besides the type-picker at `script.py:1106`), so re-running the tool after a later revision adds a few new beams means either re-clicking only the new bays from memory or risking a stacked duplicate floor in a bay already filled. This is exactly the "type generator"/batch-modeling chore the team already funds elsewhere in the toolkit (`AutoDIM.pushbutton` has the identical gap — it dimensions only the current selection, never every column or grid-bay in a view in one run) applied to the single most repetitive slab-modeling task a structural BIM modeler does. On the market, "create floor by enclosed boundary" exists only as Revit's own native `Create Floor > Pick Walls`/mass-face tools (which need a wall loop or a modeled mass face, not beam/column outlines, and place one floor per manual sketch anyway) or as one feature bundled inside paid whole-project automation suites (AGACAD, CTC); nothing free reads real beam/column geometry and fills every enclosed bay in a view in a single confirmed batch.
+
+**Description:**
+`Bay Fill.pushbutton` (new tool in `Essential.panel/StrucBIM.stack`, sibling to `DrawFloor.pushbutton`, reusing its scan pipeline rather than re-implementing it) runs in one window:
+
+1. **Scan** — calls `DrawFloor`'s own `build_regions(view)` (`script.py:1218-1299`) to get the full, already-cached `usable` face list for the active view — same session cache (`CACHE_KEY`/`signature`/`load_cached`/`store_cached`, `script.py:168,1177-1211`) and the same SHIFT-click-to-force-rescan convention, so switching between DrawFloor's click mode and this batch mode in one session never forces a redundant re-scan.
+2. **Guard against duplicates** — the one genuinely new check: collect every placed `OST_Floors` (or `OST_StructuralFoundation`) element already in the model and test each existing floor's boundary against every candidate face's centroid using the same `point_in_cycle` DrawFloor already has (`script.py:757-767`); a face already covered is marked **already filled** and excluded by default, so a re-run after a revision only ever offers newly-enclosed bays.
+3. **Preview checklist** (`anongee_toolkit.ui.checklist`/`progressbar`, the shell already proven on `ConvertFloor.pushbutton`, in place of DrawFloor's plain `output.print_md` console log) — one row per face: area, centroid, curve/arc count (from `build_loop`, `script.py:895-936`), and a status — **will place** / **already filled** / **too small** (below a configurable minimum, catching a sliver face nobody wants a slab in) / **boundary failed** (the same "loop build failed" case DrawFloor already reports at `script.py:1352-1360`) — with a **Locate** action per row that isolates the face's centroid in the view.
+4. **One type per run** — matches DrawFloor's own one-floor-type-per-round convention exactly; a bay needing a different thickness is just run again with the leftover rows re-ticked, the same way DrawFloor's own ESC-to-change-type loop already works.
+5. **Place** — one `Transaction`, one `Floor.Create` per ticked face (the identical call DrawFloor already makes at `script.py:1368`, including setting `FLOOR_PARAM_IS_STRUCTURAL`), wrapped so one bad boundary doesn't roll back bays already placed in the same run.
+6. **Report** — placed / skipped-already-filled / skipped-too-small / failed counts, the same information DrawFloor already prints per click, rolled into one run summary instead of one console line per pick.
+
+**Implementation:**
+- No new geometry code: lift the scan/graph pipeline DrawFloor already owns (`SegmentGrid` through `build_regions`, `script.py:538-1299`, plus `point_in_cycle`/`build_loop`/`FaceIndex`) out of `DrawFloor.pushbutton/script.py` into a shared `anongee_toolkit.structural.bay_graph` module, so both DrawFloor's existing click-mode and this new batch mode import one copy instead of a second tool depending on logic still owned by the first tool's private script.
+- New duplicate-guard is the only genuinely new function: `FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_Floors).WhereElementIsNotElementType()`, each existing floor's boundary curve loop tested against each candidate face's centroid via the lifted `point_in_cycle`.
+- `bay_fill_config.json` alongside `script.py` (minimum face area, whether a "boundary failed" row blocks the whole run or is skipped-and-continued, which categories count as "already filled" for the duplicate guard — Floors only, or Floors + Foundations), mirroring `slab_convert_config.json`'s override-by-config shape.
+- Same modeless window shell (`anongee_toolkit.ui.hostwnd`/`checklist`/`progressbar`/`theme`) the already-logged ideas in this file standardize on, rather than DrawFloor's current plain pyRevit `forms`/console output, since a 40–150-row run needs a scrollable tick-list, not a scrolling log.
+
+**Future update:**
+- Fold back into `DrawFloor.pushbutton` itself as a mode toggle in its existing type-picker dialog ("Click bays" vs. "Fill all bays") once the shared `bay_graph` module has two independent, proven callers, so a modeler doesn't need to remember which of two buttons to press for which case.
+- Per-bay type inference from the framing depth around each face (reusing the extent-reading helpers `AutoDIM.pushbutton` already has at `script.py:70-237`) so a thicker slab bay under deeper beams is proposed automatically instead of requiring a second manual run.
+- Extend the duplicate guard into a stale-bay report: a placed floor whose boundary no longer matches any current usable face (a beam moved after the fill) flagged for review, closing the loop DrawFloor's own geometry signature almost tracks already.
+- Apply the same batch-fill pattern to Structural Foundations once proven for Floors, reusing `ConvertFloor.pushbutton`'s existing Floor⇄Foundation type-resolution logic to decide which target category a given fill run should produce.
+
+---
+
 ## 2026-09-13 05:39 UTC
 
 **Idea name:** Column Stack Auditor — cross-level verticality, continuity and rotation-drift audit for structural columns
