@@ -4,6 +4,40 @@ Running log of pushbutton concepts for the AnonGee toolkit, one entry per idea, 
 
 ---
 
+## 2026-09-13 00:39 UTC
+
+**Idea name:** Grid Mark Assistant — automatic Column/Beam/Wall Mark numbering derived from live grid-intersection geometry
+
+**Potential:**
+Every structural modeler on a project of any real size does the same manual chore for the whole life of the model: open Properties on each column, read off the nearest two grid bubbles by eye, type `C-A1`, `C-B2`, `C-C3`... into Mark, and redo it by hand every time a column moves, a grid is renumbered, or a revision adds a bay — 200 columns is an afternoon the first time and a recurring tax every revision after, and a single fat-fingered mark (`C-A1` typed twice) is invisible until a schedule or a rebar tag collides with it. Nothing in this repo derives a Mark from grid geometry today: `RC Automation.pushbutton` writes footing marks straight from an Excel placement schedule (`_marks`/`item.mark`, `RC Automation.pushbutton/script.py:363-373` and `:426-440` — the mark is a spreadsheet column, never computed from position), and the already-logged **Universal Renamer** idea above explicitly scopes its token templates to Views/Sheets/Levels/Grids/Schedules/Family Types, not to Mark values on model elements, so there is no overlap. The pieces this needs are already sitting in three unrelated corners of the codebase, unconnected: `RoundElementDist.pushbutton/script.py:48-54` already imports `Autodesk.Revit.DB.Grid` and clusters walls/columns into direction families off real grid geometry; `anongee_toolkit.rc_automation.datum` already has the exact "which infinite line is this, and how far is a point from it" math (`_angle_of`, `_distance_to_line`, `same_line`, `datum.py:746-852`) — built for a spreadsheet-vs-model grid *planner*, not a live reader, but the geometry is identical either way; and `BBS Generator.pushbutton/core/bar_mark_manager.py` already solves "assign a mark, never collide with one already claimed" for rebar. Nobody has wired grid geometry to the Mark parameter. On the market, this exact feature — derive a structural element's Mark from its grid position automatically — is sold as one line item inside paid numbering/renumbering add-ins (Naviate's numbering tool, CTC's Renumber, BIM One's tools); nothing free reads Revit's own `Grid` elements and proposes a Mark from them.
+
+**Description:**
+`Grid Mark Assistant.pushbutton` (new tool in `Essential.panel/StrucBIM.stack`, sibling to `Convert Slab.pushbutton` and `RoundElementDist.pushbutton` — both structural-geometry tools it borrows math from) runs in one window:
+
+1. **Scope & category** — pick Structural Columns, Structural Framing (beams), Structural Walls and/or Foundations, scoped to active view / whole model / current selection, reusing the same scope-and-category picker `Parameter Combine.pushbutton`'s `ScopePickerApp` already ships (`Parameter Combine.pushbutton/script.py:655-801`).
+2. **Read grids** — collects every `DB.Grid` in scope into `(name, line)` pairs, clusters them into direction families (parallel grids sharing an axis, skewed grids their own family) the same way `RoundElementDist.pushbutton` already clusters walls/columns by direction, then classifies each family as "primary" (e.g. numbered 1-2-3…) or "secondary" (lettered A-B-C…) by count/orientation, user-overridable.
+3. **Resolve nearest intersection** — per element, takes its anchor (column = location point; beam = location-curve midpoint; wall = centerline midpoint), finds the nearest grid in each direction family via the perpendicular-distance-to-line math already proven in `anongee_toolkit.rc_automation.datum` (`_distance_to_line`, `datum.py:844-852`), and composes a label from the configured template (`C-{Primary}{Secondary}` → `C-1A`, `B-{Secondary}{Primary}` → `B-A1`, a beam spanning two intersections → `B-A1~A2`). An element farther than a configurable tolerance from any grid (a free-standing column, an oddly offset wall) is flagged **no confident match** rather than guessed at.
+4. **Preview checklist** — one row per element: current Mark, proposed Mark, distance-to-grid, and status (**will set** / **unchanged** / **no confident match — skip** / **collision, suffixed** `-2`); collision suffixing reuses the "never reuse a mark already claimed" rule `BBS Generator.pushbutton/core/bar_mark_manager.py` already implements for rebar, generalized to any Mark-bearing category. Rows tick/untick, same posture as every other checklist tool in the repo (`ConvertFloor.pushbutton`, `AutoLevel.pushbutton`).
+5. **Apply** — one `Transaction`, writes to `Mark` (or a configurable target — `Comments`, or a firm's own shared parameter, for teams that keep Mark for something else) for every ticked row; **Report only** dry-run mode available up front, same toggle `Convert Slab.pushbutton` offers.
+6. **Report** — result table (set / skipped-no-match / skipped-unchanged / collision-resolved) exportable via the same `openpyxl` path `Export Schedule.pushbutton` / `BBS Generator.pushbutton` already use.
+
+**Implementation:**
+- Promote `anongee_toolkit.rc_automation.datum`'s currently underscore-prefixed geometry helpers (`_angle_of`, `_distance_to_line`, `same_line`) into a small public module (e.g. `anongee_toolkit.geometry.lines`) shared between the existing spreadsheet-side grid planner and this new live-model reader — same function, two callers, no duplicated math.
+- Direction-family clustering for grids adapts the clustering `RoundElementDist.pushbutton` already runs for elements (union-find over shared axis/angle tolerance), pointed at `DB.Grid.Curve` endpoints instead of wall/column geometry.
+- Per-category anchor extraction (`Location.Point` for columns, `Location.Curve` midpoint for beams/walls) — the same kind of location read `AutoLevel.pushbutton/anongee_autolevel/planner.py` and `RoundElementDist.pushbutton` already do for their own placement logic.
+- Mark collision-avoidance generalizes the uniqueness check in `BBS Generator.pushbutton/core/bar_mark_manager.py` beyond rebar bar marks, scanning the target parameter across the run's element set plus whatever the model already has.
+- `grid_mark_config.json` alongside `script.py` (mark template per category, primary/secondary axis assignment, distance tolerance for "no confident match", target parameter name) — same override-by-config shape `slab_convert_config.json` established.
+- Excel report reuses the `openpyxl` path already proven in `Export Schedule.pushbutton` / `BBS Generator.pushbutton`.
+- Same modeless window shell (`anongee_toolkit.ui.hostwnd` / `progressbar` / `checklist`) every other multi-step tool in the repo runs on.
+
+**Future update:**
+- Diff/re-run mode: re-scan after a revision and flag only elements whose nearest intersection changed since the last run (a moved column, a renumbered grid) — the same "re-run and diff" shape already logged as a future item for Type Matrix Generator and the Sleeve Coordinator.
+- Once marks are assigned, auto-place independent tags at the resolved intersection point with a configurable leader, closing the loop from computed Mark to drawing annotation in one pass.
+- Feed the already-logged Warning Auditor's "duplicate Mark" auto-fix category the same uniqueness check this tool enforces at write time, so the two tools can't drift on what counts as a Mark collision.
+- Extend beam labeling to a running sub-index for multiple parallel beams between the same two grid intersections (`B-A1a`, `B-A1b`), once the single-beam case is proven in production.
+
+---
+
 ## 2026-09-12 15:39 UTC
 
 **Idea name:** Parameter Migrator — batch, many-to-many parameter value moves driven by a reusable, save/load mapping table
