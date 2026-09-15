@@ -148,10 +148,24 @@ class IsolateHandler(IExternalEventHandler):
         if missing:
             self._say("; ".join(missing), "error")
             return
-        matched = revit_query.matching_ids(doc, view, self.rule)
-        count, message = revit_apply.isolate(doc, view, matched)
-        self._say(message or "{0}: {1} element(s) isolated".format(
-            self.rule.name, count), "ok" if count else "error")
+        # Pressing a SECOND rule has to put the view back first. Two reasons,
+        # and the second is the one that bites: isolating again can only
+        # narrow, and the collector cannot see past the isolate rule 1 left
+        # behind -- so the search for rule 2 runs against rule 1's survivors
+        # and usually finds nothing at all.
+        rule = self.rule
+
+        def find_ids():
+            return revit_query.matching_ids(doc, view, rule)
+
+        count, message, was_reset = revit_apply.isolate_fresh(doc, view,
+                                                              find_ids)
+        if message:
+            self._say("{0}: {1}".format(rule.name, message), "error")
+            return
+        self._say("{0}: {1} element(s) isolated{2}".format(
+            rule.name, count,
+            ", replacing what was shown" if was_reset else ""), "ok")
 
     def _tell_paths(self, doc):
         """Hand the pane the model's project-store path.

@@ -14,9 +14,23 @@ tooltip: |
       save. Clear puts the view back, and so does Revit's own Reset Temporary
       Hide/Isolate.
 
+  The layout
+    • Three columns, in the same order as Revit's own Filters dialog:
+      Saved rules | Categories | Filter rules. The SHAPE is Revit's so
+      you already know where to look; everything in it is ours.
+    • Each filter rule is a row you edit in place - parameter, compare,
+      value, unit - with its own remove button, like Revit's.
+    • Click a row to tick it, click again to untick. Ctrl+click adds,
+      Shift+click takes a run. Both lists behave the same way.
+    • Check all / Check none act on what is SHOWN, so with a search in
+      the box that is the search results and not all 137 categories.
+
   Building a rule
     • Tick one or more categories. Family and Type are optional — leave them
       on "any" and the rule matches everything in those categories.
+    • Family and Type live under the Categories column. Revit's dialog has
+      no equivalent; ours is worth keeping, and it answers the same
+      question - what the rule looks in.
     • Basic Wall is a system family and appears in the Family list exactly
       like a loadable one.
     • Add parameter conditions, combined with All or Any. Every parameter the
@@ -78,7 +92,10 @@ tooltip: |
                  and ONE Undo puts every view back.
     Make filter  create a REAL Revit view filter in Manage > Filters.
                  The ONLY thing here that writes to the project - you are
-                 shown exactly what will be created and asked first.
+                 shown exactly what will be created and asked first, and
+                 you can change the name before it is. A family or type
+                 narrowing converts too: it becomes Family Name and Type
+                 Name rules, which is how Revit expresses the same thing.
     Clear        put the view back
     Diagnostics  what the tool has done and anything that failed, with
                  the full detail, and it opens the folder the log is in
@@ -127,4 +144,4 @@ tooltip: |
       the rules file and the panel reads it, and they run on different
       Python engines that share a folder rather than a module.
 
-  Version: 0.6.0
+  Version: 0.7.0

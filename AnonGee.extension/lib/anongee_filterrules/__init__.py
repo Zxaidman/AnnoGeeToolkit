@@ -74,7 +74,12 @@ start.
 #: the live count, import/export, apply-to-many-views, a real Revit view
 #: filter, a shared rule store and a panel search. MINOR -- six new
 #: capabilities and every rule already saved still works exactly as it did.
-VERSION = "0.6.0"
+#: 0.7.0 is the first release driven entirely by what the tool did WRONG
+#: in front of a user. The editor is re-laid out to the shape of Revit's
+#: own Filters dialog, the dialogs are ours rather than Revit's, and a
+#: family or type narrowing converts to a real view filter after all --
+#: MINOR, because every rule already saved still loads and still works.
+VERSION = "0.7.0"
 
 #: The pure half is imported freely. ``compat``, ``revit_query`` and
 #: ``revit_apply`` are NOT listed: they import ``Autodesk.Revit.DB`` at

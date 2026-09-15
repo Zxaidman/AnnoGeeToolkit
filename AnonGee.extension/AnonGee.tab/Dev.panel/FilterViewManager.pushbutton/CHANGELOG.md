@@ -15,6 +15,136 @@ holds Auto Level Manager's four copies together.
 
 ---
 
+## 0.7.0 - 2026-09-15
+
+The first release driven entirely by what the tool did **wrong in front of a
+user**. 0.6.0's diagnostics earned themselves on the first press: the footer
+read
+
+> `[FEAT-11] reading the views failed -- NameError: name 'revit_query' is not
+> defined. Full detail in filter_view_diagnostics.log`
+
+which is a bug report, a cause and a file in one line, from a screenshot.
+
+### The two that were broken
+
+**FEAT-11 raised on every press.** `serve` imports the Revit modules as
+**locals**; `_serve_views` is a different function and could not see them. One
+word, and now a gate: every `_serve_*` helper must import what it uses.
+
+**FEAT-8 never counted.** It sat on "counting..." for a whole session. The
+`DispatcherTimer` never ticked -- and a timer that does not tick fails
+**silently**: no exception, no answer, nothing to tell it apart from a slow
+model.
+
+So 0.7.0 has **no timer**. The count clocks itself off the answers: a change
+while one is in flight sets a flag, and the answer landing asks again. The rate
+is whatever Revit can manage, requests cannot stack, and the two flags cannot
+wedge -- every answer clears and re-pumps, so the worst case is one extra count
+rather than none. Every answer now carries its request's **tag** back, too,
+which is what the live count needed to stop talking over the status bar.
+
+### Revit's layout, our design
+
+The editor is three columns in the order Revit's own Filters dialog uses:
+
+| Saved rules | Categories | Filter rules |
+| --- | --- | --- |
+| the list, and everything that acts on it | search, hide un-ticked, Check all / Check none | AND/OR, Add rule, and one editable row per rule |
+
+The **shape** is Revit's, so a modeller already knows where to look. Every
+control, colour, radius and type style is ours, unchanged.
+
+Each filter rule is now a **row edited in place** -- parameter, compare, value,
+unit, and its own remove -- rather than four controls at the top that push into
+a read-only list. Changing one operator used to be remove-then-rebuild.
+
+The rows are built in Python rather than from a `DataTemplate`, because
+§12.7.G is explicit that a template bound to a Python property fails
+**silently** in this engine: blank cells, no error.
+
+**Family and Type survived.** Revit's dialog has no equivalent and the easy
+thing was to drop them. They live under the Categories column instead, because
+they answer the same question -- what the rule looks in.
+
+### A click unticks
+
+`SelectionMode="Extended"` gives Ctrl+click and Shift+click for free, and its
+plain click **replaces** the selection -- so clicking a ticked row left it
+ticked and cleared everything else, which made the tick look like it was not
+really a tick. A plain click now toggles, in **both** lists, through one shared
+handler. Ctrl and Shift are left entirely alone: they mean what they mean
+everywhere in Windows.
+
+### Our dialogs
+
+Every question and refusal came through Revit's `TaskDialog`, which worked and
+looked like Revit -- the wrong half of the screen to borrow from when
+everything around it is ours. One branded dialog now, in three shapes: tell,
+confirm, and confirm-with-one-editable-line.
+
+Two `TaskDialog`s are left, both on purpose: they run **before** the window
+exists, so there is nothing to parent to, and if XAML loading is what broke
+then reporting it through more XAML reports nothing.
+
+### FEAT-13 does the family and type after all
+
+Refusing a family or type narrowing was **wrong**, and the project owner found
+the way round it by hand before anyone here did: Revit exposes **Family Name**
+and **Type Name** as ordinary filterable parameters. So the narrowing becomes
+two more conditions rather than an impossibility, and the conversion is refused
+only when this project will not filter on those two for these categories.
+
+The filter **name is editable** in the confirmation, and the prefix is taken
+from what gets typed: "STR - Columns" over "AnonGee - Columns" for a rule
+called "Columns" means the prefix is now "STR - ", and the next one is offered
+it. Renaming one filter to something that does not end in the rule's name is
+not read as a convention, because guessing one from that makes every later name
+wrong.
+
+A duplicate name is now **refused in a dialog**. A refusal that only reaches
+the status bar is one somebody presses through twice before reading it, and
+this action writes to the model when it succeeds.
+
+### A second rule replaces the first
+
+Pressing rule 2 on the panel after rule 1 required pressing Clear. Two reasons,
+and the second is the one that bites:
+
+1. `IsolateElementsTemporary` on an already-isolated view can only **narrow**;
+2. worse, `FilteredElementCollector(doc, view.Id)` only returns what is
+   **visible**, so the search for rule 2 ran against rule 1's survivors and
+   found nothing -- and "nothing matched" is a lie about the model.
+
+The reset, the regenerate and the search now happen inside **one** transaction,
+in that order, so one Ctrl+Z puts the view back where it was. A rule that
+genuinely matches nothing rolls back and leaves the previous isolate alone:
+clearing the view to show that the new rule found nothing would throw away what
+the user could see to replace it with everything.
+
+### Smaller, and asked for
+
+- **A clash is numbered `(2)`**, not ` 2` -- "Phase 2" and a second copy of
+  "Phase" are otherwise the same string.
+- **The same rule in two stores is one row**, badged `MACHINE + SHARED`.
+  Pointing the shared store at an export of your own rules is the ordinary way
+  to get there, and ten rows for five rules reads as a broken list. The moment
+  the copies differ they are two rules again -- which is right, because at that
+  point choosing between them is a decision only the user can make.
+
+### Also
+
+- 13 new tests (1511 -> 1524). Eleven faults were put back; **two gates did not
+  catch theirs** -- one checked that a click was *handled* rather than that it
+  *toggled*, and one looked for a field anywhere in a class when the method
+  that mattered had thrown it away.
+- A test helper that walked the whole AST for a method name was finding
+  whichever class was written first. There are three `_wire` methods now.
+- The thread-boundary gate counted a **nested** closure's `return` as `serve`'s
+  own, which the new `find_ids` callables tripped immediately.
+
+---
+
 ## 0.6.0 - 2026-09-11
 
 Everything left on the feature list, in one release, for a single test session

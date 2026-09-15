@@ -113,12 +113,71 @@ def isolate(doc, view, element_ids):
     return (len(wanted), "")
 
 
+def isolate_fresh(doc, view, find_ids):
+    """Reset any temporary isolate, THEN isolate what *find_ids* returns.
+
+    ``(count, message, was_reset)``.
+
+    This is what pressing a second rule has to do, and why it cannot simply
+    call ``isolate`` again. Two things stand in the way of the obvious version:
+
+    1. ``IsolateElementsTemporary`` on an already-isolated view can only
+       **narrow** what is shown. Rule 2's elements were hidden by rule 1, so
+       isolating them again shows nothing.
+    2. Worse, and less obvious: ``FilteredElementCollector(doc, view.Id)``
+       only returns what is **visible in the view**. With rule 1 in force the
+       search for rule 2's matches runs against rule 1's survivors, so it
+       usually finds nothing at all -- and "nothing matched" is a lie about
+       the model.
+
+    So the reset, the regenerate and the search all happen **inside one
+    transaction**, in that order. One transaction because one Ctrl+Z should
+    put the view back where it was, not step through a reset the user never
+    asked for; and ``find_ids`` is a callable rather than a list because it
+    has to run *after* the reset, and working out what matches needs
+    ``revit_query``, which this module does not import.
+
+    **A rule that matches nothing rolls back**, so the view keeps whatever was
+    on it. Clearing the view to show that the new rule found nothing would
+    throw away the isolate the user could see, to replace it with everything.
+    """
+    allowed, why = can_isolate(view)
+    if not allowed:
+        return (0, why, False)
+
+    was_reset = is_isolated(view)
+    transaction = Transaction(doc, TRANSACTION_NAME)
+    try:
+        transaction.Start()
+        if was_reset:
+            view.DisableTemporaryViewMode(TemporaryViewMode.TemporaryHideIsolate)
+            # Without this the collector below still sees the old isolate.
+            doc.Regenerate()
+        wanted = list(find_ids() or [])
+        if not wanted:
+            transaction.RollBack()
+            return (0, "nothing matched, so the view is unchanged", False)
+        view.IsolateElementsTemporary(compat.id_list(wanted))
+        transaction.Commit()
+    except Exception as error:
+        # S12.9.4: gated rollback, never an orphaned transaction.
+        try:
+            if transaction.HasStarted() and not transaction.HasEnded():
+                transaction.RollBack()
+        except Exception:
+            pass
+        return (0, "Revit refused the isolate: {0}".format(error), False)
+    return (len(wanted), "", was_reset)
+
+
 def isolate_many(doc, pairs):
     """Isolate in several views at once. ``(done, reports)``.
 
-    *pairs* is ``[(view, element_ids)]`` -- the caller works out what matches
-    in each view, because that needs ``revit_query`` and this module
-    deliberately does not import it.
+    *pairs* is ``[(view, find_ids)]``, where ``find_ids(view)`` returns the
+    matching ids. A **callable**, not a list, for the reason ``isolate_fresh``
+    explains: each view is reset first, and a collector cannot see past a
+    temporary isolate, so the search has to happen after the reset. Working
+    out what matches needs ``revit_query``, which this module does not import.
 
     *reports* is ``[(view label, count, why-not)]`` for **every** view asked
     about, including the ones that were skipped. A multi-view apply that says
@@ -132,29 +191,46 @@ def isolate_many(doc, pairs):
     find that out one press at a time.
     """
     reports = []
-    doable = []
-    for view, element_ids in pairs or []:
+    usable = []
+    for view, find_ids in pairs or []:
         name = view_label(view)
         allowed, why = can_isolate(view)
         if not allowed:
             reports.append((name, 0, why))
             continue
-        wanted = list(element_ids or [])
-        if not wanted:
-            # Same rule as the single-view isolate: Revit would happily leave
-            # a blank sheet of paper, which looks like a broken tool.
-            reports.append((name, 0, "nothing matched, so it is unchanged"))
-            continue
-        doable.append((view, wanted, name))
+        usable.append((view, find_ids, name))
 
-    if not doable:
+    if not usable:
         return (0, reports)
 
+    doable = []
     transaction = Transaction(doc, TRANSACTION_NAME)
     try:
         transaction.Start()
+        # Reset every view FIRST, then regenerate once, then search. A second
+        # apply to the same views would otherwise search each one through the
+        # isolate the first apply left on it.
+        reset_any = False
+        for view, _find, _name in usable:
+            if is_isolated(view):
+                view.DisableTemporaryViewMode(
+                    TemporaryViewMode.TemporaryHideIsolate)
+                reset_any = True
+        if reset_any:
+            doc.Regenerate()
+        for view, find_ids, name in usable:
+            wanted = list(find_ids(view) or [])
+            if not wanted:
+                # Same rule as the single-view isolate: Revit would happily
+                # leave a blank sheet of paper, which looks like a broken tool.
+                reports.append((name, 0, "nothing matched, so it is unchanged"))
+                continue
+            doable.append((view, wanted, name))
         for view, wanted, _name in doable:
             view.IsolateElementsTemporary(compat.id_list(wanted))
+        if not doable:
+            transaction.RollBack()
+            return (0, reports)
         transaction.Commit()
     except Exception as error:
         # S12.9.4: gated rollback, never an orphaned transaction.
@@ -167,7 +243,7 @@ def isolate_many(doc, pairs):
         # Every view is reported as untouched, because the rollback means
         # every view IS untouched -- reporting the ones that had already been
         # written inside the transaction would be a lie.
-        return (0, reports + [(name, 0, refused) for _v, _w, name in doable])
+        return (0, reports + [(name, 0, refused) for _v, _f, name in usable])
 
     for _view, wanted, name in doable:
         reports.append((name, len(wanted), ""))

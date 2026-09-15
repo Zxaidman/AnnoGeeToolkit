@@ -147,6 +147,21 @@ def slots_in_script():
     return found
 
 
+def _own_returns(node):
+    """Every ``return`` belonging to *node* itself, nested defs excluded."""
+    found = []
+    stack = list(ast.iter_child_nodes(node))
+    while stack:
+        current = stack.pop()
+        if isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef,
+                                ast.Lambda, ast.ClassDef)):
+            continue                      # its returns are its own
+        if isinstance(current, ast.Return):
+            found.append(current)
+        stack.extend(ast.iter_child_nodes(current))
+    return found
+
+
 def bound_control_names():
     """The name tuple inside ``FilterViewApp._bind_controls``."""
     for node in ast.walk(ast.parse(_read(_SCRIPT))):
@@ -275,33 +290,41 @@ class XamlTests(unittest.TestCase):
                     _tag(element), element.get(_X + "Name") or "(unnamed)"))
         self.assertEqual(problems, [], "no tooltip: " + "; ".join(problems))
 
-    def test_a_lists_action_button_sits_beside_the_list(self):
-        """A control below the scroll fold is a control that does not exist.
-
-        ``RemoveConditionBtn`` was built, wired and working, and sat UNDER a
-        fixed-height list inside a ScrollViewer -- so it was off the bottom of
-        the visible area and the project owner reported it as never built.
-
-        The rule that came out of it: an action belongs in the same container
-        as the thing it acts on. Then it is on screen exactly when its target
-        is, and no amount of scrolling can separate them.
+    def test_every_filter_rule_row_carries_its_own_remove(self):
+        """BUG-3 was a Remove button below the fold of the list it emptied.
+        The answer then was to move it beside the list; the answer now is
+        better -- Revit edits each rule in place, so each row removes itself
+        and there is no shared button to misplace.
         """
-        root = _tree()
-        for parent in root.iter():
-            children = list(parent)
-            tags = [_tag(child) for child in children]
-            names = [child.get(_X + "Name") for child in children]
-            if "ConditionList" in names:
-                self.assertIn("RemoveConditionBtn", names,
-                              "Remove is not a sibling of the list it empties")
-                return
-            del tags
-        self.fail("ConditionList is not in the XAML")
+        source = _read(_SCRIPT)
+        self.assertIn("def _remove_button(", source)
+        self.assertIn("self.owner._remove_row(self)", source)
+        for gone in ("RemoveConditionBtn", "ConditionList"):
+            self.assertNotIn('x:Name="{0}"'.format(gone), _read(_XAML), gone)
 
-    def test_the_conditions_list_offers_more_than_one_way_to_remove(self):
-        """The button is the obvious one; double-click is the one a modeller
-        reaches for first, and it costs a single wiring line."""
-        self.assertIn("ConditionList.MouseDoubleClick", _read(_SCRIPT))
+    def test_the_three_columns_are_laid_out_like_revits_own_dialog(self):
+        """Revit's Filters dialog is Filters | Categories | Filter Rules, and
+        a modeller already knows where to look. The SHAPE is Revit's; every
+        control, colour and type style in it is ours."""
+        source = _read(_XAML)
+        for heading in ("Saved rules", "Categories", "Filter rules"):
+            self.assertIn('Text="{0}"'.format(heading), source)
+        for native in ("AND (all rules must be true)",
+                       "OR (any rule may be true)",
+                       "Hide un-ticked categories"):
+            self.assertIn(native, source)
+        names = set(window_names())
+        for control in ("CheckAllBtn", "CheckNoneBtn", "HideUnpicked",
+                        "ConditionRows"):
+            self.assertIn(control, names)
+
+    def test_the_cascade_survived_the_relayout(self):
+        """Revit's dialog has no family or type. Ours does, it is worth
+        keeping, and it belongs under the categories because it answers the
+        same question -- what the rule looks in."""
+        names = set(window_names())
+        self.assertIn("FamilyCombo", names)
+        self.assertIn("TypeCombo", names)
 
     def test_the_hint_strip_says_what_pressing_a_rule_does(self):
         """The one promise the window must never stop making."""
@@ -441,8 +464,295 @@ class MultiViewTests(unittest.TestCase):
         self.assertIn("diagnostics.record(", body)
 
 
+_DIALOG_XAML = os.path.join(_BUTTON, "dialog.xaml")
+
+
+class BrandedDialogTests(unittest.TestCase):
+    """Every question this tool asks, in our own chrome."""
+
+    def test_the_dialog_xaml_is_well_formed(self):
+        ET.parse(_DIALOG_XAML)
+
+    def test_every_control_the_dialog_looks_up_exists_in_its_xaml(self):
+        present = set()
+        for element in ET.parse(_DIALOG_XAML).getroot().iter():
+            name = element.get(_X + "Name")
+            if name:
+                present.add(name)
+        source = _read(_SCRIPT)
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.ClassDef) and node.name == "Ask":
+                for inner in ast.walk(node):
+                    if (isinstance(inner, ast.Assign)
+                            and any(getattr(t, "id", "") == "NAMES"
+                                    for t in inner.targets)):
+                        missing = sorted(set(ast.literal_eval(inner.value))
+                                         - present)
+                        self.assertEqual(missing, [], missing)
+                        return
+        self.fail("Ask.NAMES is not in script.py")
+
+    def test_it_wears_the_same_theme_as_the_window_behind_it(self):
+        dialog = _read(_DIALOG_XAML)
+        window = _read(_XAML)
+        for key in ("ButtonPrimary", "ButtonGhost", "InputTextBox",
+                    "TextH2OnDark", "CardBorder"):
+            self.assertIn('x:Key="{0}"'.format(key), dialog)
+            self.assertIn('x:Key="{0}"'.format(key), window)
+
+    def test_revit_task_dialogs_are_gone_from_the_window(self):
+        """Two are left on purpose and both run BEFORE the window exists: no
+        window to parent to, and if XAML loading is what broke then reporting
+        it through more XAML reports nothing."""
+        source = _read(_SCRIPT)
+        uses = []
+        for node in ast.walk(ast.parse(source)):
+            if not (isinstance(node, ast.FunctionDef)
+                    and node.name.startswith("_on_")):
+                continue
+            body = ast.get_source_segment(source, node) or ""
+            if "TaskDialog" in body:
+                uses.append(node.name)
+        self.assertEqual(uses, [], "still using Revit's dialog: {0}".format(uses))
+
+    def test_a_refusal_offers_no_choice_it_cannot_honour(self):
+        """One button. Offering a Cancel where there is nothing to cancel is
+        how a Cancel gets pressed out of habit."""
+        source = _read(_SCRIPT)
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.FunctionDef) and node.name == "tell":
+                body = ast.get_source_segment(source, node) or ""
+                self.assertIn("no=None", body)
+                return
+        self.fail("Ask.tell is not in script.py")
+
+    def test_the_dialog_touches_no_revit_api(self):
+        source = _read(_SCRIPT)
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.ClassDef) and node.name == "Ask":
+                body = ast.get_source_segment(source, node) or ""
+                for banned in ("revit_query", "revit_apply", "Transaction",
+                               "uidoc", "TaskDialog"):
+                    self.assertNotIn(banned, body.replace(
+                        "It replaces Revit's ``TaskDialog``", ""), banned)
+                return
+        self.fail("Ask is not in script.py")
+
+
+class FilterNameTests(unittest.TestCase):
+    """FEAT-13 -- the name is the team's to choose."""
+
+    def _body(self, name):
+        source = _read(_SCRIPT)
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.FunctionDef) and node.name == name:
+                return ast.get_source_segment(source, node) or ""
+        self.fail("{0} is not in script.py".format(name))
+
+    def test_the_name_is_editable_before_anything_is_created(self):
+        body = self._body("_on_make_filter")
+        self.assertIn("Ask.edit(", body)
+        self.assertIn('field="Filter name"', body)
+
+    def test_the_typed_name_is_what_gets_created(self):
+        self.assertIn('request.get("filter_name")', _read(_SCRIPT))
+
+    def test_the_prefix_is_remembered_from_what_they_typed(self):
+        body = self._body("_on_make_filter")
+        self.assertIn("filters.prefix_of(", body)
+        self.assertIn("store.set_filter_prefix(", body)
+
+    def test_a_duplicate_name_is_refused_in_a_dialog(self):
+        """A refusal that only reaches the status bar is one somebody presses
+        through twice before reading it -- and this action writes to the model
+        when it succeeds."""
+        self.assertIn('Ask.tell(self.window, "No filter was created"',
+                      _read(_SCRIPT))
+
+
+class ToggleSelectionTests(unittest.TestCase):
+    """A click ticks; the same click again unticks. Both lists, same way."""
+
+    def _body(self, name, inside="FilterViewApp"):
+        """A method of *inside*. There are three ``_wire`` methods in this
+        file now -- the window's, the view picker's and the dialog's -- and
+        walking the whole tree for a name finds whichever was written first."""
+        source = _read(_SCRIPT)
+        for node in ast.walk(ast.parse(source)):
+            if not (isinstance(node, ast.ClassDef) and node.name == inside):
+                continue
+            for inner in node.body:
+                if isinstance(inner, ast.FunctionDef) and inner.name == name:
+                    return ast.get_source_segment(source, inner) or ""
+        self.fail("{0}.{1} is not in script.py".format(inside, name))
+
+    def test_both_lists_toggle_on_a_plain_click(self):
+        """Extended's own plain click REPLACES the selection, so clicking a
+        ticked row leaves it ticked and clears everything else -- which makes
+        the tick look like it is not really a tick."""
+        wiring = self._body("_wire")
+        self.assertIn("self.RuleList.PreviewMouseLeftButtonDown", wiring)
+        self.assertIn("self.CategoryList.PreviewMouseLeftButtonDown", wiring)
+
+    def test_the_two_lists_share_one_handler(self):
+        """Two handlers would drift, and the whole complaint was that the two
+        lists did not behave the same."""
+        wiring = self._body("_wire")
+        self.assertEqual(wiring.count("self._toggle_click"), 2)
+
+    def test_ctrl_and_shift_are_left_entirely_alone(self):
+        """They mean what they mean everywhere in Windows, and
+        re-implementing them here would only get them subtly wrong."""
+        body = self._body("_toggle_click")
+        self.assertIn("if Keyboard.Modifiers != NO_MODIFIER:", body)
+        self.assertLess(body.index("NO_MODIFIER"), body.index("IsSelected"))
+
+    def test_the_click_toggles_rather_than_merely_selecting(self):
+        """The whole complaint: a plain click on a ticked row has to UNTICK
+        it. Setting IsSelected = True does everything this handler does except
+        the one thing it exists for."""
+        body = self._body("_toggle_click")
+        self.assertIn("item.IsSelected = not item.IsSelected", body)
+
+    def test_the_default_click_is_suppressed_after_a_toggle(self):
+        """Or WPF's own click runs afterwards and replaces what was toggled."""
+        self.assertIn("args.Handled = True", self._body("_toggle_click"))
+
+    def test_both_category_buttons_act_on_what_is_shown(self):
+        """With a search in the box, "check all" means the search results --
+        not all 137 categories, which nobody has ever meant."""
+        for name in ("_on_check_all", "_on_check_none"):
+            body = self._body(name)
+            self.assertIn("self.CategoryList.Items", body)
+            self.assertIn("self._refresh_cascade()", body)
+
+    def test_the_category_list_takes_a_multiple_selection(self):
+        for element in _tree().iter():
+            if element.get(_X + "Name") == "CategoryList":
+                self.assertEqual(element.get("SelectionMode"), "Extended")
+                return
+        self.fail("CategoryList is not in the XAML")
+
+
+class ConditionRowTests(unittest.TestCase):
+    """Revit edits each rule in place, on its own row."""
+
+    def _class_body(self, name):
+        source = _read(_SCRIPT)
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.ClassDef) and node.name == name:
+                return ast.get_source_segment(source, node) or ""
+        self.fail("{0} is not in script.py".format(name))
+
+    def test_rows_are_built_in_python_and_not_from_a_datatemplate(self):
+        """§12.7.G -- a DataTemplate binding to a Python property fails
+        SILENTLY in this engine: blank cells, no error. Real controls, added
+        and read back directly, cannot fail that way."""
+        body = self._class_body("ConditionEditor")
+        self.assertIn("ComboBox()", body)
+        self.assertIn("TextBox()", body)
+        self.assertNotIn("ItemsSource", body)
+
+    def test_a_row_keeps_its_parameter_across_a_cascade(self):
+        """Ticking another category must not silently re-point a rule row at
+        whatever happens to be first in the new list.
+
+        Scoped to ``fill_parameters``: ``pending_parameter`` is set in
+        ``__init__`` too, so looking for it anywhere in the class passes even
+        when the refill throws it away.
+        """
+        source = _read(_SCRIPT)
+        for node in ast.walk(ast.parse(source)):
+            if not (isinstance(node, ast.ClassDef)
+                    and node.name == "ConditionEditor"):
+                continue
+            for inner in node.body:
+                if (isinstance(inner, ast.FunctionDef)
+                        and inner.name == "fill_parameters"):
+                    body = ast.get_source_segment(source, inner) or ""
+                    self.assertIn("self.pending_parameter", body)
+                    self.assertIn("self.parameter_name()", body)
+                    return
+        self.fail("ConditionEditor.fill_parameters is not in script.py")
+
+    def test_the_rule_is_read_from_the_rows(self):
+        """The rows are the truth once the editor is open; ``self.conditions``
+        is only what was loaded."""
+        source = _read(_SCRIPT)
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.FunctionDef) and node.name == "current_rule":
+                body = ast.get_source_segment(source, node) or ""
+                self.assertIn("row.read() for row in self.rows", body)
+                return
+        self.fail("current_rule is not in script.py")
+
+    def test_an_empty_row_is_allowed_to_exist(self):
+        """An empty row IS the thing being added. Refusing to add one until it
+        is already correct is the opposite of editing in place."""
+        source = _read(_SCRIPT)
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.FunctionDef) and node.name == "_on_add_condition":
+                body = ast.get_source_segment(source, node) or ""
+                self.assertNotIn("problems", body)
+                return
+        self.fail("_on_add_condition is not in script.py")
+
+    def test_every_row_handler_is_guarded(self):
+        body = self._class_body("ConditionEditor")
+        bare = [line.strip() for line in body.split("\n")
+                if "+=" in line and "self._guard(" not in line]
+        self.assertEqual(bare, [], "not guarded: {0}".format(bare))
+
+
+class ServeHelperTests(unittest.TestCase):
+    """The crash that shipped in 0.6.0, and the gate that now refuses it.
+
+    ``serve`` imports the Revit modules as **locals**. A ``_serve_*`` helper is
+    a different function and cannot see them, so ``_serve_views`` raised
+    ``NameError: name 'revit_query' is not defined`` on every press of Views.
+
+    The diagnostics named it exactly -- tag, cause and file -- which is why it
+    took one screenshot rather than a round trip. This gate is so the next one
+    does not need the screenshot either.
+    """
+
+    #: The modules ``serve`` imports locally. Any of these used in a helper
+    #: must be imported by that helper.
+    ENGINE = ("revit_query", "revit_apply", "revit_filter", "compat")
+
+    def test_every_serve_helper_imports_what_it_uses(self):
+        source = _read(_SCRIPT)
+        tree = ast.parse(source)
+        problems = []
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.FunctionDef)
+                    and node.name.startswith("_serve_")):
+                continue
+            imported = set()
+            for inner in ast.walk(node):
+                if isinstance(inner, ast.ImportFrom):
+                    imported.update(alias.name for alias in inner.names)
+            used = set()
+            for inner in ast.walk(node):
+                if (isinstance(inner, ast.Attribute)
+                        and isinstance(inner.value, ast.Name)
+                        and inner.value.id in self.ENGINE):
+                    used.add(inner.value.id)
+            for name in sorted(used - imported):
+                problems.append("{0} uses {1} without importing it".format(
+                    node.name, name))
+        self.assertEqual(problems, [], "; ".join(problems))
+
+
 class LiveCountTests(unittest.TestCase):
-    """FEAT-8 -- the number follows the rule instead of waiting to be asked."""
+    """FEAT-8 -- the number follows the rule instead of waiting to be asked.
+
+    0.6.0 debounced with a ``DispatcherTimer`` and the count never arrived: it
+    sat on "counting..." for a whole session in Revit. A timer that does not
+    tick fails **silently** -- no exception, no answer, nothing to tell it
+    apart from a slow model -- so 0.7.0 has no timer. It clocks itself off the
+    answers, which is a thing the suite can actually reason about.
+    """
 
     def _body(self, name):
         source = _read(_SCRIPT)
@@ -458,46 +768,60 @@ class LiveCountTests(unittest.TestCase):
         added, which is exactly how BUG-13 happened."""
         self.assertIn("self._bump_count(", self._body("_validate"))
 
+    def test_there_is_no_timer_left_anywhere(self):
+        """The whole class of failure 0.6.0 hit. A DispatcherTimer that never
+        ticks cannot be distinguished from a model that never answers."""
+        source = _read(_SCRIPT)
+        for banned in ("DispatcherTimer", "Debounce", "count_timer"):
+            self.assertNotIn(banned, source.replace("``DispatcherTimer``", ""),
+                             banned)
+
     def test_a_stale_number_is_withdrawn_before_the_new_one_arrives(self):
         """A number left sitting there while a new one is computed is worse
         than no number: it looks settled."""
         body = self._body("_bump_count")
         self.assertIn('self.LiveCount.Text = "counting..."', body)
-        self.assertIn("self.count_timer.reset()", body)
+        self.assertIn("self._pump_count()", body)
 
     def test_an_invalid_rule_shows_no_count_at_all(self):
         body = self._body("_bump_count")
         self.assertIn("if problems:", body)
-        self.assertIn("self.count_timer.stop()", body)
-
-    def test_the_debounce_restarts_rather_than_merely_starts(self):
-        """A DispatcherTimer already running does not restart its interval on
-        Start, so without the Stop a user typing steadily never reaches a
-        quiet period and the count never arrives."""
-        body = self._body("reset")
-        self.assertLess(body.index("Stop()"), body.index("Start()"))
+        self.assertIn("self.count_wanted = False", body)
 
     def test_counts_cannot_stack_on_a_slow_model(self):
-        self.assertIn("if self.counting:", self._body("_count_now"))
+        """A change while one is in flight only sets the flag."""
+        self.assertIn("if self.counting or not self.count_wanted:",
+                      self._body("_pump_count"))
 
-    def test_a_failed_count_releases_the_latch(self):
-        """Unlatched in the branch that runs for every answer, not only the
-        successful one -- otherwise one bad count stops the live count for the
-        rest of the session."""
+    def test_the_answer_is_what_clocks_the_next_one(self):
+        """This is what replaces the timer: every answer pumps, so the rate is
+        whatever Revit can manage and a request can never be left unasked."""
         body = self._body("_receive")
+        self.assertGreaterEqual(body.count("self._pump_count()"), 2,
+                                "both the answer and the error path must pump")
+
+    def test_a_failed_count_does_not_stop_the_live_count(self):
+        """The two flags must not be able to wedge: one bad answer stopping
+        the count for the rest of the session is the 0.6.0 failure again."""
+        body = self._body("_receive")
+        # Unlatched before the error check, so a failed count unlatches too...
         self.assertLess(body.index("self.counting = False"),
                         body.index('problem = answer.get("error")'))
+        # ...and the error path pumps, so the NEXT count is still asked for.
+        self.assertIn('self._status(problem, "error")\n'
+                      '            if kind == "count":\n'
+                      '                self._pump_count()', body)
 
     def test_the_live_count_does_not_talk_over_the_status_bar(self):
         """It writes the same label as the Count button and says nothing else,
-        or it would overwrite whatever the user was being told, once per
-        keystroke."""
+        or it would overwrite whatever the user was being told."""
         self.assertIn('if answer.get("tag") != "FEAT-8":', self._body("_receive"))
 
-    def test_the_timer_is_stopped_when_the_window_closes(self):
-        """A DispatcherTimer left running holds a reference to a dead window
-        and keeps firing into it."""
-        self.assertIn("self.count_timer.stop()", self._body("_on_closed"))
+    def test_the_tag_comes_back_with_the_answer(self):
+        """Without it every answer looks untagged and the suppression above
+        never fires -- which is exactly what shipped in 0.6.0."""
+        self.assertIn('answer.setdefault("tag", request.get("tag", "UI"))',
+                      _read(_SCRIPT))
 
 
 class RuleStoreTests(unittest.TestCase):
@@ -814,7 +1138,10 @@ class ScriptWiringTests(unittest.TestCase):
         self.assertTrue(any(n.name == "serve" for n in answering),
                         "serve() not found")
         for node in answering:
-            returned = [n for n in ast.walk(node) if isinstance(n, ast.Return)]
+            # The function's OWN returns. A nested helper defined inside serve
+            # -- a find_ids closure handed to revit_apply -- returns element
+            # ids, and that is not serve answering across the boundary.
+            returned = _own_returns(node)
             self.assertTrue(returned, node.name)
             for one in returned:
                 if isinstance(one.value, ast.Dict):

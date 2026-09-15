@@ -737,18 +737,68 @@ class ConvertibleTests(unittest.TestCase):
         ok, why = filters.convertible(rule, ["Comments"])
         self.assertTrue(ok, why)
 
-    def test_a_family_narrowing_is_refused(self):
-        """Matched by NAME here, which a parameter filter cannot do -- the
-        filter would come out BROADER than the rule, which is the one outcome
-        worse than refusing."""
+    def test_a_family_narrowing_becomes_a_family_name_condition(self):
+        """Refused until 0.7.0, and that was wrong. Revit exposes **Family
+        Name** as an ordinary filterable parameter, so the narrowing is two
+        more conditions rather than an impossibility -- which the project
+        owner found by building it by hand before anyone here did."""
         rule = a_rule(family="Basic Wall", type_name=None, conditions=[])
-        ok, why = filters.convertible(rule)
-        self.assertFalse(ok)
-        self.assertTrue(any("family" in reason for reason in why))
+        grown = filters.expand(rule)
+        self.assertIsNone(grown.family)
+        self.assertEqual(grown.conditions[0].parameter, filters.FAMILY_PARAMETER)
+        self.assertEqual(grown.conditions[0].value, "Basic Wall")
+        self.assertTrue(filters.convertible(rule, [filters.FAMILY_PARAMETER])[0])
 
-    def test_a_type_narrowing_is_refused(self):
+    def test_a_type_narrowing_becomes_a_type_name_condition(self):
         rule = a_rule(family=None, type_name="100mm", conditions=[])
-        self.assertFalse(filters.convertible(rule)[0])
+        grown = filters.expand(rule)
+        self.assertIsNone(grown.type_name)
+        self.assertEqual(grown.conditions[0].parameter, filters.TYPE_PARAMETER)
+        self.assertTrue(filters.convertible(rule, [filters.TYPE_PARAMETER])[0])
+
+    def test_the_narrowing_is_read_first_like_the_cascade(self):
+        """Family, then type, then the user's own conditions -- the order they
+        built them in, so the created filter reads like the rule."""
+        rule = a_rule(family="Basic Wall", type_name="100mm",
+                      conditions=[rules.Condition("Comments", "equals", "X")])
+        got = [c.parameter for c in filters.expand(rule).conditions]
+        self.assertEqual(got, [filters.FAMILY_PARAMETER,
+                               filters.TYPE_PARAMETER, "Comments"])
+
+    def test_a_rule_with_no_narrowing_is_returned_untouched(self):
+        rule = a_rule(family=None, type_name=None, conditions=[])
+        self.assertIs(filters.expand(rule), rule)
+
+    def test_a_project_that_will_not_filter_on_family_name_is_refused(self):
+        """The workaround is not universal: those two parameters have to be
+        offered for THESE categories, and when they are not, saying so beats
+        creating a filter that silently means something broader."""
+        rule = a_rule(family="Basic Wall", type_name=None, conditions=[])
+        ok, why = filters.convertible(rule, ["Comments"])
+        self.assertFalse(ok)
+        self.assertTrue(any(filters.FAMILY_PARAMETER in reason
+                            for reason in why), why)
+
+    def test_the_prefix_is_a_default_and_not_a_rule(self):
+        """A filter lands in a list the whole team shares, so it wants a
+        prefix -- but which prefix is the team's business."""
+        rule = a_rule(name="Columns")
+        self.assertTrue(filters.filter_name(rule).startswith("AnonGee"))
+        self.assertEqual(filters.filter_name(rule, ""), "Columns")
+        self.assertEqual(filters.filter_name(rule, "STR - "), "STR - Columns")
+
+    def test_a_typed_name_says_what_the_prefix_now_is(self):
+        """Deriving it beats a second control nobody would find."""
+        rule = a_rule(name="Columns")
+        self.assertEqual(filters.prefix_of("STR - Columns", rule), "STR - ")
+        self.assertEqual(filters.prefix_of("Columns", rule), "")
+
+    def test_renaming_one_filter_does_not_change_the_convention(self):
+        """A name that does not end with the rule's name is somebody renaming
+        this one filter. Guessing a prefix from it makes every later name
+        wrong."""
+        self.assertIsNone(
+            filters.prefix_of("Something else entirely", a_rule(name="Columns")))
 
     def test_a_rule_with_no_categories_is_refused(self):
         """A ParameterFilterElement is defined over categories and cannot
@@ -942,6 +992,78 @@ class SharedStoreTests(unittest.TestCase):
         self.assertIsNone(store.shared_path())
 
 
+class GroupedTests(unittest.TestCase):
+    """The same rule in two stores is one thing in two places."""
+
+    def rule(self, name, source):
+        return rules.Rule(name=name, categories=["Walls"], source=source,
+                          conditions=[rules.Condition("P", "equals", "1")])
+
+    def test_identical_rules_in_two_stores_collapse_to_one_row(self):
+        """Pointing the shared store at an export of your own rules is the
+        ordinary way to get here, and ten rows for five rules reads as a
+        broken list."""
+        built = rules.RuleSet([self.rule("A", store.MACHINE),
+                               self.rule("A", store.SHARED)])
+        grouped = built.grouped()
+        self.assertEqual(len(grouped), 1)
+        self.assertEqual([one.source for one in grouped[0][1]],
+                         [store.MACHINE, store.SHARED])
+
+    def test_the_moment_they_differ_they_are_two_rules_again(self):
+        """Which is right: at that point choosing between them is a decision
+        only the user can make."""
+        mine = self.rule("A", store.MACHINE)
+        theirs = self.rule("A", store.SHARED)
+        theirs.conditions = [rules.Condition("P", "equals", "2")]
+        self.assertEqual(len(rules.RuleSet([mine, theirs]).grouped()), 2)
+
+    def test_a_different_name_is_a_different_rule(self):
+        built = rules.RuleSet([self.rule("A", store.MACHINE),
+                               self.rule("B", store.SHARED)])
+        self.assertEqual(len(built.grouped()), 2)
+
+    def test_sameness_is_judged_revits_way(self):
+        """Revit calls "Columns" and " columns " the same name."""
+        built = rules.RuleSet([self.rule("Columns", store.MACHINE),
+                               self.rule("  COLUMNS ", store.SHARED)])
+        self.assertEqual(len(built.grouped()), 1)
+
+    def test_id_order_and_source_are_not_part_of_sameness(self):
+        """Two copies were written independently, so they have different ids
+        and different sources -- including either would make every copy unique
+        and the grouping pointless."""
+        one = self.rule("A", store.MACHINE)
+        two = self.rule("A", store.SHARED)
+        two.id = "a-completely-different-id"
+        two.order = 99
+        self.assertEqual(rules.fingerprint(one), rules.fingerprint(two))
+
+    def test_the_order_of_conditions_matters(self):
+        """"All of A then B" and "all of B then A" match the same elements,
+        but they are not the same rule to read, and collapsing them would
+        hide an edit."""
+        one = self.rule("A", store.MACHINE)
+        one.conditions = [rules.Condition("P", "equals", "1"),
+                          rules.Condition("Q", "equals", "2")]
+        two = self.rule("A", store.SHARED)
+        two.conditions = list(reversed(one.conditions))
+        self.assertNotEqual(rules.fingerprint(one), rules.fingerprint(two))
+
+    def test_grouping_keeps_the_order_of_the_set(self):
+        built = rules.RuleSet([self.rule("A", store.MACHINE),
+                               self.rule("B", store.MACHINE),
+                               self.rule("A", store.SHARED)])
+        self.assertEqual([rule.name for rule, _ in built.grouped()], ["A", "B"])
+
+    def test_a_clash_is_numbered_in_brackets(self):
+        """`` (2)`` rather than `` 2`` -- a rule called "Phase 2" and a second
+        copy of "Phase" are otherwise the same string."""
+        mine = rules.RuleSet([a_rule(name="Phase")])
+        mine.merge(rules.RuleSet([a_rule(name="Phase")]))
+        self.assertEqual([r.name for r in mine], ["Phase", "Phase (2)"])
+
+
 class MergeTests(unittest.TestCase):
     """FEAT-12 -- somebody else's rules arrive without replacing yours."""
 
@@ -957,7 +1079,7 @@ class MergeTests(unittest.TestCase):
         self.assertEqual(added, 2)
         self.assertEqual(renamed, 1)
         self.assertEqual([r.name for r in self.mine],
-                         ["Columns", "Beams", "Columns 2", "Slabs"])
+                         ["Columns", "Beams", "Columns (2)", "Slabs"])
 
     def test_every_arriving_rule_gets_a_new_id(self):
         """Two people's sets are generated independently. A colliding id would
@@ -978,8 +1100,8 @@ class MergeTests(unittest.TestCase):
         self.mine.merge(self.theirs)
         self.mine.merge(self.theirs)
         self.assertEqual([r.name for r in self.mine],
-                         ["Columns", "Beams", "Columns 2", "Slabs",
-                          "Columns 3", "Slabs 2"])
+                         ["Columns", "Beams", "Columns (2)", "Slabs",
+                          "Columns (3)", "Slabs (2)"])
 
     def test_a_clash_is_judged_revits_way(self):
         """Revit calls "Columns" and " columns " the same name, so importing

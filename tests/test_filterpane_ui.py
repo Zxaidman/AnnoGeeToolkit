@@ -691,6 +691,29 @@ class OrientationTests(unittest.TestCase):
                          "centred in a dockable pane: {0}".format(offenders))
 
 
+class ReplaceIsolateTests(unittest.TestCase):
+    """Pressing a second rule replaces the first, without pressing Clear."""
+
+    def test_the_panel_resets_before_it_searches(self):
+        body = function_source("_run")
+        self.assertIn("revit_apply.isolate_fresh(", body)
+        self.assertNotIn("revit_apply.isolate(", body)
+
+    def test_the_search_is_handed_over_as_a_callable(self):
+        """It has to run AFTER the reset: a collector cannot see past a
+        temporary isolate, so searching before it runs against the previous
+        rule's survivors and finds nothing."""
+        body = function_source("_run")
+        self.assertIn("def find_ids():", body)
+        self.assertLess(body.index("def find_ids():"),
+                        body.index("isolate_fresh("))
+
+    def test_the_user_is_told_the_view_was_replaced(self):
+        """Otherwise a second press that shows fewer elements looks like the
+        rule matching badly rather than like the view having moved on."""
+        self.assertIn("replacing what was shown", function_source("_run"))
+
+
 class PanelStoreTests(unittest.TestCase):
     """FEAT-14 on the panel. A rule saved beside the model has to appear here
     too, or "saved with the model" means "saved, and invisible from the

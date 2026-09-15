@@ -607,60 +607,108 @@
     </Window.Resources>
 
     <!-- ════════════════════════════════════════════════════════════════════
-         MAIN LAYOUT
-         Two cards: the saved rules on the left, the rule being built on the
-         right. The footer carries the status badge, the live count and the
-         actions — §12.6: the header holds the title only, transient state
-         lives in the footer status row.
+         MAIN LAYOUT - three columns, laid out like Revit's own Filters
+         dialog so that a modeller already knows where to look:
+
+             Saved rules  |  Categories  |  Filter rules
+
+         The SHAPE is Revit's; nothing else is. Every control, colour, radius
+         and type style is ours, unchanged (section 12.3, section 9).
+
+         Two things Revit's dialog has no equivalent of - the rule's name and
+         which store it is saved in - sit above the three columns rather than
+         being squeezed into one of them, because they are about the rule as
+         a whole.
          ════════════════════════════════════════════════════════════════════ -->
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>   <!-- 0 header -->
             <RowDefinition Height="3"/>      <!-- 1 accent rule -->
             <RowDefinition Height="Auto"/>   <!-- 2 hint strip -->
-            <RowDefinition Height="*"/>      <!-- 3 body -->
-            <RowDefinition Height="Auto"/>   <!-- 4 footer -->
+            <RowDefinition Height="Auto"/>   <!-- 3 name + store -->
+            <RowDefinition Height="*"/>      <!-- 4 the three columns -->
+            <RowDefinition Height="Auto"/>   <!-- 5 footer -->
         </Grid.RowDefinitions>
 
         <!-- ── Header: the title, and the build actually running ── -->
         <Border Grid.Row="0" Background="{StaticResource BrushCharcoalBlack}" Padding="20,14">
             <Grid>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="Filter View Manager" Style="{StaticResource TextH2OnDark}"
-                           VerticalAlignment="Center" />
+                <TextBlock Grid.Column="0" Text="Filter View Manager"
+                           Style="{StaticResource TextH2OnDark}" VerticalAlignment="Center"/>
                 <Border Grid.Column="1" Background="{StaticResource BrushVividRed}" CornerRadius="3"
                         Padding="8,3" VerticalAlignment="Center">
-                    <TextBlock x:Name="VersionText" Text="0.1.0"
-                               FontFamily="{StaticResource FontMono}" FontSize="{StaticResource FontSizeCaption}"
-                               FontWeight="SemiBold" Foreground="{StaticResource BrushPureWhite}"
-                               VerticalAlignment="Center" />
+                    <TextBlock x:Name="VersionText" Text="0.0.0"
+                               FontFamily="{StaticResource FontMono}"
+                               FontSize="{StaticResource FontSizeCaption}"
+                               FontWeight="SemiBold"
+                               Foreground="{StaticResource BrushPureWhite}"/>
                 </Border>
             </Grid>
         </Border>
+
         <Rectangle Grid.Row="1" Fill="{StaticResource BrushVividRed}"/>
 
-        <!-- ── Hint strip: what this window does to the model, always visible ── -->
         <Border Grid.Row="2" Background="{StaticResource BrushOffWhite}"
                 BorderBrush="{StaticResource BrushLightBorder}" BorderThickness="0,0,0,1"
-                Padding="16,7">
-            <TextBlock x:Name="HintText"
-                       Text="Pressing a rule isolates its matches in the active view only. Nothing is written to the project."
-                       Style="{StaticResource TextCaption}" TextWrapping="Wrap"/>
+                Padding="20,8">
+            <TextBlock x:Name="HintText" Style="{StaticResource TextCaption}"
+                       TextWrapping="Wrap"
+                       Text="Pressing a rule isolates its matches in the active view only. Nothing is written to the project."/>
         </Border>
 
-        <!-- ── Body ── -->
-        <Grid Grid.Row="3" Margin="16,14,16,12">
+        <!-- ── The rule as a whole: its name, and where it is saved ── -->
+        <Border Grid.Row="3" Padding="20,12,20,0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" Margin="0,0,16,0">
+                    <TextBlock Text="Rule name" Style="{StaticResource FieldLabel}" Margin="0,0,0,4"/>
+                    <TextBox x:Name="RuleNameBox" Style="{StaticResource InputTextBox}"
+                             ToolTip="What the button will be called. This is the only thing you will see on the dockable panel, so name it for what it shows."/>
+                </StackPanel>
+
+                <StackPanel Grid.Column="1">
+                    <TextBlock Text="Saved in" Style="{StaticResource FieldLabel}" Margin="0,0,0,4"/>
+                    <StackPanel Orientation="Horizontal">
+                        <RadioButton x:Name="StoreMachineRadio" Content="This workstation"
+                                     GroupName="RuleStore" Style="{StaticResource TabRadio}" IsChecked="True"
+                                     ToolTip="Your AppData. The rule follows YOU into every project on this machine, and survives a Revit restart."/>
+                        <RadioButton x:Name="StoreProjectRadio" Content="This project"
+                                     GroupName="RuleStore" Style="{StaticResource TabRadio}" Margin="6,0,0,0"
+                                     ToolTip="A file beside the model, in an AnonGee folder. The rule travels with the MODEL, so anyone opening it gets the same rule."/>
+                        <RadioButton x:Name="StoreSharedRadio" Content="Shared"
+                                     GroupName="RuleStore" Style="{StaticResource TabRadio}" Margin="6,0,0,0"
+                                     ToolTip="One file the whole office points at, usually on a network share. Everyone reads and writes the same set."/>
+                        <Button x:Name="SharedPickBtn" Content="Choose..."
+                                Style="{StaticResource ButtonGhost}" Margin="10,0,0,0"
+                                ToolTip="Point this workstation at the shared rules file. Pick the same file everybody else picks - typically on a network drive. Choosing one you have not got yet creates it on the first save."/>
+                    </StackPanel>
+                    <TextBlock x:Name="StoreHint" Style="{StaticResource TextCaption}"
+                               Margin="0,4,0,0" TextWrapping="Wrap"
+                               Text="Rules here follow you into the next project."/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- ══ The three columns ══ -->
+        <Grid Grid.Row="4" Margin="20,12,20,12">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="320"/>
-                <ColumnDefinition Width="14"/>
+                <ColumnDefinition Width="300"/>
+                <ColumnDefinition Width="12"/>
+                <ColumnDefinition Width="270"/>
+                <ColumnDefinition Width="12"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
-            <!-- ══ LEFT: saved rules ══ -->
-            <Border Grid.Column="0" Style="{StaticResource CardBorder}">
+            <!-- ══ 1. SAVED RULES ══ -->
+            <Border Grid.Column="0" Style="{StaticResource CardBorder}" Padding="12">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -679,23 +727,16 @@
                                    Style="{StaticResource TextCaption}" VerticalAlignment="Center"/>
                     </Grid>
 
-                    <!-- SelectionMode="Extended" is the whole of Ctrl+click and
-                         Shift+click: WPF does both natively once the mode is
-                         right, and the same mode is what cad2bim's layer
-                         mapping uses. The tick is a REPORT of selection, not a
-                         second way to make one - it is bound one-way to the
-                         row's own IsSelected and is not hit-testable, so
-                         clicking it selects the row exactly as clicking the
-                         name does (section 12.7.Q: a Python bool does not
-                         coerce for a checkbox, so the binding has to go to the
-                         native container). -->
+                    <!-- Extended, plus a plain click that TOGGLES: see
+                         FilterViewApp._toggle_click. Ctrl+click and
+                         Shift+click keep their platform meanings. -->
                     <ListBox Grid.Row="1" x:Name="RuleList"
                              Background="{StaticResource BrushPureWhite}"
                              BorderBrush="{StaticResource BrushLightBorder}" BorderThickness="1"
                              SelectionMode="Extended"
                              HorizontalContentAlignment="Stretch"
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                             ToolTip="Your saved rules. Click one to load it into the editor. Ctrl+click adds to the selection and Shift+click takes a run of them - Duplicate, Delete and the four Move buttons act on everything ticked.">
+                             ToolTip="Click a rule to load it into the editor. Click it again to untick it. Ctrl+click adds to the selection, Shift+click takes a run - Duplicate, Delete and the Move buttons act on everything ticked.">
                         <ListBox.ItemTemplate>
                             <DataTemplate>
                                 <Grid Margin="0,2">
@@ -734,9 +775,7 @@
                     <StackPanel Grid.Row="2" Margin="0,10,0,0">
                         <Grid Margin="0,0,0,6">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="6"/>
-                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/><ColumnDefinition Width="6"/><ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
                             <Button Grid.Column="0" x:Name="NewRuleBtn" Content="New"
                                     Style="{StaticResource ButtonNeutral}"
@@ -747,9 +786,7 @@
                         </Grid>
                         <Grid Margin="0,0,0,6">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="6"/>
-                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/><ColumnDefinition Width="6"/><ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
                             <Button Grid.Column="0" x:Name="MoveUpBtn" Content="Move up"
                                     Style="{StaticResource ButtonNeutral}"
@@ -760,22 +797,18 @@
                         </Grid>
                         <Grid Margin="0,0,0,6">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="6"/>
-                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/><ColumnDefinition Width="6"/><ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
                             <Button Grid.Column="0" x:Name="MoveTopBtn" Content="To top"
                                     Style="{StaticResource ButtonNeutral}"
-                                    ToolTip="Send everything selected straight to the top of the list, in one step, keeping the order it is in."/>
+                                    ToolTip="Send everything selected straight to the top of the list, keeping the order it is in."/>
                             <Button Grid.Column="2" x:Name="MoveBottomBtn" Content="To bottom"
                                     Style="{StaticResource ButtonNeutral}"
                                     ToolTip="Send everything selected straight to the bottom of the list, keeping the order it is in."/>
                         </Grid>
                         <Grid Margin="0,0,0,6">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="6"/>
-                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/><ColumnDefinition Width="6"/><ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
                             <Button Grid.Column="0" x:Name="ImportBtn" Content="Import"
                                     Style="{StaticResource ButtonNeutral}"
@@ -791,211 +824,155 @@
                 </Grid>
             </Border>
 
-            <!-- ══ RIGHT: the rule being built ══ -->
-            <Border Grid.Column="2" Style="{StaticResource CardBorder}">
+            <!-- ══ 2. CATEGORIES ══ -->
+            <Border Grid.Column="2" Style="{StaticResource CardBorder}" Padding="12">
                 <Grid>
                     <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Text="Categories" Style="{StaticResource TextH3}"
+                               Margin="0,0,0,4"/>
+                    <TextBlock Grid.Row="1" Style="{StaticResource TextCaption}" TextWrapping="Wrap"
+                               Margin="0,0,0,8"
+                               Text="Tick every category the rule looks in. Parameters common to these become the filter rules on the right."/>
+
+                    <StackPanel Grid.Row="2" Margin="0,0,0,8">
+                        <TextBox x:Name="CategorySearch" Style="{StaticResource InputTextBox}"
+                                 Margin="0,0,0,6"
+                                 ToolTip="Type to narrow the list below. The ticks you have already made are kept."/>
+                        <CheckBox x:Name="HideUnpicked" Content="Hide un-ticked categories"
+                                  Style="{StaticResource GridCheckBox}"
+                                  ToolTip="Show only what you have ticked. Revit's own Filters dialog calls this &quot;Hide un-checked categories&quot;."/>
+                    </StackPanel>
+
+                    <ListBox Grid.Row="3" x:Name="CategoryList" SelectionMode="Extended"
+                             Background="{StaticResource BrushPureWhite}"
+                             BorderBrush="{StaticResource BrushLightBorder}" BorderThickness="1"
+                             HorizontalContentAlignment="Stretch"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             ToolTip="Click to tick, click again to untick. Ctrl+click adds, Shift+click takes a run - the same as the saved rules list.">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Orientation="Horizontal">
+                                    <CheckBox Style="{StaticResource GridCheckBox}"
+                                              IsHitTestVisible="False"
+                                              IsChecked="{Binding IsSelected, Mode=OneWay, RelativeSource={RelativeSource AncestorType=ListBoxItem}}"
+                                              VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                    <TextBlock Text="{Binding Name}" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+
+                    <StackPanel Grid.Row="4" Margin="0,10,0,0">
+                        <!-- Revit's own dialog has no family or type: it is
+                             categories and rules, and nothing between. We have
+                             the cascade and it is worth keeping, so it lives
+                             HERE, under the categories, because it answers the
+                             same question - what the rule looks in. A rule that
+                             uses it can still become a Revit filter: the
+                             narrowing converts into Family Name and Type Name
+                             conditions (FEAT-13). -->
+                        <TextBlock Text="Family" Style="{StaticResource FieldLabel}" Margin="0,0,0,4"/>
+                        <ComboBox x:Name="FamilyCombo" Style="{StaticResource InputComboBox}"
+                                  Margin="0,0,0,8"
+                                  ToolTip="Optional. Leave on (any family) to match every family in the ticked categories. Basic Wall is a system family and appears here like a loadable one."/>
+                        <TextBlock Text="Type" Style="{StaticResource FieldLabel}" Margin="0,0,0,4"/>
+                        <ComboBox x:Name="TypeCombo" Style="{StaticResource InputComboBox}"
+                                  ToolTip="Optional. Leave on (any type) to match every type in the chosen family."/>
+                    </StackPanel>
+
+                    <Grid Grid.Row="5" Margin="0,10,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/><ColumnDefinition Width="6"/><ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Button Grid.Column="0" x:Name="CheckAllBtn" Content="Check all"
+                                Style="{StaticResource ButtonNeutral}"
+                                ToolTip="Tick every category currently shown. With a search in the box that is the search results, not all 137."/>
+                        <Button Grid.Column="2" x:Name="CheckNoneBtn" Content="Check none"
+                                Style="{StaticResource ButtonNeutral}"
+                                ToolTip="Untick every category currently shown."/>
+                    </Grid>
+                </Grid>
+            </Border>
+
+            <!-- ══ 3. FILTER RULES ══ -->
+            <Border Grid.Column="4" Style="{StaticResource CardBorder}" Padding="12">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
-                    <Grid Grid.Row="0" Margin="0,0,0,10">
+                    <TextBlock Grid.Row="0" Text="Filter rules" Style="{StaticResource TextH3}"
+                               Margin="0,0,0,8"/>
+
+                    <!-- Revit's "AND (All rules must be true)" header, with
+                         Add Rule beside it. -->
+                    <Grid Grid.Row="1" Margin="0,0,0,8">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" Text="Build a rule" Style="{StaticResource TextH3}"
-                                   VerticalAlignment="Center"/>
-                        <Button Grid.Column="1" x:Name="RefreshBtn" Content="Re-read model"
-                                Style="{StaticResource ButtonNeutral}" Width="120"
-                                ToolTip="Read the categories, families, types and parameters again. Use this after loading a family or opening a different project."/>
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                            <RadioButton x:Name="MatchAllRadio" Content="AND (all rules must be true)"
+                                         GroupName="MatchMode" Style="{StaticResource TabRadio}" IsChecked="True"
+                                         ToolTip="An element must satisfy every rule below."/>
+                            <RadioButton x:Name="MatchAnyRadio" Content="OR (any rule may be true)"
+                                         GroupName="MatchMode" Style="{StaticResource TabRadio}" Margin="8,0,0,0"
+                                         ToolTip="An element only has to satisfy one of the rules below."/>
+                        </StackPanel>
+                        <Button Grid.Column="1" x:Name="AddConditionBtn" Content="Add rule"
+                                Style="{StaticResource ButtonSecondary}"
+                                ToolTip="Add an empty rule row. Choose its parameter, how to compare, and what to compare with."/>
                     </Grid>
 
-                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                    <!-- Column headings, like Revit's three columns of combos. -->
+                    <Grid Grid.Row="2" Margin="0,0,14,4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="6"/>
+                            <ColumnDefinition Width="150"/>
+                            <ColumnDefinition Width="6"/>
+                            <ColumnDefinition Width="160"/>
+                            <ColumnDefinition Width="6"/>
+                            <ColumnDefinition Width="100"/>
+                            <ColumnDefinition Width="34"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Parameter" Style="{StaticResource FieldLabel}"/>
+                        <TextBlock Grid.Column="2" Text="Compare" Style="{StaticResource FieldLabel}"/>
+                        <TextBlock Grid.Column="4" Text="Value" Style="{StaticResource FieldLabel}"/>
+                        <TextBlock Grid.Column="6" Text="Unit" Style="{StaticResource FieldLabel}"/>
+                    </Grid>
+
+                    <!-- The rows themselves are built in Python: a DataTemplate
+                         would need INotifyPropertyChanged, which section 12.7.G
+                         says fails SILENTLY in this engine. Real controls,
+                         added and read directly, cannot fail that way. -->
+                    <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto"
                                   HorizontalScrollBarVisibility="Disabled">
-                        <StackPanel Margin="0,0,10,0">
-
-                            <TextBlock Text="Rule name" Style="{StaticResource FieldLabel}" Margin="0,0,0,4"/>
-                            <TextBox x:Name="RuleNameBox" Style="{StaticResource InputTextBox}" Margin="0,0,0,12"
-                                     ToolTip="What the button will be called. This is the only thing you will see on the dockable panel, so name it for what it shows."/>
-
-                            <!-- A choice between two named places, not an on/off,
-                                 so radios (section 9.4) rather than the toggle
-                                 switch (section 9.9). Changing it and pressing
-                                 Save MOVES the rule: written to one store and
-                                 removed from the other. -->
-                            <TextBlock Text="Saved in" Style="{StaticResource FieldLabel}" Margin="0,0,0,4"/>
-                            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                                <RadioButton x:Name="StoreMachineRadio" Content="This workstation"
-                                             GroupName="RuleStore"
-                                             Style="{StaticResource TabRadio}" IsChecked="True"
-                                             ToolTip="Your AppData. The rule follows YOU into every project on this machine, and survives a Revit restart."/>
-                                <RadioButton x:Name="StoreProjectRadio" Content="This project"
-                                             GroupName="RuleStore"
-                                             Style="{StaticResource TabRadio}" Margin="6,0,0,0"
-                                             ToolTip="A file beside the model, in an AnonGee folder. The rule travels with the MODEL, so anyone opening it gets the same rule."/>
-                                <RadioButton x:Name="StoreSharedRadio" Content="Shared"
-                                             GroupName="RuleStore"
-                                             Style="{StaticResource TabRadio}" Margin="6,0,0,0"
-                                             ToolTip="One file the whole office points at, usually on a network share. Everyone reads and writes the same set, so a rule added here appears for everybody."/>
-                                <Button x:Name="SharedPickBtn" Content="Choose..."
-                                        Style="{StaticResource ButtonGhost}" Margin="10,0,0,0"
-                                        ToolTip="Point this workstation at the shared rules file. Pick the same file everybody else picks - typically on a network drive. Choosing one you have not got yet creates it on the first save."/>
-                            </StackPanel>
-                            <TextBlock x:Name="StoreHint" Style="{StaticResource TextCaption}" Margin="0,0,0,12"
-                                       TextWrapping="Wrap"
-                                       Text="Rules here follow you into the next project."/>
-
-                            <Grid Margin="0,0,0,4">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" Text="Categories" Style="{StaticResource FieldLabel}"
-                                           VerticalAlignment="Center"/>
-                                <TextBlock Grid.Column="1" x:Name="CategoryPickedText" Text="none picked"
-                                           Style="{StaticResource TextCaption}" HorizontalAlignment="Right"
-                                           VerticalAlignment="Center"/>
-                            </Grid>
-                            <TextBox x:Name="CategorySearch" Style="{StaticResource InputTextBox}" Margin="0,0,0,6"
-                                     ToolTip="Type to narrow the list below. The ticks you have already made are kept."/>
-                            <ListBox x:Name="CategoryList" Height="150" SelectionMode="Multiple"
-                                     Background="{StaticResource BrushPureWhite}"
-                                     BorderBrush="{StaticResource BrushLightBorder}" BorderThickness="1"
-                                     Margin="0,0,0,12"
-                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                                     ToolTip="Tick every category the rule should look in. A rule needs at least one.">
-                                <ListBox.ItemTemplate>
-                                    <DataTemplate>
-                                        <StackPanel Orientation="Horizontal">
-                                            <CheckBox Style="{StaticResource GridCheckBox}"
-                                                      IsHitTestVisible="False"
-                                                      IsChecked="{Binding IsSelected, Mode=OneWay, RelativeSource={RelativeSource AncestorType=ListBoxItem}}"
-                                                      VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                            <TextBlock Text="{Binding Name}" VerticalAlignment="Center"/>
-                                        </StackPanel>
-                                    </DataTemplate>
-                                </ListBox.ItemTemplate>
-                            </ListBox>
-
-                            <TextBlock Text="Family" Style="{StaticResource FieldLabel}" Margin="0,0,0,4"/>
-                            <ComboBox x:Name="FamilyCombo" Style="{StaticResource InputComboBox}" Margin="0,0,0,12"
-                                      ToolTip="Optional. Leave on (any family) to match every family in the chosen categories. Basic Wall is a system family and appears here just like a loadable one."/>
-
-                            <TextBlock Text="Type" Style="{StaticResource FieldLabel}" Margin="0,0,0,4"/>
-                            <ComboBox x:Name="TypeCombo" Style="{StaticResource InputComboBox}" Margin="0,0,0,14"
-                                      ToolTip="Optional. Leave on (any type) to match every type in the chosen family."/>
-
-                            <Border Background="{StaticResource BrushLightBorder}" Height="1" Margin="0,0,0,12"/>
-
-                            <Grid Margin="0,0,0,6">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" Text="Conditions" Style="{StaticResource TextH3}"
-                                           VerticalAlignment="Center"/>
-                                <StackPanel Grid.Column="2" Orientation="Horizontal">
-                                    <RadioButton x:Name="MatchAllRadio" Content="All" GroupName="MatchMode"
-                                                 Style="{StaticResource TabRadio}" IsChecked="True"
-                                                 ToolTip="An element must satisfy every condition."/>
-                                    <RadioButton x:Name="MatchAnyRadio" Content="Any" GroupName="MatchMode"
-                                                 Style="{StaticResource TabRadio}" Margin="6,0,0,0"
-                                                 ToolTip="An element only has to satisfy one of the conditions."/>
-                                </StackPanel>
-                            </Grid>
-
-                            <Grid Margin="0,0,0,6">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="6"/>
-                                    <ColumnDefinition Width="130"/>
-                                </Grid.ColumnDefinitions>
-                                <ComboBox Grid.Column="0" x:Name="ParameterCombo" Style="{StaticResource InputComboBox}"
-                                          ToolTip="Every parameter these categories carry. One marked (no view filter) still works here -- pressing a rule isolates, it does not write a Revit view filter."/>
-                                <ComboBox Grid.Column="2" x:Name="OperatorCombo" Style="{StaticResource InputComboBox}"
-                                          ToolTip="How the value is compared."/>
-                            </Grid>
-                            <Grid Margin="0,0,0,6">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="6"/>
-                                    <ColumnDefinition Width="110"/>
-                                    <ColumnDefinition Width="6"/>
-                                    <ColumnDefinition Width="130"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBox Grid.Column="0" x:Name="ValueBox" Style="{StaticResource InputTextBox}"
-                                         ToolTip="The value to compare against. For 'is between', two numbers separated by a comma is not accepted -- use the second box. A comma is never read as a decimal point."/>
-                                <ComboBox Grid.Column="2" x:Name="UnitCombo" Style="{StaticResource InputComboBox}"
-                                          ToolTip="The unit you typed the value in. It is saved with the rule, so the rule still means the same thing on an imperial project."/>
-                                <Button Grid.Column="4" x:Name="AddConditionBtn" Content="Add condition"
-                                        Style="{StaticResource ButtonSecondary}"
-                                        ToolTip="Add this condition to the rule."/>
-                            </Grid>
-
-                            <!-- The list and its Remove button share a row.
-                                 Remove sat UNDER the list until 2026-09-10,
-                                 which put it below the scroll fold: it was
-                                 built, wired and working, and simply could not
-                                 be seen. A control the user cannot find is a
-                                 control that does not exist. -->
-                            <Grid Margin="0,0,0,6">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="6"/>
-                                    <ColumnDefinition Width="110"/>
-                                </Grid.ColumnDefinitions>
-
-                                <ListBox Grid.Column="0" x:Name="ConditionList"
-                                         Height="96"
-                                         Background="{StaticResource BrushPureWhite}"
-                                         BorderBrush="{StaticResource BrushLightBorder}"
-                                         BorderThickness="1"
-                                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                                         ToolTip="The conditions on this rule. A rule with none matches everything in its categories, which is a legitimate rule. Double-click one to remove it.">
-                                    <ListBox.ItemTemplate>
-                                        <DataTemplate>
-                                            <TextBlock Text="{Binding Text}"
-                                                       FontFamily="{StaticResource FontMono}"
-                                                       FontSize="{StaticResource FontSizeBody}"
-                                                       TextTrimming="CharacterEllipsis"/>
-                                        </DataTemplate>
-                                    </ListBox.ItemTemplate>
-                                </ListBox>
-
-                                <Button Grid.Column="2" x:Name="RemoveConditionBtn"
-                                        Content="Remove" VerticalAlignment="Top"
-                                        Style="{StaticResource ButtonGhost}"
-                                        ToolTip="Remove the condition selected in the list. Double-clicking a condition does the same."/>
-                            </Grid>
-                        </StackPanel>
+                        <StackPanel x:Name="ConditionRows"/>
                     </ScrollViewer>
 
-                    <Border Grid.Row="2" Background="{StaticResource BrushOffWhite}" CornerRadius="5"
-                            Padding="10,8" Margin="0,10,0,0">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" x:Name="ProblemText" Text="Pick a category to begin."
-                                       Style="{StaticResource TextCaption}" TextWrapping="Wrap"
-                                       VerticalAlignment="Center"/>
-                            <Button Grid.Column="1" x:Name="SaveRuleBtn" Content="Save rule" Width="130"
-                                    Style="{StaticResource ButtonPrimary}" Margin="10,0,0,0"
-                                    ToolTip="Save this rule so it is here next time, and in your next project. Saved rules live in your AppData, not in the model."/>
-                        </Grid>
-                    </Border>
+                    <TextBlock Grid.Row="4" x:Name="ProblemText" Style="{StaticResource TextCaption}"
+                               TextWrapping="Wrap" Margin="0,8,0,0"/>
                 </Grid>
             </Border>
         </Grid>
 
-        <!-- ── Footer: the badge, the live count, and the actions ── -->
-        <Border Grid.Row="4" Background="{StaticResource BrushOffWhite}"
+        <!-- ── Footer ── -->
+        <Border Grid.Row="5" Background="{StaticResource BrushOffWhite}"
                 BorderBrush="{StaticResource BrushLightBorder}" BorderThickness="0,1,0,0"
-                Padding="16,10">
+                Padding="20,10">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
@@ -1006,50 +983,57 @@
 
                 <Border Grid.Column="0" x:Name="StatusBadge"
                         Background="{StaticResource BrushInfoBadgeBackground}"
-                        CornerRadius="3" Padding="8,3" VerticalAlignment="Center" Margin="0,0,10,0">
+                        CornerRadius="3" Padding="8,3" VerticalAlignment="Center">
                     <TextBlock x:Name="StatusBadgeText" Text="READY"
-                               FontFamily="{StaticResource FontMono}" FontSize="{StaticResource FontSizeCaption}"
-                               FontWeight="SemiBold" Foreground="{StaticResource BrushInfoBadgeText}"/>
+                               FontFamily="{StaticResource FontMono}"
+                               FontSize="{StaticResource FontSizeCaption}"
+                               FontWeight="SemiBold"
+                               Foreground="{StaticResource BrushInfoBadgeText}"/>
                 </Border>
 
-                <TextBlock Grid.Column="1" x:Name="StatusBar" Text="Reading the model..."
-                           FontFamily="{StaticResource FontMono}" FontSize="{StaticResource FontSizeCaption}"
-                           Foreground="{StaticResource BrushMidGrey}" TextTrimming="CharacterEllipsis"
-                           VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="1" x:Name="StatusBar" Text=""
+                           Style="{StaticResource TextCaption}" VerticalAlignment="Center"
+                           TextTrimming="CharacterEllipsis" Margin="12,0,12,0"/>
 
                 <TextBlock Grid.Column="2" x:Name="LiveCount" Text=""
                            FontFamily="{StaticResource FontMono}" FontSize="{StaticResource FontSizeCaption}"
                            FontWeight="SemiBold" Foreground="{StaticResource BrushCharcoalBlack}"
-                           VerticalAlignment="Center" Margin="12,0,14,0"/>
+                           VerticalAlignment="Center" Margin="0,0,14,0"/>
 
                 <StackPanel Grid.Column="3" Orientation="Horizontal">
                     <Button x:Name="DiagnosticsBtn" Content="Diagnostics" Width="96"
-                            Style="{StaticResource ButtonGhost}"
-                            Margin="0,0,6,0"
+                            Style="{StaticResource ButtonGhost}" Margin="0,0,6,0"
                             ToolTip="What this tool has done and anything that failed, with the full detail. Press it when something did not work: it shows the last few entries and opens the folder the log is in, so the file can be sent on."/>
-                    <Button x:Name="PanelBtn" Content="Panel" Width="86"
-                            Style="{StaticResource ButtonNeutral}"
-                            Margin="0,0,6,0"
+                    <Button x:Name="RefreshBtn" Content="Re-read model" Width="112"
+                            Style="{StaticResource ButtonNeutral}" Margin="0,0,6,0"
+                            ToolTip="Read the categories, families, types and parameters again. Press it after changing the model, or after saving a model that had never been saved."/>
+                    <Button x:Name="PanelBtn" Content="Panel" Width="76"
+                            Style="{StaticResource ButtonNeutral}" Margin="0,0,6,0"
                             ToolTip="Show the dockable panel that holds these rules as buttons. It docks under the ribbon and can be dragged to either edge, like Properties."/>
-                    <Button x:Name="CountBtn" Content="Count" Width="86" Style="{StaticResource ButtonNeutral}"
+                    <Button x:Name="SaveRuleBtn" Content="Save rule" Width="96"
+                            Style="{StaticResource ButtonNeutral}" Margin="0,0,6,0"
+                            ToolTip="Save this rule so it is here next time, and in your next project."/>
+                    <Button x:Name="CountBtn" Content="Count" Width="76"
+                            Style="{StaticResource ButtonNeutral}"
                             ToolTip="Count what this rule matches in the active view, without changing anything."/>
-                    <Button x:Name="SelectBtn" Content="Select" Width="86" Style="{StaticResource ButtonNeutral}"
-                            Margin="6,0,0,0"
+                    <Button x:Name="SelectBtn" Content="Select" Width="76"
+                            Style="{StaticResource ButtonNeutral}" Margin="6,0,0,0"
                             ToolTip="Put the matches into Revit's selection instead of isolating them."/>
-                    <Button x:Name="ClearBtn" Content="Clear" Width="86" Style="{StaticResource ButtonSecondary}"
-                            Margin="6,0,0,0"
+                    <Button x:Name="FilterBtn" Content="Make filter" Width="100"
+                            Style="{StaticResource ButtonNeutral}" Margin="6,0,0,0"
+                            ToolTip="Create a REAL Revit view filter from this rule, in Manage &gt; Filters. This is the one thing here that WRITES to the project - you are shown exactly what will be created and asked first."/>
+                    <Button x:Name="ViewsBtn" Content="Views..." Width="86"
+                            Style="{StaticResource ButtonNeutral}" Margin="6,0,0,0"
+                            ToolTip="Isolate this rule in SEVERAL views at once. Views that cannot be isolated are listed with the reason rather than hidden, and one Undo puts every view back."/>
+                    <Button x:Name="ClearBtn" Content="Clear" Width="76"
+                            Style="{StaticResource ButtonSecondary}" Margin="6,0,0,0"
                             ToolTip="Put the view back. The same as Revit's own Reset Temporary Hide/Isolate."/>
-                    <Button x:Name="FilterBtn" Content="Make filter" Width="104"
-                            Style="{StaticResource ButtonNeutral}" Margin="6,0,0,0"
-                            ToolTip="Create a REAL Revit view filter from this rule, in Manage &gt; Filters. This is the one thing here that WRITES to the project - it survives a save, it prints, and everyone opening the model sees it. You are shown exactly what will be created and asked first."/>
-                    <Button x:Name="ViewsBtn" Content="Views..." Width="92"
-                            Style="{StaticResource ButtonNeutral}" Margin="6,0,0,0"
-                            ToolTip="Isolate this rule in SEVERAL views at once. Views that cannot be isolated - schedules, sheets - are listed with the reason rather than hidden, and one Undo puts every view back."/>
-                    <Button x:Name="ApplyBtn" Content="Apply" Width="110" Style="{StaticResource ButtonPrimary}"
-                            Margin="6,0,0,0"
+                    <Button x:Name="ApplyBtn" Content="Apply" Width="96"
+                            Style="{StaticResource ButtonPrimary}" Margin="6,0,0,0"
                             ToolTip="Isolate the matches in the active view. Temporary, this view only, and nothing is written to the project."/>
-                    <Button x:Name="CloseBtn" Content="Close" Width="86" Style="{StaticResource ButtonGhost}"
-                            Margin="6,0,0,0" ToolTip="Close the window. Saved rules stay saved."/>
+                    <Button x:Name="CloseBtn" Content="Close" Width="76"
+                            Style="{StaticResource ButtonGhost}" Margin="6,0,0,0"
+                            ToolTip="Close the window. Saved rules stay saved."/>
                 </StackPanel>
             </Grid>
         </Border>
