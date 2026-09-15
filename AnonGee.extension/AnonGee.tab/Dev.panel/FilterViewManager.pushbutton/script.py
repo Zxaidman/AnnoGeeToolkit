@@ -55,10 +55,14 @@ from Autodesk.Revit.UI import TaskDialogResult                 # noqa: E402
 
 from System import Action, Guid                                # noqa: E402
 from System.Collections import ArrayList                       # noqa: E402
+from System.Windows import GridLength, GridUnitType, Thickness # noqa: E402
+from System.Windows.Controls import (Button, ColumnDefinition,  # noqa: E402
+                                     ComboBox, Grid, ListBoxItem, TextBox)
+from System.Windows.Input import Keyboard, ModifierKeys        # noqa: E402
+from System.Windows.Media import VisualTreeHelper              # noqa: E402
 from System.IO import FileAccess, FileMode, FileStream         # noqa: E402
-from System import TimeSpan                                    # noqa: E402
+from System.Windows import Visibility                          # noqa: E402
 from System.Windows.Interop import WindowInteropHelper         # noqa: E402
-from System.Windows.Threading import DispatcherTimer           # noqa: E402
 from System.Windows.Markup import XamlReader                   # noqa: E402
 
 __title__ = "Filter\nView Manager"
@@ -103,6 +107,11 @@ ANY_FAMILY = "(any family)"
 ANY_TYPE = "(any type)"
 NO_UNIT = "(no unit)"
 
+#: ``ModifierKeys.None`` cannot be written down -- ``None`` is a Python
+#: keyword, so the attribute access is a SyntaxError and getattr is the only
+#: way to name the .NET member.
+NO_MODIFIER = getattr(ModifierKeys, "None")
+
 #: Marks a parameter Revit would refuse in a native view filter. It still makes
 #: a perfectly good rule here, because pressing a rule isolates (CRIT-2).
 NOT_FILTERABLE = "   (no view filter)"
@@ -116,13 +125,30 @@ NOT_FILTERABLE = "   (no view filter)"
 # in a binding path in ui.xaml, and nothing else is bound.
 
 class RuleRow(object):
-    __slots__ = ("Name", "Badge", "Summary", "RuleId")
+    """One row for one rule, however many stores it happens to live in.
 
-    def __init__(self, rule):
+    ``RuleIds`` is every copy. Pointing the shared store at an export of your
+    own rules puts the same rule in two files -- ``load_all`` keeps both,
+    because neither store may silently win -- and ten rows for five rules
+    reads as a broken list. One row badged ``MACHINE + SHARED`` says the same
+    thing and does not.
+    """
+
+    __slots__ = ("Name", "Badge", "Summary", "RuleId", "RuleIds")
+
+    def __init__(self, rule, copies=None):
+        copies = list(copies or [rule])
         self.Name = rule.name or "(unnamed)"
-        self.Badge = (rule.source or "machine").upper()
+        self.Badge = " + ".join(
+            sorted(set((one.source or "machine").upper() for one in copies)))
         self.Summary = rule.summary()
+        #: The copy the editor loads. The first, which is the machine store
+        #: when there is one, because that is the one a person can always save.
         self.RuleId = rule.id
+        #: Every copy, so Delete and the Move buttons act on all of them --
+        #: deleting a row that leaves an identical rule behind in another file
+        #: is the row coming straight back on the next load.
+        self.RuleIds = [one.id for one in copies]
 
 
 class CategoryRow(object):
@@ -130,47 +156,6 @@ class CategoryRow(object):
 
     def __init__(self, name):
         self.Name = name
-
-
-class Debounce(object):
-    """Fire *callback* once, after *delay_ms* of silence.
-
-    A ``DispatcherTimer`` restarted on every change, which is the WPF way and
-    the one the reference implementation in ``OneFilterParameter`` uses.
-    Inlined rather than imported from ``anongee_toolkit.ui.dialogs``, which has
-    the same class: that package is CPython-only and reachable from here, but
-    a failed import takes the whole window with it, and the precedent for this
-    exact control is to carry its own.
-
-    ``reset`` is deliberately Stop-then-Start rather than Start alone -- a
-    ``DispatcherTimer`` already running does not restart its interval when
-    Start is called again, so without the Stop a user typing steadily would
-    never reach a quiet period and the count would never arrive.
-    """
-
-    __slots__ = ("_timer", "_callback")
-
-    def __init__(self, callback, delay_ms=350):
-        self._callback = callback
-        self._timer = DispatcherTimer()
-        self._timer.Interval = TimeSpan.FromMilliseconds(delay_ms)
-        self._timer.Tick += self._on_tick
-
-    def _on_tick(self, sender, args):
-        self._timer.Stop()
-        try:
-            self._callback()
-        except Exception as error:                          # noqa: BLE001
-            import traceback
-            diagnostics.failure("FEAT-8", "the live count", error,
-                                traceback.format_exc())
-
-    def reset(self):
-        self._timer.Stop()
-        self._timer.Start()
-
-    def stop(self):
-        self._timer.Stop()
 
 
 class ViewRow(object):
@@ -183,13 +168,6 @@ class ViewRow(object):
         self.Note = "" if usable else "cannot be isolated -- {0}".format(why)
         self.ViewId = view_id
         self.Usable = usable
-
-
-class ConditionRow(object):
-    __slots__ = ("Text",)
-
-    def __init__(self, text):
-        self.Text = text
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -249,6 +227,13 @@ if _state.handler_cls is None:
                             request.get("tag", "UI"),
                             request.get("what", request.get("kind", "a request")),
                             error, traceback.format_exc())}
+                # The tag goes out with the request and has to come back
+                # with the answer: serve's own branches build their dicts by
+                # hand and none of them carried it, so every answer looked
+                # untagged and the live count talked over the status bar.
+                if isinstance(answer, dict):
+                    answer.setdefault("tag", request.get("tag", "UI"))
+                    answer.setdefault("what", request.get("what", ""))
                 app.post(answer)
 
         def GetName(self):
@@ -262,6 +247,279 @@ else:
 # ═══════════════════════════════════════════════════════════════════════════
 # The window
 # ═══════════════════════════════════════════════════════════════════════════
+
+class ConditionEditor(object):
+    """One editable filter-rule row: parameter, compare, value, unit, remove.
+
+    Revit's Filters dialog edits each rule in place, on its own row, and that
+    is the shape this copies. Ours used to compose a condition in four
+    controls at the top and push it into a read-only list, which meant
+    changing one operator was remove-then-rebuild.
+
+    **Built in Python, not from a DataTemplate.** A template would have to
+    bind to a row object, and S12.7.G is explicit that DataTemplate bindings
+    to a Python property fail *silently* in this engine -- blank cells, no
+    error. Real controls, added and read back directly, cannot fail that way;
+    it costs more lines here and none of them are mysterious.
+    """
+
+    def __init__(self, owner, condition=None):
+        self.owner = owner
+        self._handlers = []
+        self.root = Grid()
+        for width in (GridLength(1, GridUnitType.Star), GridLength(6),
+                      GridLength(150), GridLength(6), GridLength(160),
+                      GridLength(6), GridLength(100), GridLength(34)):
+            column = ColumnDefinition()
+            column.Width = width
+            self.root.ColumnDefinitions.Add(column)
+        self.root.Margin = Thickness(0, 0, 0, 6)
+
+        self.parameter = self._combo(0, "InputComboBox")
+        self.operator = self._combo(2, "InputComboBox")
+        self.value = self._text(4)
+        self.unit = self._combo(6, "InputComboBox")
+        self.remove = self._remove_button(7)
+
+        for key in values.OPERATORS:
+            self.operator.Items.Add(values.operator_label(key))
+        self.operator.SelectedIndex = 0
+        self.unit.Items.Add(NO_UNIT)
+        for one in values.known_units():
+            self.unit.Items.Add(one)
+        self.unit.SelectedIndex = 0
+
+        self.pending_parameter = ""
+        if condition is not None:
+            self.pending_parameter = condition.parameter
+            self._select(self.operator, values.operator_label(condition.operator))
+            self.value.Text = "" if condition.operator in values.VALUELESS_OPERATORS \
+                else "{0}".format(condition.value)
+            self._select(self.unit, condition.unit or NO_UNIT)
+
+    # -- building ----------------------------------------------------------
+
+    def _place(self, control, column):
+        Grid.SetColumn(control, column)
+        self.root.Children.Add(control)
+        return control
+
+    def _combo(self, column, style):
+        combo = ComboBox()
+        found = self.owner.window.TryFindResource(style)
+        if found is not None:
+            combo.Style = found
+        combo.DropDownClosed += self._guard(self._changed)
+        return self._place(combo, column)
+
+    def _text(self, column):
+        box = TextBox()
+        found = self.owner.window.TryFindResource("InputTextBox")
+        if found is not None:
+            box.Style = found
+        box.TextChanged += self._guard(self._changed)
+        return self._place(box, column)
+
+    def _remove_button(self, column):
+        button = Button()
+        button.Content = "X"
+        found = self.owner.window.TryFindResource("ButtonGhost")
+        if found is not None:
+            button.Style = found
+        button.ToolTip = "Remove this rule row."
+        button.Margin = Thickness(6, 0, 0, 0)
+        button.Click += self._guard(self._on_remove)
+        return self._place(button, column)
+
+    def _guard(self, handler):
+        """Held for the life of the row, and loud when it fails."""
+        def wrapped(sender, args):
+            try:
+                handler(sender, args)
+            except Exception as error:                     # noqa: BLE001
+                import traceback
+                self.owner._blame("UI", "a filter rule row", error,
+                                  traceback.format_exc())
+        self._handlers.append(wrapped)
+        return wrapped
+
+    def _changed(self, sender, args):
+        if self.owner.rebuilding:
+            return
+        self.owner._validate()
+
+    def _on_remove(self, sender, args):
+        self.owner._remove_row(self)
+
+    def _select(self, combo, wanted):
+        for index in range(combo.Items.Count):
+            if names.same("{0}".format(combo.Items[index]), wanted):
+                combo.SelectedIndex = index
+                return True
+        return False
+
+    # -- reading -----------------------------------------------------------
+
+    def fill_parameters(self, parameters):
+        """Refill the parameter list, keeping what this row already names."""
+        wanted = self.pending_parameter or self.parameter_name()
+        self.parameter.Items.Clear()
+        for name, filterable in parameters:
+            self.parameter.Items.Add(
+                name if filterable else name + NOT_FILTERABLE)
+        if wanted and self._select_parameter(wanted):
+            self.pending_parameter = ""
+        elif self.parameter.Items.Count and not wanted:
+            self.parameter.SelectedIndex = 0
+
+    def _select_parameter(self, wanted):
+        for index in range(self.parameter.Items.Count):
+            plain = "{0}".format(self.parameter.Items[index]).replace(
+                NOT_FILTERABLE, "").strip()
+            if names.same(plain, wanted):
+                self.parameter.SelectedIndex = index
+                return True
+        return False
+
+    def parameter_name(self):
+        chosen = self.parameter.SelectedItem
+        if chosen is None:
+            return self.pending_parameter or ""
+        return "{0}".format(chosen).replace(NOT_FILTERABLE, "").strip()
+
+    def operator_key(self):
+        label = "{0}".format(self.operator.SelectedItem or "")
+        for key in values.OPERATORS:
+            if values.operator_label(key) == label:
+                return key
+        return "equals"
+
+    def read(self):
+        """This row as a ``Condition``."""
+        chosen_unit = self.unit.SelectedItem
+        unit = "" if chosen_unit is None else "{0}".format(chosen_unit)
+        return rules.Condition(
+            parameter=self.parameter_name(),
+            operator=self.operator_key(),
+            value=self.value.Text,
+            unit="" if unit == NO_UNIT else unit,
+            filterable=self.owner._is_filterable(self.parameter_name()))
+
+
+class Ask(object):
+    """Every question this tool asks, in our own chrome.
+
+    It replaces Revit's ``TaskDialog``, which worked and looked like Revit --
+    the wrong half of the screen to borrow from when everything around it is
+    ours.
+
+    Three shapes, one window:
+
+    ``Ask.tell``     something happened, or something was refused. One button.
+    ``Ask.confirm``  yes or no, with the detail a person needs to answer.
+    ``Ask.edit``     the same, plus one line they can change first.
+
+    Four separate dialogs would drift -- the third one written would put the
+    buttons in a different order and nobody would notice until somebody
+    pressed the wrong one.
+
+    It touches no Revit API, so it opens straight from the WPF thread.
+    """
+
+    NAMES = ("DialogTitle", "DialogMessage", "DialogDetail", "DialogDetailBox",
+             "DialogInput", "DialogInputRow", "DialogInputLabel",
+             "DialogYesBtn", "DialogNoBtn", "DialogAccent")
+
+    def __init__(self, owner, title, message, detail="", yes="Yes", no="No",
+                 field="", value=""):
+        path = os.path.join(HERE, "dialog.xaml")
+        stream = FileStream(path, FileMode.Open, FileAccess.Read)
+        try:
+            self.window = XamlReader.Load(stream)
+        finally:
+            stream.Close()
+        for name in self.NAMES:
+            setattr(self, name, self.window.FindName(name))
+        try:
+            self.window.Owner = owner
+        except Exception:
+            pass                       # a dialog that will not parent is fine
+        self.window.Title = title
+        self.DialogTitle.Text = title
+        self.DialogMessage.Text = message
+        if detail:
+            self.DialogDetail.Text = detail
+            self.DialogDetailBox.Visibility = Visibility.Visible
+        if field:
+            self.DialogInputLabel.Text = field
+            self.DialogInput.Text = value or ""
+            self.DialogInputRow.Visibility = Visibility.Visible
+        self.DialogYesBtn.Content = yes
+        if no is None:
+            # One button. A refusal has nothing to say no to, and offering a
+            # choice where there is none is how a Cancel gets pressed by habit.
+            self.DialogNoBtn.Visibility = Visibility.Collapsed
+        else:
+            self.DialogNoBtn.Content = no
+        self._handlers = []
+        self.DialogYesBtn.Click += self._guard(self._on_yes)
+        self.DialogNoBtn.Click += self._guard(self._on_no)
+        self.answer = False
+
+    def _guard(self, handler):
+        def wrapped(sender, args):
+            try:
+                handler(sender, args)
+            except Exception:                              # noqa: BLE001
+                try:
+                    self.window.DialogResult = False
+                    self.window.Close()
+                except Exception:
+                    pass
+        self._handlers.append(wrapped)
+        return wrapped
+
+    def _on_yes(self, sender, args):
+        self.answer = True
+        self.window.DialogResult = True
+        self.window.Close()
+
+    def _on_no(self, sender, args):
+        self.answer = False
+        self.window.DialogResult = False
+        self.window.Close()
+
+    def show(self):
+        try:
+            self.window.ShowDialog()
+        except Exception as error:                         # noqa: BLE001
+            import traceback
+            diagnostics.failure("UI", "opening a dialog", error,
+                                traceback.format_exc())
+            return False
+        return bool(self.answer)
+
+    # -- the three shapes --------------------------------------------------
+
+    @staticmethod
+    def tell(owner, title, message, detail=""):
+        """Say something. One button, because there is nothing to refuse."""
+        Ask(owner, title, message, detail, yes="Close", no=None).show()
+
+    @staticmethod
+    def confirm(owner, title, message, detail="", yes="Yes", no="No"):
+        return Ask(owner, title, message, detail, yes=yes, no=no).show()
+
+    @staticmethod
+    def edit(owner, title, message, value, field="Name", detail="",
+             yes="Create", no="Cancel"):
+        """Ask, with one line they can change first. ``None`` for a cancel."""
+        dialog = Ask(owner, title, message, detail, yes=yes, no=no,
+                     field=field, value=value)
+        if not dialog.show():
+            return None
+        return "{0}".format(dialog.DialogInput.Text).strip()
+
 
 class ViewPicker(object):
     """FEAT-11 -- the modal that answers "which views?".
@@ -434,7 +692,8 @@ class FilterViewApp(object):
         self.categories = []            # [name]
         self.parameters = []            # [(name, filterable)]
         self.picked = set()             # category names, the source of truth
-        self.conditions = []            # [Condition]
+        self.conditions = []            # [Condition], as loaded
+        self.rows = []                  # [ConditionEditor], what is on screen
         self.rule_set = rules.RuleSet()
         self.editing_id = None          # the saved rule being edited, if any
         self.machine_path = None
@@ -454,10 +713,10 @@ class FilterViewApp(object):
         #: moved is deselected and the next press does nothing.
         self._keep_selected = []
 
-        #: FEAT-8. Restarted by every change to the rule, so a count is asked
-        #: for once the user stops rather than once per keystroke.
-        self.count_timer = Debounce(self._count_now, 350)
-        #: Set while a count is in flight, so a slow model cannot stack them.
+        #: FEAT-8. ``count_wanted`` says the rule has changed since the last
+        #: count; ``counting`` says one is in flight. Together they are a
+        #: self-clocking coalescer -- see ``_pump_count``.
+        self.count_wanted = False
         self.counting = False
         #: FEAT-11. The rule the view picker is being opened for, held between
         #: asking Revit for the views and the picker coming back.
@@ -465,6 +724,10 @@ class FilterViewApp(object):
         #: FEAT-19. The office's rules file, if this workstation has been
         #: pointed at one. Read once at startup; changed by the Choose button.
         self.shared_path = store.shared_path()
+        #: FEAT-13. What a created view filter is called before the rule's own
+        #: name. Remembered from the last one created, because a team's naming
+        #: convention is a convention.
+        self.filter_prefix = store.filter_prefix()
 
         self._fill_static_combos()
         self._wire()
@@ -495,25 +758,23 @@ class FilterViewApp(object):
                 "DiagnosticsBtn", "ImportBtn", "ExportBtn", "ViewsBtn",
                 "StoreSharedRadio", "SharedPickBtn", "FilterBtn",
                 "MoveUpBtn", "MoveDownBtn", "DeleteRuleBtn",
-                "RefreshBtn", "PanelBtn", "RuleNameBox", "CategoryPickedText",
+                "RefreshBtn", "PanelBtn", "RuleNameBox",
                 "CategorySearch", "CategoryList", "FamilyCombo", "TypeCombo",
+                "HideUnpicked", "CheckAllBtn", "CheckNoneBtn",
                 "MatchAllRadio", "MatchAnyRadio",
-                "ParameterCombo", "OperatorCombo", "ValueBox", "UnitCombo",
-                "AddConditionBtn", "ConditionList", "RemoveConditionBtn",
+                "AddConditionBtn", "ConditionRows",
                 "ProblemText", "SaveRuleBtn",
                 "StatusBadge", "StatusBadgeText", "StatusBar", "LiveCount",
                 "CountBtn", "SelectBtn", "ClearBtn", "ApplyBtn", "CloseBtn"):
             setattr(self, name, find(name))
 
     def _fill_static_combos(self):
+        """Only the version now: the operator and unit lists belong to a row.
+
+        Each ``ConditionEditor`` fills its own, because there is one of each
+        per rule row rather than one shared pair at the top of the panel.
+        """
         self.VersionText.Text = VERSION
-        for key in values.OPERATORS:
-            self.OperatorCombo.Items.Add(values.operator_label(key))
-        self.OperatorCombo.SelectedIndex = 0
-        self.UnitCombo.Items.Add(NO_UNIT)
-        for unit in values.known_units():
-            self.UnitCombo.Items.Add(unit)
-        self.UnitCombo.SelectedIndex = 0
 
     #: Which feature owns a control's failures, and what a person would call
     #: the thing they just pressed. One table rather than a tag repeated down
@@ -535,9 +796,10 @@ class FilterViewApp(object):
         "SaveRuleBtn": ("STORE", "Save rule"),
         "ImportBtn": ("FEAT-12", "Import rules"),
         "ExportBtn": ("FEAT-12", "Export rules"),
-        "AddConditionBtn": ("UI", "Add condition"),
-        "RemoveConditionBtn": ("UI", "Remove condition"),
-        "ConditionList": ("UI", "Remove condition"),
+        "AddConditionBtn": ("UI", "Add rule row"),
+        "HideUnpicked": ("UI", "Hide un-ticked categories"),
+        "CheckAllBtn": ("UI", "Check all"),
+        "CheckNoneBtn": ("UI", "Check none"),
         "CountBtn": ("UI", "Count"),
         "ApplyBtn": ("UI", "Apply"),
         "ViewsBtn": ("FEAT-11", "Apply to views"),
@@ -586,8 +848,16 @@ class FilterViewApp(object):
         self.ImportBtn.Click += self._guard("ImportBtn", self._on_import)
         self.ExportBtn.Click += self._guard("ExportBtn", self._on_export)
         self.AddConditionBtn.Click += self._guard("AddConditionBtn", self._on_add_condition)
-        self.RemoveConditionBtn.Click += self._guard("RemoveConditionBtn", self._on_remove_condition)
-        self.ConditionList.MouseDoubleClick += self._guard("ConditionList", self._on_remove_condition)
+        self.CheckAllBtn.Click += self._guard("CheckAllBtn", self._on_check_all)
+        self.CheckNoneBtn.Click += self._guard("CheckNoneBtn", self._on_check_none)
+        self.HideUnpicked.Click += self._guard("HideUnpicked", self._on_category_search)
+        # A plain left click TOGGLES, in both lists, so clicking a ticked row
+        # unticks it. Extended's own behaviour is to replace the selection,
+        # which makes the tick look like it is not a tick.
+        self.RuleList.PreviewMouseLeftButtonDown += self._guard(
+            "RuleList", self._toggle_click)
+        self.CategoryList.PreviewMouseLeftButtonDown += self._guard(
+            "CategoryList", self._toggle_click)
         self.CountBtn.Click += self._guard("CountBtn", self._on_count)
         self.ApplyBtn.Click += self._guard("ApplyBtn", self._on_apply)
         self.ViewsBtn.Click += self._guard("ViewsBtn", self._on_views)
@@ -600,6 +870,7 @@ class FilterViewApp(object):
         # S12.7.P: dependent fields load on DropDownClosed, never on
         # SelectionChanged -- which fires for every item arrowed past.
         self.FamilyCombo.DropDownClosed += self._guard("FamilyCombo", self._on_family_chosen)
+        self.TypeCombo.DropDownClosed += self._guard("FamilyCombo", self._on_match_changed)
         self.MatchAllRadio.Checked += self._guard("MatchAllRadio", self._on_match_changed)
         self.MatchAnyRadio.Checked += self._guard("MatchAnyRadio", self._on_match_changed)
         self.StoreMachineRadio.Checked += self._guard("StoreMachineRadio", self._on_store_changed)
@@ -708,9 +979,16 @@ class FilterViewApp(object):
             return {"kind": kind, "count": revit_query.count(doc, view, rule)}
 
         if kind == "apply":
-            matched = revit_query.matching_ids(doc, view, rule)
-            count, message = revit_apply.isolate(doc, view, matched)
-            return {"kind": kind, "count": count, "message": message}
+            # Reset first, then search: see revit_apply.isolate_fresh. A second
+            # Apply would otherwise search the view through the first one's
+            # isolate and report "nothing matched" about a model full of them.
+            def find_ids():
+                return revit_query.matching_ids(doc, view, rule)
+
+            count, message, was_reset = revit_apply.isolate_fresh(
+                doc, view, find_ids)
+            return {"kind": kind, "count": count, "message": message,
+                    "replaced": was_reset}
 
         if kind == "select":
             matched = revit_query.matching_ids(doc, view, rule)
@@ -720,9 +998,9 @@ class FilterViewApp(object):
 
         if kind == "make_filter":
             from anongee_filterrules import revit_filter
-            made, why = revit_filter.create(doc, rule)
-            return {"kind": kind, "made": made, "why": why,
-                    "name": filters.filter_name(rule)}
+            wanted = request.get("filter_name") or filters.filter_name(rule)
+            made, why = revit_filter.create(doc, rule, name=wanted)
+            return {"kind": kind, "made": made, "why": why, "name": wanted}
 
         if kind == "apply_many":
             # FEAT-11. What matches is worked out PER VIEW: a rule narrowed by
@@ -730,13 +1008,16 @@ class FilterViewApp(object):
             # and reusing the active view's answer everywhere would isolate
             # the wrong set in all but one of them.
             from anongee_filterrules import compat
+
+            def find_ids(target):
+                return revit_query.matching_ids(doc, target, rule)
+
             pairs = []
             for view_id in request.get("views") or []:
                 target = doc.GetElement(compat.element_id(view_id))
                 if target is None:
                     continue
-                pairs.append((target,
-                              revit_query.matching_ids(doc, target, rule)))
+                pairs.append((target, find_ids))
             done, reports = revit_apply.isolate_many(doc, pairs)
             return {"kind": kind, "done": done, "reports": reports,
                     "asked": len(request.get("views") or [])}
@@ -775,8 +1056,15 @@ class FilterViewApp(object):
                      "info" if skipped else "ok")
 
     def _serve_views(self, doc, view, kind):
-        """Every view a rule could go to. Rule-free, so it is answered early."""
-        from anongee_filterrules import compat
+        """Every view a rule could go to. Rule-free, so it is answered early.
+
+        ``revit_query`` is imported HERE and not taken from ``serve``. It is a
+        local there, so this method could not see it and every press of Views
+        raised ``NameError: name 'revit_query' is not defined`` -- which the
+        0.6.0 diagnostics reported by name, tag and all, which is the whole
+        reason that work went first.
+        """
+        from anongee_filterrules import compat, revit_query
         active = None
         try:
             active = compat.id_value(view.Id) if view is not None else None
@@ -803,6 +1091,8 @@ class FilterViewApp(object):
                     answer.get("tag", "UI"), problem)
                 diagnostics.record(answer.get("tag", "UI"), problem)
             self._status(problem, "error")
+            if kind == "count":
+                self._pump_count()
             return
 
         if kind == "model":
@@ -862,6 +1152,7 @@ class FilterViewApp(object):
             self._status("{0} type(s)".format(len(answer["types"])), "info")
         elif kind == "count":
             self.LiveCount.Text = "{0} matched".format(answer["count"])
+            self._pump_count()      # the rule may have moved on since
             if answer.get("tag") != "FEAT-8":
                 # The Count button was pressed. The live count writes the same
                 # label and says nothing else, or it would overwrite whatever
@@ -873,18 +1164,23 @@ class FilterViewApp(object):
                 self._status(answer["message"], "error")
             else:
                 self.LiveCount.Text = "{0} isolated".format(answer["count"])
-                self._status("Isolated in the active view. Nothing was written "
-                             "to the project.", "ok")
+                self._status(
+                    "Isolated in the active view{0}. Nothing was written to "
+                    "the project.".format(
+                        ", replacing what was shown"
+                        if answer.get("replaced") else ""), "ok")
         elif kind == "select":
             self.LiveCount.Text = "{0} selected".format(answer["count"])
             self._status("Pushed to Revit's selection.", "ok")
         elif kind == "make_filter":
             if not answer.get("made"):
-                diagnostics.record("FEAT-13", "not created: {0}".format(
-                    answer.get("why")))
-                self._status(diagnostics.headline(
-                    "FEAT-13", answer.get("why") or "Nothing was created."),
-                    "error")
+                why = answer.get("why") or "Nothing was created."
+                diagnostics.record("FEAT-13", "not created: {0}".format(why))
+                # A refusal that only reaches the status bar is one somebody
+                # presses through twice before reading it. This action writes
+                # to the model when it succeeds, so it gets a dialog either way.
+                Ask.tell(self.window, "No filter was created", why)
+                self._status(diagnostics.headline("FEAT-13", why), "error")
             else:
                 diagnostics.record("FEAT-13", "created {0} (id {1})".format(
                     answer.get("name"), answer.get("made")))
@@ -924,12 +1220,18 @@ class FilterViewApp(object):
         combo.SelectedIndex = 0
 
     def _fill_parameters(self):
-        self.ParameterCombo.Items.Clear()
-        for name, filterable in self.parameters:
-            self.ParameterCombo.Items.Add(
-                name if filterable else name + NOT_FILTERABLE)
-        if self.ParameterCombo.Items.Count:
-            self.ParameterCombo.SelectedIndex = 0
+        """Refill every row's parameter list, keeping what each row names.
+
+        A row keeps its parameter across a cascade: ticking another category
+        must not silently re-point a rule row at whatever happens to be first
+        in the new list.
+        """
+        self.rebuilding = True
+        try:
+            for row in self.rows:
+                row.fill_parameters(self.parameters)
+        finally:
+            self.rebuilding = False
 
     def _select_text(self, combo, wanted):
         """Select the item Revit calls *wanted*, matched Revit's way.
@@ -952,20 +1254,63 @@ class FilterViewApp(object):
         text = "{0}".format(chosen)
         return None if text == blank else text
 
-    def _parameter_name(self):
-        chosen = self.ParameterCombo.SelectedItem
-        if chosen is None:
-            return ""
-        return "{0}".format(chosen).replace(NOT_FILTERABLE, "").strip()
-
-    def _operator_key(self):
-        label = "{0}".format(self.OperatorCombo.SelectedItem or "")
-        for key in values.OPERATORS:
-            if values.operator_label(key) == label:
-                return key
-        return "equals"
-
     # -- categories --------------------------------------------------------
+
+    def _toggle_click(self, sender, args):
+        """A plain left click ticks, or UNTICKS what is already ticked.
+
+        ``SelectionMode="Extended"`` gives Ctrl+click and Shift+click for
+        free, and its plain click REPLACES the selection -- so clicking a
+        ticked row leaves it ticked and clears everything else, which makes
+        the tick look like it is not really a tick.
+
+        Ctrl and Shift are left entirely alone: those gestures mean what they
+        mean everywhere in Windows, and re-implementing them here would only
+        get them subtly wrong.
+        """
+        if Keyboard.Modifiers != NO_MODIFIER:
+            return
+        item = self._item_under(args.OriginalSource)
+        if item is None:
+            return
+        item.IsSelected = not item.IsSelected
+        # Handled, or WPF's own click runs afterwards and replaces what we
+        # just toggled.
+        args.Handled = True
+        # Focus still has to move, or the keyboard is left behind the mouse.
+        try:
+            item.Focus()
+        except Exception:
+            pass
+
+    def _item_under(self, source):
+        """The ``ListBoxItem`` a click landed in, walking up from whatever
+        part of the template actually got hit."""
+        current = source
+        for _step in range(24):          # templates are not that deep
+            if current is None:
+                return None
+            if isinstance(current, ListBoxItem):
+                return current
+            try:
+                current = VisualTreeHelper.GetParent(current)
+            except Exception:
+                return None
+        return None
+
+    def _on_check_all(self, sender, args):
+        """Tick everything SHOWN -- with a search in the box that is the
+        search results, not all 137 categories."""
+        shown = set(row.Name for row in self.CategoryList.Items)
+        self.picked = self.picked | shown
+        self._rebuild_categories()
+        self._refresh_cascade()
+
+    def _on_check_none(self, sender, args):
+        shown = set(row.Name for row in self.CategoryList.Items)
+        self.picked = self.picked - shown
+        self._rebuild_categories()
+        self._refresh_cascade()
 
     def _rebuild_categories(self):
         """Redraw the list for the current search, keeping what was ticked.
@@ -974,10 +1319,14 @@ class FilterViewApp(object):
         ItemsSource clears the selection, and the ticks must survive a search.
         """
         needle = names.key(self.CategorySearch.Text)
+        only_picked = bool(self.HideUnpicked.IsChecked)
         rows = ArrayList()
         for name in self.categories:
-            if not needle or needle in names.key(name):
-                rows.Add(CategoryRow(name))
+            if needle and needle not in names.key(name):
+                continue
+            if only_picked and name not in self.picked:
+                continue
+            rows.Add(CategoryRow(name))
         self.rebuilding = True
         try:
             self.CategoryList.ItemsSource = rows
@@ -989,11 +1338,8 @@ class FilterViewApp(object):
         self._show_picked()
 
     def _show_picked(self):
-        count = len(self.picked)
-        self.CategoryPickedText.Text = (
-            "none picked" if not count else
-            "{0} picked: {1}".format(count, ", ".join(sorted(self.picked)[:3]) +
-                                     ("..." if count > 3 else "")))
+        """The count lives in the rule summary now, not in its own label."""
+        return len(self.picked)
 
     def _on_category_search(self, sender, args):
         self._rebuild_categories()
@@ -1052,20 +1398,29 @@ class FilterViewApp(object):
     # -- conditions --------------------------------------------------------
 
     def _on_add_condition(self, sender, args):
-        unit = self._combo_value(self.UnitCombo, NO_UNIT) or ""
-        condition = rules.Condition(
-            parameter=self._parameter_name(),
-            operator=self._operator_key(),
-            value=self.ValueBox.Text,
-            unit=unit,
-            filterable=self._is_filterable(self._parameter_name()))
-        problems = condition.problems()
-        if problems:
-            self._status(problems[0], "error")
-            return
-        self.conditions.append(condition)
-        self.ValueBox.Text = ""
-        self._rebuild_conditions()
+        """An empty row, edited in place -- Revit's shape.
+
+        No validation here: an empty row IS the thing being added, and
+        refusing to add one until it is already correct is the opposite of
+        editing in place. ``_validate`` says what is still missing.
+        """
+        self._add_row(None)
+        self._validate()
+
+    def _add_row(self, condition):
+        row = ConditionEditor(self, condition)
+        row.fill_parameters(self.parameters)
+        self.rows.append(row)
+        self.ConditionRows.Children.Add(row.root)
+        return row
+
+    def _remove_row(self, row):
+        try:
+            self.ConditionRows.Children.Remove(row.root)
+        except Exception:
+            pass
+        if row in self.rows:
+            self.rows.remove(row)
         self._validate()
 
     def _is_filterable(self, parameter_name):
@@ -1074,25 +1429,16 @@ class FilterViewApp(object):
                 return filterable
         return True
 
-    def _on_remove_condition(self, sender, args):
-        index = self.ConditionList.SelectedIndex
-        if index < 0:
-            self._status("Select a condition to remove.", "error")
-            return
-        del self.conditions[index]
-        self._rebuild_conditions()
-        self._validate()
-
     def _rebuild_conditions(self):
-        rows = ArrayList()
-        for condition in self.conditions:
-            rows.Add(ConditionRow("{0} {1} {2}{3}".format(
-                condition.parameter,
-                values.operator_label(condition.operator),
-                "" if condition.operator in values.VALUELESS_OPERATORS
-                else condition.value,
-                (" " + condition.unit) if condition.unit else "").strip()))
-        self.ConditionList.ItemsSource = rows
+        """Redraw every row from ``self.conditions``."""
+        self.rebuilding = True
+        try:
+            self.ConditionRows.Children.Clear()
+            self.rows = []
+            for condition in self.conditions:
+                self._add_row(condition)
+        finally:
+            self.rebuilding = False
 
     # -- the rule being built ---------------------------------------------
 
@@ -1105,7 +1451,7 @@ class FilterViewApp(object):
             type_name=self._combo_value(self.TypeCombo, ANY_TYPE),
             match=rules.MATCH_ALL if self.MatchAllRadio.IsChecked
             else rules.MATCH_ANY,
-            conditions=list(self.conditions),
+            conditions=[row.read() for row in self.rows],
             source=self._chosen_store())
 
     # -- which store a rule lives in --------------------------------------
@@ -1233,29 +1579,42 @@ class FilterViewApp(object):
     def _bump_count(self, problems):
         """The rule changed, so the number on screen is now a lie.
 
-        Said immediately and counted later. A stale number left sitting there
+        Said immediately and counted next. A stale number left sitting there
         while a new one is computed is worse than no number: it looks settled.
         """
         if self.rebuilding:
             return
         if problems:
-            self.count_timer.stop()
+            self.count_wanted = False
             self.LiveCount.Text = ""
             return
+        self.count_wanted = True
         self.LiveCount.Text = "counting..."
-        self.count_timer.reset()
+        self._pump_count()
 
-    def _count_now(self):
-        """The quiet period expired. Ask Revit, once."""
-        if self.counting:
-            # A slow model must not stack requests; the timer comes round
-            # again when this one lands.
-            self.count_timer.reset()
+    def _pump_count(self):
+        """Ask for a count if one is wanted and none is already in flight.
+
+        **No timer.** 0.6.0 debounced with a ``DispatcherTimer`` and the count
+        never arrived -- it sat on "counting..." for the whole session. A
+        timer that does not tick fails *silently* and there is nothing to
+        catch: no exception, no answer, no way to tell it apart from a slow
+        model.
+
+        This clocks itself off the answers instead. A change while a count is
+        in flight only sets the flag; the answer landing pumps again. So the
+        rate is whatever Revit can actually manage, requests can never stack,
+        and the two flags cannot wedge -- every answer clears ``counting`` and
+        pumps, so the worst case is one extra count, never none.
+        """
+        if self.counting or not self.count_wanted:
             return
         rule = self.current_rule()
         if rule.problems():
+            self.count_wanted = False
             self.LiveCount.Text = ""
             return
+        self.count_wanted = False
         self.counting = True
         self.ask(kind="count", tag="FEAT-8", what="the live count",
                  rule=rule.to_dict())
@@ -1269,8 +1628,8 @@ class FilterViewApp(object):
 
     def _rebuild_rules(self):
         rows = ArrayList()
-        for rule in self.rule_set:
-            rows.Add(RuleRow(rule))
+        for rule, copies in self.rule_set.grouped():
+            rows.Add(RuleRow(rule, copies))
         self.rebuilding = True
         try:
             self.RuleList.ItemsSource = rows
@@ -1282,11 +1641,14 @@ class FilterViewApp(object):
             if keep:
                 self.RuleList.SelectedItems.Clear()
                 for row in rows:
-                    if row.RuleId in keep:
+                    if keep.intersection(row.RuleIds):
                         self.RuleList.SelectedItems.Add(row)
         finally:
             self.rebuilding = False
-        self.RuleCountText.Text = "{0}".format(len(self.rule_set))
+        # The row count, not the rule count: with a shared store pointed at a
+        # copy of your own rules they differ, and the number beside "Saved
+        # rules" has to mean the list under it.
+        self.RuleCountText.Text = "{0}".format(rows.Count)
 
     def _selected_rule(self):
         row = self.RuleList.SelectedItem
@@ -1302,7 +1664,7 @@ class FilterViewApp(object):
         """
         wanted = set()
         for row in self.RuleList.SelectedItems:
-            wanted.add(row.RuleId)
+            wanted.update(row.RuleIds)
         return [rule for rule in self.rule_set if rule.id in wanted]
 
     def _on_rule_selected(self, sender, args):
@@ -1427,21 +1789,18 @@ class FilterViewApp(object):
         if not chosen:
             self._status("Select a rule to delete.", "error")
             return
-        dialog = TaskDialog("Filter View Manager")
-        if len(chosen) == 1:
-            dialog.MainInstruction = "Delete {0!r}?".format(chosen[0].name)
-        else:
-            dialog.MainInstruction = "Delete {0} rules?".format(len(chosen))
         # Named rather than counted up to a point: past a handful the list is
         # longer than the dialog and a count is the more honest summary.
-        dialog.MainContent = (
-            "{0}\n\nNothing in the model changes.".format(
-                ", ".join(rule.name for rule in chosen[:6])
-                + (", and {0} more".format(len(chosen) - 6)
-                   if len(chosen) > 6 else "")))
-        dialog.CommonButtons = (TaskDialogCommonButtons.Yes |
-                                TaskDialogCommonButtons.No)
-        if dialog.Show() != TaskDialogResult.Yes:
+        named = ", ".join(rule.name for rule in chosen[:6]) + (
+            ", and {0} more".format(len(chosen) - 6) if len(chosen) > 6 else "")
+        stores = sorted(set((rule.source or store.MACHINE) for rule in chosen))
+        if not Ask.confirm(
+                self.window, "Delete rules",
+                "Delete {0}? Nothing in the model changes.".format(
+                    "{0!r}".format(chosen[0].name) if len(chosen) == 1
+                    else "{0} rules".format(len(chosen))),
+                detail="{0}\n\nFrom: {1}".format(named, ", ".join(stores)),
+                yes="Delete", no="Keep them"):
             return
         gone = [rule.id for rule in chosen]
         self.rule_set.remove_many(gone)
@@ -1595,40 +1954,55 @@ class FilterViewApp(object):
             rule, [name for name, ok in self.parameters if ok])
         if not allowed:
             diagnostics.record("FEAT-13", "refused: {0}".format("; ".join(reasons)))
-            dialog = TaskDialog("Filter View Manager")
-            dialog.MainInstruction = "This rule cannot become a Revit view filter"
-            dialog.MainContent = (
-                "It still works here -- pressing it isolates, which does not "
-                "need a filter. Revit's own filters are narrower:\n\n- {0}"
-                .format("\n- ".join(reasons)))
-            dialog.Show()
-            self._status(diagnostics.headline(
-                "FEAT-13", reasons[0]), "error")
+            Ask.tell(self.window, "Not a Revit view filter",
+                     "This rule still works here -- pressing it isolates, "
+                     "which does not need a filter. Revit's own filters are "
+                     "narrower, in these ways:",
+                     detail="- " + "\n- ".join(reasons))
+            self._status(diagnostics.headline("FEAT-13", reasons[0]), "error")
             return
 
-        dialog = TaskDialog("Filter View Manager")
-        dialog.MainInstruction = "Create a view filter in this project?"
-        dialog.MainContent = (
+        # The name is EDITABLE, and the prefix is taken from what they type.
+        # A filter lands in a list the whole team shares, so it wants a
+        # prefix -- but which prefix is the team's business, not ours, and a
+        # separate control for it is one nobody would find.
+        chosen_name = Ask.edit(
+            self.window, "Create a view filter",
             "This WRITES to the model. The filter appears in Manage > "
             "Filters, survives a save, prints, and everyone who opens the "
-            "model will see it.\n\n{0}".format("\n".join(filters.plan(rule))))
-        dialog.ExpandedContent = (
-            "It is not added to any view. Add it where you want it in "
-            "Visibility/Graphics, exactly as you would a filter you made by "
-            "hand. Undo removes it.")
-        dialog.CommonButtons = (TaskDialogCommonButtons.Yes |
-                                TaskDialogCommonButtons.No)
-        if dialog.Show() != TaskDialogResult.Yes:
+            "model will see it. It is not added to any view -- add it in "
+            "Visibility/Graphics, as you would one made by hand. Undo removes "
+            "it.",
+            value=filters.filter_name(rule, self.filter_prefix),
+            field="Filter name",
+            detail="\n".join(filters.plan(rule, self.filter_prefix)),
+            yes="Create", no="Cancel")
+        if chosen_name is None:
             diagnostics.record("FEAT-13", "cancelled at the confirmation")
             self._status(diagnostics.headline(
                 "FEAT-13", "Nothing was created."), "info")
             return
+        if not chosen_name:
+            self._status(diagnostics.headline(
+                "FEAT-13", "A filter needs a name."), "error")
+            return
+
+        # Typing "STR - Columns" over "AnonGee - Columns" says the prefix is
+        # now "STR - ". Remembered so the next one is offered it; NOT
+        # remembered when they simply renamed this one filter, because
+        # guessing a convention from that makes every later name wrong.
+        implied = filters.prefix_of(chosen_name, rule)
+        if implied is not None and implied != self.filter_prefix:
+            self.filter_prefix = implied
+            store.set_filter_prefix(implied)
+            diagnostics.record("FEAT-13",
+                               "filter prefix is now {0!r}".format(implied))
 
         self._status(diagnostics.headline(
-            "FEAT-13", "Creating {0}...".format(filters.filter_name(rule))),
-            "info")
+            "FEAT-13", "Creating {0}...".format(chosen_name)), "info")
         self.ask(kind="make_filter", tag="FEAT-13",
-                 what="creating a view filter", rule=payload)
+                 what="creating a view filter", rule=payload,
+                 filter_name=chosen_name)
 
     # -- FEAT-11: apply to several views ----------------------------------
 
@@ -1711,16 +2085,14 @@ class FilterViewApp(object):
         """
         lines = diagnostics.recent(12)
         path = diagnostics.log_path()
-        dialog = TaskDialog("Filter View Manager")
-        dialog.MainInstruction = "Diagnostics"
-        dialog.MainContent = (
-            "Every action this tool takes is logged with the feature that owns "
-            "it, so a failure can be reported in one line.\n\n{0}".format(path))
-        dialog.ExpandedContent = ("\n".join(lines) if lines else
-                                  "Nothing logged yet this session.")
-        dialog.CommonButtons = (TaskDialogCommonButtons.Ok |
-                                TaskDialogCommonButtons.Cancel)
-        if dialog.Show() != TaskDialogResult.Ok:
+        if not Ask.confirm(
+                self.window, "Diagnostics",
+                "Every action this tool takes is logged with the feature that "
+                "owns it, so a failure can be reported in one line.\n\n"
+                "{0}".format(path),
+                detail=("\n".join(lines) if lines
+                        else "Nothing logged yet this session."),
+                yes="Open the folder", no="Close"):
             return
         folder = os.path.dirname(path)
         if not os.path.isdir(folder):
@@ -1745,12 +2117,7 @@ class FilterViewApp(object):
         self.window.Close()
 
     def _on_closed(self, sender, args):
-        # A DispatcherTimer left running holds a reference to a dead window and
-        # keeps firing into it.
-        try:
-            self.count_timer.stop()
-        except Exception:
-            pass
+        self.count_wanted = False
         diagnostics.record("UI", "window closed")
         _state.window_ref = None
 
@@ -1774,6 +2141,9 @@ def run():
 
     uiapp = __revit__                            # noqa: F821 — pyRevit injects it
     if uiapp.ActiveUIDocument is None:
+        # Revit's own dialog, deliberately, and one of only two left. There
+        # is no window yet to parent ours to, and if XAML loading is what
+        # broke then reporting it through more XAML reports nothing.
         TaskDialog.Show("Filter View Manager",
                         "Open a project first — a rule is built from what the "
                         "model has in it.")
@@ -1791,6 +2161,8 @@ except Exception as error:                      # noqa: BLE001 — report, never
     import traceback
     detail = traceback.format_exc()
     print(detail)
+    # The other one, for the same reason: this is the handler for the window
+    # failing to open, so it cannot depend on the window's machinery.
     dialog = TaskDialog("Filter View Manager")
     dialog.MainInstruction = "The window did not open"
     dialog.MainContent = "{0}".format(error)

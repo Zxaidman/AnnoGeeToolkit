@@ -161,6 +161,11 @@ def build(doc, rule):
     if not allowed:
         return None, None, "; ".join(reasons)
 
+    # The family and type narrowing become conditions on Family Name and Type
+    # Name -- the project owner's own workaround, and the only language a
+    # ParameterFilterElement speaks. ``convertible`` already judged the
+    # expanded rule; this is the same expansion, used.
+    rule = filters.expand(rule)
     built = []
     for condition in rule.conditions:
         made, why = _rule_for(doc, ids, condition)
@@ -195,7 +200,7 @@ def existing(doc, name):
     return None
 
 
-def create(doc, rule, replace=False):
+def create(doc, rule, replace=False, name=None):
     """Create the view filter. ``(element id, message)``.
 
     ``(0, why)`` when nothing was created, and *why* is a sentence.
@@ -205,7 +210,7 @@ def create(doc, rule, replace=False):
     rule's to redefine, and a filter is used by views -- replacing one changes
     what those views show, at a distance, with nothing on screen to say so.
     """
-    wanted = filters.filter_name(rule)
+    wanted = name or filters.filter_name(rule)
     already = existing(doc, wanted)
     if already is not None and not replace:
         return (0, "{0!r} already exists in Manage > Filters. Rename the rule, "

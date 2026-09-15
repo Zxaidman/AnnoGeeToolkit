@@ -55,6 +55,29 @@ BOTTOM = "bottom"
 DESTINATIONS = (UP, DOWN, TOP, BOTTOM)
 
 
+def fingerprint(rule):
+    """What makes two rules the SAME rule, for display purposes.
+
+    Everything a person would look at and call identical: the name as Revit
+    reads it, the cascade, the match mode and every condition in order.
+
+    Deliberately NOT ``id``, ``order`` or ``source``. Two copies of one rule in
+    two stores have different ids -- they were written independently -- and
+    different sources, which is the entire point. Including either would make
+    every copy unique and the grouping pointless.
+    """
+    parts = [names.key(rule.name),
+             "|".join(sorted(names.key(one) for one in rule.categories)),
+             names.key(rule.family or ""),
+             names.key(rule.type_name or ""),
+             "{0}".format(rule.match)]
+    for condition in rule.conditions:
+        parts.append("{0}\x1f{1}\x1f{2}\x1f{3}".format(
+            names.key(condition.parameter), condition.operator,
+            condition.value, condition.unit))
+    return "\x1e".join(parts)
+
+
 def new_rule_id():
     """A short, stable, sortable id for a rule.
 
@@ -441,9 +464,9 @@ class RuleSet(object):
         if names.key(wanted) not in taken:
             return wanted
         suffix = 2
-        while names.key("{0} {1}".format(wanted, suffix)) in taken:
+        while names.key("{0} ({1})".format(wanted, suffix)) in taken:
             suffix += 1
-        return "{0} {1}".format(wanted, suffix)
+        return "{0} ({1})".format(wanted, suffix)
 
     def move(self, rule_id, position):
         """Move a rule to *position*, clamped into range. ``True`` if moved."""
@@ -490,6 +513,34 @@ class RuleSet(object):
             self.add(copy)
             added += 1
         return added, renamed
+
+    def grouped(self):
+        """``[(rule, [every copy of it])]`` -- the same rule, wherever it lives.
+
+        A rule set can hold the same rule twice: the machine store and a shared
+        file both have it, which is the ordinary result of exporting your own
+        rules and then pointing the shared store at the export. ``load_all``
+        keeps both, because neither store is allowed to silently win.
+
+        Showing both is honest and reads as a broken list. Showing them as ONE
+        row badged with every store it is in is equally honest and does not.
+        The moment the copies **differ** they are different rules again and get
+        a row each -- which is exactly right, because at that point choosing
+        between them is a decision only the user can make.
+
+        Order is the order of this set, so the panel draws what the list shows.
+        """
+        seen = {}
+        out = []
+        for rule in self._rules:
+            mark = fingerprint(rule)
+            if mark in seen:
+                seen[mark].append(rule)
+                continue
+            copies = [rule]
+            seen[mark] = copies
+            out.append((rule, copies))
+        return out
 
     def reorder(self, rule_ids, where):
         """Move several rules as a block. ``True`` if anything moved.

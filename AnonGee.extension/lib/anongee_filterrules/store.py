@@ -282,6 +282,29 @@ def set_shared_path(path):
     return write_settings(data)
 
 
+def filter_prefix():
+    """What a created view filter is called before the rule's own name.
+
+    ``None`` until somebody has chosen, which the caller reads as "use the
+    default". An empty string is a real answer and means no prefix at all --
+    which is why this cannot just fall back on truthiness.
+    """
+    data = read_settings()
+    if "filter_prefix" not in data:
+        return None
+    return "{0}".format(data.get("filter_prefix") or "")
+
+
+def set_filter_prefix(prefix):
+    """Remember it. ``None`` forgets, and the default comes back."""
+    data = read_settings()
+    if prefix is None:
+        data.pop("filter_prefix", None)
+    else:
+        data["filter_prefix"] = "{0}".format(prefix)
+    return write_settings(data)
+
+
 def export_set(rule_set, path, version=None):
     """Write *rule_set* to *path* for somebody else. ``True`` on success.
 

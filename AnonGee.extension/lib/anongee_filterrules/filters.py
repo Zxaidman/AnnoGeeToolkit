@@ -31,10 +31,13 @@ cannot be expressed as one has to be refused rather than half-converted:
   something the rule does not.
 * **No categories.** A ``ParameterFilterElement`` is defined over categories
   and cannot exist without at least one.
-* **A family or type narrowing.** Those are matched by NAME here, which a
-  parameter filter cannot do in general -- so a rule that uses them would
-  convert to something broader than it says, which is the one outcome worse
-  than refusing.
+A family or type narrowing used to be refused for the same reason -- matched
+by name here, and a parameter filter cannot narrow by family in general. That
+was wrong, and the project owner found the way round it by hand: Revit exposes
+**Family Name** and **Type Name** as filterable parameters, so the narrowing
+becomes two more conditions rather than an impossibility. ``expand`` does that,
+and the conversion is refused only when this project will not filter on those
+two parameters for these categories.
 
 Same five rules as the rest of ``lib/``: 2.7 and 3.12 alike, pure ASCII, no
 ``re``, no ``anongee_toolkit``.
@@ -43,6 +46,7 @@ Same five rules as the rest of ``lib/``: 2.7 and 3.12 alike, pure ASCII, no
 from __future__ import division
 
 from . import names
+from . import rules as _rules
 from . import values
 
 #: Our operator key to the ``ParameterFilterRuleFactory`` method that makes it.
@@ -63,10 +67,49 @@ FACTORY = {
     "is_not_empty": "CreateHasValueParameterRule",
 }
 
+#: The parameters Revit exposes for what this tool calls a family and a type
+#: narrowing. They are ordinary filterable parameters, which is what makes the
+#: workaround work: a narrowing becomes two more conditions.
+FAMILY_PARAMETER = "Family Name"
+TYPE_PARAMETER = "Type Name"
+
+#: What a created filter is called when nobody has said otherwise. It is a
+#: DEFAULT and not a rule: a filter lands in a list the whole team shares, so
+#: it wants a prefix -- but which prefix is the team's business, not ours.
+DEFAULT_PREFIX = "AnonGee - "
+
 #: Operators this tool has and Revit's filters do not. Listed rather than
 #: inferred from FACTORY's gaps, so that a typo in FACTORY reads as a missing
 #: mapping rather than as a deliberate exclusion.
 UNSUPPORTED = ("between",)
+
+
+def expand(rule):
+    """*rule* with its family and type narrowing turned into conditions.
+
+    Revit's filters cannot narrow by family or type directly, but they CAN
+    filter on the **Family Name** and **Type Name** parameters -- which is the
+    same thing said in the only language a ``ParameterFilterElement`` speaks.
+
+    The narrowing goes on the FRONT, because it is read as the cascade: a
+    person looking at the created filter sees family, then type, then their
+    own conditions, in the order they built them.
+
+    Returns the rule unchanged when there is nothing to move, so the caller
+    never has to ask.
+    """
+    if not rule.family and not rule.type_name:
+        return rule
+    added = []
+    if rule.family:
+        added.append(_rules.Condition(FAMILY_PARAMETER, "equals", rule.family))
+    if rule.type_name:
+        added.append(_rules.Condition(TYPE_PARAMETER, "equals", rule.type_name))
+    grown = _rules.Rule.from_dict(rule.to_dict())
+    grown.family = None
+    grown.type_name = None
+    grown.conditions = added + list(rule.conditions)
+    return grown
 
 
 def convertible(rule, filterable=None):
@@ -81,20 +124,11 @@ def convertible(rule, filterable=None):
     discover the second after fixing the first.
     """
     reasons = []
+    rule = expand(rule)
 
     if not rule.categories:
         reasons.append("a Revit view filter is defined over categories, and "
                        "this rule has none")
-
-    if rule.family:
-        reasons.append("a family narrowing ({0!r}) cannot be expressed as a "
-                       "view filter -- it is matched by name here, and the "
-                       "filter would come out broader than the rule"
-                       .format(rule.family))
-    if rule.type_name:
-        reasons.append("a type narrowing ({0!r}) cannot be expressed as a "
-                       "view filter, for the same reason as the family"
-                       .format(rule.type_name))
 
     known = None if filterable is None else set(
         names.key(name) for name in filterable)
@@ -114,11 +148,18 @@ def convertible(rule, filterable=None):
                 or condition.operator))
             continue
         if known is not None and names.key(condition.parameter) not in known:
-            reasons.append(
-                "Revit will not filter on {0!r} -- it is the "
-                "\"(no view filter)\" mark in the parameter list. The rule "
-                "still works here, because pressing it isolates rather than "
-                "filtering".format(condition.parameter))
+            if condition.parameter in (FAMILY_PARAMETER, TYPE_PARAMETER):
+                reasons.append(
+                    "this project will not filter on {0!r} for these "
+                    "categories, so the family and type narrowing cannot be "
+                    "carried over. Remove it, or put the narrowing in as "
+                    "conditions Revit does offer".format(condition.parameter))
+            else:
+                reasons.append(
+                    "Revit will not filter on {0!r} -- it is the "
+                    "\"(no view filter)\" mark in the parameter list. The rule "
+                    "still works here, because pressing it isolates rather "
+                    "than filtering".format(condition.parameter))
 
     return (not reasons), reasons
 
@@ -165,25 +206,49 @@ def rule_value(condition):
     return NUMBER, float(parsed[0])
 
 
-def filter_name(rule):
+def filter_name(rule, prefix=None):
     """What the created filter is called in Manage > Filters.
 
-    Prefixed, because it lands in a list a whole team shares and "Columns" on
-    its own tells the next person nothing about where it came from or whether
-    deleting it will break something.
+    Prefixed by default, because it lands in a list a whole team shares and
+    "Columns" on its own tells the next person nothing about where it came
+    from or whether deleting it will break something.
+
+    *prefix* is the team's to choose, including choosing none -- pass ``""``
+    for the bare rule name. ``None`` means "whatever the default is".
     """
     plain = (rule.name or "unnamed rule").strip()
-    return "AnonGee - {0}".format(plain)
+    if prefix is None:
+        prefix = DEFAULT_PREFIX
+    return "{0}{1}".format(prefix, plain)
 
 
-def plan(rule):
+def prefix_of(chosen, rule):
+    """The prefix implied by *chosen* being the name for *rule*.
+
+    Typing "STR - Columns" over "AnonGee - Columns" for a rule called
+    "Columns" means the prefix is now "STR - ", and the next filter should be
+    offered that. Deriving it beats a second control nobody would find.
+
+    ``None`` when the typed name does not end with the rule's name -- they
+    renamed this one filter rather than changing a convention, and guessing a
+    prefix from it would make every later name wrong.
+    """
+    plain = (rule.name or "unnamed rule").strip()
+    chosen = "{0}".format(chosen or "").strip()
+    if not plain or not chosen.endswith(plain):
+        return None
+    return chosen[:len(chosen) - len(plain)]
+
+
+def plan(rule, prefix=None):
     """The lines the confirmation dialog shows before anything is created.
 
     Spelled out per condition rather than summarised, because this is the one
     action in the tool that writes to the model, and "create a filter from
     this rule" is not enough for somebody to say yes to.
     """
-    lines = ["Name: {0}".format(filter_name(rule)),
+    rule = expand(rule)
+    lines = ["Name: {0}".format(filter_name(rule, prefix)),
              "Categories: {0}".format(", ".join(sorted(rule.categories))
                                       or "(none)")]
     if not rule.conditions:
