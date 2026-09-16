@@ -4,6 +4,37 @@ Running log of pushbutton concepts for the AnonGee toolkit, one entry per idea, 
 
 ---
 
+## 2026-09-16 00:39 UTC
+
+**Idea name:** Rebar Cover Auditor — whole-model, code-minimum cover check against the actual constrained bar-to-face distance, generalized off RC Automation's own footing-only cover-write path
+
+**Potential:**
+Concrete cover is the single reinforcement dimension most likely to be wrong in a hand-detailed or imported model and least likely to be caught before it reaches a drawing: Revit shows a bar's *shape* in every view, but nothing in its own UI reports the actual distance from a bar to the nearest formwork face, and "Edit Constraints → Constrain to Cover" only tells you whether a handle *is* tied to cover, one bar and one handle at a time — there is no whole-model report of what every bar's cover actually resolves to versus what the design intends. On a column-heavy or footing-heavy structural model that's dozens to hundreds of individual bars whose cover only becomes visible when a site engineer complains about a bar showing through formwork or a code-compliance reviewer flags it late, at which point fixing it means re-opening constraints bar by bar. This repo already built the two hard pieces this needs — `anongee_toolkit/structural/rebar_constraints.py`'s `distance_to_cover_mm()`/`describe()` (reads a shape-driven bar's actual signed gap to its constrained cover face, built for a one-off diagnostic dump) and `anongee_toolkit/structural/rebar_factory.py`'s `describe_cover()`/`set_host_cover()` (reads/writes a *host's* declared cover parameters, built only for footings RC Automation itself places) — but both are internal, single-purpose helpers wired only into RC Automation's own footing-placement flow (`RC Automation.pushbutton/script.py:311-327`); neither has ever been exposed as a standalone, whole-model, any-category audit a modeler can run over rebar that RC Automation didn't place — hand-drawn column ties, beam stirrups, slab mesh, or anything inherited from a linked/imported model. On the market, rebar cover checking exists only inside expensive whole-discipline QA suites (Naviate Structure's reinforcement checks, CSI-class rebar detailing add-ins) sold per seat as part of a much larger bundle; nothing free reports a bar's actual geometric cover against a code-minimum table at all.
+
+**Description:**
+`Rebar Cover Auditor.pushbutton`, sibling to `Copy Rebar Visibility.pushbutton` / `Obscured Rebar.pushbutton` in `Essential.panel/Bulk Tool.stack/Rebar.pulldown/`, following the same report-first, approve-each-fix posture `Round Element Dist.pushbutton` already established for a different dimension (element-to-datum distance) on the same panel:
+
+1. Collects rebar — pre-selection if there is one, otherwise every `Rebar`/`RebarInSystem` element in the model, grouped by host category (Column, Beam, Foundation, Floor, Wall).
+2. For each bar, resolves two numbers: **actual cover** — `distance_to_cover_mm()` per shape-driven handle already tied to a cover face (skipping handles tied to a face, not cover, and free-form bars, both named explicitly as "not checkable this way" rather than silently reported as compliant) — and **required cover** — the host's own declared `CLEAR_COVER_TOP/BOTTOM/OTHER` parameter when set, else a code-minimum looked up by exposure condition and bar diameter from a new minimum-cover table (IS 456:2000 Table 16, ACI 318 Table 20.6.1.3.1, or BS 8500, selected the same way BBS Generator already lets a project pick IS 2502 / BS 8666 / ACI 315).
+3. Live table, one row per bar (grouped and collapsible by host element): host, face, actual cover, required cover, delta, status (OK / under / over / unconstrained / no-parameter). Sorted worst-first, same "report every deviation first" framing `Round Element Dist` already uses.
+4. Ticked rows only get touched: for a bar whose handle is already constrained to the right face but sitting at the wrong distance, offers to re-run `constrain_to_cover()` against the correct cover type (creating/reusing one via `ensure_cover_type()` exactly as `set_host_cover()` already does for footings); for a bar with no host cover parameter set at all, offers to write it via `set_host_cover()` first. Bars this can't safely auto-fix (free-form geometry, no constraint manager on this Revit build, a handle tied to a face rather than cover) are listed with the reason and left for manual correction — never guessed at.
+5. One `Transaction`, undo in one step; result report + Excel export (old/new cover per bar) for a documented QA record, reusing the `openpyxl` write-back path already proven in `Export Schedule.pushbutton` / `BBS Generator.pushbutton`.
+
+**Implementation:**
+- Read path is almost entirely existing code, just newly exposed at whole-model scope instead of one-bar-at-a-time: `anongee_toolkit/structural/rebar_constraints.py`'s `manager_for()`, `is_shape_driven()`, `handles()`, `distance_to_cover_mm()` and `target_face()` (today only reachable through `describe()`'s single-rebar diagnostic string) become the per-bar data source; `anongee_toolkit/structural/rebar_factory.py`'s `describe_cover()` supplies which cover parameter each host actually exposes.
+- Fix path reuses `rebar_factory.ensure_cover_type()` (cache-keyed by face+value, exactly as documented against the three-duplicate-type bug it already fixed for RC Automation) and `rebar_constraints.constrain_to_cover()` for the "re-tie to correct cover" action, and `rebar_factory.set_host_cover()` for the "host has no cover parameter yet" action — all three called today only from inside RC Automation's footing-placement transaction, none from a UI a modeler drives directly.
+- New piece this needs that nothing in the repo has today: a minimum-cover-by-exposure table, `standards/cover_minimums.py` (one per code, mirroring the `standards/IS_2502_2019.py` / `BS_8666_2020.py` / `ACI_315_2018.py` layout BBS Generator already uses for bending tables) keyed by exposure class and bar diameter, used only as the fallback when a host has no explicit cover parameter set.
+- UI: a grouped, sortable results table matching `Round Element Dist`'s worst-first / tick-to-fix / skip-with-reason shell, reusing the shared WPF `Controls.xaml`/`Panels.xaml` theme every other tool already draws from.
+- Sits in `Essential.panel/Bulk Tool.stack/Rebar.pulldown/`, next to `Obscured Rebar.pushbutton` and `Copy Rebar Visibility.pushbutton`, same `bundle.yaml`/`README.md`/`CHANGELOG.md` layout the root README documents for versioned tools.
+
+**Future update:**
+- Extend the exposure-condition lookup to read a project parameter (e.g. "Exposure Class") per host instead of one project-wide setting, for a model mixing footings (severe exposure) and internal columns (mild exposure).
+- Add clear bar-to-bar spacing (not just cover-to-face) as a second check column, using the same per-handle geometry once cover is proven in production.
+- Feed the "no cover parameter set" list into `Parameter Combination`/the filter-parameter tools as a one-click batch-set action across every host sharing a type, instead of one host at a time.
+- A combined structural QA dashboard alongside the already-logged Lap & Starter-Bar Continuity Auditor and Column Stack Auditor, one pass over the whole rebar model with one summary report.
+
+---
+
 ## 2026-09-15 15:40 UTC
 
 **Idea name:** Sheet Issue Kit — one-click PDF + DWG + NWC export of a rule-picked sheet set, token-named, with a since-last-run diff so a re-issue only touches what actually changed
