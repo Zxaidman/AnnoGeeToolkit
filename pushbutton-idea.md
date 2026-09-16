@@ -4,6 +4,39 @@ Running log of pushbutton concepts for the AnonGee toolkit, one entry per idea, 
 
 ---
 
+## 2026-09-16 05:39 UTC
+
+**Idea name:** Pour Break Manager — sketch-driven concrete pour zoning, sequence numbering and per-pour volume/boundary export for slabs, walls and columns
+
+**Potential:**
+Every RC structure gets poured in stages, but nothing in the toolkit — or in Revit itself — models a "pour" as a first-class thing. Today a site/planning engineer works out pour breaks on a printed or PDF-marked-up plan, and a modeler translates that by hand: sketching filled-region pour boundaries for visualization, manually typing a Pour Sequence Number into a shared parameter per element (or per split piece, using native `Divide Parts` one element at a time with no batch tooling), and then building a volume-per-pour quantity take-off in a spreadsheet by manually summing element volumes against the marked-up drawing. On a multi-storey slab or a core-wall structure with 10-20 pour zones per level, that is hours of repetitive, error-prone bookkeeping every time the pour sequence is revised — and it's revised often, since pour breaks routinely move as the construction program changes. This toolkit already has the two things that make BBS Generator and RC Automation valuable — a codified, swappable rule-set pattern (`standards/IS_2502_2019.py`, `BS_8666_2020.py`, `ACI_315_2018.py`) and a proven Excel/PDF hand-off (`output/excel_writer.py`, `output/pdf_exporter.py`) — but there is no `parts`, `pour`, or per-element-volume helper anywhere in `anongee_toolkit/structural/` today (confirmed empty on both), so pour sequencing sits completely outside what the toolkit currently does, even though it's one of the most recurring coordination tasks on any concrete job. On the market this lives only inside full 4D-scheduling suites (Navisworks TimeLiner, Synchro, ALICE) that need a separate license and a separate model hand-off just to answer "how many m³ in Pour 3B, and which elements are in it" — nothing lightweight and Revit-native does it for free.
+
+**Description:**
+`Pour Break Manager.pushbutton`, a new sibling to `RC Automation.pushbutton` in `Dev.panel/col2.stack/` (or promoted straight to `Essential.panel/StrucBIM.stack/` alongside `Convert Slab.pushbutton`/`Draw Floor.pushbutton` once proven), turns a hand-drawn pour boundary into a tracked, quantified pour zone:
+
+1. Modeler sketches (or picks an existing detail/filled-region) a closed pour-boundary curve loop on the active plan/section view, or picks a set of elements directly (a level's slab plus its supporting walls, say) to define one pour zone.
+2. Elements whose geometry falls inside the boundary — or the picked set directly — are grouped into a **Pour**: a lightweight tracked entity (native `Parts` created via `PartUtils.CreateParts` where a single host needs splitting across two pours, e.g. one slab spanning a pour joint; whole-element assignment where it doesn't) stamped with a shared `Pour Sequence Number`, `Pour Zone`, `Pour Date (Planned)` and `Pour Date (Actual)` parameter set — created once, in `bundle.yaml`'s shared-parameter provisioning step, the same way other tools in this repo declare the shared parameters they depend on.
+3. Live pour table: one row per pour zone — element count, category breakdown, and **volume**, read via each element's `HOST_VOLUME_COMPUTED` built-in parameter where present and via `Solid.Volume` on the element's own geometry otherwise (split parts use the part's own computed volume) — sortable by sequence number, with a same-zone-overlap check flagging any element assigned to two pours at once before it's allowed to save.
+4. One `Transaction`/`TransactionGroup`, same per-zone-rollback posture `Convert Slab.pushbutton` already uses per-element, so a bad boundary pick on Pour 4 doesn't touch the seven pours already committed.
+5. Result: a pour boundary filled-region per zone (for the coordination drawing), plus an Excel export — pour number, element list, category totals, volume, planned vs. actual date — through the same `openpyxl` write path `Export Schedule.pushbutton`/`BBS Generator.pushbutton` already use, ready to hand to the site team or import into a 4D tool as a bridge rather than a replacement.
+
+**Implementation:**
+- New `anongee_toolkit/structural/pours.py`: `assign_pour(doc, boundary_loop_or_ids, sequence_number, zone_name)` — the actual new logic, since nothing in the repo does boundary-containment element selection, `PartUtils` splitting, or volume aggregation today. Containment test reuses the same "is this element's location inside this closed loop" geometry `DrawFloor.pushbutton` already needs to find enclosed bays, generalized from bay-shaped loops to arbitrary pour boundaries.
+- Volume read is new (`HOST_VOLUME_COMPUTED` lookup falling back to `Element.get_Geometry()` solid-volume summation) — there is no existing volume helper anywhere in `anongee_toolkit/structural/` to build on, confirmed by grep; this is the one piece with no internal precedent.
+- Splitting reuses `PartUtils.AreElementsValidForCreateParts`/`CreateParts` directly against the Revit API — the repo has never called `PartUtils` before, so this is the second genuinely new API surface (alongside the volume read).
+- Shared-parameter provisioning (`Pour Sequence Number`, `Pour Zone`, the two date parameters) follows the same pattern `RC Automation` and `BBS Generator` already use for their own shared/project parameters — declared once, checked-and-created idempotently on first run.
+- Reporting reuses `output/excel_writer.py`'s structure from `BBS Generator.pushbutton` nearly verbatim (swap bar rows for pour rows), and the pour-boundary filled region draws through the same detail-curve creation `cad2bim`'s builders already do for imported CAD linework.
+- A `standards/`-style folder isn't a code requirement here (pour sequencing is project/contractor convention, not a national code), so instead ships one `sequencing_rules.py` holding a couple of common numbering conventions (level-major `L2-P01`, zone-major `P01-L2`) a project can pick between — same swappable-module shape as the BBS standards folder, different content.
+- Sits as its own pushbutton rather than folding into RC Automation, since pour zoning applies to slabs and walls RC Automation never touches, not just the footings/columns it places rebar for.
+
+**Future update:**
+- Colour-coded 3D view template per pour sequence (auto-generated view filters keyed off `Pour Sequence Number`), for a one-glance sequencing walkthrough — reusing the filter-creation path `cad2bim/builders/view_filters.py` already has for a different purpose.
+- Link `Pour Date (Actual)` entry back from an Excel re-import (the same round-trip direction the already-logged Schedule Round-Trip idea builds generally), so site progress marked in a spreadsheet flows back into the model's own view filters automatically.
+- Cross-check pour boundaries against the already-logged Rebar Cover Auditor's host list, flagging rebar that crosses a pour joint without a specified starter/lap detail.
+- Export a pour-sequence animation (ordered image/DWF sequence) for a client-facing construction sequence pack, without needing a separate 4D tool for something this simple.
+
+---
+
 ## 2026-09-16 00:39 UTC
 
 **Idea name:** Rebar Cover Auditor — whole-model, code-minimum cover check against the actual constrained bar-to-face distance, generalized off RC Automation's own footing-only cover-write path
