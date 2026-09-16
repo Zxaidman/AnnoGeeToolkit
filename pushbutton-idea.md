@@ -4,6 +4,38 @@ Running log of pushbutton concepts for the AnonGee toolkit, one entry per idea, 
 
 ---
 
+## 2026-09-16 10:39 UTC
+
+**Idea name:** Bar Cutting Optimizer — stock-length nesting/cutting-pattern solver run directly on BBS Generator's own bar list, to cut steel wastage before the schedule ever leaves the model
+
+**Potential:**
+BBS Generator already produces an exact, per-bar cutting length for every placed rebar (`core/bar_record.py`'s `BarRecord.cutting_length_mm`, grouped by `diameter_mm`), but that list stops at "here is how long each bar needs to be" — it never answers the next question every site engineer and rebar estimator asks immediately after: "given 12m stock length TMT bars, how do I cut this list with the least wastage, and how many stock bars do I need to order?" Today that step happens entirely outside Revit and outside this toolkit: an estimator exports (or retypes) the BBS into a spreadsheet, sorts by diameter, and manually pairs/groups cutting lengths against 12m (or 11.7m/13m, per mill) stock bars — a classic 1D cutting-stock/bin-packing problem nobody in the office actually optimizes by hand, so leftover offcuts pile up unused and steel wastage on a typical RC job runs 3-8% over the theoretical BBS quantity, which is real money on every pour, not just a documentation nicety. Dedicated rebar-cutting-optimization software exists (RebarCAD's nesting module, Tekla Structures' rebar detailing add-ons, and standalone cutting-stock solvers sold to fabrication yards) but it is paid, sold as a separate seat, and none of it reads a Revit model directly — every one of them needs the same manual BBS export this toolkit could skip entirely. Nothing in `anongee_toolkit/structural/` or in BBS Generator itself does any stock-length nesting today (confirmed by grep — there is no `stock`, `nesting`, `waste`, or `cutting_pattern` anywhere in the repo), so this sits completely unaddressed even though the toolkit already owns every input the optimizer needs.
+
+**Description:**
+`Bar Cutting Optimizer.pushbutton`, a new sibling to `BBS Generator.pushbutton` in `Dev.panel/col1.stack/` (callable standalone, or as a "Optimize Cutting" button added straight into BBS Generator's own `ui/main_window.py` once the BBS run is on screen):
+
+1. Reads the current BBS run's `BarRecord` list (the same list `output/excel_writer.py` already writes out) and groups every bar by `diameter_mm`, tallying `cutting_length_mm` × `no_of_bars` per group — no new Revit read needed, since BBS Generator has already done the model-side extraction.
+2. Per diameter group, runs a 1D cutting-stock solve (first-fit-decreasing bin packing as the fast default, hooking a branch-and-bound/column-generation refinement pass behind an "optimize harder" toggle for large jobs) against a user-set stock length (12m default, editable, with a per-project saved list of the 2-3 stock lengths their supplier actually carries) and a configurable minimum-usable-offcut length (so a 150mm sliver isn't logged as "reusable" scrap).
+3. Produces, per diameter: number of stock bars required, a cutting pattern per stock bar (which cut lengths come off which bar, in order), total wastage in kg and as a %, and a running comparison against "no optimization" (today's naive one-cut-per-length-per-stock-bar baseline) so the savings are visible in the same report.
+4. Exports through the same `openpyxl` path BBS Generator's `output/excel_writer.py` already uses — one sheet per diameter, cutting pattern rows colour-coded the same way the BBS sheet already colour-codes new/changed/deleted bars — plus an optional site-floor cutting-list PDF via the existing `output/pdf_exporter.py` styling, so the bar-bender gets a physical cut sheet, not just a spreadsheet.
+5. Read-only against the model — it touches nothing in Revit, only the already-extracted `BarRecord` data — so it carries none of BBS Generator's own transaction/rollback concerns and can be re-run instantly every time the BBS is revised.
+
+**Implementation:**
+- New `anongee_toolkit/structural/bar_optimizer.py` (or `core/cutting_optimizer.py` inside the pushbutton, mirroring where `bar_mark_manager.py`/`shape_resolver.py` already live) — the actual new logic, since nothing in the repo does bin-packing today.
+- Solver takes a plain list of `(cutting_length_mm, no_of_bars)` tuples per diameter (built straight from `BarRecord.cutting_length_mm`/`.no_of_bars`/`.diameter_mm` — no schema change needed to `bar_record.py`) and returns a list of `(stock_bar_index, [cut_lengths])` patterns; first-fit-decreasing is ~30 lines of pure Python with zero new dependencies, keeping it IronPython 2 + CPython 3 compatible like the rest of `core/`.
+- Diameter grouping and unit-weight-per-metre reuse `BarRecord.diameter_label`/`.unit_weight_kg_per_m` directly, so wastage-in-kg falls out of the same weight math BBS Generator already trusts for its own total-weight column — no second source of truth for bar weight.
+- Excel/PDF output reuse `output/excel_writer.py`'s existing colour palette (`C_HEADER_BG`, `C_SUBTOTAL_BG`, etc.) and `_set_row`/`_fill`/`_font` helpers verbatim, adding one new sheet-builder function alongside the BBS sheet builder rather than a new styling module.
+- Stock-length list and minimum-offcut threshold are the only new user settings; stored the same way BBS Generator already persists its own standard/param-mapping choices (`bundle.yaml`-adjacent project settings), so the optimizer remembers a project's supplier stock length without re-asking every run.
+- Ships as its own pushbutton rather than a hidden BBS Generator step, since a run-independent "optimize this BBS export" action is also useful pointed at an already-exported BBS Excel file, not only a live Revit run.
+
+**Future update:**
+- Multi-diameter combined ordering report (round steel tonnage per diameter up to the supplier's minimum order increment), for direct hand-off to procurement.
+- Feed optimized cutting patterns back as a `bar_detail`/note on each `BarRecord` (already logged Schedule Round-Trip's write-back path) so the physical cutting assignment is visible back in the BBS sheet, not just in a separate report.
+- Cross-project stock-length reuse suggestion: flag offcuts from one pour's optimization long enough to satisfy a later pour's shorter bars, for site-wide (not just per-run) wastage reduction.
+- Extend the same 1D solver to structural steel sections (already a distinct member list in `anongee_toolkit/structural/framing.py`) for jobs mixing RC and structural steel scope.
+
+---
+
 ## 2026-09-16 05:39 UTC
 
 **Idea name:** Pour Break Manager — sketch-driven concrete pour zoning, sequence numbering and per-pour volume/boundary export for slabs, walls and columns
