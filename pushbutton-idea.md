@@ -4,6 +4,36 @@ Running log of pushbutton concepts for the AnonGee toolkit, one entry per idea, 
 
 ---
 
+## 2026-09-17 05:40 UTC
+
+**Idea name:** Rebar Cage Copier — duplicate one modeler-built rebar set onto many matching columns, beams, footings or walls, auto-fitted to each target's own size
+
+**Potential:**
+Every rebar tool already in this repo works on rebar that already exists in the model — `Copy Rebar Visibility.pushbutton` copies *view visibility flags* for rebar between views, `Rebar Cover Auditor` (logged 2026-09-16) checks the *cover* of placed bars, `Bar Cutting Optimizer` (logged 2026-09-16) nests an *already-generated* bar list, and `RC Automation` (`AnonGee.tab/Dev.panel/col2.stack/RC Automation.pushbutton`) is a multi-quarter effort to *generate* rebar layouts from code standards, with its own todo-list.md admitting footings alone "have taken seven versions and their constraints are still unconfirmed" and beams/columns/walls (*Bridge · FEAT-17*) filed as `pending`, "quarters, not weeks." None of them address the single most repetitive action a structural modeler does today: **hand-building the same rebar cage over and over** — a typical floor might carry 40 identical `300x450` columns, and once the first one is correctly detailed (main bars, ties/stirrups, spacing, hooks, cover), the other 39 are built by manually repeating the same `Rebar.CreateFromRebarShape` clicks, or by copy-pasting the rebar and then nudging every bar length and tie count by hand wherever a target column's height, width or count of faces differs even slightly. That gap — no way to say "make this element's cage look like that one, already-verified element's cage, adjusted for its own dimensions" — is exactly what this button closes, and it needs none of RC Automation's hard, still-unsolved problem (generating a layout from a code standard) because the layout is never invented; it is only replicated from a template the modeler already trusts. On the market, "rebar detailing" plugins that exist (iRevit RCDF, Naviate Structure's rebar tools, BIM ONE's structural extensions) are paid, seat-licensed add-ins bundled with far more than this one action, and even they mostly generate from rules rather than clone-and-refit an existing, human-approved cage — nothing free does the specific "copy this proven cage, refit to a different host size" job.
+
+**Description:**
+A new pushbutton, `Copy Rebar Cage.pushbutton`, added to the existing `Rebar.pulldown` (`AnonGee.tab/Essential.panel/Bulk Tool.stack/Rebar.pulldown/`) next to `Copy Rebar Visibility.pushbutton` and `Obscured Rebar.pushbutton`.
+
+1. **Pick the source** — select one host element (column, beam, footing or wall) that already carries a correct rebar set; the tool reads every `Rebar` element hosted on it via `RebarHostData.GetRebarHostData(host).GetRebarsInHost()`, capturing per bar: its `RebarShape`, bar diameter (`RebarBarType`), the shape-driving dimensions, spacing rule (fixed number / max spacing / min spacing), cover references, and hook types at each end.
+2. **Pick the targets** — select any number of other elements from the same category, pre-filtered to the same family/type as the source (mismatched categories are listed as skipped, not silently attempted).
+3. **Fit strategy per target** — for each target, the source cage's *layout rule* is replayed rather than its raw geometry: a "3 legs @ 150 c/c" tie spacing is regenerated to fit the target's actual length, main-bar count is kept fixed while bar length stretches or shrinks to the target's own face-to-face distance, and cover distances re-resolve against the target's own faces (reusing the cover-to-face resolution `Rebar Cover Auditor` already established as a whole-model, code-checked read). A live preview table shows, per target, what will change (bar count, computed length, any dimension too small to fit the source's spacing rule, flagged rather than forced).
+4. **Apply** — one `Transaction`, one rebar set created per target per source bar-set (existing rebar on a target is left untouched unless the modeler explicitly ticks "replace existing"), with a result report: cages copied / targets skipped (category mismatch, no room to fit) / bars flagged for manual check.
+
+**Implementation:**
+- Read side: `RebarHostData.GetRebarHostData(hostElement)` → `GetRebarsInHost()` → per `Rebar`, `GetShapeId()`, `GetBarTypeId()`, `GetHookTypeId(0/1)`, and the active `RebarLayoutRule`'s `GetDistributionType()`/`GetSpacing()`/`GetNumberOfBarPositions()` (Revit 2022+ `Rebar` API — matches the repo's stated baseline in `Convert Slab`'s README, "Revit 2022+, developed against 2025").
+- Cover-to-face resolution reuses the same per-face lookup **Rebar Cover Auditor** (logged 2026-09-16, itself "generalized off RC Automation's own footing-only cover-write path") establishes as a shared, whole-model-safe helper — this button is a second, natural consumer of that helper rather than a third independent implementation, so it should land after (or alongside) that auditor's cover-resolution module ships.
+- Write side: `Rebar.CreateFromRebarShape(doc, shape, barType, host, origin, xVec, yVec)` for the initial curve set, then `SetLayoutAsNumberWithSpacing`/`SetLayoutAsMaximumSpacing` (matching the source's captured distribution type) to replay the spacing rule against the target's own geometry — never a raw copy-and-stretch of the source's curves, which is what would break the moment a target's dimensions differ from the source's.
+- UI: same `ui.xaml` shell shape as `Copy Rebar Visibility.pushbutton` (source picker + target checklist + Apply), with the added preview grid modeled on the checklist-with-per-row-status pattern `Convert Slab.pushbutton` already uses for its pre-flight list (blocked/flagged rows pre-unticked, same visual language).
+- Sits as a third pushbutton inside the existing `Rebar.pulldown/bundle.yaml` grouping — no new panel, stack or pulldown needed.
+
+**Future update:**
+- Multi-source "cage families" — save a verified cage as a named template (e.g. "300x450 Column — Standard Tie") reusable across projects, not just copied from a live element in the current session.
+- Cross-category source→target (e.g. copy a footing's bottom-mat pattern onto a mat-slab zone) once the single-category case is proven.
+- Feed straight into `BBS Generator.pushbutton` once cages are copied, so the newly-created bars appear in the next bar-bending-schedule run without a separate re-scan step.
+- A "diff mode" that compares an already-modeled target's cage against the source template and reports only what's different (missing ties, wrong spacing) — the copy tool's read side reused as an audit, the same way `Rebar Cover Auditor` was itself generalized off a narrower existing path.
+
+---
+
 ## 2026-09-17 00:39 UTC
 
 **Idea name:** Formwork & Shuttering Takeoff — per-face contact-area quantity survey for columns, beams, walls, slabs and footings, split into shutter-needed vs no-shutter-needed surfaces straight from live model geometry
