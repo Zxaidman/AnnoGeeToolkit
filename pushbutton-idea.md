@@ -4,6 +4,42 @@ Running log of pushbutton concepts for the AnonGee toolkit, one entry per idea, 
 
 ---
 
+## 2026-09-18 15:43 UTC
+
+**Idea name:** Revision Cloud Sync — model-diff-driven native `RevisionCloud` placement that turns "what changed since the last issue" into drawn, tagged, code-native markup, instead of a modeler eyeballing a redline and sketching clouds by hand
+
+**Potential:**
+Every issued set that goes out a second time needs revision clouds around whatever actually changed, and today that is entirely manual and entirely memory-based: a modeler compares the new plan against the last issue (or just remembers "I moved that beam and added two footings"), picks Revit's native Detail → Revision Cloud tool, sketches a rough polygon by hand around each changed area, on every affected view, then checks the sheet's revision schedule to make sure the right revision number shows against the right sheet — repeated, from memory, every single issue, with no model-side confirmation that a cloud actually covers everything that moved. A repo-wide search for `RevisionCloud`, `GetAllRevisionIds`, `Revision.Create` and `SetAdditionalRevisionIds` across every `script.py` and every `anongee_toolkit` module returns zero hits anywhere in `AnonGee.tab` or the toolkit — nothing in this codebase has ever touched Revit's own `Revision`/`RevisionCloud` object model. What the repo does already have, and what makes this worth building now rather than from nothing, is a fully-working diff engine solving the identical shape of problem for a narrower population: `BBS Generator.pushbutton/core/revision_tracker.py` already saves a per-export JSON sidecar (`_sidecar_path`/`save_revision`, `revision_tracker.py:29-58`) keyed by bar identity, computes each `BarRecord`'s own change fingerprint via `_compute_hash()` — an md5 of a sorted-keys JSON payload of its own tracked fields (`bar_record.py:50-61`) — and on the next export loads the previous sidecar and classifies every record `new`/`changed`/`deleted`/`same` (`compare_revisions`, `revision_tracker.py:80-119`). That engine exists purely to colour rows green/yellow/red in an Excel bar-bending schedule; it has never been pointed at the model's own elements, never grouped a change by which view shows it, and never created a single Revit annotation object. This is distinct from the two closest logged ideas: Sheet Issue Kit (2026-09-15 15:40) proposes its own sidecar diff purely to skip re-exporting an unchanged sheet to PDF/DWG/NWC — it never draws a cloud, never touches `Revision`/`RevisionCloud`; Warning Auditor (2026-09-12 10:39) reads Revit's standing warning log, not a diff against a prior model state, and produces nothing on a sheet. On the market, revision-cloud creation itself is native to Revit (draw-by-hand only), and automated "what changed, cloud it" workflows are sold only as line items inside large paid production suites (CTC BIM Tools, BIM One) that offer manual cloud-from-selection helpers, or paid tools (Naviate/Ideate-class) that manage revision sequencing/numbering but not diff-driven cloud placement — nothing found diffs a model against a saved baseline and clusters the changed geometry into placed, tagged `RevisionCloud` elements automatically.
+
+**Description:**
+`Revision Cloud Sync.pushbutton` (new tool in `Essential.panel/Action.stack`, sibling to `AutoDIM.pushbutton` and `Export Schedule.pushbutton`) runs in one window:
+
+1. **First run — capture a baseline.** Scope: whole model, active view, or a category checklist (Structural Columns, Framing, Walls, Floors, Foundations, Rebar). For every element in scope, computes a per-element fingerprint — a hash of a configurable parameter set plus its `BoundingBoxXYZ` min/max in mm — and writes it to a per-project sidecar `revision_cloud_log.json` keyed by `UniqueId`, mirroring `revision_tracker.save_revision`'s exact shape (`revision_tracker.py:29-58`) one level up, from bar records to any element.
+2. **Later run — diff.** Reloads the sidecar and classifies every in-scope element `new` / `changed` (hash differs) / `deleted` / `same`, the same three-way classification `compare_revisions` already implements (`revision_tracker.py:80-119`).
+3. **Group by affected view.** Every eligible plan/section/elevation from `anongee_toolkit.revit.views.get_eligible_views()` (`revit/views.py:36-56`) is checked for which changed elements it actually shows.
+4. **Cluster into cloud regions per view.** Changed-element bounding boxes are projected onto the view's sketch plane using `AutoDIM.pushbutton`'s own `project_to_view_plane(pt, view)` (`script.py:57-60`), then merged into regions using `anongee_toolkit.revit.geometry.bounding_boxes_overlap` (`geometry.py:40-59`) with an enlarged, configurable padding tolerance.
+5. **Preview checklist** — one row per (view, region): element count, categories, change types present, and the target `Revision` (from `doc.GetAllRevisionIds()`, or "create new revision" inline).
+6. **Apply** — one `Transaction`: `RevisionCloud.Create(doc, view, revisionId, curveLoops)` per ticked region, with an optional revision tag at the region's centroid.
+7. **Report + rebase** — result table exportable via the same `openpyxl` path `Export Schedule.pushbutton`/`BBS Generator.pushbutton` already use, and the sidecar is rewritten as the new baseline.
+
+**Implementation:**
+- New `anongee_toolkit.revit.revision_sync` module: `snapshot(doc, scope)` / `load_baseline()` / `diff(current, baseline)`, a direct generalization of `revision_tracker.save_revision`/`load_previous_revision`/`compare_revisions` (`BBS Generator.pushbutton/core/revision_tracker.py:29-119`) from `BarRecord`-specific fields to a configurable parameter list read through `anongee_toolkit.revit.parameters.get_parameter_value` (`revit/parameters.py:36-82`) plus a bounding box read converted to mm with `anongee_toolkit.revit.units.ft_to_mm` (`units.py:38-40`).
+- Hash computation mirrors `bar_record.py:50-61`'s `_compute_hash()` shape exactly.
+- View-plane projection and anchor geometry reuse `AutoDIM.pushbutton`'s existing `project_to_view_plane` and `bbox_center`/`element_frame` (`script.py:57-60, 70-150`).
+- Region clustering reuses `anongee_toolkit.revit.geometry.bounding_boxes_overlap` (`geometry.py:40-59`) as the pairwise merge test inside a union-find pass.
+- New Revit API surface this tool is the first to touch anywhere in the repo (confirmed by repo-wide grep): `Autodesk.Revit.DB.Revision` / `doc.GetAllRevisionIds()` / `Revision.Create(doc)` and `RevisionCloud.Create(doc, view, revisionId, curveLoops)`, plus `ViewSheet.GetAllRevisionIds()`.
+- `revision_cloud_config.json` alongside `script.py` (hash fields per category, padding tolerance, deleted-element clouding window), mirroring `slab_convert_config.json`'s override-by-config shape.
+- Sidecar `revision_cloud_log.json` follows the same convention `.bbs_rev` already establishes.
+- Sits in `Essential.panel/Action.stack/`, own `bundle.yaml`/`README.md`/`CHANGELOG.md`.
+
+**Future update:**
+- Converge with Sheet Issue Kit's proposed sidecar diff once it lands, so export-skip and cloud placement share one "changed since last issue" fact.
+- Auto-set each affected sheet's revision entry via `ViewSheet.SetAdditionalRevisionIds` once basic placement is proven.
+- Fold `BBS Generator.pushbutton`'s own `.bbs_rev` bar-level diff in as a trackable category.
+- Per-category padding/cluster tolerance as a config refinement once real projects prove the default tolerance right or wrong.
+
+---
+
 ## 2026-09-18 10:42 UTC
 
 **Idea name:** Column Reinforcement Placer — closes RC Automation's own long-open SCOPE-3/SCOPE-4 gap by finally placing the column main bars and ties it already computes, then continuing them storey to storey with a code-based lap splice and starter-bar projection instead of stopping flush at every pour
