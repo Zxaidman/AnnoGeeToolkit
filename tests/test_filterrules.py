@@ -1563,7 +1563,7 @@ _PY3_ONLY = {
 #: The modules that decide things. No Revit in any of them, which is why every
 #: test above this line exists at all.
 PURE = ("__init__.py", "values.py", "names.py", "rules.py", "store.py",
-        "diagnostics.py", "filters.py")
+        "diagnostics.py", "filters.py", "report.py")
 
 #: The modules that fetch and write. They import ``Autodesk.Revit.DB``, so they
 #: cannot be imported on this machine and only the static checks reach them --
@@ -1890,6 +1890,47 @@ class SharedCoreTests(unittest.TestCase):
                 if isinstance(node, ast.ImportFrom):
                     self.assertNotIn("values", [a.name for a in node.names],
                                      "{0} imports values".format(name))
+
+    def test_the_model_wide_count_drops_other_views_own_elements(self):
+        """BUG-20. The two passes have to be the same question.
+
+        A model element exists once and appears in every view. A view-specific
+        one -- a dimension, a text note, a detail line -- exists once PER
+        view, so a document-wide count of them is the number of views that
+        have any, multiplied. Without this filter the report would say "the
+        view is hiding forty of these" about a view hiding none.
+        """
+        source = _read(os.path.join(_core_folder(), "revit_query.py"))
+        self.assertIn("def _owned_elsewhere(element, view)", source)
+        self.assertIn("if whole_model and _owned_elsewhere(element, view)",
+                      source)
+        self.assertIn("OwnerViewId", source)
+
+    def test_the_model_wide_count_abstains_rather_than_guessing(self):
+        """``None`` is "not measured". A diagnostic that guesses is worse
+        than one that says nothing, because it will be believed."""
+        source = _read(os.path.join(_core_folder(), "revit_query.py"))
+        body = source[source.index("def model_count("):
+                      source.index("def audit(")]
+        self.assertIn("return None", body)
+        self.assertIn("except Exception", body)
+
+    def test_the_model_wide_count_has_a_ceiling_it_actually_consults(self):
+        """It exists to explain a gap, and an explanation is not worth
+        stalling Revit for."""
+        source = _read(os.path.join(_core_folder(), "revit_query.py"))
+        self.assertIn("AUDIT_CEILING = ", source)
+        body = source[source.index("def model_count("):
+                      source.index("def audit(")]
+        self.assertIn("AUDIT_CEILING", body)
+        self.assertIn("GetElementCount()", body)
+
+    def test_the_view_scoped_count_is_still_the_one_that_is_applied(self):
+        """``audit`` reports both. It must not quietly change what an isolate
+        operates on -- the view is what the user is looking at."""
+        source = _read(os.path.join(_core_folder(), "revit_query.py"))
+        body = source[source.index("def audit("):]
+        self.assertIn("count(doc, view, rule)", body)
 
     def test_no_revit_module_carries_more_logic_than_the_biggest_tested_one(self):
         """A ceiling with a reason behind it, counted in statements rather than

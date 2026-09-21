@@ -66,7 +66,7 @@ RECORD_NAME = "filterpane_startup.json"
 #: with nothing else on the path -- the startup record is read back by the
 #: CPython window, and that read must not depend on the rule engine
 #: importing cleanly.
-VERSION = "0.7.0"
+VERSION = "0.8.0"
 
 
 def record_path():

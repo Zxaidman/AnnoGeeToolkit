@@ -15,6 +15,94 @@ holds Auto Level Manager's four copies together.
 
 ---
 
+## 0.8.0 - 2026-09-21
+
+Asked for in one sentence: *"make diagnostic tracker and print each action,
+tracker it, report error in single .txt or .md file which can be acceptable
+uploaded here where you find all the bug once."*
+
+Behind it was a second sentence — *"currently there is maybe error in can see
+some are hidden"* — and working out what could cause that turned out to be a
+real defect the tool had been carrying quietly since 0.1.0. It is BUG-20
+below.
+
+### FEAT-21 — every action, written down
+
+0.6.0 gave every failure a tag and a traceback file, and it worked: the view
+picker crash arrived as one screenshot that carried its own diagnosis. What it
+could not do was explain the failures that **never raise**, and those were the
+expensive half. The live count that sat on `counting…` for a whole release
+threw nothing, because a timer that never ticks has nothing to throw. There
+was no error to log — what was missing was *the absence of an answer*.
+
+So the record is now the whole session and not only its failures:
+
+- **every press is a timeline entry**, tagged with the feature that owns it,
+  whether it worked or not. All four guards in the window record — the window
+  itself, the condition rows, the view picker — and a test refuses a fifth
+  that does not;
+- **round trips to Revit are opened and closed.** A request stamps an entry
+  when it goes out and the answer closes it with an outcome and a duration. An
+  entry still open at the end of the session is a request that **went out and
+  never came back** — the exact shape of the count bug — and the report gives
+  those their own heading;
+- **a finding is recorded without an exception**, for the thing that is wrong
+  but did not raise;
+- **repeats fold**, so seventeen keystrokes in the search box are one row
+  reading `Category search x17` and not seventeen. The raw log still gets all
+  of them.
+
+### FEAT-21 — one file, written to be attached whole
+
+**Diagnostics** now writes `filter_view_report.md` beside the rules, and one
+is written automatically when the window closes, so the session somebody is
+asked about tomorrow has a report whether or not anyone thought to press the
+button. It holds, in this order: everything that went wrong, the environment
+(which Revit, which model, which view), where the session was actually spent
+per feature, the full timeline, the tracebacks, what is on disk, and the tail
+of the log including earlier sessions.
+
+It leads with the problems rather than with what happened first, because the
+point is to stop a round of testing arriving one screenshot at a time. It also
+says on its face what it names out of the model, since it is going to be
+attached to a message.
+
+### BUG-20 — the view was hiding elements from the tool, silently
+
+`FilteredElementCollector(doc, view.Id)` returns **what the view is already
+showing**. Everything this tool counts, isolates and selects went through that
+collector, so an element the view hides was one the rule could not match — and
+nothing about that was an error. The count was simply smaller than the model
+held, and the tool reported the smaller number as the whole answer.
+
+Count, Apply and Select now measure the model as well, and say so:
+
+- the count label carries it: **`18 matched, 24 in the model`**, because the
+  status bar is written over by the next thing and the label is still there a
+  second later when the view looks wrong;
+- the sentence names the causes in the order worth checking — Hide in view,
+  the category in Visibility/Graphics, a view filter already on the view, the
+  view range or crop, a design option, a closed workset;
+- the panel says it too, since that is where rules are actually pressed.
+
+The live count stays view-only: it fires on every keystroke and the model pass
+reads a parameter per element. Explicit presses ask for the deep count; typing
+does not. The pass abstains above `AUDIT_CEILING` elements rather than
+stalling Revit, and abstaining reports *not measured* rather than a number —
+a diagnostic that guesses is worse than one that says nothing, because it will
+be believed.
+
+The two passes ask the same question: a model element exists once and shows in
+every view, but a dimension or a text note exists once **per** view, so the
+model-wide pass drops elements owned by other views. Without that it would
+report "the view is hiding forty of these" about a view hiding none.
+
+### Numbers
+
+1524 → 1601 tests. `extension.json` stays at 2.0.0.
+
+---
+
 ## 0.7.0 - 2026-09-15
 
 The first release driven entirely by what the tool did **wrong in front of a

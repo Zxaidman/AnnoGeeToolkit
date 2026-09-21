@@ -309,7 +309,8 @@ class ConditionEditor(object):
         found = self.owner.window.TryFindResource(style)
         if found is not None:
             combo.Style = found
-        combo.DropDownClosed += self._guard(self._changed)
+        combo.DropDownClosed += self._guard(
+            self._changed, "editing a filter rule")
         return self._place(combo, column)
 
     def _text(self, column):
@@ -317,7 +318,8 @@ class ConditionEditor(object):
         found = self.owner.window.TryFindResource("InputTextBox")
         if found is not None:
             box.Style = found
-        box.TextChanged += self._guard(self._changed)
+        box.TextChanged += self._guard(
+            self._changed, "typing a rule value")
         return self._place(box, column)
 
     def _remove_button(self, column):
@@ -328,18 +330,28 @@ class ConditionEditor(object):
             button.Style = found
         button.ToolTip = "Remove this rule row."
         button.Margin = Thickness(6, 0, 0, 0)
-        button.Click += self._guard(self._on_remove)
+        button.Click += self._guard(
+            self._on_remove, "removing a filter rule")
         return self._place(button, column)
 
-    def _guard(self, handler):
-        """Held for the life of the row, and loud when it fails."""
+    def _guard(self, handler, what="a filter rule row"):
+        """Held for the life of the row, and loud when it fails.
+
+        FEAT-21: recorded as well as guarded. These rows are where a rule is
+        actually built -- picking a parameter, changing an operator, typing a
+        value -- and a timeline that skipped them would show a rule being
+        applied with no record of it ever being written.
+        """
         def wrapped(sender, args):
+            import time
+            began = time.time()
             try:
                 handler(sender, args)
             except Exception as error:                     # noqa: BLE001
                 import traceback
-                self.owner._blame("UI", "a filter rule row", error,
-                                  traceback.format_exc())
+                self.owner._blame("UI", what, error, traceback.format_exc())
+                return
+            diagnostics.step("UI", what, ms=(time.time() - began) * 1000.0)
         self._handlers.append(wrapped)
         return wrapped
 
@@ -569,15 +581,20 @@ class ViewPicker(object):
         self.ViewNoneBtn.Click += self._guard(self._on_none)
         self.ViewList.SelectionChanged += self._guard(self._on_changed)
 
-    def _guard(self, handler):
-        """Guarded, and kept alive. Same reasoning as the window's guard."""
+    def _guard(self, handler, what="the view picker"):
+        """Guarded, recorded, and kept alive. As the window's guard."""
         def wrapped(sender, args):
+            import time
+            began = time.time()
             try:
                 handler(sender, args)
             except Exception as error:                      # noqa: BLE001
                 import traceback
                 self.ViewStatus.Text = diagnostics.failure(
-                    "FEAT-11", "the view picker", error, traceback.format_exc())
+                    "FEAT-11", what, error, traceback.format_exc())
+                return
+            diagnostics.step("FEAT-11", what,
+                             ms=(time.time() - began) * 1000.0)
         self._handlers.append(wrapped)
         return wrapped
 
@@ -713,6 +730,10 @@ class FilterViewApp(object):
         #: moved is deselected and the next press does nothing.
         self._keep_selected = []
 
+        #: FEAT-21. Tickets for round trips that Revit has not answered yet,
+        #: oldest first. See ``_receive`` for why this is a queue and not a
+        #: ticket carried in the answer.
+        self.pending = []
         #: FEAT-8. ``count_wanted`` says the rule has changed since the last
         #: count; ``counting`` says one is in flight. Together they are a
         #: self-clocking coalescer -- see ``_pump_count``.
@@ -883,11 +904,23 @@ class FilterViewApp(object):
         tag, what = self.OWNERS.get(control, ("UI", control))
 
         def wrapped(sender, args):
+            import time
+            began = time.time()
             try:
                 handler(sender, args)
             except Exception as error:                  # noqa: BLE001
                 import traceback
+                # failure() writes its own timeline entry, so this one does
+                # not -- a press that raised must appear once, as a failure.
                 self._blame(tag, what, error, traceback.format_exc())
+                return
+            # FEAT-21. Every press, not only the ones that broke. The two bugs
+            # that shipped in 0.6.0 both raised nothing at all, and a record
+            # that only holds exceptions cannot show an action that simply
+            # never happened. diagnostics folds consecutive repeats, so
+            # typing in the search box is one row and not twenty.
+            diagnostics.step(tag, what,
+                             ms=(time.time() - began) * 1000.0)
 
         # Held for the life of the window. A Python closure handed to a .NET
         # event is not necessarily kept alive by the subscription, and a
@@ -915,7 +948,13 @@ class FilterViewApp(object):
         request["tag"] = tag
         request["what"] = what or request.get("kind", "a request")
         self.handler.queue.append(request)
-        diagnostics.record(tag, "asked Revit for {0}".format(request["what"]))
+        # FEAT-21. OPEN until the answer lands. An entry still open at the end
+        # of the session is a request that went out and never came back --
+        # which is what the live count did for a whole release, silently,
+        # because a ``DispatcherTimer`` that never ticks raises nothing. The
+        # report gives those their own heading.
+        self.pending.append(diagnostics.begin(
+            tag, request["what"], kind=request.get("kind", "?")))
         self.event.Raise()
 
     def post(self, answer):
@@ -937,13 +976,19 @@ class FilterViewApp(object):
         if kind == "model":
             allowed, why = revit_apply.can_isolate(view)
             project = store.project_path(doc.PathName)
+            # FEAT-21. "Which Revit, which model, which view" is the first
+            # question asked of any report and the one a screenshot never
+            # answers. Read here because this is the only thread that may.
             return {"kind": kind,
                     "categories": [name for name, _ in revit_query.categories(doc)],
                     "view": revit_apply.view_label(view),
                     "can_isolate": allowed,
                     "why": why,
                     "machine": store.machine_path(),
-                    "project": project}
+                    "project": project,
+                    "revit": self._host(uiapp),
+                    "document": doc.Title or doc.PathName or "unsaved",
+                    "worksets": doc.IsWorkshared}
 
         if kind == "cascade":
             picked = request["categories"]
@@ -976,7 +1021,14 @@ class FilterViewApp(object):
             return {"kind": kind, "error": "; ".join(missing)}
 
         if kind == "count":
-            return {"kind": kind, "count": revit_query.count(doc, view, rule)}
+            # The live count, fired on every keystroke, stays VIEW-ONLY. The
+            # model-wide pass reads a parameter per element and typing is not
+            # the moment to spend that. Explicit presses ask for "deep".
+            if not request.get("deep"):
+                return {"kind": kind,
+                        "count": revit_query.count(doc, view, rule)}
+            in_view, in_model = revit_query.audit(doc, view, rule)
+            return {"kind": kind, "count": in_view, "in_model": in_model}
 
         if kind == "apply":
             # Reset first, then search: see revit_apply.isolate_fresh. A second
@@ -987,14 +1039,20 @@ class FilterViewApp(object):
 
             count, message, was_reset = revit_apply.isolate_fresh(
                 doc, view, find_ids)
+            # AFTER the isolate, and deliberately: model_count does not scope
+            # to the view, so the isolate standing does not change it -- and
+            # asking first would have paid for it even when Revit went on to
+            # refuse the isolate.
             return {"kind": kind, "count": count, "message": message,
-                    "replaced": was_reset}
+                    "replaced": was_reset,
+                    "in_model": revit_query.model_count(doc, view, rule)}
 
         if kind == "select":
             matched = revit_query.matching_ids(doc, view, rule)
             from anongee_filterrules import compat
             uidoc.Selection.SetElementIds(compat.id_list(matched))
-            return {"kind": kind, "count": len(matched)}
+            return {"kind": kind, "count": len(matched),
+                    "in_model": revit_query.model_count(doc, view, rule)}
 
         if kind == "make_filter":
             from anongee_filterrules import revit_filter
@@ -1055,6 +1113,28 @@ class FilterViewApp(object):
         self._status(diagnostics.headline("FEAT-11", message),
                      "info" if skipped else "ok")
 
+    def _host(self, uiapp):
+        """Revit's version, as one line. Never raises -- it is a note.
+
+        Every attribute is fetched defensively: a report that fell over
+        because one of them is missing on some release is a report nobody
+        gets, and the version string is the least important thing in it.
+        """
+        parts = []
+        try:
+            app = uiapp.Application
+        except Exception:
+            return "unknown"
+        for attribute in ("VersionName", "VersionNumber", "VersionBuild",
+                          "SubVersionNumber"):
+            try:
+                value = getattr(app, attribute, None)
+                if value:
+                    parts.append("{0}".format(value))
+            except Exception:
+                continue
+        return " / ".join(parts) if parts else "unknown"
+
     def _serve_views(self, doc, view, kind):
         """Every view a rule could go to. Rule-free, so it is answered early.
 
@@ -1075,6 +1155,18 @@ class FilterViewApp(object):
     def _receive(self, answer):
         """Runs on the WPF thread. The only place controls are written."""
         self.busy = False
+        # FIFO, and it is exact rather than approximate: Execute drains the
+        # queue in order and posts each answer as it finishes one, so the nth
+        # answer belongs to the nth request. Closing by ticket carried in the
+        # answer would have been equivalent but for one thing -- the handler
+        # class is emitted ONCE per Revit session (S12.8.7.3), so a change to
+        # Execute does not reach a Revit that is already running, and a
+        # pairing that depends on it would quietly do nothing until restart.
+        if self.pending:
+            diagnostics.finish(
+                self.pending.pop(0),
+                diagnostics.FAILED if answer.get("error") else diagnostics.OK,
+                detail=answer.get("error") or "")
         kind = answer.get("kind")
         if kind == "count":
             # Released here rather than in the branch below, so a FAILED count
@@ -1099,6 +1191,14 @@ class FilterViewApp(object):
             self.categories = answer["categories"]
             self.machine_path = answer["machine"]
             self.project_path = answer["project"]
+            diagnostics.note("Revit", answer.get("revit", "unknown"))
+            diagnostics.note("document", answer.get("document", "unknown"))
+            diagnostics.note("workshared", answer.get("worksets"))
+            diagnostics.note("active view", answer.get("view", "unknown"))
+            diagnostics.note("can isolate", answer.get("can_isolate"))
+            diagnostics.note("categories", len(self.categories))
+            diagnostics.note("machine store", self.machine_path)
+            diagnostics.note("project store", self.project_path or "none")
             self._rebuild_categories()
             self._load_saved_rules()
             # project_path only exists once the model has answered, so this is
@@ -1151,27 +1251,32 @@ class FilterViewApp(object):
                 self.pending_type = None
             self._status("{0} type(s)".format(len(answer["types"])), "info")
         elif kind == "count":
-            self.LiveCount.Text = "{0} matched".format(answer["count"])
+            hidden = self._hidden_note(answer)
+            self.LiveCount.Text = self._count_label(answer, "matched")
             self._pump_count()      # the rule may have moved on since
             if answer.get("tag") != "FEAT-8":
                 # The Count button was pressed. The live count writes the same
                 # label and says nothing else, or it would overwrite whatever
                 # the status bar was telling the user, once per keystroke.
-                self._status("Counted in the active view. Nothing changed.",
-                             "info")
+                self._status(hidden or "Counted in the active view. Nothing "
+                             "changed.", "error" if hidden else "info")
         elif kind == "apply":
             if answer["message"]:
                 self._status(answer["message"], "error")
             else:
-                self.LiveCount.Text = "{0} isolated".format(answer["count"])
-                self._status(
+                hidden = self._hidden_note(answer)
+                self.LiveCount.Text = self._count_label(answer, "isolated")
+                self._status(hidden or (
                     "Isolated in the active view{0}. Nothing was written to "
                     "the project.".format(
                         ", replacing what was shown"
-                        if answer.get("replaced") else ""), "ok")
+                        if answer.get("replaced") else "")),
+                    "error" if hidden else "ok")
         elif kind == "select":
-            self.LiveCount.Text = "{0} selected".format(answer["count"])
-            self._status("Pushed to Revit's selection.", "ok")
+            hidden = self._hidden_note(answer)
+            self.LiveCount.Text = self._count_label(answer, "selected")
+            self._status(hidden or "Pushed to Revit's selection.",
+                         "error" if hidden else "ok")
         elif kind == "make_filter":
             if not answer.get("made"):
                 why = answer.get("why") or "Nothing was created."
@@ -1201,6 +1306,36 @@ class FilterViewApp(object):
                          "ok" if answer["ok"] else "error")
 
     # -- small helpers -----------------------------------------------------
+
+    def _hidden_note(self, answer):
+        """BUG-20. The sentence for "the view is hiding some of these", or "".
+
+        Recorded as a FINDING and not as a failure, because nothing failed:
+        ``FilteredElementCollector(doc, view.Id)`` answered the question it
+        was asked. It is in the report all the same -- a tool that quietly
+        isolates eighteen of twenty-four columns and says "18 matched" is
+        telling the truth in a way that reads as a lie.
+        """
+        sentence = diagnostics.gap(answer.get("count"),
+                                   answer.get("in_model"))
+        if not sentence:
+            return ""
+        return diagnostics.headline(
+            answer.get("tag", "UI"),
+            diagnostics.finding(answer.get("tag", "UI"), sentence))
+
+    def _count_label(self, answer, verb):
+        """``"18 matched"``, or ``"18 matched, 24 in the model"``.
+
+        The label carries the gap as well as the status bar, because the label
+        is the thing being read a second later when the view looks wrong and
+        the status bar has already been written over by something else.
+        """
+        shown = answer.get("count")
+        total = answer.get("in_model")
+        if not diagnostics.gap(shown, total):
+            return "{0} {1}".format(shown, verb)
+        return "{0} {1}, {2} in the model".format(shown, verb, total)
 
     def _status(self, message, tone="info"):
         keys = {"info": ("BrushInfoBadgeBackground", "BrushInfoBadgeText", "READY"),
@@ -1914,7 +2049,10 @@ class FilterViewApp(object):
         payload = self._guard_payload()
         if payload:
             self._status("Counting...", "info")
-            self.ask(kind="count", rule=payload)
+            # deep: also count the MODEL, so the view hiding some of them is
+            # something the user is told rather than something they notice.
+            # The live count never asks for this -- see serve's count branch.
+            self.ask(kind="count", rule=payload, deep=True)
 
     def _on_apply(self, sender, args):
         payload = self._guard_payload()
@@ -2077,39 +2215,61 @@ class FilterViewApp(object):
         self.ask(kind="model", what="reading the model")
 
     def _on_diagnostics(self, sender, args):
-        """Show what happened, and put the log where it can be picked up.
+        """FEAT-21. Write the session to one file and open the folder.
 
-        Not a MessageBox of a traceback: a traceback nobody can copy out of is
-        the same as no traceback. The last few entries go in the window, and
-        the folder is opened so the file itself can be attached to a message.
+        The 0.7.0 version of this showed the last twelve log lines and opened
+        a folder, which asked the user to find the right file and then to work
+        out which twelve lines mattered. A round of testing produces ten
+        observations, and they were arriving one screenshot at a time.
+
+        So the button now WRITES: one Markdown file holding the whole session
+        -- everything that happened, everything that failed, everything that
+        went out and never came back, and what is on disk -- ordered so the
+        problems are at the top. It is meant to be attached whole.
         """
-        lines = diagnostics.recent(12)
-        path = diagnostics.log_path()
+        report = diagnostics.write_report()
+        if not report:
+            # Writing it is the point of the press, so a failure to write is
+            # not something to swallow and carry on from.
+            Ask.tell(self.window, "The report could not be written",
+                     "Nothing could be written to {0}. The folder may be "
+                     "read-only, or on a drive that is not connected. The "
+                     "raw log is still being appended to at {1}.".format(
+                         diagnostics.report_path(), diagnostics.log_path()))
+            self._status(diagnostics.headline(
+                "FEAT-21", "the report could not be written"), "error")
+            return
+
+        actions = diagnostics.timeline()
+        broken = [one for one in actions
+                  if one.get("outcome") in (diagnostics.FAILED,
+                                            diagnostics.OPEN)]
+        found = diagnostics.findings()
+        summary = "{0} action(s) recorded, {1} that did not finish, {2} " \
+                  "finding(s).".format(len(actions), len(broken), len(found))
         if not Ask.confirm(
-                self.window, "Diagnostics",
-                "Every action this tool takes is logged with the feature that "
-                "owns it, so a failure can be reported in one line.\n\n"
-                "{0}".format(path),
-                detail=("\n".join(lines) if lines
-                        else "Nothing logged yet this session."),
+                self.window, "Diagnostic report written",
+                "{0}\n\nThe whole session is in one file. Attach it as it "
+                "is -- it is written to be read without the "
+                "screenshots.\n\n{1}".format(summary, report),
+                detail="\n".join(diagnostics.recent(12))
+                       or "Nothing logged yet this session.",
                 yes="Open the folder", no="Close"):
+            self._status(diagnostics.headline(
+                "FEAT-21", "report written to {0}".format(report)), "ok")
             return
-        folder = os.path.dirname(path)
-        if not os.path.isdir(folder):
-            self._status("Nothing has been logged yet, so there is no folder "
-                         "to open.", "info")
-            return
+        folder = os.path.dirname(report)
         try:
             # .NET rather than subprocess: this engine ships a STRIPPED stdlib
             # (S12.9.3 -- no re, no csv), and finding out which way subprocess
             # went is not worth it when Process.Start is always there.
             from System.Diagnostics import Process
             Process.Start(folder)
-            self._status("Diagnostics: opened {0}".format(folder), "info")
+            self._status("FEAT-21: opened {0}".format(folder), "ok")
         except Exception as error:                          # noqa: BLE001
             # Never worth failing over: the path is on screen either way.
-            self._status("The log is at {0} ({1})".format(
-                path, diagnostics.describe(error)), "info")
+            self._status("The report is at {0} ({1})".format(
+                report, diagnostics.describe(error)), "info")
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -2118,7 +2278,16 @@ class FilterViewApp(object):
 
     def _on_closed(self, sender, args):
         self.count_wanted = False
-        diagnostics.record("UI", "window closed")
+        diagnostics.step("UI", "window closed")
+        # FEAT-21. Written without being asked for, so that a session where
+        # something went wrong has a report in it whether or not the user
+        # thought to press the button before closing. The press is for
+        # getting at it mid-session; this is for the one they will be asked
+        # for tomorrow. Never fails the close.
+        try:
+            diagnostics.write_report()
+        except Exception:                                   # noqa: BLE001
+            pass
         _state.window_ref = None
 
     def show(self, host):
@@ -2126,6 +2295,8 @@ class FilterViewApp(object):
         helper.Owner = host
         self.window.Show()
         diagnostics.banner(VERSION)
+        diagnostics.note("log", diagnostics.log_path())
+        diagnostics.note("report", diagnostics.report_path())
         self._status("Reading the model...", "info")
         self.ask(kind="model", what="reading the model")
 

@@ -1190,6 +1190,215 @@ class ScriptWiringTests(unittest.TestCase):
         self.assertTrue(_read(_SCRIPT).startswith("#! python3"))
 
 
+class TrackerWiringTests(unittest.TestCase):
+    """FEAT-21. The tracker is only worth having if nothing bypasses it.
+
+    A record with holes in it is worse than none: it reads as evidence that
+    an action did not happen, when all it shows is that one code path forgot
+    to say so.
+    """
+
+    def _body(self, name, owner=None):
+        source = _read(_SCRIPT)
+        tree = ast.parse(source)
+        scope = tree
+        if owner:
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ClassDef) and node.name == owner:
+                    scope = node
+                    break
+            else:
+                self.fail("{0} is not in script.py".format(owner))
+        for node in ast.walk(scope):
+            if isinstance(node, ast.FunctionDef) and node.name == name:
+                return ast.get_source_segment(source, node) or ""
+        self.fail("{0} is not in script.py".format(name))
+
+    def test_every_press_that_worked_is_recorded(self):
+        """_guard wraps every handler in the window, so recording there is
+        the one place that cannot be forgotten control by control."""
+        body = self._body("_guard", "FilterViewApp")
+        self.assertIn("diagnostics.step(tag, what", body)
+
+    def test_a_press_that_failed_is_recorded_ONCE_and_as_a_failure(self):
+        """failure() writes its own entry. A step after it would put the same
+        press on the timeline twice, the second time looking like it worked."""
+        body = self._body("_guard", "FilterViewApp")
+        blame = body.index("self._blame(")
+        step = body.index("diagnostics.step(")
+        self.assertLess(blame, step)
+        self.assertIn("return", body[blame:step])
+
+    def test_the_press_is_tagged_with_its_FEATURE_not_its_control(self):
+        """OWNERS maps a control to the feature that owns it, and the tallies
+        are by feature -- a row per control name would be a list of widgets."""
+        self.assertIn("diagnostics.step(tag, what", self._body("_guard", "FilterViewApp"))
+
+    def test_EVERY_guard_in_the_window_records_and_not_just_the_main_one(self):
+        """There are four of them -- the window, the condition rows, the view
+        picker and the dialog -- and a record with a hole in it reads as
+        evidence that an action did not happen, when all it shows is that one
+        of the four forgot to say so.
+
+        The dialog's guard is the deliberate exception: its only job is to
+        close a modal that has already failed, and the press that opened it
+        is on the timeline already.
+        """
+        source = _read(_SCRIPT)
+        tree = ast.parse(source)
+        silent = []
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.ClassDef)):
+                continue
+            for inner in node.body:
+                if not (isinstance(inner, ast.FunctionDef)
+                        and inner.name == "_guard"):
+                    continue
+                body = ast.get_source_segment(source, inner) or ""
+                if "diagnostics.step(" not in body:
+                    silent.append(node.name)
+        self.assertEqual(silent, ["Ask"], silent)
+
+    def test_a_request_to_revit_opens_a_round_trip(self):
+        self.assertIn("diagnostics.begin(", self._body("ask", "FilterViewApp"))
+        self.assertIn("self.pending.append(", self._body("ask", "FilterViewApp"))
+
+    def test_an_answer_closes_the_oldest_one(self):
+        body = self._body("_receive", "FilterViewApp")
+        self.assertIn("diagnostics.finish(", body)
+        self.assertIn("self.pending.pop(0)", body)
+
+    def test_an_answer_carrying_an_error_closes_it_as_a_failure(self):
+        body = self._body("_receive", "FilterViewApp")
+        self.assertIn("diagnostics.FAILED if answer.get(\"error\")", body)
+
+    def test_the_pending_queue_is_set_up_before_anything_can_ask(self):
+        self.assertIn("self.pending = []", _read(_SCRIPT))
+
+    def test_the_window_records_which_revit_and_which_model(self):
+        """The first question asked of any report, and the one a screenshot
+        never answers."""
+        body = self._body("_receive", "FilterViewApp")
+        for fact in ("Revit", "document", "active view"):
+            self.assertIn('diagnostics.note("{0}"'.format(fact), body)
+
+    def test_the_revit_version_is_read_on_revits_own_thread(self):
+        """S12.8.7.2: it comes off the Application object, so it can only be
+        read in serve, and only plain strings may cross back."""
+        self.assertIn("def _host(self, uiapp)", _read(_SCRIPT))
+        self.assertIn('"revit": self._host(uiapp)', _read(_SCRIPT))
+
+    def test_reading_the_version_cannot_itself_break_the_report(self):
+        """Every attribute fetched defensively: a release that renamed one of
+        them must not cost the whole report."""
+        body = self._body("_host", "FilterViewApp")
+        self.assertIn("getattr(app,", body)
+        self.assertGreaterEqual(body.count("except Exception"), 2)
+
+    def test_the_diagnostics_button_writes_the_file(self):
+        body = self._body("_on_diagnostics", "FilterViewApp")
+        self.assertIn("diagnostics.write_report()", body)
+
+    def test_a_report_that_could_not_be_written_is_not_swallowed(self):
+        """Writing it IS the press. Carrying on quietly would leave the user
+        hunting for a file that is not there."""
+        body = self._body("_on_diagnostics", "FilterViewApp")
+        self.assertIn("if not report:", body)
+        self.assertIn("Ask.tell(", body[:body.index("Ask.confirm(")])
+
+    def test_the_button_says_what_is_in_the_file_before_opening_anything(self):
+        body = self._body("_on_diagnostics", "FilterViewApp")
+        self.assertIn("did not finish", body)
+        self.assertIn("finding(s)", body)
+
+    def test_a_report_is_written_when_the_window_closes(self):
+        """So that the session somebody is asked about tomorrow has one,
+        whether or not they thought to press the button."""
+        body = self._body("_on_closed", "FilterViewApp")
+        self.assertIn("diagnostics.write_report()", body)
+
+    def test_writing_it_on_close_can_never_fail_the_close(self):
+        body = self._body("_on_closed", "FilterViewApp")
+        self.assertIn("except Exception", body)
+
+
+class HiddenElementTests(unittest.TestCase):
+    """BUG-20. "I can see some are hidden."
+
+    ``FilteredElementCollector(doc, view.Id)`` returns what the view is
+    already showing, so an element the view hides is one the rule cannot
+    match. Nothing fails. The count is just smaller than the model holds, and
+    the tool used to report that smaller number as the whole answer.
+    """
+
+    def _body(self, name):
+        source = _read(_SCRIPT)
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.FunctionDef) and node.name == name:
+                return ast.get_source_segment(source, node) or ""
+        self.fail("{0} is not in script.py".format(name))
+
+    def test_the_count_button_asks_for_the_model_as_well(self):
+        self.assertIn("deep=True", self._body("_on_count"))
+
+    def test_the_LIVE_count_does_not(self):
+        """It fires on every keystroke and the model pass reads a parameter
+        per element. Typing is not the moment to spend that."""
+        self.assertNotIn("deep", self._body("_pump_count"))
+
+    def test_serve_only_pays_for_it_when_it_was_asked_for(self):
+        source = _read(_SCRIPT)
+        self.assertIn('if not request.get("deep")', source)
+        self.assertIn("revit_query.audit(doc, view, rule)", source)
+
+    def test_applying_reports_what_the_model_holds(self):
+        self.assertIn('"in_model": revit_query.model_count(doc, view, rule)',
+                      _read(_SCRIPT))
+
+    def test_the_model_is_counted_AFTER_the_isolate_and_not_before(self):
+        """model_count does not scope to a view, so the isolate standing does
+        not change it -- and asking first would pay for it even when Revit
+        went on to refuse the isolate."""
+        source = _read(_SCRIPT)
+        apply_branch = source[source.index('if kind == "apply":'):
+                              source.index('if kind == "select":')]
+        # The CALLS, with their brackets. Both names appear in the comments
+        # above them as well, and matching those measured the prose rather
+        # than the code -- the first version of this gate passed with the
+        # model counted first.
+        self.assertLess(apply_branch.index("revit_apply.isolate_fresh("),
+                        apply_branch.index("revit_query.model_count("))
+
+    def test_count_apply_and_select_all_say_when_the_view_is_hiding_some(self):
+        body = self._body("_receive")
+        for branch in ('elif kind == "count":', 'elif kind == "apply":',
+                       'elif kind == "select":'):
+            start = body.index(branch)
+            end = min([body.index(nxt) for nxt in
+                       ('elif kind ==', 'return') if nxt in body[start + 5:]]
+                      or [len(body)])
+            self.assertIn("_hidden_note", body[start:start + 700])
+
+    def test_the_gap_is_recorded_as_a_finding_and_not_as_a_failure(self):
+        """Nothing raised. The collector answered the question it was asked."""
+        body = self._body("_hidden_note")
+        self.assertIn("diagnostics.finding(", body)
+        self.assertNotIn("diagnostics.failure(", body)
+
+    def test_the_count_label_carries_the_gap_too(self):
+        """The status bar is written over by the next thing. The label is
+        still there a second later when the view looks wrong."""
+        body = self._body("_count_label")
+        # The format string itself. "in the model" on its own is in the
+        # docstring too, so the first version of this gate passed with the
+        # number dropped from the label it was written to protect.
+        self.assertIn('{2} in the model".format(shown, verb, total)', body)
+
+    def test_a_label_with_no_gap_stays_as_short_as_it_was(self):
+        body = self._body("_count_label")
+        self.assertIn('return "{0} {1}".format(shown, verb)', body)
+
+
 class VersionTests(unittest.TestCase):
     """Four copies of one number, held together so the header cannot lie."""
 
