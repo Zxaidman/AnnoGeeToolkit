@@ -79,7 +79,7 @@ start.
 #: own Filters dialog, the dialogs are ours rather than Revit's, and a
 #: family or type narrowing converts to a real view filter after all --
 #: MINOR, because every rule already saved still loads and still works.
-VERSION = "0.7.0"
+VERSION = "0.8.0"
 
 #: The pure half is imported freely. ``compat``, ``revit_query`` and
 #: ``revit_apply`` are NOT listed: they import ``Autodesk.Revit.DB`` at

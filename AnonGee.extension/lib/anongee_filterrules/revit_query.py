@@ -45,6 +45,14 @@ from . import rules as _rules
 #: that opening the picker never stalls.
 PARAMETER_SAMPLE = 50
 
+#: Elements a model-wide pass will read parameters on before it gives up and
+#: reports "not measured". The pass exists to explain the gap between what the
+#: model holds and what the view can show (see ``model_count``), and that
+#: explanation is not worth stalling Revit for. Ten thousand is roughly a
+#: second on a warm model; past it the number would be arriving long after the
+#: user had moved on, and a count nobody waited for is worse than no count.
+AUDIT_CEILING = 10000
+
 
 # ---------------------------------------------------------------------------
 # What a rule can be built from
@@ -387,7 +395,7 @@ def _find_parameter(doc, element, parameter_name):
     return None
 
 
-def element_rows(doc, view, rule):
+def element_rows(doc, view, rule, whole_model=False):
     """Every element in *view* of *rule*'s categories, as ``ElementRow``s.
 
     Only the parameters ``rule`` names are read, and the type of each element
@@ -396,8 +404,18 @@ def element_rows(doc, view, rule):
 
     The rows are plain data on purpose: they are what crosses to the WPF
     thread, and a Revit ``Element`` cannot (S12.8.7.2).
+
+    With *whole_model* the collector is the DOCUMENT rather than the view, and
+    *view* stops deciding what is collected and starts deciding only what
+    counts as comparable: anything owned by a **different** view is dropped.
+    Without that filter the two passes are not the same question. A model
+    element exists once and appears in every view, but a view-specific one --
+    a dimension, a text note, a detail line -- exists once per view, so a
+    document-wide count of them is the number of views that have any,
+    multiplied. That would read as "the view is hiding forty of these" about a
+    view hiding none.
     """
-    collector = _collector(doc, view, rule.categories)
+    collector = _collector(doc, None if whole_model else view, rule.categories)
     if collector is None:
         return []
 
@@ -406,6 +424,8 @@ def element_rows(doc, view, rule):
     rows = []
     for element in collector:
         try:
+            if whole_model and _owned_elsewhere(element, view):
+                continue
             type_id = element.GetTypeId()
             key = compat.id_value(type_id)
             if key not in type_cache:
@@ -446,6 +466,65 @@ def count(doc, view, rule):
     thousand elements by accident is slow to do and slower to undo.
     """
     return len(matching_ids(doc, view, rule))
+
+
+def _owned_elsewhere(element, view):
+    """``True`` for an element that belongs to some OTHER view.
+
+    ``OwnerViewId`` is invalid for a model element -- a column is in every view
+    that shows it -- and a real view id for the view-specific ones. Anything
+    owned by a view that is not *view* is not a thing *view* could have shown,
+    so it is not evidence that *view* is hiding anything.
+    """
+    try:
+        owner = element.OwnerViewId
+    except Exception:
+        return False
+    try:
+        if owner is None or owner == ElementId.InvalidElementId:
+            return False
+        if view is None:
+            return True
+        return compat.id_value(owner) != compat.id_value(view.Id)
+    except Exception:
+        return False
+
+
+def model_count(doc, view, rule):
+    """How many elements *rule* matches in the MODEL. ``None`` if not measured.
+
+    The other half of the answer, and the one the tool could not give until
+    0.8.0. ``count`` above is scoped to the view because that is what an
+    isolate operates on -- but ``FilteredElementCollector(doc, view.Id)``
+    returns only what the view is **already showing**, so an element hidden in
+    the view is invisible to the rule as well. The rule does not fail and the
+    count is not wrong; it is a narrower question than the one being asked,
+    and until both numbers were on screen together there was no way to tell
+    the two apart from the outside.
+
+    ``None`` rather than a wrong number when the model is too big to sweep
+    (``AUDIT_CEILING``) or when Revit refuses part of it: the gap is a
+    diagnostic, and a diagnostic that guesses is worse than one that abstains.
+    """
+    try:
+        collector = _collector(doc, None, rule.categories)
+        if collector is None:
+            return None
+        if collector.GetElementCount() > AUDIT_CEILING:
+            return None
+        return len(_rules.select(
+            element_rows(doc, view, rule, whole_model=True), rule))
+    except Exception:
+        return None
+
+
+def audit(doc, view, rule):
+    """``(in_view, in_model)`` -- what the isolate will show, and what exists.
+
+    ``in_model`` is ``None`` when it was not measured. ``diagnostics.gap``
+    turns the pair into the sentence the user reads.
+    """
+    return (count(doc, view, rule), model_count(doc, view, rule))
 
 
 def resolve(doc, rule):

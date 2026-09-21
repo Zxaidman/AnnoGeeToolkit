@@ -121,10 +121,18 @@ class IsolateHandler(IExternalEventHandler):
                       "error")
 
     def _run(self, uiapp):
-        from anongee_filterrules import revit_apply, revit_query
+        # FEAT-21. diagnostics is imported HERE with the rest: this method is
+        # the whole of the panel's Revit side, and a helper that reaches for a
+        # name some other method imported is the shape of the crash that
+        # shipped in 0.6.0.
+        from anongee_filterrules import diagnostics, revit_apply, revit_query
 
+        ticket = diagnostics.begin("PANEL", self.action or "a press",
+                                   rule=getattr(self.rule, "name", ""))
         uidoc = uiapp.ActiveUIDocument
         if uidoc is None or uidoc.Document is None:
+            diagnostics.finish(ticket, diagnostics.REFUSED,
+                               detail="no project is open")
             self._say("open a project first", "error")
             return
         doc = uidoc.Document
@@ -133,19 +141,27 @@ class IsolateHandler(IExternalEventHandler):
 
         if self.action == "refresh":
             # Nothing to do in the model: the point of the trip was the path.
+            diagnostics.finish(ticket, diagnostics.OK)
             return
 
         if self.action == "clear":
             ok, message = revit_apply.clear(doc, view)
+            diagnostics.finish(ticket,
+                               diagnostics.OK if ok else diagnostics.FAILED,
+                               detail=message)
             self._say(message or ("the view is back to normal" if ok
                                   else "the view could not be cleared"),
                       "ok" if ok else "error")
             return
 
         if self.rule is None:
+            diagnostics.finish(ticket, diagnostics.EMPTY,
+                               detail="no rule on the press")
             return
         missing = revit_query.resolve(doc, self.rule)
         if missing:
+            diagnostics.finish(ticket, diagnostics.REFUSED,
+                               detail="; ".join(missing))
             self._say("; ".join(missing), "error")
             return
         # Pressing a SECOND rule has to put the view back first. Two reasons,
@@ -161,7 +177,24 @@ class IsolateHandler(IExternalEventHandler):
         count, message, was_reset = revit_apply.isolate_fresh(doc, view,
                                                               find_ids)
         if message:
+            diagnostics.finish(ticket, diagnostics.EMPTY, detail=message,
+                               isolated=0)
             self._say("{0}: {1}".format(rule.name, message), "error")
+            return
+        # BUG-20. The same question the window asks: the collector is scoped
+        # to the view, so an element the view already hides is one this rule
+        # cannot match and the user cannot see. Measured AFTER the isolate --
+        # model_count does not scope to a view, so the isolate standing does
+        # not change it.
+        in_model = revit_query.model_count(doc, view, rule)
+        hidden = diagnostics.gap(count, in_model)
+        diagnostics.finish(ticket, diagnostics.OK, isolated=count,
+                           in_model=in_model, replaced=was_reset)
+        if hidden:
+            diagnostics.finding("PANEL", hidden)
+            self._say("{0}: {1} of {2} isolated -- the view hides the rest. "
+                      "Press Diagnostics in the window for which and "
+                      "why.".format(rule.name, count, in_model), "error")
             return
         self._say("{0}: {1} element(s) isolated{2}".format(
             rule.name, count,

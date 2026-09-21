@@ -913,5 +913,87 @@ class GuidelinesTests(unittest.TestCase):
             self.assertIn(phrase, self.doc)
 
 
+class PanelTrackerTests(unittest.TestCase):
+    """FEAT-21 and BUG-20 on the panel, which is where rules are pressed.
+
+    The panel is the half the user actually lives in -- the window builds a
+    rule and the panel applies it all day -- so a tracker that only covered
+    the window would have a record of everything except the thing being done.
+    """
+
+    def setUp(self):
+        self.source = _read(_PROVIDER)
+        self.tree = ast.parse(self.source)
+
+    def _body(self, name):
+        for node in ast.walk(self.tree):
+            if isinstance(node, ast.FunctionDef) and node.name == name:
+                return ast.get_source_segment(self.source, node) or ""
+        self.fail("{0} is not in provider.py".format(name))
+
+    def test_the_panel_imports_diagnostics_where_it_uses_it(self):
+        """BUG-15's rule. The view picker crashed because a helper reached
+        for a module that the method ABOVE it had imported as a local."""
+        body = self._body("_run")
+        self.assertIn("from anongee_filterrules import diagnostics", body)
+
+    def test_a_press_opens_a_round_trip(self):
+        self.assertIn("diagnostics.begin(", self._body("_run"))
+
+    def test_every_way_out_of_a_press_closes_it(self):
+        """An unclosed ticket reads as "Revit never answered", so a path that
+        forgets to close one invents a bug that is not there."""
+        for node in ast.walk(self.tree):
+            if isinstance(node, ast.FunctionDef) and node.name == "_run":
+                run = node
+                break
+        else:
+            self.fail("_run is not in provider.py")
+        # Its OWN returns. find_ids is nested inside _run and its return is
+        # not a way out of _run -- counting it is the same mistake the
+        # thread-boundary gate made in 0.7.0.
+        returns = []
+        stack = list(ast.iter_child_nodes(run))
+        while stack:
+            current = stack.pop()
+            if isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef,
+                                    ast.Lambda, ast.ClassDef)):
+                continue
+            if isinstance(current, ast.Return):
+                returns.append(current)
+            stack.extend(ast.iter_child_nodes(current))
+        closes = (ast.get_source_segment(self.source, run) or "").count(
+            "diagnostics.finish(")
+        self.assertGreaterEqual(closes, len(returns),
+                                "{0} ways out, {1} closes".format(
+                                    len(returns), closes))
+
+    def test_a_press_that_isolated_nothing_is_not_recorded_as_a_success(self):
+        body = self._body("_run")
+        self.assertIn("diagnostics.EMPTY", body)
+
+    def test_a_rule_the_model_cannot_take_is_recorded_as_a_refusal(self):
+        body = self._body("_run")
+        self.assertIn("diagnostics.REFUSED", body)
+
+    def test_the_panel_measures_what_the_view_is_hiding(self):
+        """BUG-20. The panel isolates in the active view, so it hits the
+        view-scoped collector exactly as the window does."""
+        body = self._body("_run")
+        self.assertIn("revit_query.model_count(doc, view, rule)", body)
+        self.assertIn("diagnostics.gap(", body)
+
+    def test_the_model_is_counted_AFTER_the_isolate(self):
+        body = self._body("_run")
+        self.assertLess(body.index("isolate_fresh"), body.index("model_count"))
+
+    def test_the_panel_says_so_on_screen_and_not_only_in_the_report(self):
+        """The user is looking at a view that is missing elements. A finding
+        filed silently would be a tool that knew and did not say."""
+        body = self._body("_run")
+        self.assertIn("diagnostics.finding(", body)
+        self.assertIn("the view hides the rest", body)
+
+
 if __name__ == "__main__":
     unittest.main()
