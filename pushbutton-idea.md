@@ -4,6 +4,45 @@ Running log of pushbutton concepts for the AnonGee toolkit, one entry per idea, 
 
 ---
 
+## 2026-09-25 10:42 UTC
+
+**Idea name:** Slab Fabric/Mesh Reinforcement Placer — schedule-driven `FabricSheet`/`AreaReinforcement` placement for slab panels, closing SCOPE-5, the one reinforcement scope `RC Automation.pushbutton`'s own roadmap names by its exact Revit API classes and has left untouched since the scope was written, while every other structural category the toolkit places (columns, footings, and now framing) already gets its bars automated
+
+**Potential:**
+`RC Automation.pushbutton/todo-list.md:330-332` lists the gap in the tool's own words, under "Pending scope":
+```
+### SCOPE-5 — fabric reinforcement · `pending`
+
+`FabricSheet` / `FabricArea` for slabs.
+```
+That sits next to SCOPE-3 (create columns, since closed by the already-logged Column Reinforcement Placer idea) and SCOPE-4 (laps and starter bars, deliberately excluded and "recorded here so the exclusion is a decision rather than an omission"). SCOPE-5 has had neither treatment — it is simply unstarted, and a repo-wide grep confirms nothing has quietly begun it: `grep -rn "AreaReinforcement\b" AnonGee.extension --include=*.py` and `grep -rn "FabricSheetType\|NewAreaReinforcement\|FabricArea(" AnonGee.extension --include=*.py` both return zero hits across roughly 110 Python files. The only trace of these Revit categories anywhere in the repo is a re-host safety net, not a placement path: `ConvertFloor.pushbutton/script.py:244-250` builds `CAT_REBAR` from `("OST_Rebar", "OST_AreaRein", "OST_PathRein", "OST_FabricAreas", "OST_FabricReinforcement")` purely so that converting a slab that already carries mesh doesn't orphan it — `script.py:1378-1379` calls `r.SetHostId(doc, new_el.Id)` on each dependent, fabric included. Nothing in the repository ever *creates* one.
+
+The gap is structural, not incidental. `commands/slabs.py`'s own docstring states its scope in the same "named limitation" style the rest of the toolkit's docs use — *"one slab per panel, stopping at the inner face of its beams"* — with the edge-inset logic read from `BEAM_PLACEMENT`/`BEAM_TYPES` and zero mention of reinforcement anywhere in the file. `rc_automation/placement.py:91` defines `SHEET_SLABS = "SLAB_PLACEMENT"` and `parse_slabs()` (`placement.py:382`) reads panel geometry only; grepping `models.py` and `placement.py` for `MESH`/`FABRIC` returns nothing, next to `SHEET_FOOTING_REBAR`/`SHEET_COLUMN_REBAR` (`models.py:60,63`) and `footing_rebar_for()`/`column_rebar_for()` (`models.py:571,574`), which do exist. So `columns.sync` and `footings.sync` already carry a placed element straight through to its bars in one Excel-driven run, `beams.sync` is on the same track per the already-logged Beam Reinforcement Placer idea, and `slabs.sync` places bare concrete geometry and stops — the modeler is handed a fully panelled floor and then has to open every one of those panels in native Revit and sketch `AreaReinforcement` boundary sheets by hand, one panel at a time, re-typing top/bottom mesh type, lap length and cover from the same drawing that was already read once to build the Excel sheet RC Automation ran from.
+
+That manual step is not a minor one. Welded-wire fabric or two-way mesh is the default reinforcement method for slabs on grade, suspended flat slabs and topping slabs on most RC jobs — meaning slabs, the single highest plan-area category this toolkit places, are also the one category whose reinforcement this toolkit cannot touch. Native Revit's `AreaReinforcement.Create` is a per-face, pick-the-boundary operation with no batch entry point, and nothing free automates it from a schedule; the closest market equivalents (AGACAD's Rebar for Revit / RC Structural Detailer product line, or ProStructures) are paid whole-suite add-ins whose slab-mesh tooling is still a manual, host-by-host sketch-and-assign workflow inside the add-in's own UI, not a spec sheet that drives placement the way `COLUMN_REBAR`/`FOOTING_REBAR` already drive this toolkit — so an Excel-driven `slabs.sync → mesh.sync` pass would be doing something no product on the market, paid or free, currently does for this specific step.
+
+**Description:**
+1. **New `SLAB_REBAR` sheet**, parsed the same way `COLUMN_REBAR`/`FOOTING_REBAR` already are (`models.py:571-575`'s `footing_rebar_for()`/`column_rebar_for()` pattern): one row per slab type or per panel override, carrying top/bottom fabric sheet designation (e.g. `A193`/`A252`-style mesh names), lap length, and top/bottom cover — the same fields a modeler currently reads off a rebar detail drawing and types into the native `AreaReinforcement` dialog by hand.
+2. **`slabs.sync` extension.** Immediately after `commands/slabs.py`'s existing `_apply()` places a panel, a new step reads that panel's boundary (the same face `slabs.py` already computed to set the inset edges), resolves the mesh sheet type against `FabricSheetType`s already loaded in the project, and stages an `AreaReinforcement` plan for it — top and bottom layer, each with its resolved fabric sheet, lap and cover.
+3. **Preview.** One row per panel on the shared `CheckList` shell (`anongee_toolkit/ui/checklist.py`), exactly like every other RC Automation sub-command: panel mark, resolved fabric sheet(s), cover, and an "unresolved" reason for any panel whose sheet spec names a fabric type not present in the project (mirroring `unresolved_bar_types()`/`unresolved_cover_types()` in `structural/rebar_types.py:114,220`, which already do exactly this for bar and cover types).
+4. **Apply.** Ticked panels get their `AreaReinforcement` created inside the same chunked `RevitTransactionGroup` (`revit/transactions.py:117`) `slabs.sync` already runs its panel placement under, so mesh placement and slab placement land in one undo step, not two.
+5. **Report.** Placed, unresolved (named, not silently skipped — the same discipline `unresolved_bar_types()` already enforces for columns and footings) and any panel whose face wasn't a simple flat boundary (sloped/free-form, deferred rather than guessed at, following SCOPE-6's own "different constraint API, so it is scope and not a feature" reasoning in `todo-list.md:337-339`).
+
+**Implementation:**
+- New `anongee_toolkit.rc_automation.rebar_spec.plan_slab_mesh(row, panel_boundary, ...)`, a sibling to `plan_column_mains()`/`plan_column_ties()` (`rebar_spec.py:682,715`), returning a pure-data plan (fabric sheet ids, lap, cover, boundary) with no transaction.
+- New `structural.rebar_types.fabric_sheet_types(doc)`/`match_fabric_sheet(doc, name_hint)`/`unresolved_fabric_sheets(doc, rows)`, following `bar_types()`/`match_bar_type()`/`unresolved_bar_types()` (`rebar_types.py:58,90,114`) exactly, since `FabricSheetType` resolution is a new API surface the toolkit has never called and deserves the same "resolve up front, stop rather than guess" wrapper every other type-resolution path in this module already uses.
+- New `structural.rebar_run.plan_slab_mesh(doc, workbook, ...)`/`place_slab_mesh(doc, plan, view=None, ...)`, structurally identical to `plan_footings()`/`place_footing()` (`rebar_run.py:118,221`), the pattern every other RC Automation reinforcement category already follows.
+- `commands/slabs.py`'s `run()` gains an optional mesh step called right after `_apply()`, gated behind the new `SLAB_REBAR` sheet's presence so a workbook without it behaves exactly as today.
+- Own `bundle.yaml`/`README.md` is unnecessary — this is a sub-command of the existing `RC Automation.pushbutton` (`Dev.panel/col2.stack/RC Automation.pushbutton`), the same way column and footing reinforcement are, not a new pushbutton.
+
+**Future update:**
+- Feed unresolved fabric sheets into the already-logged Type Matrix Generator, so a missing `FabricSheetType` can be bulk-created from the sheet spec instead of blocking the run.
+- Extend `ConvertFloor.pushbutton`'s existing `SetHostId` re-host path (`script.py:1378-1379`) to also re-plan the `AreaReinforcement` boundary when a converted slab's outline changed shape, not just re-host it unchanged.
+- Once slab mesh exists as placed data, wire it into the already-logged Reinforcement Density Heatmap and Rebar Cover Auditor, both of which currently have nothing to read for slabs.
+- Investigate `RebarUpdateCurvesData` (SCOPE-6, `todo-list.md:337-339`) as a follow-on for slabs whose panel outline is not a simple flat polygon, once the flat-panel case here is proven in production.
+
+---
+
 ## 2026-09-25 00:40 UTC
 
 **Idea name:** Phase Assignment Auditor & Batch Re-Phaser — computes what each element's `Phase Created`/`Phase Demolished` *should* be from its level (and, where the mapping says so, from a demolished-without-a-modelled-replacement heuristic), flags every disagreement, and batch-corrects it, closing the one Revit-native staging mechanism this entire toolkit has only ever copied blindly, never read, decided, or checked
