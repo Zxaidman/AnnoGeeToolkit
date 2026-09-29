@@ -4,6 +4,36 @@ Running log of pushbutton concepts for the AnonGee toolkit, one entry per idea, 
 
 ---
 
+## 2026-09-29 15:39 UTC
+
+**Idea name:** Expansion/Seismic Joint Duplicator — picks a grid line, offsets a parallel twin by a specified movement-joint gap, and duplicates every column, beam, footing and wall hosted along the original onto the twin at that offset, closing the one everyday RC layout task this toolkit's own grid-crossing math (`structural/grids.py`) has never been pointed at: mirroring a full structural bay across a building movement joint
+
+**Potential:**
+Every multi-block RC building this toolkit's own targets already imply — the hospitals, schools and industrial sheds `BIMGeneration.pushbutton`/`cad2bim.pushbutton` build from PLANWIN/FRAMEWIN INP and DXF imports — needs an expansion or seismic joint wherever the plan steps, changes height, or simply runs too long for one monolithic pour. Structurally that means a *doubled* line of columns, beams and footings straddling a small gap (commonly 20–40mm), each side later designed and reinforced independently but starting from an identical geometric twin of the other. Today a modeler either copies each element one at a time in Revit and nudges it by the gap by hand — easy to get one column or half a bay wrong across dozens of elements — or re-draws the second line from the DXF a second time from scratch. A repo-wide check confirms this is genuinely open ground: `grep -ni "expansion joint\|movement joint\|double column\|double grid\|offset copy" pushbutton-idea.md` returns zero hits anywhere in this 2,300+ line log of roughly seventy prior ideas, and `grep -rn "def " AnonGee.extension/lib/py3/anongee_toolkit/{structural,commands,operations}` shows no offset-and-duplicate command anywhere — every existing structural creator (`structural/columns.py:create`, `structural/footings.py:create`, `structural/framing.py:create`) is called exactly once per element by `structure_run.py`, never in a batch "same again, shifted" pass. `structural/grids.py:segment_mm()` already turns a `Grid.Curve` into the `((x1,y1),(x2,y2))` mm pair this needs as its starting point, and `rc_automation/datum.py` already knows how to write a new `Grid` from two such points — both proven, neither ever chained into an offset-copy. On the market, a generic "copy and offset" exists in a few paid Revit add-ins (BIM 360-adjacent toolkits, some AutoDesk App Store multitools) but is element-agnostic — it moves geometry, not a matched structural family/type/level/host set — so nothing free or paid does the structural-aware version this needs.
+
+**Description:**
+`Expansion Joint Duplicator.pushbutton` lands in `Essential.panel/StrucBIM.stack`, beside `ConvertFloor.pushbutton`, `DrawFloor.pushbutton` and `RoundElementDist.pushbutton` — the stack this repo already treats as home for grid/geometry-driven structural batch edits.
+
+1. **Pick the source line** — an existing `Grid` (listed via `structural.grids.names()`), or two picked points for a joint that isn't itself a named grid.
+2. **Enter the gap** (mm) and which side to offset toward; the tool computes the parallel line with the same vector math `grids.segment_mm()` already exposes, no new geometry engine needed.
+3. **Optional twin grid** — create the offset `Grid` too, named by convention (`A` → `A'` or `A-J`), via the same `Grid.Create` call `rc_automation/datum.py` already uses for `grids.sync`.
+4. **Collect** — every `Column` (`structural.columns.placed()`), framed `Beam` (`structural.framing.placed()`), `Footing` and structural `Wall` whose location curve/point lies on the source line within a tolerance, the identical "what's built against this grid" read `RC Automation.pushbutton` already performs through `rc_automation/identity.py`'s grid-crossing IDs.
+5. **Preview, ticked rows only** — the same `CheckList` shell every other batch tool in this repo runs on: source element → its planned twin (type, level, offset position), one tick per row.
+6. **Create** — ticked rows duplicated inside one `TransactionGroup`, each dispatched by category to the matching `create()` already in `columns.py`/`footings.py`/`framing.py`, called with the same type/level/parameters and only the location shifted by the offset vector — so material, structural usage and every parameter these creators already set come along for free. Rebar is deliberately **not** copied: a joint's two sides are a different design case, reinforced independently afterward through the normal `RC Automation.pushbutton` run.
+
+**Implementation:**
+- New `anongee_toolkit/structural/joint_duplicator.py`: `offset_line(segment_mm, gap_mm, side)` (pure vector math, reusing `grids.segment_mm()`'s coordinate convention so it unit-tests the same way `rc_automation.naming`'s pure functions already do); `collect_on_line(doc, line_mm, tol_mm)` walking `columns.placed()` / `footings` / `framing.placed()` plus a wall pass keyed the same way `rebar_hosts.py` already enumerates host categories; `duplicate_element(doc, element, offset_vector)`, one dispatch branch per category calling straight into the existing `columns.create()` / `footings.create()` / `framing.create()` with the source element's own resolved type/level and a shifted point.
+- Grid twin creation calls the same `Grid.Create` helper `rc_automation/datum.py` runs for `grids.sync`, just fed an offset pair instead of a sheet-driven one.
+- UI: the same modeless `CheckList`/`hostwnd`/`theme` shell every other batch tool here already runs on; own `bundle.yaml`/`README.md`/icon, same version-bump-and-`CHANGELOG.md` convention every pushbutton in this repo follows.
+
+**Future update:**
+- Mirror mode — offset both sides of a chosen centerline at once, for a joint drawn down the middle of a shared gap rather than measured from one existing line.
+- Gap-width auditor half of the same problem: scan the model for column/footing pairs already sitting close and parallel, and flag any whose gap disagrees with the code-minimum or the drawing's stated value.
+- Feed twinned footings and columns straight into `RC Automation.pushbutton` for independent per-side reinforcement, and into `BBS Generator.pushbutton` so the BOQ counts both sides once real rebar exists on each.
+- Multi-grid "block copy" — offset a whole run of parallel grids and everything hosted to all of them in one pass, for joints that run the full width of a plan rather than a single line.
+
+---
+
 ## 2026-09-29 10:44 UTC
 
 **Idea name:** Family Library Sync — a Family-Version Drift Auditor that diffs every loaded Family/Type in the live project against an office master library (a folder of `.rfa`, or a master `.rvt` opened read-only) and batch-reloads only what has actually gone stale, closing the one comparison category the already-logged Standards Diff & Selective Transfer names in its own scope and stops short of: families
