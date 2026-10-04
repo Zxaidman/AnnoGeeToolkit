@@ -2894,3 +2894,32 @@ A repo-wide `grep -rniE "embed|anchor.?bolt|lifting.?insert|weld.?plate|Structur
 - Precast lifting-point optimizer that places inserts at the panel's own computed centre-of-gravity instead of a hand-picked point, giving the dead `Solid.Volume`/weight reader Reinforcement Density Heatmap and Design Option Scheme Comparator both cite its second and third real caller.
 - Feed every placed bolt/plate/insert into the already-logged Rebar Joint Clash & Congestion Checker so a cast-in connector is checked against the surrounding rebar cage for physical clash, instead of two things placed by two different tools that are never checked against each other.
 - A BVBS/CNC export sibling for anchor-bolt cages, mirroring the already-logged Rebar Machine Export (BVBS) idea's machine-file posture, once bolt-cage geometry exists in the model to export.
+
+## 2026-10-04 00:40 UTC
+
+**Idea name:** PDF Markup → Revision Cloud Importer — reads a reviewer's marked-up sheet-set PDF (Bluebeam Revu or Acrobat clouds + comments) and batch-creates matching native Revit `RevisionCloud` elements with the comment text attached, closing the one external-review round trip this toolkit has never built despite already having a working "read an external file, classify its marks, place native geometry" pipeline in `cad2bim`
+
+**Potential:**
+Every reviewed set comes back the same way: a consultant, client or checker marks up a printed/exported PDF in Bluebeam or Acrobat — a cloud around a clash, a typed comment beside it — and a modeler has to open that PDF, eyeball where each cloud sits on the matching Revit sheet, and redraw it by hand with the native Revision Cloud sketch tool, then retype the comment into the cloud's Comments field. On a 40-sheet issue with a hundred markups, that is a full day of visual estimation and retyping, and every redrawn cloud is a guess at the original's exact location rather than a copy of it. A repo-wide `grep -rn "RevisionCloud" --include=*.py .` returns zero hits — nothing in this codebase has ever created one — and there is no PDF-*parsing* dependency anywhere either: the only PDF-adjacent code is `BBS Generator.pushbutton/output/pdf_exporter.py`, which only *writes* PDFs via `fpdf`, and `lib/py3/ezdxf/addons/drawing/pymupdf.py`, which only wraps PyMuPDF as an optional DXF-to-PDF *export* renderer inside the vendored `ezdxf` package — neither ever reads an annotation out of an existing PDF. Nothing on the market closes this loop either: Bluebeam Studio Sessions and Autodesk Construction Cloud's markup/issue tools both keep a cloud inside their own viewer and hand back only a flattened PDF or a generic issue record, never a native Revit `RevisionCloud` tied back to the sheet it was marked on — so even paid review platforms stop one step short of the thing a modeler actually has to do next.
+
+**Description:**
+`PDF Markup Import.pushbutton`, a new button in `Essential.panel` alongside the other batch, preview-gated builders:
+1. **Pick inputs** — one or more markup PDFs plus the current project's sheet set.
+2. **Match pages to sheets** — auto-match each PDF page to a `ViewSheet` by the sheet number read from the page's own title-block text (the same text layer Revit's PDF export always burns in), falling back to a manual pairing grid when a match is ambiguous.
+3. **Read markups** — for each matched page, read every `Square`/`Polygon`("Cloud")/`FreeText` annotation from the PDF's own `/Annots` array, pulling its rectangle or vertex list plus its comment text and author.
+4. **Map coordinates** — convert each annotation's PDF-page position to sheet space using the page size vs. the sheet's printable outline and print scale, then to the sheet's model-space point.
+5. **Preview grid** — one row per detected markup: sheet, comment text, author, a mapping-confidence flag (anything near a page edge or a rotated/skewed export gets flagged for manual confirmation rather than guessed).
+6. **Create** — nothing is drawn until rows are ticked; one `Transaction` then creates a native `RevisionCloud` per ticked row against the chosen Revision, with the markup's comment written to its Comments parameter and author to a shared parameter — turning an external redline into a trackable, schedulable, filterable native element instead of a flattened picture redrawn by eye.
+
+**Implementation:**
+- New `anongee_toolkit/markup/pdf_reader.py`: `parse_annotations(pdf_path)` → per-page list of `(subtype, rect_or_vertices, contents, author)`, using PyMuPDF (`fitz`) for the actual `/Annots` read — the same library already vendored (if AGPL-licensing is acceptable) inside `ezdxf`'s own optional PDF renderer, run through the repo's existing `CPython3 engine.pushbutton`-proven CPython3 pattern since IronPython can't load it directly.
+- `anongee_toolkit/markup/coordinate_map.py`: `pdf_point_to_sheet(page_size, pdf_xy, sheet_outline, print_scale)` and `sheet_to_model(sheet, point)` — pure, Revit-free, unit-testable functions, the same posture `cad2bim`'s `geom/compare.py` and `layers.py` already take for their own coordinate and classification math.
+- `anongee_toolkit/markup/cloud_builder.py`: `create_revision_cloud(doc, sheet, model_points, revision_id, comment, author)` wrapping `Document.Create.NewRevisionCloud`.
+- `Essential.panel/PDF Markup Import.pushbutton/`: `script.py`, `ui.xaml` (PDF picker + sheet-match grid + preview/create grid), `bundle.yaml`, `README.md`, `CHANGELOG.md`, `icon.png` — the same per-button file set every sibling pushbutton already ships.
+- Own `todo-list.md` inside the bundle naming v1 scope (axis-aligned, non-rotated single-page PDF exports only; one Revision per import batch) and the deferred items below.
+
+**Future update:**
+- Rotated/skewed-scan support via a 3-point manual calibration pick, for a markup PDF that came from a photographed or skewed scan rather than a direct export.
+- Two-way sync: export the model's own open revision clouds back out to a markup PDF for a reviewer who doesn't have Revit, closing the loop in the other direction.
+- Share one revision-tracking table between this tool's externally-sourced clouds and the already-logged Revision Cloud Sync's internally-diffed ones, instead of two disconnected sources of revision history.
+- Author/date-stamped markup history per sheet, schedulable the same way `Export Schedule.pushbutton` already schedules other model data.
